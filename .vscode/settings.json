@@ -1,0 +1,22 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+  },
+  "python.analysis.extraPaths": [
+    "packages/platform/core/src",
+    "packages/platform/skill/src",
+    "packages/platform/contracts/python/src",
+    "packages/platform/cli/src",
+    "packages/adapters/openclaw/uplink/src",
+    "packages/dcc/blender/src"
+  ],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.ruff_cache": true,
+    "**/.turbo": true
+  }
+}

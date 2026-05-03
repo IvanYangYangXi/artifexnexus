@@ -1,0 +1,4 @@
+packages:
+  - "packages/platform/contracts/typescript"
+  - "packages/adapters/openclaw/gateway-plugin"
+  - "packages/apps/web"

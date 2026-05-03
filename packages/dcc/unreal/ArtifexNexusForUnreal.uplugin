@@ -1,0 +1,25 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.0.0",
+  "FriendlyName": "Artifex Nexus for Unreal",
+  "Description": "AI-Agent bridge for Unreal Engine 5.7 — part of Artifex Nexus.",
+  "Category": "Editor",
+  "CreatedBy": "Artifex Nexus contributors",
+  "EnabledByDefault": false,
+  "CanContainContent": true,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "EngineVersion": "5.7.0",
+  "Modules": [
+    {
+      "Name": "ArtifexNexus",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ],
+  "Plugins": [
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "EditorScriptingUtilities", "Enabled": true }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/config.schema.json",
+  "title": "ArtifexNexusConfig",
+  "description": "~/.artifexnexus/config/artifexnexus.json — single config center. 项目范围已收敛到 OpenClaw 单平台（见 ADR 0006）。",
+  "type": "object",
+  "required": ["home", "openclaw"],
+  "properties": {
+    "home": {
+      "type": "string",
+      "default": "~/.artifexnexus",
+      "description": "Artifex Nexus 用户数据根目录。"
+    },
+    "source_path": {
+      "type": "string",
+      "description": "源码仓库绝对路径；运行时通过 sys.path 引用，避免 symlink。如未设置则按 home 内副本运行。"
+    },
+    "openclaw": {
+      "type": "object",
+      "description": "OpenClaw 平台配置（单平台）。包含本壳运行参数与对 vendor 配置文件的写入坐标。",
+      "required": ["port"],
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 14523,
+          "description": "OpenClaw 主进程监听端口。默认 14523；启动时若被占用，由壳自动在 14523–14599 段内探测并写回本字段（详见 docs/specs/openclaw-wrapper-runtime.md §4）。"
+        },
+        "gateway_url": {
+          "type": "string",
+          "default": "ws://127.0.0.1:18789",
+          "description": "OpenClaw Gateway 的 WebSocket 接入 URL。"
+        },
+        "auth_token_env": {
+          "type": "string",
+          "default": "OPENCLAW_AUTH_TOKEN",
+          "description": "读取 OpenClaw Auth Token 的环境变量名。"
+        },
+        "vendor_config_path": {
+          "type": "string",
+          "default": "~/.artifexnexus/.openclaw/openclaw.json",
+          "description": "OpenClaw（vendor）自身的配置文件路径。Artifex Nexus 会按 `vendor_config_key` 写入连接坐标，但不接管该文件的其它内容。"
+        },
+        "vendor_config_key": {
+          "type": "string",
+          "default": "mcp.servers",
+          "description": "Artifex Nexus 在 OpenClaw vendor 配置文件中写入 MCP server 信息所使用的 key。"
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "properties": {
+        "installed_path": {
+          "type": "string",
+          "default": "~/.artifexnexus/.openclaw/workspace/skills",
+          "description": "Skill 已安装目录（OpenClaw 平台规则要求）。由 SkillInstaller 管理版本与同步，不使用 symlink。"
+        },
+        "disabled": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "pinned":   { "type": "array", "items": { "type": "string" }, "default": [] }
+      }
+    },
+    "dcc_instances": {
+      "type": "object",
+      "description": "用户配置的 DCC 实例（key 为用户自定义实例名）。",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["software"],
+        "properties": {
+          "software": { "type": "string", "enum": ["unreal", "blender"] },
+          "mcp_port": { "type": "integer", "default": 8080 },
+          "auto_start": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

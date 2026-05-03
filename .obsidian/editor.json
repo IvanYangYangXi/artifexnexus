@@ -1,0 +1,8 @@
+{
+  "autoConvertHtml": true,
+  "customDefaultImageFormat": "png",
+  "defaultImageFormat": "png",
+  "exportPdfStyle": "custom",
+  "useTabs": false,
+  "vimMode": false
+}

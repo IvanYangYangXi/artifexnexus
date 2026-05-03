@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/manifest.schema.json",
+  "title": "SkillManifest",
+  "description": "Skill 包的 manifest.json — 元数据与依赖声明",
+  "type": "object",
+  "required": ["manifest_version", "name", "version", "software"],
+  "properties": {
+    "manifest_version": { "const": "1.0" },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "display_name": { "type": "string" },
+    "description": { "type": "string" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+].+)?$" },
+    "author": { "type": "string" },
+    "license": { "type": "string" },
+    "software": {
+      "type": "string",
+      "enum": ["universal", "unreal", "blender"]
+    },
+    "software_version": {
+      "type": "object",
+      "properties": {
+        "min": { "type": "string" },
+        "max": { "type": "string" }
+      }
+    },
+    "category": { "type": "string" },
+    "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "entry_point": { "type": "string", "default": "__init__.py" },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

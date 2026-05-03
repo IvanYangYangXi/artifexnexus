@@ -1,0 +1,42 @@
+[project]
+name = "artifex-nexus"
+version = "0.0.0"
+description = "Artifex Nexus: The AI-Agent Bridge for Digital Creation (workspace root)"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { file = "LICENSE" }
+
+[tool.uv.workspace]
+members = [
+    "packages/platform/core",
+    "packages/platform/skill",
+    "packages/platform/contracts/python",
+    "packages/platform/cli",
+    "packages/adapters/openclaw/uplink",
+    "packages/dcc/blender",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["vendor", "**/Content/Python/_generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages/*/tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

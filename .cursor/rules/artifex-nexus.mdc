@@ -1,0 +1,15 @@
+---
+description: Artifex Nexus — global rules (auto-attached)
+alwaysApply: true
+---
+
+请始终遵守 `.ai/rules/` 下所有文件，特别是：
+
+- `.ai/rules/00-architecture.md`：分层依赖、MCP 工具最小化、主线程安全、平台默认路径
+- `.ai/rules/10-coding-style.md`：命名、格式、测试要求
+- `.ai/rules/20-docs-workflow.md`：docs 即真相、改架构必先改 docs
+
+工程长程上下文请优先读 `.ai/context/project-overview.md` 与 `.ai/context/glossary.md`。
+任何复用模板请先查 `.ai/prompts/`。
+
+回答语言：中文。代码注释中文，公共 API docstring 中英双语。

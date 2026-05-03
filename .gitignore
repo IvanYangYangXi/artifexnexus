@@ -1,0 +1,65 @@
+# --- Node / pnpm ---
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.uv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- UE / C++ ---
+packages/dcc/unreal/Binaries/
+packages/dcc/unreal/Intermediate/
+packages/dcc/unreal/Saved/
+packages/dcc/unreal/DerivedDataCache/
+*.obj
+*.pdb
+
+# --- Vendor (fork of OpenClaw, fetched via submodule or release) ---
+vendor/openclaw/build/
+vendor/openclaw/dist/
+vendor/openclaw/node_modules/
+
+# --- IDE / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# --- Obsidian (keep settings, ignore local state) ---
+.obsidian/workspace*
+.obsidian/workspaces.json
+.obsidian/cache
+.obsidian/appearance.json
+
+# --- Local env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Installer artifacts ---
+installer/dist/
+*.zip
+*.tar.gz
+
+# --- Logs ---
+logs/
+*.log

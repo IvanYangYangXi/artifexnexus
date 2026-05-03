@@ -1,0 +1,20 @@
+{
+  "name": "@artifex-nexus/contracts",
+  "version": "0.0.0",
+  "description": "TypeScript types for Artifex Nexus contracts (generated from ../schemas/*.json)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "schemas"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json",
+    "codegen": "json2ts -i ../schemas -o src/generated",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist src/generated"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "json-schema-to-typescript": "^15.0.0"
+  }
+}

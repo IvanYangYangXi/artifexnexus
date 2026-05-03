@@ -1,0 +1,22 @@
+[project]
+name = "artifex-nexus-skill"
+version = "0.0.0"
+description = "Skill subsystem: @tool decorator, manifest, layered loader, version manager, hub, registry, installer"
+requires-python = ">=3.11"
+dependencies = [
+    "artifex-nexus-core",
+    "artifex-nexus-contracts",
+    "pydantic>=2.8",
+    "packaging>=24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/artifex_nexus"]
+
+[tool.uv.sources]
+artifex-nexus-core = { workspace = true }
+artifex-nexus-contracts = { workspace = true }

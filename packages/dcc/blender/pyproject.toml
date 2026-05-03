@@ -1,0 +1,22 @@
+[project]
+name = "artifex-nexus-blender"
+version = "0.0.0"
+description = "Artifex Nexus for Blender 5.1 — DCC plugin (MCP server + skills)"
+requires-python = ">=3.11"
+dependencies = [
+    "artifex-nexus-core",
+    "artifex-nexus-skill",
+    "artifex-nexus-contracts",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/artifex_nexus_blender"]
+
+[tool.uv.sources]
+artifex-nexus-core = { workspace = true }
+artifex-nexus-skill = { workspace = true }
+artifex-nexus-contracts = { workspace = true }

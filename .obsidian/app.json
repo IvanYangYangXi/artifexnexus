@@ -1,0 +1,20 @@
+{
+  "newFileLocation": "folder",
+  "newFileFolderPath": "inbox",
+  "attachmentFolderPath": "assets",
+  "useMarkdownLinks": false,
+  "newLinkFormat": "shortest",
+  "alwaysUpdateLinks": true,
+  "promptDelete": true,
+  "showLineNumber": true,
+  "userIgnoreFilters": [
+    "node_modules",
+    "\\.git",
+    "dist",
+    "target",
+    "\\.turbo",
+    "packages/.+/Binaries",
+    "packages/.+/Intermediate",
+    "packages/.+/Saved"
+  ]
+}
