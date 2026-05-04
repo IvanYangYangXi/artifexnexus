@@ -7,24 +7,24 @@ tags:
 
 ---
 
-## Backlog
+## backlog
 
 
 
-## Ready
+## ready
 
 
 
-## In Progress
+## in-progress
 
 
 
-## Review
+## review
 
 - [ ] [[TASK-0001-openclaw-wrapper]]
 
 
-## Done
+## done
 
 - [ ] [[TASK-0002-schema-de-abstraction]]
 - [ ] [[TASK-0003-adr0006-cleanup]]
