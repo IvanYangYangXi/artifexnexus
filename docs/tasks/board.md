@@ -9,7 +9,6 @@ tags:
 
 ## Backlog
 
-- [ ] [[TASK-0003-adr0006-cleanup]]
 
 
 ## Ready
@@ -18,17 +17,17 @@ tags:
 
 ## In Progress
 
-- [ ] [[TASK-0001-openclaw-wrapper]]
-
 
 
 ## Review
 
+- [ ] [[TASK-0001-openclaw-wrapper]]
 
 
 ## Done
 
 - [ ] [[TASK-0002-schema-de-abstraction]]
+- [ ] [[TASK-0003-adr0006-cleanup]]
 
 
 

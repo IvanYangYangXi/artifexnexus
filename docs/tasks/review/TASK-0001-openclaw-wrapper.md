@@ -1,13 +1,13 @@
 ---
 id: TASK-0001
 title: OpenClaw 包壳改造（一键安装 / 自定义端口 / 完全隔离）
-status: in-progress
+status: review
 priority: P1
 owner: "@ivan"
 assignee: ai
 estimate: 5d
 created: 2026-05-03
-updated: 2026-05-03T23:50
+updated: 2026-05-04T22:22
 related_adr: [0002, 0005, 0006]
 related_specs:
   - "[[../../specs/openclaw-wrapper]]"
