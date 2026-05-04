@@ -1,127 +1,111 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo  Artifex Nexus — 桌面壳开发环境
+echo  Artifex Nexus - Desktop Dev Launcher
 echo ========================================
 echo.
 
 :: ---------- Node.js ----------
-echo [检查] Node.js ...
+echo [Check] Node.js ...
 where node >nul 2>&1
 if %errorlevel% equ 0 (
-    for /f "tokens=*" %%i in ('node --version') do echo   ✅ Node.js: %%i
+    for /f "tokens=*" %%i in ('node --version') do echo   [OK] Node.js: %%i
 ) else (
-    echo   ⚠️  Node.js 未安装，正在通过 winget 安装...
+    echo   [INSTALL] Node.js not found, installing via winget...
     where winget >nul 2>&1
     if %errorlevel% equ 0 (
         winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
         if %errorlevel% neq 0 (
-            echo   ❌ winget 安装失败，尝试下载安装包...
-            goto :install_node_manual
+            echo   [FAIL] winget install failed, trying MSI download...
+            powershell -Command "$url='https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi'; $out=\"$env:TEMP\node-installer.msi\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process msiexec.exe -ArgumentList '/i',$out,'/quiet','/norestart' -Wait; Remove-Item $out"
         )
-        echo   ✅ Node.js 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        echo   [DONE] Node.js installed. Please re-run this script to refresh PATH.
         pause
         exit /b 0
     ) else (
-        :install_node_manual
-        echo   winget 不可用，正在通过 PowerShell 下载 Node.js 安装包...
-        powershell -Command "$url='https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi'; $out=\"$env:TEMP\node-installer.msi\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process msiexec.exe -ArgumentList '/i',$out,'/quiet','/norestart' -Wait; Remove-Item $out"
-        if %errorlevel% neq 0 (
-            echo   ❌ 自动安装失败，请手动安装 Node.js: https://nodejs.org/
-            pause
-            exit /b 1
-        )
-        echo   ✅ Node.js 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        echo   [FAIL] winget not available. Please install Node.js manually:
+        echo   https://nodejs.org/
         pause
-        exit /b 0
+        exit /b 1
     )
 )
 
 :: ---------- pnpm ----------
-echo [检查] pnpm ...
+echo [Check] pnpm ...
 where pnpm >nul 2>&1
 if %errorlevel% equ 0 (
-    for /f "tokens=*" %%i in ('pnpm --version') do echo   ✅ pnpm: %%i
+    for /f "tokens=*" %%i in ('pnpm --version') do echo   [OK] pnpm: %%i
 ) else (
-    echo   ⚠️  pnpm 未安装，正在通过 npm 安装...
+    echo   [INSTALL] pnpm not found, installing via npm...
     call npm install -g pnpm
     if %errorlevel% neq 0 (
-        echo   ❌ pnpm 安装失败，请手动安装: npm install -g pnpm
+        echo   [FAIL] pnpm install failed. Please run: npm install -g pnpm
         pause
         exit /b 1
     )
-    for /f "tokens=*" %%i in ('pnpm --version') do echo   ✅ pnpm: %%i
+    for /f "tokens=*" %%i in ('pnpm --version') do echo   [OK] pnpm: %%i
 )
 
 :: ---------- Rust ----------
-echo [检查] Rust ...
+echo [Check] Rust ...
 where rustc >nul 2>&1
 if %errorlevel% equ 0 (
-    for /f "tokens=*" %%i in ('rustc --version') do echo   ✅ Rust: %%i
+    for /f "tokens=*" %%i in ('rustc --version') do echo   [OK] Rust: %%i
 ) else if exist "%USERPROFILE%\.cargo\bin\rustc.exe" (
     set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
-    for /f "tokens=*" %%i in ('rustc --version') do echo   ✅ Rust: %%i
+    for /f "tokens=*" %%i in ('rustc --version') do echo   [OK] Rust: %%i
 ) else (
-    echo   ⚠️  Rust 未安装，正在通过 rustup 安装...
-    echo   这可能需要几分钟，请耐心等待...
+    echo   [INSTALL] Rust not found, installing via rustup...
+    echo   This may take a few minutes...
     powershell -Command "Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $env:TEMP\rustup-init.exe; & $env:TEMP\rustup-init.exe -y"
     if %errorlevel% neq 0 (
-        echo   ❌ Rust 安装失败，请手动安装: https://rustup.rs/
+        echo   [FAIL] Rust install failed. Please install manually: https://rustup.rs/
         pause
         exit /b 1
     )
     set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
-    for /f "tokens=*" %%i in ('rustc --version') do echo   ✅ Rust: %%i
+    for /f "tokens=*" %%i in ('rustc --version') do echo   [OK] Rust: %%i
 )
 
 :: ---------- Python ----------
-echo [检查] Python ...
+echo [Check] Python ...
 where python >nul 2>&1
 if %errorlevel% equ 0 (
-    for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo   ✅ Python: %%i
+    for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo   [OK] Python: %%i
 ) else (
-    echo   ⚠️  Python 未安装，正在通过 winget 安装...
+    echo   [INSTALL] Python not found, installing via winget...
     where winget >nul 2>&1
     if %errorlevel% equ 0 (
         winget install Python.Python.3.11 --accept-package-agreements --accept-source-agreements
         if %errorlevel% neq 0 (
-            echo   ❌ winget 安装失败，尝试下载安装包...
-            goto :install_python_manual
+            echo   [FAIL] winget install failed, trying exe download...
+            powershell -Command "$url='https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'; $out=\"$env:TEMP\python-installer.exe\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process $out -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1' -Wait; Remove-Item $out"
         )
-        echo   ✅ Python 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        echo   [DONE] Python installed. Please re-run this script to refresh PATH.
         pause
         exit /b 0
     ) else (
-        :install_python_manual
-        echo   winget 不可用，正在通过 PowerShell 下载 Python 安装包...
-        powershell -Command "$url='https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'; $out=\"$env:TEMP\python-installer.exe\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process $out -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1' -Wait; Remove-Item $out"
-        if %errorlevel% neq 0 (
-            echo   ❌ 自动安装失败，请手动安装 Python ^>= 3.11: https://www.python.org/
-            echo   安装时请勾选 "Add Python to PATH"
-            pause
-            exit /b 1
-        )
-        echo   ✅ Python 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        echo   [FAIL] winget not available. Please install Python ^>= 3.11 manually:
+        echo   https://www.python.org/  (check "Add Python to PATH")
         pause
-        exit /b 0
+        exit /b 1
     )
 )
 
-:: ---------- 安装依赖 ----------
+:: ---------- Install Dependencies ----------
 echo.
-echo 📦 安装项目依赖...
+echo [Install] Project dependencies...
 cd /d "%~dp0.."
 call pnpm install
 if %errorlevel% neq 0 (
-    echo   ⚠️  pnpm install 失败，尝试 --no-frozen-lockfile...
+    echo   [RETRY] pnpm install failed, trying --no-frozen-lockfile...
     call pnpm install --no-frozen-lockfile
 )
 
-:: ---------- 启动 ----------
+:: ---------- Launch ----------
 echo.
-echo 🚀 启动 Tauri 开发服务器...
+echo [Launch] Starting Tauri dev server...
 cd /d "%~dp0..\apps\desktop"
 call pnpm tauri dev
 
