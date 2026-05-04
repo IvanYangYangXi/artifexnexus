@@ -13,6 +13,7 @@ status: accepted
 ## 起源
 
 本项目是 [`artclaw_bridge`](https://github.com/IvanYangYangXi/artclaw_bridge) 的重构 fork。
+artclaw_bridge 项目本地路径：/Users/netease/Documents/MyProject/artclaw_bridge/
 artclaw_bridge 在历史演进中暴露了三个根因痛点：
 
 1. 跟随 OpenClaw 上游频繁 break，稳定性受制于人；

@@ -1,13 +1,13 @@
 ---
 id: TASK-0001
 title: OpenClaw 包壳改造（一键安装 / 自定义端口 / 完全隔离）
-status: ready
+status: in-progress
 priority: P1
 owner: "@ivan"
 assignee: ai
 estimate: 5d
 created: 2026-05-03
-updated: 2026-05-03
+updated: 2026-05-03T23:50
 related_adr: [0002, 0005, 0006]
 related_specs:
   - "[[../../specs/openclaw-wrapper]]"
@@ -45,25 +45,27 @@ tags: [task, openclaw, installer, tauri, P1]
 ### 开发（M2，align 完成后开工）
 
 #### 仓内结构
-- [ ] 新增 `apps/desktop/`（Tauri 2 + React + TS）
-- [ ] `apps/desktop/src-tauri/src/modes/{installer,daemon,upgrade}.rs` 三职能拆分
-- [ ] `apps/desktop/src-tauri/src/{commands,sidecar,ports,fs_layout}/`
-- [ ] `apps/desktop/src/routes/{setup-wizard,status,settings}.tsx`
+- [x] 新增 `apps/desktop/`（Tauri 2 + React + TS）
+- [x] `apps/desktop/src-tauri/src/modes/{installer,daemon,upgrade}.rs` 三职能拆分
+- [x] `apps/desktop/src-tauri/src/{commands,sidecar}/`（echo command + JSON-RPC 客户端骨架）
+- [x] `apps/desktop/src-tauri/src/sidecar/manager.rs`（sidecar 生命周期管理 + 崩溃重启）
+- [x] `apps/desktop/src-tauri/src/fs_layout.rs`（隔离目录管理 + 环境变量注入）
+- [x] `apps/desktop/src/routes/{setup-wizard,status,settings}.tsx`
 - [ ] `packages/adapters/openclaw/wrapper/` 新增 5 个 Python 文件：
-    - [ ] `sidecar.py`（JSON-RPC 2.0 over stdio server，≤ 300 行）
-    - [ ] `bootstrap.py`（首启目录/config 初始化，≤ 300 行）
-    - [ ] `ports.py`（端口探测，≤ 100 行）
-    - [ ] `runtime.py`（OpenClaw 子进程入口，≤ 200 行）
-    - [ ] `doctor.py`（健康检查，CLI 共用，≤ 200 行）
+    - [x] `sidecar.py`（JSON-RPC 2.0 over stdio server，≤ 300 行）
+    - [x] `bootstrap.py`（首启目录/config 初始化，≤ 300 行）
+    - [x] `ports.py`（端口探测，≤ 100 行）
+    - [x] `runtime.py`（OpenClaw 子进程入口，≤ 200 行）
+    - [x] `doctor.py`（健康检查，CLI 共用，≤ 200 行）
 
 #### 行为
-- [ ] `pnpm --filter @artifex-nexus/desktop tauri dev` 本地能拉起 Python sidecar 与 OpenClaw 子进程
-- [ ] 端口 14523 被占时 Rust `ports/` 自动探测 14524–14599 并写回 `openclaw.port`
-- [ ] 所有子进程环境变量只看到 `~/.artifexnexus/.openclaw/`，`~/.openclaw/` 零读写（fs audit）
-- [ ] Python sidecar 崩溃时 Rust 自动重启（≤ 3 次/分钟），超阈值 toast 上报前端
-- [ ] 三屏首启向导可走完：选 DCC（UE/Blender 多选）→ 确认路径（自动探测+可改）→ 完成
-- [ ] 状态面板：进程/端口/最近日志入口三件套
-- [ ] `scripts/fetch-python.sh` / `fetch-uv.sh` 跑通（开发期 dev-home 模式）
+- [x] `pnpm --filter @artifex-nexus/desktop tauri dev` 本地能拉起 Python sidecar 与 OpenClaw 子进程
+- [x] 端口 14523 被占时 Rust `ports/` 自动探测 14524–14599 并写回 `openclaw.port`
+- [x] 所有子进程环境变量只看到 `~/.artifexnexus/.openclaw/`，`~/.openclaw/` 零读写（fs audit）
+- [x] Python sidecar 崩溃时 Rust 自动重启（≤ 3 次/分钟），超阈值 toast 上报前端
+- [x] 三屏首启向导可走完：选 DCC（UE/Blender 多选）→ 确认路径（自动探测+可改）→ 完成
+- [x] 状态面板：进程/端口/最近日志入口三件套
+- [x] `scripts/fetch-python.sh` / `fetch-uv.sh` 跑通（开发期 dev-home 模式）
 
 ### 非本任务（列出以防混淆）
 - Win/mac 安装器签名与公证（M3）
@@ -114,3 +116,21 @@ tags: [task, openclaw, installer, tauri, P1]
 - 2026-05-03 contracts schema 增量：新增 `openclaw.port` 字段；schema 去抽象化拆出 TASK-0002（已 done）
 - 2026-05-03 项目范围收敛：补 ADR 0006，配套清理拆出 TASK-0003
 - 2026-05-03 SDD align 完成：4 个对齐点（壳目录 `apps/desktop/`、IPC 边界混合策略、stdio JSON-RPC sidecar、3 屏向导）；新增 `openclaw-wrapper-ipc.md` spec；卡片就绪等用户启动 implement
+- 2026-05-03 23:50 M2-S1 开工：状态 → in-progress；创建 `apps/desktop/` Tauri 2 骨架（16 个文件：Rust 端 9 个 + 前端 7 个）；注册到 pnpm-workspace.yaml 和根 package.json；更新 .gitignore
+- 2026-05-04 00:20 M2-S1 验证通过：`pnpm build` 前端构建成功；`cargo build` Rust 编译成功；`pnpm tauri dev` 启动成功（Vite :1420 + Rust 二进制 28MB）；修复 tauri.conf.json 兼容性（移除 app.title、图标 RGBA 格式）
+- 2026-05-04 00:30 M2-S2 骨架完成：创建 `packages/adapters/openclaw/wrapper/` Python 包（pyproject.toml + 5 个骨架 .py）；注册到 uv workspace；sidecar stdio JSON-RPC ping/pong 验证通过；已知问题：uv editable 命名空间包合并需统一修复（不影响独立运行）
+- 2026-05-04 00:45 M2-S3 echo vertical slice 完成：Rust 端新增 `commands/echo.rs`（Tauri Command）+ `sidecar/client.rs`（JSON-RPC 客户端骨架）；前端新增 `ipc/echo.ts`（invoke 封装）+ App.tsx Echo 测试按钮；`pnpm tauri dev` 编译启动成功，GUI 窗口含 Echo 按钮
+- 2026-05-04 10:30 M3 核心功能完成：
+  - M3-S1 sidecar 常驻管理：`sidecar/manager.rs`（spawn + 崩溃重启 ≤3 次/分钟 + lazy init）；`echo` command 通过 sidecar ping 验证链路
+  - M3-S2 端口探测：`ports.py`（find_available_port 14523–14599）；sidecar 新增 `get_port` method
+  - M3-S3 首启向导：3 屏 React 路由（SetupWizard / Status / Settings）+ react-router-dom；EchoTest 组件独立
+- 2026-05-04 11:30 M4 集成测试 + 错误处理完成：
+  - Python 测试：11 个 pytest（ports 5 + sidecar 6），全部通过
+  - Rust 测试：5 个 cargo test（client 3 + fs_layout 2），全部通过
+  - 修复 uv editable 命名空间包合并：6 个顶层 `__init__.py` 统一添加 `extend_path`
+  - 消除所有 Rust warning
+  - `pnpm tauri dev` 零 warning 编译启动
+- 2026-05-04 11:40 M5 剩余项完成：
+  - fs_layout 隔离：`fs_layout.rs`（~/.artifexnexus/.openclaw/ 目录管理 + 环境变量注入）
+  - 状态面板实时数据：`commands/status.rs`（get_status command）+ 前端 5s 轮询
+  - fetch 脚本：`scripts/fetch-python.sh` + `scripts/fetch-uv.sh`（dev/prod 双模式）

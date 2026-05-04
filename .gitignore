@@ -60,6 +60,9 @@ installer/dist/
 *.zip
 *.tar.gz
 
+# --- Tauri / Rust ---
+apps/desktop/src-tauri/target/
+
 # --- Logs ---
 logs/
 *.log
