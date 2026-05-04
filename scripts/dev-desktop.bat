@@ -13,11 +13,30 @@ where node >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=*" %%i in ('node --version') do echo   ✅ Node.js: %%i
 ) else (
-    echo   ❌ 未找到 Node.js
-    echo   请手动安装: https://nodejs.org/
-    echo   安装后重新运行此脚本。
-    pause
-    exit /b 1
+    echo   ⚠️  Node.js 未安装，正在通过 winget 安装...
+    where winget >nul 2>&1
+    if %errorlevel% equ 0 (
+        winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+        if %errorlevel% neq 0 (
+            echo   ❌ winget 安装失败，尝试下载安装包...
+            goto :install_node_manual
+        )
+        echo   ✅ Node.js 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        pause
+        exit /b 0
+    ) else (
+        :install_node_manual
+        echo   winget 不可用，正在通过 PowerShell 下载 Node.js 安装包...
+        powershell -Command "$url='https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi'; $out=\"$env:TEMP\node-installer.msi\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process msiexec.exe -ArgumentList '/i',$out,'/quiet','/norestart' -Wait; Remove-Item $out"
+        if %errorlevel% neq 0 (
+            echo   ❌ 自动安装失败，请手动安装 Node.js: https://nodejs.org/
+            pause
+            exit /b 1
+        )
+        echo   ✅ Node.js 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        pause
+        exit /b 0
+    )
 )
 
 :: ---------- pnpm ----------
@@ -63,11 +82,31 @@ where python >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo   ✅ Python: %%i
 ) else (
-    echo   ❌ 未找到 Python
-    echo   请手动安装 Python ^>= 3.11: https://www.python.org/
-    echo   安装时请勾选 "Add Python to PATH"
-    pause
-    exit /b 1
+    echo   ⚠️  Python 未安装，正在通过 winget 安装...
+    where winget >nul 2>&1
+    if %errorlevel% equ 0 (
+        winget install Python.Python.3.11 --accept-package-agreements --accept-source-agreements
+        if %errorlevel% neq 0 (
+            echo   ❌ winget 安装失败，尝试下载安装包...
+            goto :install_python_manual
+        )
+        echo   ✅ Python 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        pause
+        exit /b 0
+    ) else (
+        :install_python_manual
+        echo   winget 不可用，正在通过 PowerShell 下载 Python 安装包...
+        powershell -Command "$url='https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'; $out=\"$env:TEMP\python-installer.exe\"; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process $out -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1' -Wait; Remove-Item $out"
+        if %errorlevel% neq 0 (
+            echo   ❌ 自动安装失败，请手动安装 Python ^>= 3.11: https://www.python.org/
+            echo   安装时请勾选 "Add Python to PATH"
+            pause
+            exit /b 1
+        )
+        echo   ✅ Python 安装完成，请重新运行此脚本（需要刷新 PATH）。
+        pause
+        exit /b 0
+    )
 )
 
 :: ---------- 安装依赖 ----------
