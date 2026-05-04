@@ -49,7 +49,9 @@ impl SidecarClient {
     /// `sidecar_path` 为 sidecar.py 的绝对路径。
     /// `env_vars` 为注入的环境变量（如 OPENCLAW_HOME）。
     pub fn spawn(sidecar_path: &str, env_vars: &[(String, String)]) -> Result<Self, String> {
-        let mut cmd = Command::new("python3");
+        // 跨平台 Python 命令：Windows 用 python，Unix 用 python3
+        let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+        let mut cmd = Command::new(python_cmd);
         cmd.arg(sidecar_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
