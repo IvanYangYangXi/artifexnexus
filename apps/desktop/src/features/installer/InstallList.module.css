@@ -1,0 +1,8 @@
+/* 安装清单主表样式 */
+
+.list {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}

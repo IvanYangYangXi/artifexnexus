@@ -49,10 +49,10 @@ function Status() {
       )}
 
       <button
-        onClick={() => navigate("/setup-wizard")}
+        onClick={() => navigate("/installer")}
         style={{ marginTop: "1.5rem", padding: "0.5rem 1rem" }}
       >
-        重新运行首启向导
+        重新运行安装向导
       </button>
     </main>
   );

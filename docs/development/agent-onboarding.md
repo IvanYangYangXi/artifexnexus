@@ -58,7 +58,12 @@ docs/vision/north-star.md
 3) 文档 ≤ 2000 字/文件，代码 ≤ 500 行/文件（黄金区 100–300）。
 4) 所有变更必须更新相关 spec/ADR 与交叉引用。
 5) 回答中文；代码注释中文；公共 API docstring 中英双语。
-6) 收到 /sdd triage|align|implement|done 口令时，按 SDD 流程执行
+6) 任务三级体系 EPIC → STORY → TASK；状态迁移必须同步三处
+   （文件位置 / frontmatter.status / board.md 对应列，列名首字母大写）。
+   不允许 Agent 自标 done。
+7) 涉及 GUI 必须先写 docs/specs/ui/<module>-structure.md（信息架构 / 状态机 /
+   线框 / 对接点），再写代码。设计语言由 M3 统一，之前不硬编码视觉。
+8) 收到 /sdd triage|align|implement|done 口令时，按 SDD 流程执行
    （想法→任务→规格→实现→合并），任务载体在 docs/tasks/。
 
 现在请接收任务：

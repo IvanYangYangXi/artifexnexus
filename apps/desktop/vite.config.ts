@@ -20,6 +20,6 @@ export default defineConfig({
 
   server: {
     port: 1420,
-    strictPort: true,
+    strictPort: false, // 端口被占用时自动尝试下一个可用端口
   },
 });

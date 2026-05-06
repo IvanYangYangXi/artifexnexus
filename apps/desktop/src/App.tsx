@@ -1,7 +1,8 @@
 // 桌面壳根组件：路由 + Echo 测试。
-// 骨架阶段：3 路由（setup-wizard / status / settings）+ Echo 按钮。
+// 骨架阶段：路由（installer / status / settings）+ Echo 按钮。
 
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import InstallerWizard from "./routes/InstallerWizard";
 import SetupWizard from "./routes/SetupWizard";
 import Status from "./routes/Status";
 import Settings from "./routes/Settings";
@@ -24,8 +25,8 @@ function App() {
           <Link to="/status" style={{ textDecoration: "none", color: "#3b82f6" }}>
             状态
           </Link>
-          <Link to="/setup-wizard" style={{ textDecoration: "none", color: "#3b82f6" }}>
-            首启向导
+          <Link to="/installer" style={{ textDecoration: "none", color: "#3b82f6" }}>
+            安装向导
           </Link>
           <Link to="/settings" style={{ textDecoration: "none", color: "#3b82f6" }}>
             设置
@@ -36,6 +37,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Status />} />
           <Route path="/status" element={<Status />} />
+          <Route path="/installer" element={<InstallerWizard />} />
           <Route path="/setup-wizard" element={<SetupWizard />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

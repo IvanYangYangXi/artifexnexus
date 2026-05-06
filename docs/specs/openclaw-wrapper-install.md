@@ -15,12 +15,17 @@ status: draft
 | Tauri 壳（含前端） | 本仓 `apps/desktop/` | 3–8 MB | `<install>/` |
 | `uv` 二进制 | astral-sh/uv release | ~20 MB | `<install>/runtime/uv` |
 | standalone Python 3.11 | python-build-standalone | 25–40 MB | `<install>/runtime/python/` |
-| OpenClaw vendor 快照 | 本仓 `packages/adapters/openclaw/vendor/` | 5–10 MB | `<install>/openclaw/` |
+| **OpenClaw CLI（薄壳模式）** | **运行时拉取**：上游 `install-cli.sh` 自动下载 standalone Node-v22 + npm 全局装 `openclaw@v2026.5.4` 到隔离 prefix | 0 MB（不入安装包，~250 MB 由 install-cli.sh 落到 `~/.artifexnexus/.openclaw/cli/<ver>/`） | 不入 install pkg；首启在线拉 |
 | UE 插件模板 | `packages/dcc/unreal/` 构建产物 | 2–5 MB | `<install>/plugins/ue/` |
 | Blender addon 模板 | `packages/dcc/blender/` | < 1 MB | `<install>/plugins/blender/` |
 | 官方 Skill 集 | `packages/platform/skill/official/*` | < 2 MB | `<install>/skills/official/` |
 
-**安装包目标体积：Win ≤ 90 MB，macOS ≤ 100 MB**。
+**安装包目标体积：Win ≤ 90 MB，macOS ≤ 100 MB**（OpenClaw 不入包，运行时拉取，详见 [[openclaw-upstream-survey]] §6）。
+
+> ⚠ **历史 spec 更正**：原假设 OpenClaw 是 Python/uv 项目，已查证为 **Node.js / TypeScript**
+> 项目（pnpm monorepo）。本项目采用**薄壳模式**：调用上游官方 `install-cli.sh` 完成安装（自带
+> standalone Node-v22.22.0），不在仓内 fork 或 vendor OpenClaw 源码。Python runtime 仍保留——
+> 仅供 wrapper sidecar 自身使用（详见 ADR 0005 增量小节）。
 
 ## 2. 安装路径
 
@@ -34,17 +39,40 @@ status: draft
 ## 3. 安装流程（首装）
 
 ```
-1. 解压壳 + runtime + vendor + templates                [安装器做]
-2. 创建 ~/.artifexnexus/{.openclaw, config, logs, cache} [首启做]
-3. 写入默认 ~/.artifexnexus/config/artifexnexus.json     [首启做]
-4. uv sync --project <install>/openclaw                  [首启做，离线可走本地 index]
-5. 探测端口 14523，占用则自增到首个空闲                  [首启做]
-6. 启动 OpenClaw 进程（子进程，管道回传日志）            [首启做]
-7. 扫描 UE / Blender → 可选"投放插件"向导              [首启做]
-8. 预装官方 Skill（copy 到 .openclaw/workspace/skills/） [首启做]
+1. 解压壳 + Python runtime + 模板                                            [安装器做]
+2. 创建 ~/.artifexnexus/{.openclaw/{cli,state,workspace},config,logs,cache}  [首启做]
+3. 写入默认 ~/.artifexnexus/config/artifexnexus.json                          [首启做]
+4. 调用 install-cli.sh 装 OpenClaw 到隔离 prefix（薄壳模式，详见 §3.1）       [首启做]
+5. 写入 ~/.artifexnexus/.openclaw/openclaw.json：                             [首启做]
+   - gateway.port = 19789（避开上游默认 18789，详见 [[openclaw-upstream-survey]] §3）
+   - gateway.token = 自动生成（secrets.token_hex(24)）
+   - version = "v2026.5.4"
+   - agents.defaults.workspace = ~/.artifexnexus/.openclaw/workspace
+6. 探测 19789 端口，占用则提示用户改 19799 / 19809（保 +20 派生隔离余量）     [首启做]
+7. 启动 OpenClaw gateway 子进程（Tauri 主进程托管，详见 [[openclaw-wrapper-runtime]]） [首启做]
+8. 扫描 UE / Blender → 可选"投放插件"向导                                   [首启做]
+9. 预装官方 Skill（copy 到 .openclaw/workspace/skills/）                    [首启做]
 ```
 
 首启向导 UI：3 步引导（选 DCC → 确认路径 → 完成）。可跳过。
+
+### 3.1 步骤 4 详解（薄壳安装）
+
+通过子进程调用上游 `install-cli.sh`，注入隔离 env：
+
+```bash
+export OPENCLAW_PREFIX="$HOME/.artifexnexus/.openclaw/cli/v2026.5.4"
+export OPENCLAW_VERSION="v2026.5.4"
+export OPENCLAW_NO_ONBOARD=1
+curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install-cli.sh \
+  | bash -s -- --json    # NDJSON 事件流，sidecar 解析进度回传 UI
+```
+
+Windows 等价：调用上游 `install.ps1`（同名 flag）。完整 flag/env 矩阵见 [[openclaw-upstream-survey]] §10。
+
+> **隔离效果**：CLI 装在 `~/.artifexnexus/.openclaw/cli/v2026.5.4/`，**不入用户 PATH**；
+> Tauri / sidecar 调用时一律走绝对路径 `~/.artifexnexus/.openclaw/cli/v2026.5.4/bin/openclaw`，
+> 与用户系统已装的 `openclaw`（如有）零冲突。卸载只需删 `~/.artifexnexus/.openclaw/` 整个目录。
 
 ## 4. 卸载流程
 
@@ -79,14 +107,34 @@ status: draft
 
 ## 9. 验收标准
 
-- [ ] Win 10/11 双击 `.exe` 可完成安装，≤ 3 分钟
+- [ ] Win 10/11 双击 `.exe` 可完成安装，≤ 3 分钟（不含首启拉 OpenClaw 的网络时间）
 - [ ] macOS 12+ 双击 `.dmg` 可完成安装，≤ 3 分钟
-- [ ] 离线环境可安装（无网络）
-- [ ] 端口冲突时自动选用新端口，UI 有非阻塞提示
-- [ ] 与外部 `~/.openclaw/` 完全无读写
-- [ ] 卸载后应用路径为空；用户数据默认保留
+- [ ] 离线环境可安装**壳**；首启拉 OpenClaw 需联网，离线则提示后停在"未安装"状态（不报错）
+- [ ] 19789 端口冲突时弹非阻塞提示，建议改 19799 / 19809（保 +20 派生隔离）
+- [ ] 与外部 `~/.openclaw/`（用户已装 OpenClaw）完全无读写
+- [ ] 卸载后应用路径为空；用户数据默认保留；勾选"清除所有数据"不动外部 `~/.openclaw/`
 
 ## 相关
 
 - [[openclaw-wrapper]] · [[openclaw-wrapper-runtime]] · [[openclaw-wrapper-ipc]] · [[openclaw-wrapper-dev]]
-- ADR [[../decisions/0002-vendor-openclaw-fork]]
+- [[openclaw-upstream-survey]] — 上游事实底（v2026.5.4 调研，含 install-cli.sh flag/env 矩阵）
+- ADR [[../decisions/0002-vendor-openclaw-fork]]、[[../decisions/0005-desktop-distribution-tauri-standalone-python]]
+- [[../tasks/done/STORY-0005-installer-tauri-build-artifact]] — M0 Tauri 可分发产物
+- [[../tasks/review/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源
+
+## 10. M0 构建产物
+
+> 本节由 STORY-0005 填充，后续版本更新。
+
+| 产物 | 路径 | 格式 |
+|---|---|---|
+| Windows NSIS 安装程序 | `apps/desktop/src-tauri/target/release/bundle/nsis/Artifex Nexus_0.0.0_x64-setup.exe` | `.exe` |
+| Windows MSI 安装程序 | `apps/desktop/src-tauri/target/release/bundle/msi/Artifex Nexus_0.0.0_x64_en-US.msi` | `.msi` |
+
+**构建命令**：
+```bash
+cd apps/desktop
+pnpm tauri build
+```
+
+**前置条件**：Rust 工具链（`rustup` + `cargo`）、Node.js 18+、pnpm。

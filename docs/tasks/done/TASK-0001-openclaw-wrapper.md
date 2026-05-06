@@ -1,13 +1,13 @@
 ---
 id: TASK-0001
 title: OpenClaw 包壳改造（一键安装 / 自定义端口 / 完全隔离）
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai
 estimate: 5d
 created: 2026-05-03
-updated: 2026-05-04T22:22
+updated: 2026-05-06
 related_adr: [0002, 0005, 0006]
 related_specs:
   - "[[../../specs/openclaw-wrapper]]"
@@ -51,7 +51,7 @@ tags: [task, openclaw, installer, tauri, P1]
 - [x] `apps/desktop/src-tauri/src/sidecar/manager.rs`（sidecar 生命周期管理 + 崩溃重启）
 - [x] `apps/desktop/src-tauri/src/fs_layout.rs`（隔离目录管理 + 环境变量注入）
 - [x] `apps/desktop/src/routes/{setup-wizard,status,settings}.tsx`
-- [ ] `packages/adapters/openclaw/wrapper/` 新增 5 个 Python 文件：
+- [x] `packages/adapters/openclaw/wrapper/` 新增 5 个 Python 文件：
     - [x] `sidecar.py`（JSON-RPC 2.0 over stdio server，≤ 300 行）
     - [x] `bootstrap.py`（首启目录/config 初始化，≤ 300 行）
     - [x] `ports.py`（端口探测，≤ 100 行）
@@ -91,22 +91,20 @@ tags: [task, openclaw, installer, tauri, P1]
 - [x] schema 去抽象化（→ TASK-0002 已 done）
 - [x] 项目范围收敛 ADR 0006（→ TASK-0003 待清理）
 - [x] 拆出 IPC 边界 spec：`openclaw-wrapper-ipc.md`
-
-### 待开工（M2）
-- [ ] 搭 `apps/desktop/` Tauri 骨架（前后端 + modes 三件套）
-- [ ] `packages/adapters/openclaw/wrapper/` Python 包初始化（pyproject.toml）
-- [ ] 实现 `sidecar.py`：JSON-RPC 2.0 over stdio，最小 4 个 method（ping / get_config / set_config / doctor）
-- [ ] 实现 `ports.py` + 单测
-- [ ] 实现 `bootstrap.py` + 单测（构造 dev-home 而非真实 ~/.artifexnexus/）
-- [ ] 实现 `doctor.py`（先 4 项检查：目录 / config schema / 端口 / sidecar 心跳）
-- [ ] 实现 `runtime.py`（薄壳，先打通"启停 OpenClaw vendor 假命令"）
-- [ ] Rust `sidecar/` 模块：spawn + JSON-RPC 客户端 + 崩溃重启
-- [ ] Rust `ports/`：bind→close 探测 + 写回 sidecar
-- [ ] Rust `commands/`：install / start / stop / doctor / open_log_dir
-- [ ] 前端 `setup-wizard.tsx`（3 屏，含跳过）
-- [ ] 前端 `status.tsx`（进程/端口/日志入口）
-- [ ] `scripts/fetch-python.sh` + `fetch-uv.sh`（dev 模式只校验存在性）
-- [ ] 开发者文档补齐 `tauri dev` 本地调试路径
+- [x] 搭 `apps/desktop/` Tauri 骨架（前后端 + modes 三件套）
+- [x] `packages/adapters/openclaw/wrapper/` Python 包初始化（pyproject.toml）
+- [x] 实现 `sidecar.py`：JSON-RPC 2.0 over stdio，最小 4 个 method（ping / get_config / set_config / doctor）
+- [x] 实现 `ports.py` + 单测
+- [x] 实现 `bootstrap.py` + 单测（构造 dev-home 而非真实 ~/.artifexnexus/）
+- [x] 实现 `doctor.py`（先 4 项检查：目录 / config schema / 端口 / sidecar 心跳）
+- [x] 实现 `runtime.py`（薄壳，先打通"启停 OpenClaw vendor 假命令"）
+- [x] Rust `sidecar/` 模块：spawn + JSON-RPC 客户端 + 崩溃重启
+- [x] Rust `ports/`：bind→close 探测 + 写回 sidecar
+- [x] Rust `commands/`：install / start / stop / doctor / open_log_dir
+- [x] 前端 `setup-wizard.tsx`（3 屏，含跳过）
+- [x] 前端 `status.tsx`（进程/端口/日志入口）
+- [x] `scripts/fetch-python.sh` + `fetch-uv.sh`（dev 模式只校验存在性）
+- [x] 开发者文档补齐 `tauri dev` 本地调试路径
 
 ## 进展日志
 
@@ -134,3 +132,4 @@ tags: [task, openclaw, installer, tauri, P1]
   - fs_layout 隔离：`fs_layout.rs`（~/.artifexnexus/.openclaw/ 目录管理 + 环境变量注入）
   - 状态面板实时数据：`commands/status.rs`（get_status command）+ 前端 5s 轮询
   - fetch 脚本：`scripts/fetch-python.sh` + `scripts/fetch-uv.sh`（dev/prod 双模式）
+- 2026-05-06 done by ai — 迁 done

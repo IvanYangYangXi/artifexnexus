@@ -9,7 +9,9 @@ created: 2026-05-03
 
 ## 视图入口
 
+- 路线图（阶段纲领）：[[../vision/roadmap]]
 - 看板（拖拽，状态总览）：[[board]]
+- 层级树（EPIC → STORY → TASK）：[[tree]]
 - 多维度专项视图（按 owner / priority / DCC / 阻塞）：[[views]]
 
 ## 全量清单（自动，由 Dataview 生成）

@@ -55,4 +55,52 @@ Artifex Nexus 的目标用户是美术 / 技术美术 / 设计师，**不能要�
 - `[[../specs/openclaw-wrapper]]`
 - `[[../specs/openclaw-wrapper-install]]`
 - `[[../specs/openclaw-wrapper-runtime]]`
-- `[[../tasks/ready/TASK-0001-openclaw-wrapper]]`
+- `[[../specs/openclaw-upstream-survey]]`
+- `[[../tasks/done/TASK-0001-openclaw-wrapper]]`
+- `[[../tasks/review/STORY-0007-openclaw-spec-realign]]`
+
+---
+
+## 补充（2026-05-06，EPIC-0001 align）：Node runtime 共存 + M1 不注册系统服务
+
+### 背景
+
+EPIC-0001（M1）align 阶段实测确认 OpenClaw 上游为 **Node.js / TypeScript 项目**（pnpm
+monorepo），与本 ADR 原文中"Python runtime 即可拉起 OpenClaw"的隐含假设不符。详见
+`[[../specs/openclaw-upstream-survey]]`。本小节补充两项决策，**不撤销原决策 1–5**。
+
+### 补充决策
+
+**6. 双 runtime 共存**：
+
+| Runtime | 来源 | 服务对象 | 体积 |
+|---|---|---|---|
+| standalone Python 3.11 | python-build-standalone（已决策 #2） | wrapper sidecar（stdio JSON-RPC server） | 25–40 MB |
+| standalone Node 22.22.0 | 上游 `install-cli.sh` 自带（首启在线拉） | OpenClaw gateway 主进程 | ~80 MB |
+
+二者**完全解耦**：sidecar 不 import OpenClaw 任何模块，仅通过子进程 spawn + HTTP/WS 调用
+gateway。Python runtime 仍内置在 installer 包中（保持原"离线可装壳"承诺），Node runtime 由
+`install-cli.sh` 在首启时拉取（不入 installer 包，控制 installer ≤ 100 MB）。
+
+**7. M1 不注册系统级服务**：
+
+不调用上游 `openclaw gateway install`（systemd / launchd / schtasks）；改由 Tauri 主进程
+直接 spawn `<cli>/bin/openclaw gateway start --port 19789` 子进程托管，应用退出即停。
+
+理由：
+- 彻底回避与"用户已经装了原生 OpenClaw"的 service 名冲突（上游 service 名硬编码为
+  `openclaw-gateway.service`）
+- 符合 ADR 0005 原文"Rust 后端原生处理子进程编排"的架构主轴
+- M1 范围最小（无需处理 UAC / sudo / 卸载残留 service unit）
+- 不影响最终用户体验：Artifex Nexus 桌面壳本身就是常驻应用，gateway 跟壳同生命周期
+
+代价：
+- 用户关掉 Artifex Nexus 桌面 → gateway 也停 → DCC 内 MCP 连接断开。但这是符合用户心智的
+  （"我没开 Artifex Nexus，AI 当然不在")
+- 后续若需要"无壳常驻"模式，可在 M2+ 增量决策（候选 STORY S7 已留接口）
+
+### 与原决策的关系
+
+- 原决策 #2 #3（standalone Python + uv）保留：服务对象由"拉 OpenClaw"收敛为"跑 wrapper sidecar"
+- 原决策 #1 #4 #5（Tauri / NSIS+DMG / 签名分阶段）完全不变
+- 历史 vendor 子目录（`packages/adapters/openclaw/vendor/`）废弃，ADR 0002 同步增补"薄壳决策"小节

@@ -50,7 +50,7 @@ packages/
     └── web/                 # Artifex Nexus Web UI
 
 vendor/openclaw/             # fork 的 OpenClaw（安装到 ~/.artifexnexus/.openclaw/）
-installer/                   # 一键安装（双模式 link/copy）
+apps/desktop/installer-assets/ # 安装器资源（README + 空 scripts/templates 占位）
 ```
 
 ## 进入项目时 AI 必读顺序

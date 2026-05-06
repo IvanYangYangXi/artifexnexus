@@ -31,6 +31,33 @@
 - 新 ADR 必须在 `docs/decisions/README.md` 登记。
 - 新 Task 必须在 `docs/tasks/README.md` 登记并出现在看板视图。
 
+## 4.1 多级任务管理（EPIC / STORY / TASK）
+
+详见 `[[../../docs/development/task-management]]`。Agent 必须遵守：
+
+1. 三级体系：**EPIC（阶段/大特性）→ STORY（可交付子特性）→ TASK（具体编码任务）**。
+   层级靠卡片 frontmatter 的 `kind` 与 `parent` 体现，**不靠目录深度**；三者共用同一组生命周期目录（`backlog/ready/in-progress/review/done/archived`）。
+2. **状态迁移三处同步铁律**（每次必须同步 3 处）：
+   - 文件位置（`docs/tasks/<status>/`）
+   - frontmatter `status`
+   - `docs/tasks/board.md` 对应 Kanban 列
+   缺一即视为未完成迁移。详见 `[[../../docs/development/sdd-workflow]]` §3。
+3. **Kanban 列名必须首字母大写**：`Backlog / Ready / In Progress / Review / Done`，
+   与 frontmatter 小写值（`backlog/ready/in-progress/review/done`）逻辑等价。
+   Obsidian Kanban 插件不会按 frontmatter 自动归列，**必须手工编辑 `board.md`**。
+4. 编号空间：`EPIC-NNNN` / `STORY-NNNN` / `TASK-NNNN` 各自独立递增，跨目录不复用。
+5. **不允许在 `parent` 留空**（除 EPIC）；STORY 必须挂 EPIC，TASK 必须挂 STORY 或（极简场景）EPIC。
+6. **不允许 Agent 自标 done**：`review → done` 必须由人类触发。
+
+## 4.2 UI 先行（GUI 强约束）
+
+任何涉及 GUI 的 STORY / TASK，**开工前**必须先出 UI 结构 spec：
+
+1. 文件落位 `docs/specs/ui/<module>-structure.md`，至少包含：信息架构 / 状态机 / 关键交互 / 线框（ASCII 即可） / 与现有架构的对接点。
+2. 所属 EPIC 卡的"出口条件"必须显式包含"UI 结构 spec accepted"。
+3. 设计语言（design tokens / 基础组件）由 M3 阶段统一沉淀到 `docs/specs/ui/design-language.md` 与 `component-inventory.md`，**M3 之前的 UI 不要硬编码视觉**，留替换空间。
+4. 允许使用外部辅助（如 [ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)）做探索，**结论必须沉淀到 spec**，不能仅口述。
+
 ## 5. 文档编写原则
 
 | 类型 | 上限 | 拆分方式 |
@@ -57,3 +84,6 @@
 - [ ] 未顺手改无关代码
 - [ ] bug fix 有复现步骤
 - [ ] 新决策已沉淀为 ADR / task / spec
+- [ ] **状态迁移三处同步**（文件位置 / frontmatter.status / board.md 列）已全部完成
+- [ ] **GUI 任务**：UI 结构 spec 已 accepted，再写代码
+- [ ] **多级任务**：parent / children 双向可达，孤儿（无 parent 又非 EPIC）= 0

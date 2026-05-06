@@ -1,20 +1,183 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# ============================================================
+# Artifex Nexus — OpenSpec 配置
+# 本文件是 AI 助手的 spec-driven 开发入口。
+# 所有 spec / task / decision 的权威源在 docs/（Obsidian Vault），
+# 此处仅做索引引用，不复制内容。
+# ============================================================
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+context: |
+  ## 项目
+  Artifex Nexus — AI Agent ↔ DCC 的桥（The AI-Agent Bridge for Digital Creation）。
+  前身：artclaw_bridge（重构 fork）。
+  目标平台：OpenClaw（唯一首发，vendor 锁定版本）。
+  目标 DCC：Unreal Engine 5.7、Blender 5.1。
+
+  ## 技术栈
+  - 前端：TypeScript (React, strict mode), CSS Modules, Tauri (Rust)
+  - 后端/Python：Python 3.11+, pydantic v2, ruff (line-length=100)
+  - DCC 插件：C++ (UE), Python (Blender addon)
+  - 仓库形态：monorepo (pnpm + Turborepo + uv workspaces)
+  - 文档形态：Obsidian Vault (docs/)，单一信息源
+
+  ## 架构关键词
+  - 上行（聊天）：DCC → WebSocket RPC → OpenClaw Gateway
+  - 下行（工具）：Gateway → MCP JSON-RPC → DCC MCP Server
+  - 唯一 MCP 工具：run_python（Gateway 端自动加 mcp_<dcc>_ 前缀隔离）
+  - Skill ≠ Tool：Skill 是包，Tool 是包内被 @tool 装饰的函数
+  - 契约即源：跨进程数据结构在 packages/platform/contracts/schemas/ 定义 JSON Schema，派生 Python/TS
+
+  ## 分层依赖（单向，禁止反向）
+  apps/web → platform/contracts / platform/skill / platform/core
+  platform/cli → platform/contracts / platform/skill / platform/core
+  adapters/<platform> → platform/core + platform/contracts
+  dcc/<dcc> → platform/core + platform/skill + platform/contracts
+
+  ## 平台默认路径
+  - 锚定 ~/.artifexnexus/
+  - OpenClaw 隔离在 ~/.artifexnexus/.openclaw/
+  - 禁止使用 ~/.openclaw/、~/.artclaw/ 等旧路径
+
+  ## 开发流程
+  - SDD 工作流：docs/development/sdd-workflow.md（/sdd triage|align|implement|done）
+  - 任务三级体系：EPIC → STORY → TASK
+  - 状态迁移三处同步铁律：文件位置 / frontmatter.status / board.md 列
+  - 不允许 Agent 自标 done
+  - GUI 任务必须先出 docs/specs/ui/<module>-structure.md，再写代码
+  - 设计语言由 M3 统一，之前不硬编码视觉
+
+  ## 编码规范
+  - 代码注释中文，公共 API docstring 中英双语
+  - 代码文件 ≤ 500 行（黄金区 100–300）
+  - 文档 ≤ 2000 字/文件
+  - Conventional Commits
+
+# ============================================================
+# Spec 索引（权威源：docs/specs/）
+# ============================================================
+specs:
+  - path: docs/specs/系统架构设计.md
+    description: 系统架构设计（四层 SDK、上下行链路、MCP 工具最小化）
+  - path: docs/specs/install.md
+    description: 安装与分发规约
+  - path: docs/specs/skill-system.md
+    description: Skill 子系统设计（Skill ≠ Tool，@tool 装饰器，manifest.json）
+  - path: docs/specs/openclaw-wrapper.md
+    description: OpenClaw 包装器总览
+  - path: docs/specs/openclaw-wrapper-install.md
+    description: OpenClaw 安装/路径/分发底层规约
+  - path: docs/specs/openclaw-wrapper-runtime.md
+    description: OpenClaw 运行时（启停、端口探测、健康检查）
+  - path: docs/specs/openclaw-wrapper-ipc.md
+    description: OpenClaw 进程间通信
+  - path: docs/specs/openclaw-wrapper-dev.md
+    description: OpenClaw 开发模式
+  - path: docs/specs/ui/installer-structure.md
+    description: 安装向导 UI 结构（信息架构 / 7 状态机 / 三按钮规则 / 线框）
+
+# ============================================================
+# 决策索引（权威源：docs/decisions/）
+# ============================================================
+decisions:
+  - path: docs/decisions/
+    description: ADR 目录，关键决策记录
+
+# ============================================================
+# 任务体系（权威源：docs/tasks/）
+# ============================================================
+tasks:
+  board: docs/tasks/board.md
+  tree: docs/tasks/tree.md
+  workflow: docs/development/sdd-workflow.md
+  management: docs/development/task-management.md
+
+# ============================================================
+# 当前活跃 EPIC
+# ============================================================
+active_epic:
+  id: EPIC-0000
+  title: M0 · 安装向导框架
+  path: docs/tasks/backlog/EPIC-0000-m0-installer-wizard.md
+  status: backlog
+  children:
+    - id: STORY-0001
+      title: 安装向导 UI 结构 spec
+      path: docs/tasks/done/STORY-0001-installer-ui-structure-spec.md
+      status: done
+    - id: STORY-0002
+      title: 安装清单 UI 骨架
+      path: docs/tasks/done/STORY-0002-installer-list-shell.md
+      status: done
+    - id: STORY-0003
+      title: 安装项状态机与依赖顺序
+      path: docs/tasks/done/STORY-0003-installer-status-state-machine.md
+      status: done
+    - id: STORY-0004
+      title: DCC 子项展开
+      path: docs/tasks/done/STORY-0004-installer-dcc-expandable.md
+      status: done
+    - id: STORY-0005
+      title: Tauri 构建产物
+      path: docs/tasks/done/STORY-0005-installer-tauri-build-artifact.md
+      status: done
+    - id: STORY-0006
+      title: installer/ 并入 apps/desktop
+      path: docs/tasks/done/STORY-0006-merge-installer-into-desktop.md
+      status: done
+
+# ============================================================
+# 路线图（权威源：docs/vision/roadmap.md）
+# ============================================================
+roadmap:
+  path: docs/vision/roadmap.md
+  milestones:
+    - id: M0
+      title: 安装向导框架
+      epic: EPIC-0000
+    - id: M1
+      title: 基地改造 · 一键安装
+      epic: EPIC-0001
+    - id: M2
+      title: 骨架贯通 · Blender MCP
+      epic: EPIC-0002
+    - id: M3
+      title: Web UI 框架 + Chat
+      epic: EPIC-0003
+    - id: M4
+      title: Skill 系统
+      epic: EPIC-0004
+    - id: M5
+      title: Tool 系统
+      epic: EPIC-0005
+    - id: M6
+      title: 定制记忆
+      epic: EPIC-0006
+    - id: M7
+      title: 多 DCC 接入 + 内嵌 Chat
+      epic: EPIC-0007
+    - id: M8
+      title: ComfyUI MCP + Workflow 管理
+      epic: EPIC-0008
+    - id: M9
+      title: 扩展 DCC（SP/SD/Houdini）
+      epic: EPIC-0009
+
+# ============================================================
+# Per-artifact 规则
+# ============================================================
+rules:
+  proposal:
+    - 接单前必须先追问设计细节（Clarify-First），每问给推荐答案
+    - 未达成共识前不动代码
+  design:
+    - 改架构必先改 docs/specs/，再改 packages/*
+    - 重大决策必须新建 ADR 到 docs/decisions/
+  specs:
+    - 所有 spec 的权威源在 docs/specs/，openspec/specs/ 仅做 delta 索引
+    - GUI spec 必须包含：信息架构 / 状态机 / 交互规则 / 线框 / 对接点
+  tasks:
+    - 任务三级体系 EPIC → STORY → TASK
+    - 状态迁移必须同步三处：文件位置 / frontmatter.status / board.md
+    - 不允许 Agent 自标 done
+    - 代码文件 ≤ 500 行，文档 ≤ 2000 字
