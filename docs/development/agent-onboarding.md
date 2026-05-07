@@ -81,7 +81,41 @@ docs/vision/north-star.md
 | `/sdd implement [[TASK-NNNN-...]]` | 规格 → 代码（迁 `in-progress/` → `review/`） |
 | `/sdd done [[TASK-NNNN-...]]` | 合并 → 归档（迁 `done/`，追 changelog） |
 
-## 5. 故障排查
+## 5. OpenSpec 软链初始化（新机器必做）
+
+OpenSpec 入口在 `openspec/`，但所有内容的真身在 `docs/`（单一信息源）。
+为避免双源漂移，`openspec/changes/` 与 `openspec/specs/` 的实际文件由本机软链生成，
+**不进 git**。
+
+### 一键初始化
+
+```bash
+pnpm openspec:link        # 创建/刷新所有软链（首次拉仓后必跑）
+pnpm openspec:check       # 仅验证不修改（CI / 健康检查）
+pnpm openspec:clean       # 删除所有软链（仅删 link，不动 docs/ 真身）
+```
+
+### Windows 注意事项
+
+- Node 的 `fs.symlinkSync` 在 Win 上**对文件需要管理员权限或开启"开发者模式"**
+- 推荐：**设置 → 隐私和安全性 → 开发者选项 → 开发者模式开启**（一次性，无需管理员跑命令）
+- 否则脚本会报 `EPERM`，请按提示二选一
+
+### 链接清单维护
+
+软链清单在 `scripts/setup-openspec-links.mjs` 顶部的 `LINKS` 常量。
+新增 OpenSpec change 时手工加一条 `{ link, target, type, note? }` 即可。
+
+### 故障排查
+
+| 症状 | 解法 |
+|---|---|
+| `EPERM` 报错 | Win 开发者模式开启，或管理员权限运行 |
+| `MISSING` 报错 | docs/ 里的目标文件路径错了，校对脚本里的 target |
+| `DRIFT` 报错 | 软链指向不一致，再跑一次 `pnpm openspec:link` 自动修 |
+| Obsidian 在 `openspec/` 看到的是空目录 | 你还没跑 link 脚本 |
+
+## 6. 故障排查
 
 | 症状 | 原因 | 解法 |
 |---|---|---|

@@ -17,6 +17,8 @@
 8. **接单先追问设计细节**、给推荐答案；**只做任务要求的事**，不顺手重构。
 9. **SDD 流程**：想法→任务→规格→实现→合并，一律按 `docs/development/sdd-workflow.md`；
    收到 `/sdd triage|align|implement|done` 口令即进入对应阶段。
+10. **改 `apps/` 必跑对应 `tauri build` / `pnpm build`，不能只跑 `pnpm build` 然后说"编译完了"**。
+    详见 `.ai/rules/40-build-and-release.md`。汇报时必须给出 `.exe` / installer 的大小与时间戳作为证据。
 
 ## 常用入口
 
@@ -33,11 +35,17 @@
 ```bash
 pnpm install                                  # 安装 JS/TS 依赖
 uv sync --all-packages                        # 安装 Python 依赖（workspace）
-pnpm build                                    # turbo 构建所有 TS 包
+pnpm build                                    # turbo 构建所有 TS 包（仅前端 / Node 包；不出 .exe）
 pnpm py:test                                  # pytest
 pnpm dev --filter=@artifex-nexus/web          # 启 Web UI
 artifex install --link                        # 部署到 ~/.artifexnexus/（源码引用模式）
 artifex doctor                                # 健康检查
+
+# 桌面壳：改了 apps/desktop/** 必须用下面这条出 .exe / installer
+# （仅跑上面的 `pnpm build` 不算编译完成，详见 .ai/rules/40-build-and-release.md）
+set PATH=%USERPROFILE%\.cargo\bin;%PATH%      # Win：cargo 不在 PATH 时先注入
+pnpm -C apps/desktop tauri build              # 出 src-tauri/target/release/artifex-nexus-desktop.exe
+                                              #   + bundle/nsis/Artifex Nexus_<ver>_x64-setup.exe
 ```
 
 ## 回答风格

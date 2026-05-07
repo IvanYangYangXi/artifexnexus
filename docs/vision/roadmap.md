@@ -48,7 +48,7 @@ status: accepted
 ### M1 · 基地改造 · 一键安装
 
 - **目标**：把 M0 的向导接上真实安装逻辑 —— OpenClaw vendor 落位到 `~/.artifexnexus/.openclaw/`，
-  端口探测（14523 起），配置文件生成，启停守护。
+  端口探测（19789 起），配置文件生成，启停守护。
 - **依赖**：[[../specs/openclaw-wrapper-install]]、[[../specs/openclaw-wrapper-runtime]]。
 - **可分发定义**：用户下载安装包 → 双击 → 首启向导 → 点 "安装 OpenClaw" → 能看到 OpenClaw 起来并健康检查通过。
 - **出口条件**：[[../tasks/review/TASK-0001-openclaw-wrapper]] 的 M3+ 验收合并。

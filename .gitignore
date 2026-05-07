@@ -66,3 +66,16 @@ apps/desktop/src-tauri/target/
 # --- Logs ---
 logs/
 *.log
+
+# --- OpenSpec (本机 junction，docs/ 是单一信息源；详见 scripts/setup-openspec-links.mjs) ---
+# 只追踪 openspec/config.yaml；changes/ 与 specs/ 子目录里的内容由本地脚本生成软链
+openspec/changes/*
+openspec/specs/*
+!openspec/changes/.gitkeep
+!openspec/specs/.gitkeep
+!openspec/changes/archive/
+!openspec/changes/archive/.gitkeep
+
+# --- Spike 临时产物（大文件 + 可重生，不进 git）---
+docs/specs/_spikes/*.json
+!docs/specs/_spikes/.gitkeep

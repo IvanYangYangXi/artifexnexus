@@ -15,3 +15,4 @@ created: 2026-05-02
 | `[[0004-contracts-as-source-of-truth]]` | Contracts as Source of Truth | accepted |
 | `[[0005-desktop-distribution-tauri-standalone-python]]` | 桌面分发：Tauri + 内置 standalone Python | accepted |
 | `[[0006-scope-converge-to-openclaw]]` | 项目范围收敛到 OpenClaw 单平台 | accepted |
+| `[[0007-windows-openclaw-shell-spawn]]` | Windows 上 spawn `openclaw` CLI 的统一约定（npm shell wrapper / `.cmd` / `CREATE_NO_WINDOW`） | accepted |

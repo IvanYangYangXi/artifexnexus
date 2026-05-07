@@ -9,6 +9,9 @@ tags:
 
 ## Backlog
 
+- [ ] [[STORY-0015-openclaw-settings-panel]]
+- [ ] [[STORY-0016-openclaw-web-ui-entry]]
+- [ ] [[STORY-0017-openclaw-agent-preset]]
 - [ ] [[EPIC-0000-m0-installer-wizard]]
 - [ ] [[EPIC-0002-m2-blender-mcp-e2e]]
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
@@ -30,10 +33,17 @@ tags:
 
 ## Review
 
-- [ ] [[STORY-0007-openclaw-spec-realign]]
+- [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
+- [ ] [[STORY-0013-openclaw-status-ui]]
+- [ ] [[STORY-0012-openclaw-port-conflict]]
+- [ ] [[STORY-0011-openclaw-health-check]]
+- [ ] [[STORY-0010-openclaw-runtime-spawn]]
+- [ ] [[STORY-0009-openclaw-bootstrap-config]]
+- [ ] [[STORY-0008-thin-wrapper-installer]]
 
 ## Done
 
+- [x] [[STORY-0007-openclaw-spec-realign]]
 - [x] [[TASK-0001-openclaw-wrapper]]
 - [x] [[STORY-0006-merge-installer-into-desktop]]
 - [x] [[STORY-0005-installer-tauri-build-artifact]]

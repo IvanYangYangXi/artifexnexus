@@ -73,8 +73,14 @@ specs:
     description: OpenClaw 进程间通信
   - path: docs/specs/openclaw-wrapper-dev.md
     description: OpenClaw 开发模式
+  - path: docs/specs/openclaw-upstream-survey.md
+    description: OpenClaw 上游调研报告（v2026.5.4 事实底，含 TBD 集合）
+  - path: docs/specs/openclaw-settings-panel.md
+    description: OpenClaw 设置面板（9 大 LLM provider 矩阵 / 字段表 / 状态机 / sidecar 对接）
+  - path: docs/specs/openclaw-agent-preset.md
+    description: Artifex Nexus 默认 agent 预设（system prompt v1 / 注入策略 / 幂等规则）
   - path: docs/specs/ui/installer-structure.md
-    description: 安装向导 UI 结构（信息架构 / 7 状态机 / 三按钮规则 / 线框）
+    description: 安装向导 UI 结构（信息架构 / 7 状态机 / 三按钮规则 / 线框；§11 OpenClaw 行 4 按钮）
 
 # ============================================================
 # 决策索引（权威源：docs/decisions/）
@@ -96,35 +102,73 @@ tasks:
 # 当前活跃 EPIC
 # ============================================================
 active_epic:
-  id: EPIC-0000
-  title: M0 · 安装向导框架
-  path: docs/tasks/backlog/EPIC-0000-m0-installer-wizard.md
-  status: backlog
+  id: EPIC-0001
+  title: M1 · 基地改造 · 一键安装
+  path: docs/tasks/ready/EPIC-0001-m1-onboarding-install.md
+  status: ready
   children:
-    - id: STORY-0001
-      title: 安装向导 UI 结构 spec
-      path: docs/tasks/done/STORY-0001-installer-ui-structure-spec.md
+    - id: STORY-0007
+      title: OpenClaw spec realign（上游调研 + spec 校正）
+      path: docs/tasks/done/STORY-0007-openclaw-spec-realign.md
       status: done
-    - id: STORY-0002
-      title: 安装清单 UI 骨架
-      path: docs/tasks/done/STORY-0002-installer-list-shell.md
-      status: done
-    - id: STORY-0003
-      title: 安装项状态机与依赖顺序
-      path: docs/tasks/done/STORY-0003-installer-status-state-machine.md
-      status: done
-    - id: STORY-0004
-      title: DCC 子项展开
-      path: docs/tasks/done/STORY-0004-installer-dcc-expandable.md
-      status: done
-    - id: STORY-0005
-      title: Tauri 构建产物
-      path: docs/tasks/done/STORY-0005-installer-tauri-build-artifact.md
-      status: done
-    - id: STORY-0006
-      title: installer/ 并入 apps/desktop
-      path: docs/tasks/done/STORY-0006-merge-installer-into-desktop.md
-      status: done
+    - id: STORY-0008
+      title: 薄壳安装器 — install-cli.sh + NDJSON 进度
+      path: docs/tasks/review/STORY-0008-thin-wrapper-installer.md
+      status: review
+    - id: STORY-0009
+      title: bootstrap + openclaw.json
+      path: docs/tasks/review/STORY-0009-openclaw-bootstrap-config.md
+      status: review
+    - id: STORY-0010
+      title: runtime 拉起 gateway
+      path: docs/tasks/review/STORY-0010-openclaw-runtime-spawn.md
+      status: review
+    - id: STORY-0011
+      title: 健康检查三通道
+      path: docs/tasks/review/STORY-0011-openclaw-health-check.md
+      status: review
+    - id: STORY-0012
+      title: 端口冲突自愈
+      path: docs/tasks/review/STORY-0012-openclaw-port-conflict.md
+      status: review
+    - id: STORY-0013
+      title: 安装清单 UI 接真实状态
+      path: docs/tasks/review/STORY-0013-openclaw-status-ui.md
+      status: review
+    - id: STORY-0014
+      title: 升级通道接口预留
+      path: docs/tasks/review/STORY-0014-openclaw-upgrade-scaffold.md
+      status: review
+    - id: STORY-0015
+      title: OpenClaw 设置面板 · 9 大 LLM provider
+      path: docs/tasks/backlog/STORY-0015-openclaw-settings-panel.md
+      status: backlog
+    - id: STORY-0016
+      title: OpenClaw Web UI 入口按钮 + URL 探测
+      path: docs/tasks/backlog/STORY-0016-openclaw-web-ui-entry.md
+      status: backlog
+    - id: STORY-0017
+      title: Artifex Nexus 默认 agent 预设自动注入
+      path: docs/tasks/backlog/STORY-0017-openclaw-agent-preset.md
+      status: backlog
+
+# ============================================================
+# OpenSpec changes（变更提案）— 索引型，权威源在 docs/
+# ============================================================
+changes:
+  - id: epic-0001-batch2-openclaw-settings-webui-agent
+    path: openspec/changes/epic-0001-batch2-openclaw-settings-webui-agent/
+    status: in-progress
+    epic: EPIC-0001
+    stories:
+      - STORY-0015
+      - STORY-0016
+      - STORY-0017
+    inbox: docs/inbox/EPIC-0001-batch2-openclaw-settings-webui-agent.md
+    capabilities:
+      - openclaw-settings-panel
+      - openclaw-web-ui-entry
+      - openclaw-agent-preset
 
 # ============================================================
 # 路线图（权威源：docs/vision/roadmap.md）

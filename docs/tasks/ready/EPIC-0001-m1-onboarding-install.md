@@ -8,7 +8,7 @@ owner: "@ivan"
 assignee: pair
 estimate: 2w
 created: 2026-05-04
-updated: 2026-05-06
+updated: 2026-05-07
 parent: "[[../../vision/roadmap]]"
 milestone: M1
 related_adr: [0002, 0005, 0006]
@@ -16,6 +16,8 @@ related_specs:
   - "[[../../specs/openclaw-wrapper]]"
   - "[[../../specs/openclaw-wrapper-install]]"
   - "[[../../specs/openclaw-wrapper-runtime]]"
+  - "[[../../specs/openclaw-settings-panel]]"
+  - "[[../../specs/openclaw-agent-preset]]"
 related_packages:
   - "apps/desktop"
   - "packages/adapters/openclaw/wrapper"
@@ -55,23 +57,27 @@ tags: [epic, installer, openclaw, M1]
 
 ## 子节点（STORY 列表）
 
-> S1–S6 实现型 STORY 等 STORY-0007 调研 done 后，由人类启动 align 拆出。
-> 候选拆分（pending STORY-0007 校正后，已按薄壳决策刷新）：
-> - **S1 薄壳安装器**：调用上游 `install-cli.sh --prefix ~/.artifexnexus/.openclaw/cli/v2026.5.4/`，
->   不入用户 PATH；版本号由 `OPENCLAW_VERSION` env 控制（默认 `v2026.5.4`），CLI 按版本分目录支持灰度回滚
-> - **S2 bootstrap 真实初始化** `~/.artifexnexus/.openclaw/{cli/<ver>/,state,workspace,openclaw.json}`，
->   silent 写入 `gateway.port=19789` + `version=v2026.5.4` + 自动生成 token + provider 占位，跳过 `openclaw onboard`
->   （配置字段须按 v2026.5.4 schema 实测，不照搬 artclaw 历史脚本）
-> - **S3 runtime 拉起 gateway 子进程**：Tauri 主进程 spawn `cli/v2026.5.4/bin/openclaw gateway start --port 19789`，
->   注入三 env 变量；不注册 systemd / schtasks；stdout/stderr 回传到 desktop 日志面板
-> - **S4 健康检查**：HTTP probe `127.0.0.1:19789` + WebSocket bind 探测 + `state/lock/` 锁文件三通道，
->   doctor 4 项（端口可达 / 锁正常 / 配置存在 / token 有效）
-> - **S5 端口冲突处理**：检测 19789 被占→提示用户改 19799/19809（仍保 +20 派生隔离），写回 `openclaw.json`
-> - **S6 安装清单接入**：sidecar JSON-RPC 暴露 `openclaw.status`，安装清单 OpenClaw 行接真实状态
-> - **S7（可选）版本升级通道**：`openclaw upgrade --to v2026.X.Y` 命令，复用 S1 装到新 prefix 子目录，
->   写回 `openclaw.json.version`，旧版本保留 N 个用于回滚（M1 范围内仅留接口，实际升级流到 M2+ 验证）
+> 7 个实现型 STORY 已正式拆分（2026-05-06，STORY-0007 align 完成后产出）。
+> 2026-05-07 第二批需求新增 S8/S9/S10（设置面板 / Web UI 入口 / agent 预设）。
+> S1 已入 ready，可立即 implement；S2–S7 在 backlog，按依赖顺序 promote。
 
-- [ ] [[../review/STORY-0007-openclaw-spec-realign]] — 上游调研 + spec 校正（前置，待 review）
+| # | STORY | 状态 | 估时 | 依赖 |
+|---|---|---|---|---|
+| S1 | [[../review/STORY-0008-thin-wrapper-installer]] — 薄壳安装器 | Review | 0.5d | — |
+| S2 | [[../review/STORY-0009-openclaw-bootstrap-config]] — bootstrap + openclaw.json | Review | 1d | S1 |
+| S3 | [[../review/STORY-0010-openclaw-runtime-spawn]] — runtime 拉起 gateway | Review | 1d | S1 + S2 |
+| S4 | [[../review/STORY-0011-openclaw-health-check]] — 健康检查三通道 | Review | 1d | S3 |
+| S5 | [[../review/STORY-0012-openclaw-port-conflict]] — 端口冲突自愈 | Review | 0.5d | S2 |
+| S6 | [[../review/STORY-0013-openclaw-status-ui]] — 安装清单 UI 接真实状态 | Review | 0.5d | S4 |
+| S7 | [[../review/STORY-0014-openclaw-upgrade-scaffold]] — 升级通道接口预留 | Review | 0.5d | S3 |
+| S8 | [[../backlog/STORY-0015-openclaw-settings-panel]] — 设置面板 · 9 大 LLM provider | Backlog | 2d | S2 + S6 |
+| S9 | [[../backlog/STORY-0016-openclaw-web-ui-entry]] — Web UI 入口按钮 + URL 探测 | Backlog | 0.5d | S3 + S6 |
+| S10 | [[../backlog/STORY-0017-openclaw-agent-preset]] — Artifex Nexus 默认 agent 预设 | Backlog | 1.5d | S2 |
+| **合计** | | **S1–S7 Review，S8–S10 Backlog** | **9d** | EPIC-0001 estimate=2w，**剩余 1d buffer** |
+
+**前置（已 archive）**：
+
+- [x] [[../done/STORY-0007-openclaw-spec-realign]] — 上游调研 + spec 校正
 
 ## 进展日志
 
@@ -81,3 +87,8 @@ tags: [epic, installer, openclaw, M1]
 - 2026-05-06 align 补充（用户提示）：再加 2 项约束—— ⑤ OpenClaw 版本号一等公民化（默认 v2026.5.4，`OPENCLAW_VERSION` env + CLI 按版本分子目录支持灰度回滚）⑥ artclaw 历史 `setup_openclaw_env.py` 仅作思路参考，所有 `openclaw.json` 字段须按 v2026.5.4 schema 实测；候选 STORY 拆分扩为 S1–S7（新增 S7 版本升级通道，M1 仅留接口）
 - 2026-05-06 align 风险前置：调研确认 install-cli.sh 原生支持 `--version` / `--prefix` / `--no-onboard` / `--json`（NDJSON）/ `--node-version` 全部所需 flag，**零 fallback**；S1 复杂度由"中"降为"低"，估时 1d → 0.5d
 - 2026-05-06 STORY-0007 implement 完成主体：交付 `[[../../specs/openclaw-upstream-survey]]`（10 节事实底）+ 3 spec patch（install / runtime / dev）+ ADR 0005 增量小节（Node runtime 共存 + M1 不注册服务）+ board.md / STORY-0007 推进至 in-progress；STORY-0007 待 review 后归档，本 EPIC 即可拆 S1–S7 实现型 STORY 进入 implement
+- 2026-05-06 STORY-0007 archive（用户决策跳过 review 直接归档 → done/）；EPIC-0001 align 全部完成，所有前置 spec/ADR 已与上游事实对齐，所有反链已闭合；可正式拆 S1–S7 实现型 STORY 进入 implement
+- 2026-05-06 S1–S7 STORY 拆分完成：STORY-0008（S1，ready）+ STORY-0009 ~ 0014（S2–S7，backlog），合计 5d 实现工作量，与 EPIC-0001 estimate=2w 留 5d buffer；S1 [[../ready/STORY-0008-thin-wrapper-installer]] 可立即启 implement
+- 2026-05-07 第二批需求 align（用户提示）：在 EPIC-0001 阶段追加 3 条新需求—— ⑦ 设置面板（9 大 LLM provider 多预设管理，落 `openclaw.json` 的 `models.<provider_id>`）⑧ 打开 OpenClaw Web UI 的入口（`tauri-plugin-shell` 调默认浏览器，URL 由 sidecar 探测）⑨ 安装后自动注入 Artifex Nexus 默认 agent 预设（含项目定位 / DCC / MCP 工具 / Skill / 安全边界）；docs-first 已落：survey §11 加 T6/T7/T8 三项 spike + §12 调研挂钩、新建 [[../../specs/openclaw-settings-panel]] / [[../../specs/openclaw-agent-preset]] 两份 spec、[[../../specs/ui/installer-structure]] 加 §11 OpenClaw 行 4 按钮规则、拆出 STORY-0015/0016/0017 进 backlog；合计新增 4d，原 5d buffer 内可吸收，EPIC estimate 仍为 2w
+- 2026-05-07 OpenSpec 启用：方案三（不进 git，本机 junction）→ scripts/setup-openspec-links.mjs + pnpm openspec:link/check/clean，docs/ 仍是单一信息源；openspec/changes/<id>/ 6 个文件全部软链 docs/，零双源
+- 2026-05-07 T6/T7/T8 spike 一次性完成：实测本机已装的 OpenClaw v2026.5.4，落 1.8MB JSON Schema 到 docs/specs/_spikes/，回填 [[../../specs/openclaw-upstream-survey]] §13/14/15；**重大修正**：① 模型与鉴权解耦（`models.providers` + `auth.profiles`，原 spec "9 provider 一张表"假设错误）② Control UI 复用 gateway.port，CLI `dashboard --no-open` 一行命令拿 URL（4 级 fallback 简化为单命令）③ agent 预设走 `agents.list[]` + `systemPromptOverride` + `skills`，注入必须用 `config patch --stdin`（先 get 后合并避免数组 replace）；驱动 [[../../specs/openclaw-settings-panel]] 与 [[../../specs/openclaw-agent-preset]] 全部重写为 v2-post-spike，3 个 STORY 子任务按真相重新拆分，spike 状态置 ✅

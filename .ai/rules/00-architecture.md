@@ -67,3 +67,15 @@ DCC 内任何 API 调用必须在主线程执行。MCP 处理线程通过 `comma
 | `dcc/*` 内 MCP Server | 无 | 标准 MCP，不要加私有扩展 |
 | `adapters/openclaw/uplink` | 强 | 换平台 = 新建 `adapters/<name>/uplink/` |
 | `adapters/openclaw/gateway-plugin` | 强 | OpenClaw 专属，不要复用到其他平台 |
+
+## 9. 每阶段可分发铁律（来自 roadmap.md 核心原则 1）
+
+**每个里程碑末尾必须产出可双击运行的 Tauri artifact**。具体定义见
+`docs/vision/roadmap.md` 各阶段的"可分发定义"行。
+
+Agent 在 implement 阶段结束时必须自检：
+- [ ] `pnpm tauri build` 是否成功出包？
+- [ ] 前端 UI 是否接上了真实逻辑（非桩数据）？
+- [ ] 端到端流程是否贯通（用户双击 → 操作 → 看到预期结果）？
+
+若以上任一项不满足，该阶段 implement 不算完成，不得推进到下一阶段。

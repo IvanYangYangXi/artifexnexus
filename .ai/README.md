@@ -25,6 +25,7 @@
 | `rules/10-coding-style.md` | 命名、文件结构、风格、测试 |
 | `rules/20-docs-workflow.md` | Obsidian Vault 协作规则 |
 | `rules/30-agent-behavior.md` | **AI 行为准则**：对齐优先、最小改动、文档代码交叉引用、文件行数上限 |
+| `rules/40-build-and-release.md` | **编译与发布**：apps 改动必跑对应 build 命令；`pnpm build` ≠ `pnpm tauri build` |
 
 ## 常见 AI 任务速查
 

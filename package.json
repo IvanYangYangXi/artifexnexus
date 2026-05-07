@@ -18,7 +18,10 @@
     "py:install": "uv sync --all-packages",
     "py:test": "uv run pytest",
     "py:lint": "uv run ruff check .",
-    "py:format": "uv run ruff format ."
+    "py:format": "uv run ruff format .",
+    "openspec:link": "node scripts/setup-openspec-links.mjs",
+    "openspec:check": "node scripts/setup-openspec-links.mjs --check",
+    "openspec:clean": "node scripts/setup-openspec-links.mjs --clean"
   },
   "devDependencies": {
     "turbo": "^2.1.0",
