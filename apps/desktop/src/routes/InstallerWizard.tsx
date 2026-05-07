@@ -1,11 +1,13 @@
 // 安装向导页面容器：路由入口，渲染安装清单 + 状态机 + 依赖门禁。
 // Installer wizard page container: route entry, renders install list + state machine + dependency gate.
 
-import { useReducer, createContext, useContext, type Dispatch } from "react";
+import { useReducer, createContext, useContext, useEffect, useCallback, type Dispatch } from "react";
 import type { InstallItem, InstallItemState } from "../features/installer/installer.types";
 import { FIXTURE_ITEMS } from "../features/installer/installer.fixtures";
 import { t } from "../features/installer/installer.i18n";
 import InstallList from "../features/installer/InstallList";
+import LogPanel, { type LogEntry } from "../features/installer/LogPanel";
+import { getOpenClawStatus } from "../ipc/openclaw";
 import styles from "./InstallerWizard.module.css";
 
 const zh = t.zhCN;
@@ -15,6 +17,7 @@ const zh = t.zhCN;
 /** 安装向导全局状态 */
 export interface InstallerState {
   items: InstallItem[];
+  logs: LogEntry[];
 }
 
 export type InstallerAction =
@@ -23,12 +26,14 @@ export type InstallerAction =
   | { type: "DETECT"; id: string }
   | { type: "INSTALL_START"; id: string }
   | { type: "INSTALL_DONE"; id: string }
-  | { type: "INSTALL_FAIL"; id: string }
+  | { type: "INSTALL_FAIL"; id: string; error?: string }
   | { type: "DETECT_CHILD"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_START"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_DONE"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_FAIL"; parentId: string; childIndex: number }
-  | { type: "DELETE_CHILD"; parentId: string; childIndex: number };
+  | { type: "DELETE_CHILD"; parentId: string; childIndex: number }
+  | { type: "ADD_LOG"; entry: LogEntry }
+  | { type: "CLEAR_LOGS" };
 
 /** 检测桩：随机走状态流。
  *  - ComfyUI 固定 unavailable
@@ -69,11 +74,20 @@ function installerReducer(
         ),
       };
 
+    case "ADD_LOG":
+      return {
+        ...state,
+        logs: [...state.logs.slice(-199), action.entry], // 保留最后 200 行
+      };
+
+    case "CLEAR_LOGS":
+      return { ...state, logs: [] };
+
     case "DETECT": {
       const item = state.items.find((it) => it.id === action.id);
       if (!item) return state;
       const patch = simulateDetect(item, state.items);
-      if (Object.keys(patch).length === 0) return state; // 无变更（如 pending 保持）
+      if (Object.keys(patch).length === 0) return state;
       return {
         ...state,
         items: state.items.map((it) =>
@@ -107,7 +121,9 @@ function installerReducer(
       return {
         ...state,
         items: state.items.map((it) =>
-          it.id === action.id ? { ...it, state: "failed" } : it,
+          it.id === action.id
+            ? { ...it, state: "failed" as const, errorMessage: action.error || "安装失败" }
+            : it,
         ),
       };
 
@@ -191,6 +207,7 @@ function installerReducer(
 const InstallerContext = createContext<{
   state: InstallerState;
   dispatch: Dispatch<InstallerAction>;
+  addLog: (itemId: string, level: LogEntry["level"], message: string, childLabel?: string) => void;
 } | null>(null);
 
 /** 获取安装向导上下文（仅限 InstallerWizard 子树内使用） */
@@ -223,11 +240,67 @@ export function isInstallGated(item: InstallItem, items: InstallItem[]): boolean
 function InstallerWizard() {
   const [state, dispatch] = useReducer(installerReducer, {
     items: FIXTURE_ITEMS,
+    logs: [],
   });
 
+  // 页面初始化时查询 OpenClaw 真实状态
+  useEffect(() => {
+    void (async () => {
+      try {
+        const status = await getOpenClawStatus();
+        let newState: InstallItem["state"];
+        if (status.gateway_running) {
+          newState = "installed";
+        } else if (status.cli_installed) {
+          newState = status.version_mismatch ? "update-available" : "installed";
+        } else {
+          newState = "not-installed";
+        }
+        dispatch({
+          type: "UPDATE_ITEM",
+          id: "openclaw",
+          patch: { state: newState },
+        });
+      } catch {
+        dispatch({
+          type: "UPDATE_ITEM",
+          id: "openclaw",
+          patch: { state: "not-installed" },
+        });
+      }
+    })();
+  }, []); // 仅在挂载时执行一次
+
   const handleGlobalDetect = () => {
-    // 全局检测：对所有条目依次 dispatch DETECT
+    // OpenClaw：真实状态查询
+    void (async () => {
+      try {
+        const status = await getOpenClawStatus();
+        let newState: InstallItem["state"];
+        if (status.gateway_running) {
+          newState = "installed";
+        } else if (status.cli_installed) {
+          newState = status.version_mismatch ? "update-available" : "installed";
+        } else {
+          newState = "not-installed";
+        }
+        dispatch({
+          type: "UPDATE_ITEM",
+          id: "openclaw",
+          patch: { state: newState },
+        });
+      } catch {
+        dispatch({
+          type: "UPDATE_ITEM",
+          id: "openclaw",
+          patch: { state: "not-installed" },
+        });
+      }
+    })();
+
+    // 其他条目：桩检测
     for (const item of state.items) {
+      if (item.id === "openclaw") continue;
       dispatch({ type: "DETECT", id: item.id });
     }
   };
@@ -240,8 +313,48 @@ function InstallerWizard() {
     console.log("[installer] finish");
   };
 
+  /** 添加日志条目 */
+  const addLog = useCallback(
+    (itemId: string, level: LogEntry["level"], message: string, childLabel?: string) => {
+      dispatch({
+        type: "ADD_LOG",
+        entry: {
+          time: new Date().toISOString(),
+          itemId,
+          childLabel,
+          level,
+          message,
+        },
+      });
+    },
+    [dispatch],
+  );
+
+  /** 清空日志 */
+  const clearLogs = useCallback(() => {
+    dispatch({ type: "CLEAR_LOGS" });
+  }, [dispatch]);
+
+  /** 日志面板重试：触发对应项的安装 */
+  const handleLogRetry = useCallback(
+    (itemId: string) => {
+      // 通过 context 让 InstallItemRow 处理
+      // 这里直接 dispatch INSTALL_START，由 InstallItemRow 的 useEffect 或事件处理
+      // 简化：找到对应项并触发安装（通过模拟点击）
+      const item = state.items.find((it) => it.id === itemId);
+      if (item && item.state === "failed") {
+        // 重置为 not-installed 让用户可以重新点击安装
+        dispatch({ type: "UPDATE_ITEM", id: itemId, patch: { state: "not-installed", errorMessage: undefined } });
+      }
+    },
+    [dispatch, state.items],
+  );
+
+  // 通过 context 暴露 addLog
+  const contextValue = { state, dispatch, addLog };
+
   return (
-    <InstallerContext.Provider value={{ state, dispatch }}>
+    <InstallerContext.Provider value={contextValue}>
       <main className={styles.page}>
         {/* 标题栏 */}
         <header className={styles.header}>
@@ -275,6 +388,13 @@ function InstallerWizard() {
         <section className={styles.body}>
           <InstallList items={state.items} />
         </section>
+
+        {/* 事件/日志面板 */}
+        <LogPanel
+          entries={state.logs}
+          onClear={clearLogs}
+          onRetry={handleLogRetry}
+        />
       </main>
     </InstallerContext.Provider>
   );

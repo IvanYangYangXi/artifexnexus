@@ -18,6 +18,7 @@ export const t = {
     btnInstalling: "安装中…",
     btnReinstall: "重装",
     btnRetry: "重试",
+    btnWebUI: "Web UI",
 
     // 状态徽章
     statusUnavailable: "不可用",
@@ -44,6 +45,10 @@ export const t = {
     // 依赖门禁 tooltip
     tooltipOpenClawRequired: "需先安装 OpenClaw",
     tooltipInstalling: "安装中，请稍候…",
+    tooltipWebUiRequiresInstall: "请先安装 OpenClaw",
+    tooltipWebUiRequiresGateway: "Gateway 未运行，请先启动",
+    tooltipWebUiUnavailable: "当前 OpenClaw 版本未提供 Web UI",
+    tooltipWebUiOpening: "正在获取 Web UI 地址…",
 
     // 子项相关
     childSummary: "已装 {N} · 可用 {M} · 已配置 {K}",

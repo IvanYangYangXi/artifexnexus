@@ -55,11 +55,32 @@ impl SidecarClient {
         cmd.arg(sidecar_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::piped()); // 不 inherit，避免弹出控制台窗口
+
+        // Windows: 隐藏控制台窗口（CREATE_NO_WINDOW = 0x08000000）
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
         // 注入隔离环境变量
         for (key, value) in env_vars {
             cmd.env(key, value);
+        }
+
+        // 将 sidecar.py 所在目录加入 PYTHONPATH，确保相对导入可用
+        if let Some(parent) = std::path::Path::new(sidecar_path).parent() {
+            let pythonpath = parent.to_string_lossy().to_string();
+            // 合并已有的 PYTHONPATH
+            let existing = std::env::var("PYTHONPATH").unwrap_or_default();
+            let merged = if existing.is_empty() {
+                pythonpath
+            } else {
+                format!("{};{}", pythonpath, existing)
+            };
+            cmd.env("PYTHONPATH", merged);
         }
 
         let mut child = cmd.spawn().map_err(|e| format!("无法启动 sidecar: {e}"))?;
@@ -144,8 +165,8 @@ mod tests {
     #[test]
     fn test_get_port() {
         let mut client = SidecarClient::spawn(&sidecar_path(), &[]).expect("spawn sidecar");
-        let result = client.call("get_port", json!({"port": 14523})).expect("get_port");
-        assert_eq!(result["port"], json!(14523));
+        let result = client.call("get_port", json!({"port": 19789})).expect("get_port");
+        assert_eq!(result["port"], json!(19789));
     }
 
     #[test]

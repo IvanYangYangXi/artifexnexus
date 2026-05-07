@@ -11,7 +11,7 @@ function Settings() {
           端口
           <input
             type="number"
-            defaultValue={14523}
+            defaultValue={19789}
             style={{ marginLeft: "0.5rem", padding: "0.25rem 0.5rem", width: 80 }}
           />
         </label>

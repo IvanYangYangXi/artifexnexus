@@ -64,17 +64,17 @@ impl SidecarManager {
             .as_mut()
             .ok_or_else(|| "sidecar 未启动".to_string())?;
 
-        match client.call(method, params) {
+        match client.call(method, params.clone()) {
             Ok(result) => Ok(result),
             Err(_e) => {
                 // 调用失败，尝试重启
                 self.client = None;
                 self.start()?;
-                // 重试一次
+                // 重试一次，使用原始 params
                 self.client
                     .as_mut()
                     .ok_or_else(|| "sidecar 重启后仍不可用".to_string())?
-                    .call(method, serde_json::json!(null))
+                    .call(method, params)
             }
         }
     }

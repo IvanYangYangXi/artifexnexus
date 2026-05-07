@@ -43,4 +43,6 @@ export interface InstallItem {
   comingSoon?: boolean;
   /** 子项列表（仅 expandable 条目有） */
   children?: InstallChildItem[];
+  /** 失败时的错误信息（state=failed 时展示） */
+  errorMessage?: string;
 }

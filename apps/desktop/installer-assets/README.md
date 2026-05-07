@@ -11,8 +11,9 @@
 
 ```
 ~/.artifexnexus/
-├── .openclaw/                      # vendor OpenClaw（整体隔离）
-│   ├── gateway/                    # OpenClaw 运行时（来自 vendor/openclaw/）
+├── .openclaw/                      # OpenClaw 隔离安装（薄壳模式）
+│   ├── cli/                        # 按版本分目录安装
+│   │   └── v2026.5.4/
 │   ├── extensions/
 │   │   └── artifex-nexus-mcp-bridge/  # symlink → packages/adapters/openclaw/gateway-plugin/dist/
 │   ├── workspace/
