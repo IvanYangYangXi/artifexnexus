@@ -21,15 +21,20 @@ import platform
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import IO, Optional
 
 try:
     from . import _subprocess as _sp
+    from . import gateway_log as _gateway_log
+    from . import gateway_state as _gateway_state
 except ImportError:  # 兼容直接以脚本方式执行
     import _subprocess as _sp  # type: ignore[no-redef]
+    import gateway_log as _gateway_log  # type: ignore[no-redef]
+    import gateway_state as _gateway_state  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +245,41 @@ _current_process: Optional[subprocess.Popen] = None
 _current_openclaw_home: Optional[Path] = None
 
 
+def _pump_stream_to_log_buffer(
+    stream: IO[str],
+    source: str,
+) -> None:
+    """守护线程入口：逐行读 stdout/stderr 灌入 :func:`gateway_log.get_log_buffer`。
+
+    Daemon thread entry: drain a child process stdout/stderr line stream into
+    the global gateway log buffer. Exits naturally on EOF (gateway 退出时
+    PIPE 自动关闭，``for line in stream`` 退出循环）。
+
+    Args:
+        stream: ``proc.stdout`` 或 ``proc.stderr``（``text=True`` 模式）。
+        source: ``"stdout"`` 或 ``"stderr"``，写入 ``LogEntry.stream``。
+    """
+    buf = _gateway_log.get_log_buffer()
+    try:
+        for line in stream:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                buf.append(source, text)  # type: ignore[arg-type]
+            except Exception:
+                # 单行入 buffer 失败不应弄死整条 pump 线程
+                logger.debug("pump %s: append failed for line=%r", source, text)
+    except (OSError, ValueError):
+        # stream 已关闭等 IO 异常 → EOF 等价，安静退出
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
 def start_gateway(
     openclaw_home: Path,
     port: int = DEFAULT_PORT,
@@ -247,6 +287,14 @@ def start_gateway(
     """启动 OpenClaw gateway 子进程。
 
     Start the OpenClaw gateway child process.
+
+    改造（STORY-0018 T2）：
+        - ``stdout=PIPE, stderr=PIPE, bufsize=1``，spawn 后启 2 个 daemon 线程
+          逐行灌 :func:`gateway_log.get_log_buffer`，供前端 ``tail_log`` RPC 拉取
+        - 写 :mod:`gateway_state`（``set_running`` / ``set_errored``）供
+          ``openclaw.gateway.status`` RPC 查询
+        - **签名/返回值兼容**：现有调用方（doctor / sidecar.openclaw.start）
+          无感知
 
     Args:
         openclaw_home: OPENCLAW_HOME 路径。
@@ -266,6 +314,9 @@ def start_gateway(
     # 1. PID 锁检查：如果已有 pid 且存活，复用
     existing_pid = _read_pid(home)
     if existing_pid and _is_pid_alive(existing_pid):
+        # 复用语义：sidecar 这一进程内并未 spawn，无法挂日志 pump；
+        # started_at 取"sidecar 接管时间"作为近似下界（前端展示无歧义）
+        _gateway_state.set_running(pid=existing_pid, port=port)
         return GatewayProcess(
             pid=existing_pid,
             port=port,
@@ -275,10 +326,12 @@ def start_gateway(
     # 2. 查找 openclaw 可执行文件
     bin_path = _find_openclaw_bin(home)
     if not bin_path:
-        raise FileNotFoundError(
+        msg = (
             f"未找到 openclaw 可执行文件。请先运行 install。"
             f"查找路径: {home}/cli/"
         )
+        _gateway_state.set_errored(msg)
+        raise FileNotFoundError(msg)
 
     # 3. 构建命令
     cmd = [str(bin_path), "gateway", "start", "--port", str(port)]
@@ -288,24 +341,46 @@ def start_gateway(
 
     # 5. 启动子进程
     #    Win 上必须 CREATE_NO_WINDOW 避免黑窗 + CREATE_NEW_PROCESS_GROUP 便于 taskkill /T
+    #    stdout/stderr 拆 PIPE+PIPE（不再合流到 stdout）：日志 pump 线程
+    #    分别带上正确的 source 标签灌进 GatewayLogBuffer
     popen_kw = _sp.popen_kwargs(win_no_window=True, win_new_process_group=True)
     try:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
+            bufsize=1,  # line-buffered（text=True 时按行 flush）
             env=env,
             **popen_kw,
         )
     except OSError as e:
-        raise RuntimeError(f"启动 gateway 失败: {e}") from e
+        msg = f"启动 gateway 失败: {e}"
+        _gateway_state.set_errored(msg)
+        raise RuntimeError(msg) from e
 
     # 6. 写入 PID 锁文件
     _write_pid(home, proc.pid)
 
-    # 7. 保存模块级状态
+    # 7. 启动两个守护日志泵线程（daemon=True：sidecar 退出自动收）
+    if proc.stdout is not None:
+        threading.Thread(
+            target=_pump_stream_to_log_buffer,
+            args=(proc.stdout, "stdout"),
+            name=f"gateway-log-stdout-{proc.pid}",
+            daemon=True,
+        ).start()
+    if proc.stderr is not None:
+        threading.Thread(
+            target=_pump_stream_to_log_buffer,
+            args=(proc.stderr, "stderr"),
+            name=f"gateway-log-stderr-{proc.pid}",
+            daemon=True,
+        ).start()
+
+    # 8. 保存模块级状态 + 写 gateway_state（供 status RPC 读）
     _current_process = proc
     _current_openclaw_home = home
+    _gateway_state.set_running(pid=proc.pid, port=port)
 
     return GatewayProcess(
         pid=proc.pid,
@@ -365,6 +440,7 @@ def stop_gateway() -> bool:
     _current_process = None
     if home:
         _clear_pid(home)
+    _gateway_state.set_stopped()
 
     return True
 

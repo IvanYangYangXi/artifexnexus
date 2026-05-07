@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-gateway-start-result.schema.json",
+  "title": "OpenClawGatewayStartResult",
+  "description": "openclaw.gateway.start / openclaw.gateway.restart RPC 返回结果。Returned by openclaw.gateway.start and openclaw.gateway.restart RPC. See docs/specs/openclaw-status-panel.md §2.2-2.3.",
+  "type": "object",
+  "required": ["success", "restarted", "pid", "port", "message"],
+  "properties": {
+    "success": {
+      "type": "boolean",
+      "description": "整体启动是否成功。"
+    },
+    "restarted": {
+      "type": "boolean",
+      "description": "是否经历了 stop+start 重启路径（force_restart=true 或 restart RPC 时为 true）。"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "启动后的 gateway 进程 PID。"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "gateway 监听端口。"
+    },
+    "message": {
+      "type": "string",
+      "description": "人类可读的状态描述（前端可直接展示）。"
+    }
+  }
+}

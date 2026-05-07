@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-gateway-log-batch.schema.json",
+  "title": "OpenClawGatewayLogBatch",
+  "description": "openclaw.gateway.tail_log RPC 返回的日志批次。Returned by openclaw.gateway.tail_log RPC. See docs/specs/openclaw-status-panel.md §2.4.",
+  "type": "object",
+  "required": ["entries", "max_id", "buffer_size", "dropped"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "description": "本批日志条目；按 id 升序。",
+      "items": {
+        "type": "object",
+        "required": ["id", "ts", "level", "stream", "text"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "buffer 内单调递增 ID。"
+          },
+          "ts": {
+            "type": "number",
+            "description": "unix ts（秒，float）。"
+          },
+          "level": {
+            "type": "string",
+            "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+            "description": "推断的级别。"
+          },
+          "stream": {
+            "type": "string",
+            "enum": ["stdout", "stderr"],
+            "description": "来源流。"
+          },
+          "text": {
+            "type": "string",
+            "description": "单行原文（已 strip 首尾空白与换行）。"
+          }
+        }
+      }
+    },
+    "max_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "buffer 当前最大 id；前端用作下次轮询的 since_id。0 表示空 buffer。"
+    },
+    "buffer_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "buffer 当前条目数（≤ maxlen）。"
+    },
+    "dropped": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "因 buffer 满而被丢弃的累计行数；前端可据此提示用户用 'openclaw logs tail' 取更长历史。"
+    }
+  }
+}

@@ -67,13 +67,13 @@ tags: [story, openclaw, gateway, status, log, M1]
 
 ### T2 · sidecar 4 个 RPC
 
-- [ ] `openclaw.gateway.status`：返回 state + pid + port + started_at + last_log_id
-- [ ] `openclaw.gateway.start({force_restart})`：幂等，已运行不重启除非 force
-- [ ] `openclaw.gateway.restart`：等价 start({force_restart:true})
-- [ ] `openclaw.gateway.tail_log({n, since_id})`：since_id 互斥；返回 entries + max_id + dropped
-- [ ] `openclaw.web.open`：spawn `openclaw dashboard` + 隔离 env，立即返回，不阻塞、不解析 stdout
-- [ ] 旧 `openclaw.web.get_url` 加 `@deprecated` 注释，保留实现
-- [ ] sidecar 测试 ≥ 6 条覆盖新 RPC
+- [x] `openclaw.gateway.status`：返回 state + pid + port + started_at + last_log_id
+- [x] `openclaw.gateway.start({force_restart})`：幂等，已运行不重启除非 force
+- [x] `openclaw.gateway.restart`：等价 start({force_restart:true})
+- [x] `openclaw.gateway.tail_log({n, since_id})`：since_id 互斥；返回 entries + max_id + dropped
+- [x] `openclaw.web.open`：spawn `openclaw dashboard` + 隔离 env，立即返回，不阻塞、不解析 stdout
+- [x] 旧 `openclaw.web.get_url` 加 `@deprecated` 注释，保留实现
+- [x] sidecar 测试 ≥ 6 条覆盖新 RPC（**实际 18 条**）
 
 ### T3 · 前端 IPC 包装
 
@@ -115,6 +115,18 @@ tags: [story, openclaw, gateway, status, log, M1]
   - 单测 `test_gateway_log.py`：**41/41 全绿**（远超规划 ≥8 条），覆盖 append/tail/since/dropped/stats/clear/边界/8 线程并发/单例
   - 全包回归：**173 passed, 2 skipped, 0 failed**（基线 132 → +41 新增）
   - 微调：原 T1 计划"改造 runtime.start_gateway"挪到 T2 一起做（与 RPC 同步引入，避免 T1 引入未被消费的副作用）；`get_log_buffer` 放在 `gateway_log.py` 自身（比放 `runtime` 更内聚）
+- 2026-05-07 **T2 完成**：
+  - 新建 `gateway_state.py`（153 行）：`GatewayInfo`(frozen dataclass) + `set_running/set_stopped/set_errored/get_info/reset_for_test` 进程级单例（线程安全）；与 `gateway_log` 同生命周期
+  - 新建 `sidecar_gateway.py`（~250 行）：5 个新 handler（`gateway.status/start/restart/tail_log` + `web.open`）；`web.open` spawn 用 `DEVNULL` 防 stdio 污染、不带 `--no-open` 让 CLI 自开浏览器、仅捕 OSError/FileNotFoundError 即时失败
+  - 改造 `runtime.start_gateway`：`stdout=PIPE, stderr=PIPE, bufsize=1`；spawn 后启 2 个 daemon 线程 `_pump_stream_to_log_buffer` 灌 `gateway_log` 单例；同步写 `gateway_state.set_running/set_errored`；签名/返回值兼容（doctor / 既有 `openclaw.start` RPC 无感知）
+  - 改造 `runtime.stop_gateway`：清理后写 `gateway_state.set_stopped()`
+  - `sidecar.py` 注册 5 RPC + 给 `_handle_openclaw_web_get_url` 与 `web_ui.get_web_url` 加 `.. deprecated:: STORY-0018-T2` docstring 标记（实现保留一个 release 周期，2026-Q3 移除）
+  - 4 个 JSON Schema 新增到 `packages/platform/contracts/schemas/`：`openclaw-gateway-status` / `openclaw-gateway-start-result` / `openclaw-gateway-log-batch` / `openclaw-web-open-result`（与 `openclaw-status.schema.json` 同风格，draft 2020-12，为 T3 前端 TS 类型生成铺路）
+  - 同步 spec [[../../specs/openclaw-wrapper-ipc]] §8 RPC 列表清单（含 5 新增 + 1 deprecated）
+  - 单测：`test_gateway_state.py` 23/23 + `test_sidecar_gateway.py` 18/18 = **+41 条全绿**
+  - 全包回归：**214 passed, 2 skipped, 0 failed**（基线 173 → +41）
+  - 微调：sidecar.py 已 556 行，新 5 handler 单独放 `sidecar_gateway.py`（薄包装风格）；`_GatewayInfo` 单独放 `gateway_state.py` 而非 runtime.py 内（runtime.py 已 577 行接近上限，分文件更内聚，与 `gateway_log.py` 风格对齐）
+  - 范围内：未动 `apps/desktop`，T2 不需要 `pnpm tauri build`
 
 ## 相关
 

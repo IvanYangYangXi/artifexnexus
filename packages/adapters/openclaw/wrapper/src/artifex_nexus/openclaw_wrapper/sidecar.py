@@ -23,6 +23,7 @@ try:
     from . import installer as _installer
     from . import ports as _ports
     from . import runtime as _runtime
+    from . import sidecar_gateway as _sidecar_gateway
     from . import web_ui as _web_ui
 except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
@@ -32,6 +33,7 @@ except ImportError:
     import installer as _installer  # type: ignore[no-redef]
     import ports as _ports  # type: ignore[no-redef]
     import runtime as _runtime  # type: ignore[no-redef]
+    import sidecar_gateway as _sidecar_gateway  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
 
 
@@ -325,6 +327,15 @@ def _handle_openclaw_rollback(req_id: Any, _params: dict) -> dict:
 def _handle_openclaw_web_get_url(req_id: Any, params: dict) -> dict:
     """openclaw.web.get_url RPC：探测 OpenClaw Control UI URL。
 
+    .. deprecated:: STORY-0018-T2
+        使用 ``openclaw.web.open`` 替代（spawn dashboard 让 CLI 自开浏览器，
+        无需把 token 透传到前端，更安全）。本 handler 实现保留一个 release 周期，
+        2026-Q3 移除。
+
+    .. deprecated:: STORY-0018-T2 (EN)
+        Use ``openclaw.web.open`` instead. This handler is kept for one release
+        cycle for backwards compatibility with older frontends.
+
     参数：
         openclaw_home (str, 可选): OPENCLAW_HOME 路径
         timeout (float, 可选): dashboard 子命令超时秒数，默认 5.0
@@ -533,12 +544,19 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.list_versions": _handle_openclaw_list_versions,
     "openclaw.upgrade": _handle_openclaw_upgrade,
     "openclaw.rollback": _handle_openclaw_rollback,
+    # Deprecated（保留一个 release 周期；新前端请用 openclaw.web.open）
     "openclaw.web.get_url": _handle_openclaw_web_get_url,
     "openclaw.agent_preset.status": _handle_openclaw_agent_preset_status,
     "openclaw.agent_preset.reset_default": _handle_openclaw_agent_preset_reset,
     "openclaw.config.dump": _handle_openclaw_config_dump,
     "openclaw.config.patch": _handle_openclaw_config_patch,
     "openclaw.config.test_provider": _handle_openclaw_config_test_provider,
+    # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
+    "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
+    "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,
+    "openclaw.gateway.restart": _sidecar_gateway.handle_gateway_restart,
+    "openclaw.gateway.tail_log": _sidecar_gateway.handle_gateway_tail_log,
+    "openclaw.web.open": _sidecar_gateway.handle_web_open,
 }
 
 

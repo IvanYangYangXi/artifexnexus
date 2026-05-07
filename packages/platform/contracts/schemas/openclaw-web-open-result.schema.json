@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-web-open-result.schema.json",
+  "title": "OpenClawWebOpenResult",
+  "description": "openclaw.web.open RPC 返回结果（fire-and-forget）。Returned by openclaw.web.open RPC. See docs/specs/openclaw-status-panel.md §2.5.",
+  "type": "object",
+  "required": ["success", "method"],
+  "properties": {
+    "success": {
+      "type": "boolean",
+      "description": "spawn dashboard 子进程是否成功；不代表浏览器一定打开。"
+    },
+    "method": {
+      "type": "string",
+      "enum": ["openclaw_dashboard"],
+      "description": "打开方式标识；T2 阶段固定为 openclaw_dashboard。T3/T4 前端集成时可扩展 tauri_shell。"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "spawn 出的 dashboard 子进程 PID；仅 success=true 时有值。"
+    },
+    "error": {
+      "type": "string",
+      "description": "spawn 失败摘要；仅 success=false 时有值。"
+    }
+  }
+}

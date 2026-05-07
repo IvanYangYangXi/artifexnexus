@@ -88,6 +88,62 @@ status: draft
 | Python sidecar server | `packages/adapters/openclaw/wrapper/src/.../sidecar.py` | 300 |
 | Python 业务模块 | `packages/adapters/openclaw/wrapper/src/.../{bootstrap,ports,doctor,runtime}.py` | 300 each |
 
+## 8. RPC 列表（截至 STORY-0018 T2）
+
+> 完整契约见 `docs/specs/openclaw-status-panel.md` §2 与 `packages/platform/contracts/schemas/`。
+
+### 8.1 基础 / 健康
+
+| RPC | 入参 | 返回 schema | 说明 |
+|---|---|---|---|
+| `ping` | — | `"pong"` | 联通性探针 |
+| `get_port` | `{port?}` | `{port}` | 端口探活 |
+| `openclaw.status` | `{openclaw_home?}` | `openclaw-status.schema.json` | 聚合状态（cli/bootstrap/gateway/version） |
+| `openclaw.doctor` | `{openclaw_home?}` | `openclaw-health.schema.json` | 健康检查 |
+
+### 8.2 安装 / 升级
+
+| RPC | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `openclaw.install` | `{version?}` | `{installed, version, path}` | CLI 安装 |
+| `openclaw.bootstrap` | `{openclaw_home?}` | `{bootstrap_done, openclaw_home}` | 目录布局 + openclaw.json |
+| `openclaw.list_versions` | — | `{versions[]}` | 已安装版本列表 |
+| `openclaw.upgrade` | `{version}` | `{success, message}` | M2 占位 |
+| `openclaw.rollback` | `{version}` | `{success, message}` | M2 占位 |
+
+### 8.3 Gateway 启停（旧）
+
+| RPC | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `openclaw.start` | `{openclaw_home?, port?}` | `{success, pid, port}` | 内部仍调 `runtime.start_gateway` |
+| `openclaw.stop` | — | `{success}` | 内部调 `runtime.stop_gateway` |
+
+### 8.4 Gateway 状态控制面板 (STORY-0018 T2 新增)
+
+| RPC | 入参 | 返回 schema | 说明 |
+|---|---|---|---|
+| `openclaw.gateway.status` | — | `openclaw-gateway-status.schema.json` | 聚合 state/pid/port/started_at/last_log_id/last_error；前端轮询 |
+| `openclaw.gateway.start` | `{force_restart?, port?, openclaw_home?}` | `openclaw-gateway-start-result.schema.json` | 幂等启动；已运行不重启除非 force |
+| `openclaw.gateway.restart` | `{port?, openclaw_home?}` | `openclaw-gateway-start-result.schema.json` | 等价 `start({force_restart: true})` |
+| `openclaw.gateway.tail_log` | `{n?, since_id?}` | `openclaw-gateway-log-batch.schema.json` | 日志增量轮询；n 与 since_id 互斥（同传时优先 since_id） |
+| `openclaw.web.open` | `{openclaw_home?}` | `openclaw-web-open-result.schema.json` | spawn `openclaw dashboard` 让 CLI 自开浏览器；fire-and-forget |
+
+### 8.5 配置 / Skill / Agent Preset
+
+| RPC | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `openclaw.config.dump` | `{openclaw_home?}` | `{config}` | 读 openclaw.json |
+| `openclaw.config.patch` | `{openclaw_home?, patch}` | `{success, applied}` | merge patch 写回 |
+| `openclaw.config.test_provider` | `{provider_id, model_id, …}` | `{success, latency_ms, error?}` | provider 探活 |
+| `openclaw.agent_preset.status` | `{openclaw_home?}` | `{installed, default}` | 预设状态 |
+| `openclaw.agent_preset.reset_default` | `{openclaw_home?}` | `{success}` | 重置默认 |
+
+### 8.6 Deprecated（保留兼容）
+
+| RPC | 替代品 | 移除版本 |
+|---|---|---|
+| `openclaw.web.get_url` | `openclaw.web.open` | 2026-Q3（一个 release 周期后） |
+
 ## 相关
 
 - [[openclaw-wrapper]] · [[openclaw-wrapper-install]] · [[openclaw-wrapper-runtime]] · [[openclaw-wrapper-dev]]

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-gateway-status.schema.json",
+  "title": "OpenClawGatewayStatus",
+  "description": "openclaw.gateway.status RPC 返回的 gateway 进程状态。Returned by openclaw.gateway.status RPC. See docs/specs/openclaw-status-panel.md §2.1.",
+  "type": "object",
+  "required": ["state", "pid", "port", "started_at", "last_log_id", "last_error"],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": ["running", "stopped", "errored"],
+      "description": "三态枚举：运行中 / 已停止 / 启动失败。"
+    },
+    "pid": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "gateway 子进程 PID；仅 running/errored 时可能有值。"
+    },
+    "port": {
+      "type": ["integer", "null"],
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "gateway 监听端口；仅 running 时有值。"
+    },
+    "started_at": {
+      "type": ["number", "null"],
+      "description": "启动时间 unix ts（秒，float）。前端基于此自算 uptime。"
+    },
+    "last_log_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "当前 gateway 日志 buffer 的最大 id；前端首次拉日志时用作 since_id 初值。0 表示从未写入。"
+    },
+    "last_error": {
+      "type": ["string", "null"],
+      "description": "最近一次错误摘要；仅 errored 时有值。"
+    }
+  }
+}

@@ -101,6 +101,15 @@ def get_web_url(
 ) -> WebUrlResult:
     """探测 OpenClaw Control UI 的 URL。
 
+    .. deprecated:: STORY-0018-T2
+        改用 sidecar 的 ``openclaw.web.open`` RPC：spawn ``openclaw dashboard``
+        让 CLI 自开浏览器，无需把 token 透传给前端。本函数保留一个 release
+        周期供 ``openclaw.web.get_url`` 兼容老前端。
+
+    .. deprecated:: STORY-0018-T2 (EN)
+        Use the ``openclaw.web.open`` RPC instead. Kept one release cycle for
+        backward compatibility.
+
     Probe the OpenClaw Control UI URL via ``openclaw dashboard --no-open``.
 
     Args:
