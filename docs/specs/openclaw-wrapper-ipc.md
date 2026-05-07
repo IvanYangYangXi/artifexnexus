@@ -52,7 +52,7 @@ status: draft
 | 配置读写、schema 校验 | **Python** | 与 CLI 复用 |
 | Skill 安装 / 列表 / enable | **Python** | Skill 是 Python 包 |
 | 健康检查 doctor | **Python** | CLI 与桌面共用 |
-| OpenClaw vendor 启停参数组装 | **Python** | 业务逻辑 |
+| OpenClaw 启停参数组装 | **Python** | 业务逻辑 |
 | 首启向导（3 屏）UI | **前端** | React + Tauri Command |
 | 状态面板 UI | **前端** | 同上 |
 

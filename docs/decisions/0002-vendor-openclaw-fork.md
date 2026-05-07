@@ -44,7 +44,7 @@ status: accepted
 - `[[../runbook/install]]`
 - `[[0005-desktop-distribution-tauri-standalone-python]]`
 - `[[../specs/openclaw-upstream-survey]]`
-- `[[../tasks/review/STORY-0007-openclaw-spec-realign]]`
+- `[[../tasks/done/STORY-0007-openclaw-spec-realign]]`
 
 ---
 

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-health.schema.json",
+  "title": "OpenClawHealthReport",
+  "description": "三通道健康检查聚合报告。Three-channel health check aggregated report.",
+  "type": "object",
+  "required": ["overall", "channels", "problems", "port"],
+  "properties": {
+    "overall": {
+      "type": "string",
+      "enum": ["healthy", "degraded", "down", "unknown"],
+      "description": "总体状态：healthy / degraded / down / unknown。"
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "healthy", "message"],
+        "properties": {
+          "name": { "type": "string" },
+          "healthy": { "type": "boolean" },
+          "message": { "type": "string" },
+          "detail": { "type": "object" }
+        }
+      }
+    },
+    "problems": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "port": {
+      "type": "integer",
+      "description": "检查的端口。"
+    }
+  }
+}

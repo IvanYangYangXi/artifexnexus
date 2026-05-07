@@ -2,7 +2,7 @@
 id: STORY-0007
 kind: story
 title: OpenClaw 上游调研 + 包壳 spec 校正（Node/pnpm 取代 Python/uv 假设）
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai
@@ -66,7 +66,7 @@ spec 校正补丁**，让 EPIC-0001 的实现型 STORY 拆分基于真实事实�
 - [x] 新增 `docs/specs/openclaw-upstream-survey.md`（≤ 2000 字），覆盖以下事实：
       ① 技术栈与包管理器（Node.js 24 + pnpm，install-cli.sh 自带 standalone Node）
       ② 入口启动命令（`openclaw gateway start --port 19789`）
-      ③ 默认端口 18789 + 派生端口规则（browser.controlPort = port+2，CDP = controlPort+9..+108）
+      ③ 默认端口 18789 + 派生端口规则（browser.controlPort = port+2，CDP = base+11..base+110）
          ；本项目固定 `gateway.port = 19789`
       ④ 健康检查端点（HTTP + WebSocket bind 探测；如有 `/healthz` / `/api/version` 优先用，否则
          走 `OPENCLAW_STATE_DIR/lock/` 锁文件 + TCP probe fallback）
@@ -157,3 +157,4 @@ spec 校正补丁**，让 EPIC-0001 的实现型 STORY 拆分基于真实事实�
   7. `docs/tasks/board.md` STORY-0007 由 Ready 移入 In Progress
   8. `docs/tasks/ready/EPIC-0001-...` 候选 S1–S6 扩为 S1–S7，进展日志同步
   → 待 human review；review 通过后 STORY-0007 archive 进 done/，EPIC-0001 即可正式拆 S1–S7 实现型 STORY 进入 implement
+- 2026-05-06 archive：用户决策跳过 review 直接归档；后续 implement 期若发现需修订（如 §11 的 5 项 TBD 实测后），按"docs 即真相"规则就地 patch 本文件 + 上游 spec，不复活 STORY

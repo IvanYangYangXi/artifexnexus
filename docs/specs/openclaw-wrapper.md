@@ -28,7 +28,7 @@ status: draft
 ## 3. 目标
 
 1. **一键分发**：Win 双击 `.exe`，macOS 双击 `.dmg`，离线可装。
-2. **零端口冲突**：默认 14523，冲突时自动探测并写回配置。
+2. **零端口冲突**：默认 19789，冲突时自动探测并写回配置。
 3. **零全局 Python 依赖**：内置 standalone Python，不污染系统。
 4. **与外部 OpenClaw 完全隔离**：只读写 `~/.artifexnexus/.openclaw/`。
 5. **自动初始化**：首启自动生成配置、安装官方 Skill、探测 DCC、投放 DCC 插件。
@@ -53,7 +53,7 @@ status: draft
 | 壳内后端 | Rust（Tauri Command） | 负责进程编排、端口探测、文件投放 |
 | Python 运行时 | 内置 `python-build-standalone` 3.11 | 离线可装，不污染系统 |
 | 包管理 | `uv`（随安装器打包） | 已在用 |
-| OpenClaw 源 | Fork 至 `packages/adapters/openclaw/vendor/` | ADR 0002 |
+| OpenClaw 源 | 薄壳模式：调用上游 install-cli.sh / install.ps1，安装到隔离 prefix | ADR 0002（已增补薄壳决策） |
 | 配置中心 | `~/.artifexnexus/config/artifexnexus.json` | 见 contracts schema |
 
 ## 7. 里程碑

@@ -57,7 +57,7 @@ Artifex Nexus 的目标用户是美术 / 技术美术 / 设计师，**不能要�
 - `[[../specs/openclaw-wrapper-runtime]]`
 - `[[../specs/openclaw-upstream-survey]]`
 - `[[../tasks/done/TASK-0001-openclaw-wrapper]]`
-- `[[../tasks/review/STORY-0007-openclaw-spec-realign]]`
+- `[[../tasks/done/STORY-0007-openclaw-spec-realign]]`
 
 ---
 

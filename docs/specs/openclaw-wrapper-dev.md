@@ -147,4 +147,4 @@ pnpm --filter @artifex-nexus/desktop tauri build --bundles dmg
 - [[openclaw-wrapper]] · [[openclaw-wrapper-install]] · [[openclaw-wrapper-runtime]] · [[openclaw-wrapper-ipc]]
 - [[openclaw-upstream-survey]] — 上游事实底（v2026.5.4 调研）
 - [[../tasks/done/TASK-0001-openclaw-wrapper]]
-- [[../tasks/review/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源
+- [[../tasks/done/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源

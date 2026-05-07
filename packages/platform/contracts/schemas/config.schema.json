@@ -24,12 +24,12 @@
           "type": "integer",
           "minimum": 1024,
           "maximum": 65535,
-          "default": 14523,
-          "description": "OpenClaw 主进程监听端口。默认 14523；启动时若被占用，由壳自动在 14523–14599 段内探测并写回本字段（详见 docs/specs/openclaw-wrapper-runtime.md §4）。"
+          "default": 19789,
+          "description": "OpenClaw 主进程监听端口。默认 19789（与上游默认 18789 隔离 +1000）；启动时若被占用，由壳自动按 +20 步进探测并写回本字段（详见 docs/specs/openclaw-wrapper-runtime.md §4）。"
         },
         "gateway_url": {
           "type": "string",
-          "default": "ws://127.0.0.1:18789",
+          "default": "ws://127.0.0.1:19789",
           "description": "OpenClaw Gateway 的 WebSocket 接入 URL。"
         },
         "auth_token_env": {

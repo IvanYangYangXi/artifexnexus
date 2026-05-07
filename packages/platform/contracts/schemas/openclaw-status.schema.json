@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-status.schema.json",
+  "title": "OpenClawStatusReport",
+  "description": "openclaw.status RPC 返回的聚合状态报告。Aggregated status report from openclaw.status RPC.",
+  "type": "object",
+  "required": ["cli_installed", "bootstrap_done", "gateway_running", "version", "port"],
+  "properties": {
+    "cli_installed": {
+      "type": "boolean",
+      "description": "OpenClaw CLI 是否已安装到隔离 prefix。"
+    },
+    "bootstrap_done": {
+      "type": "boolean",
+      "description": "bootstrap（目录布局 + openclaw.json）是否完成。"
+    },
+    "gateway_running": {
+      "type": "boolean",
+      "description": "gateway 子进程是否运行中。"
+    },
+    "version": {
+      "type": "string",
+      "description": "当前活动版本号（如 v2026.5.4）。"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "当前 gateway 端口。"
+    },
+    "pid": {
+      "type": ["integer", "null"],
+      "description": "gateway 进程 PID（运行中时有值）。"
+    },
+    "health": {
+      "$ref": "./openclaw-health.schema.json",
+      "description": "健康检查报告（可选，仅在 gateway_running=true 时有意义）。"
+    }
+  }
+}

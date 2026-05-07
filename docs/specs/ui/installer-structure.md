@@ -237,10 +237,10 @@ installing > failed > update-available > unavailable > pending > not-installed >
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │ Artifex Nexus · 安装向导                                            │
-│ [全局检测]  [默认设置]                                  [完成]     │
+│ [全局检测]  [默认设置]                                             │
 ├────────────────────────────────────────────────────────────────────┤
 │  🦞  OpenClaw                                       ● 已安装        │
-│      OpenClaw v0.x · 端口 14523                                    │
+│      OpenClaw v0.x · 端口 19789                                    │
 │      [检测]  [设置]  [重装]                                         │
 ├────────────────────────────────────────────────────────────────────┤
 │  🌐  Web UI                                          ○ 待安装        │
@@ -298,6 +298,68 @@ installing > failed > update-available > unavailable > pending > not-installed >
 - [x] 线框
 - [x] 反链至 [[../../tasks/backlog/EPIC-0000-m0-installer-wizard]] 与 [[../../inbox/安装向导]]
 
+## 11. OpenClaw 行专属规则（2026-05-07 增量，对应 STORY-0015/0016）
+
+> EPIC-0001 第二批需求（设置面板 / Web UI 入口）让 OpenClaw 行的按钮组从 3 按钮升到 4 按钮。
+> 本节是对 §4 / §7 的 OpenClaw 行特化覆盖，其它顶级条目仍按原 3 按钮规则。
+
+### 11.1 4 按钮组
+
+| 按钮 | 启用条件 | 点击行为 | 关联 STORY |
+|---|---|---|---|
+| 检测 | 任何状态 | 调 `openclaw.status` RPC | 已实现（S6） |
+| 设置 | `state ∈ {installed, update-available}` | 打开 OpenClaw 设置面板 modal（详见 [[../openclaw-settings-panel]]） | STORY-0015 |
+| Web UI | `state = installed` AND `gateway_running = true` AND `web_ui_available = true` | 调 `openclaw.web.get_url` 拿 URL，用 tauri-plugin-shell 打开默认浏览器 | STORY-0016 |
+| 安装 / 重装 | 同 §4 通用规则 | 同 §4 | 已实现 |
+
+**门禁覆盖**：
+- 设置：`state ∉ {installed, update-available}` → disabled，tooltip "请先安装 OpenClaw"
+- Web UI：
+  - `state ≠ installed` → disabled，tooltip "请先安装 OpenClaw"
+  - `gateway_running = false` → disabled，tooltip "Gateway 未运行"
+  - `web_ui_available = false`（spike 后确认 OpenClaw 不带内建 Web UI）→ disabled，tooltip "当前版本未提供 Web UI"
+
+### 11.2 4 按钮线框（替换 §7 OpenClaw 行）
+
+```
+├──────────────────────────────────────────────────────────────────────┤
+│  🦞  OpenClaw                                       ● 已安装          │
+│      OpenClaw v2026.5.4 · 端口 19789 · http://127.0.0.1:19789/ui     │
+│      [检测]  [设置]  [Web UI]  [重装]                                  │
+├──────────────────────────────────────────────────────────────────────┤
+```
+
+### 11.3 设置面板触发后的子流程
+
+```
+点"设置" → 打开 SettingsPanel modal
+  → modal 内 RPC openclaw.config.read_models → 渲染 provider 列表
+  → 用户改 / 测试 / 保存 → RPC openclaw.config.write_models
+  → 关 modal 回主表，OpenClaw 行可能短暂显示"重启 Gateway 中…"（如更改影响运行时）
+```
+
+### 11.4 Web UI 入口子流程
+
+```
+点 "Web UI" → RPC openclaw.web.get_url
+  → 返回 { url, available, reason? }
+  → available = true: tauri-plugin-shell::open(url) → 默认浏览器打开
+  → available = false: toast 显示 reason，按钮置灰
+```
+
+### 11.5 与状态汇总（§5.3）的关系
+
+OpenClaw 不可折叠、无子项，状态汇总不涉及。但 OpenClaw 行的 `state` 现在多依赖一个
+来源 `web_ui_available`（来自 `openclaw.status` 扩展返回字段，STORY-0016 spike 后引入）。
+
+### 11.6 验收清单（追加）
+
+- [ ] OpenClaw 行渲染 4 按钮（检测 / 设置 / Web UI / 安装|重装）
+- [ ] 设置按钮在 not-installed / installing / failed 状态下置灰 + 正确 tooltip
+- [ ] Web UI 按钮在 OpenClaw 不带内建 Web UI 时永久置灰，tooltip 准确
+- [ ] 设置面板的 modal 关闭时不丢已编辑未保存内容（弹二次确认 "丢弃修改？"）
+- [ ] Web UI 在默认浏览器打开，桌面应用自身不接管该窗口
+
 ## 相关
 
 - [[../../inbox/安装向导]] — 原始需求
@@ -311,3 +373,8 @@ installing > failed > update-available > unavailable > pending > not-installed >
 - [[../../tasks/review/STORY-0006-merge-installer-into-desktop]] — 合并 installer 到 desktop（review）
 - [[../openclaw-wrapper-install]] — 安装包/路径/分发底层规约
 - [[../openclaw-wrapper-runtime]] — OpenClaw 运行时（被本向导调起）
+- [[../openclaw-settings-panel]] — OpenClaw 设置面板（STORY-0015）
+- [[../openclaw-agent-preset]] — Artifex Nexus 默认 agent 预设（STORY-0017）
+- [[../../tasks/backlog/STORY-0015-openclaw-settings-panel]]
+- [[../../tasks/backlog/STORY-0016-openclaw-web-ui-entry]]
+- [[../../tasks/backlog/STORY-0017-openclaw-agent-preset]]

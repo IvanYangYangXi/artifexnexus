@@ -12,8 +12,9 @@ status: draft
 
 ```
 ~/.artifexnexus/
-├── .openclaw/                                # vendor 的 OpenClaw 整体隔离
-│   ├── gateway/                              # OpenClaw 运行时（来自 vendor/openclaw/）
+├── .openclaw/                                # OpenClaw 隔离安装（薄壳模式，调用上游 install-cli.sh）
+│   ├── cli/                                  # 按版本分目录安装
+│   │   └── v2026.5.4/
 │   ├── extensions/
 │   │   └── artifex-nexus-mcp-bridge/         # symlink → 源码 packages/.../gateway-plugin/dist/
 │   ├── workspace/
@@ -42,7 +43,7 @@ status: draft
 | Blender addon | **symlink** 到 Blender 的 `addons/` | Blender 主动扫描 |
 | UE 插件 | **copy** 到 `<Project>/Plugins/ArtifexNexusForUnreal/` | UE 路径敏感、编译产物多，symlink 在 Win 上易失败 |
 | Skill 包 | **copy + 版本管理** 到 `~/.artifexnexus/.openclaw/workspace/skills/` | OpenClaw 平台规则；保证 Gateway 看到的版本与 SkillInstaller 注册的一致 |
-| OpenClaw 本身 | **copy** vendor → `~/.artifexnexus/.openclaw/` | vendor 锁版本，不需源码热更新 |
+| OpenClaw 本身 | **薄壳安装** → `~/.artifexnexus/.openclaw/cli/<version>/` | 调用上游 install-cli.sh，按版本隔离 |
 
 ## 4. 平台路径速查
 
@@ -61,7 +62,7 @@ artifex doctor
 ```
 
 期望输出：
-- ✅ Gateway connected (`ws://127.0.0.1:18789`)
+- ✅ Gateway connected (`ws://127.0.0.1:19789`)
 - ✅ MCP server reachable for: unreal, blender
 - ✅ Config integrity OK
 - ✅ Skills directory: 12 installed, 0 conflicts

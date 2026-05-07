@@ -69,6 +69,29 @@ Tauri 壳（UI + Rust 后端）
 3. **端口隔离**：见 §4（19789 + 派生端口自动跟随，与上游默认 18789 安全隔离）
 4. **服务名隔离**：M1 不调用 `openclaw gateway install`，不注册任何系统级服务（systemd / launchd / schtasks）
 
+### 3.1 Windows 上 spawn `openclaw` 的统一约定（ADR 0007）
+
+OpenClaw v2026.5.4 经 npm 安装后，可执行入口落在 **`<cli_dir>/` 根目录**（不是
+`<cli_dir>/bin/`），且为三件套 shell wrapper：`openclaw`（POSIX sh）/ `openclaw.cmd`
+（Windows cmd）/ `openclaw.ps1`（PowerShell）。Windows 上若选错（命中无后缀 sh 脚本）
+直接 `subprocess.Popen` 会触发 `OSError [WinError 193] %1 不是有效的 Win32 应用程序`，
+导致 gateway / config get / config patch / infer / dashboard 全部不可用。
+
+故所有 wrapper 内 spawn `openclaw` CLI 的代码**必须经 helper**
+`openclaw_wrapper._subprocess`：
+
+| Helper | 职责 |
+|---|---|
+| `find_openclaw_bin(home)` | 查找可执行；Windows 优先 `.cmd`，POSIX 优先无后缀 sh |
+| `build_openclaw_env(home)` | 注入三件套 env + `OPENCLAW_NO_ONBOARD=1` |
+| `popen_kwargs(*, win_no_window=True, win_new_group=False)` | 返回 Win 上 `creationflags=CREATE_NO_WINDOW [\| CREATE_NEW_PROCESS_GROUP]` + UTF-8 解码默认值 |
+| `run_openclaw(cli_args, home, *, timeout, input=None)` | `subprocess.run` 简化封装；返回 `CompletedProcess` |
+
+**禁止**散落使用 `subprocess.Popen([str(bin), …])` 不带 `creationflags=CREATE_NO_WINDOW`
+的写法——会导致每次 spawn 弹黑窗。
+
+具体决策与候选顺序见 `[[../decisions/0007-windows-openclaw-shell-spawn]]`。
+
 ## 4. 端口探测与自愈
 
 **策略**：默认 `19789`（与上游官方 multi-gateway 文档 rescue bot 示例对齐，base+1000 远超
@@ -83,7 +106,7 @@ def pick_port(preferred: int = 19789, step: int = 20, max_tries: int = 5) -> int
 - 探测方法：`bind(127.0.0.1, p)` 成功即视为空闲，随后 close 释放给真实服务用
 - UI 行为：若最终选定端口 ≠ preferred，右上角 toast："端口已切换为 19809（19789 被占用）"
 - 外部已装 OpenClaw 仍用 18789 运行时 → 互不干扰
-- **派生端口自动跟随**：`browser.controlPort = port+2`，CDP 端口 = `controlPort+9..+108`，
+- **派生端口自动跟随**：`browser.controlPort = port+2`，CDP 端口 = `base+11..base+110`，
   无需手动配置（详见 [[openclaw-upstream-survey]] §3）
 
 ## 5. 配置中心
@@ -144,4 +167,4 @@ load config → validate by schema → apply → (冲突时) 端口探测 → �
 - [[openclaw-wrapper]] · [[openclaw-wrapper-install]] · [[openclaw-wrapper-ipc]] · [[openclaw-wrapper-dev]]
 - [[openclaw-upstream-survey]] — 上游事实底（v2026.5.4 调研）
 - [[../decisions/0002-vendor-openclaw-fork]]、[[../decisions/0005-desktop-distribution-tauri-standalone-python]]
-- [[../tasks/review/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源
+- [[../tasks/done/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/openclaw-version.schema.json",
+  "title": "OpenClawVersionInfo",
+  "description": "已安装版本信息。Installed version info.",
+  "type": "object",
+  "required": ["version", "active"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "版本号（如 v2026.5.4）。"
+    },
+    "active": {
+      "type": "boolean",
+      "description": "是否为当前活动版本（cli/current 指向）。"
+    },
+    "installed_at": {
+      "type": "string",
+      "description": "安装时间 ISO 8601 格式。"
+    }
+  }
+}

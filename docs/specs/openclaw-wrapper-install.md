@@ -120,7 +120,7 @@ Windows 等价：调用上游 `install.ps1`（同名 flag）。完整 flag/env �
 - [[openclaw-upstream-survey]] — 上游事实底（v2026.5.4 调研，含 install-cli.sh flag/env 矩阵）
 - ADR [[../decisions/0002-vendor-openclaw-fork]]、[[../decisions/0005-desktop-distribution-tauri-standalone-python]]
 - [[../tasks/done/STORY-0005-installer-tauri-build-artifact]] — M0 Tauri 可分发产物
-- [[../tasks/review/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源
+- [[../tasks/done/STORY-0007-openclaw-spec-realign]] — 本 spec 校正来源
 
 ## 10. M0 构建产物
 
