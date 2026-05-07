@@ -60,44 +60,44 @@ tags: [story, openclaw, gateway, status, log, M1]
 ### T1 · sidecar 基础设施
 
 - [x] 新建 `gateway_log.py`：`LogEntry` + `GatewayLogBuffer`（线程安全 deque maxlen=8000，append/tail/since/stats）
-- [x] 改造 `runtime.start_gateway`：`stdout=PIPE, stderr=PIPE, bufsize=1`，启 2 个 daemon 线程灌 buffer
-- [x] `runtime` 暴露全局单例 `get_log_buffer()`（sidecar 进程级）
-- [x] level 推断函数：行首/含 `error|fail` → ERROR；`warn` → WARN；否则 INFO
-- [x] 单测 ≥ 8 条：append / tail / since_id / dropped 计数 / 多线程并发 / level 推断
+- [x] ~~改造 `runtime.start_gateway`：`stdout=PIPE, stderr=PIPE, bufsize=1`，启 2 个 daemon 线程灌 buffer~~ → 移到 T2（与 RPC 一起改 runtime，避免 T1 引入未被消费的副作用）
+- [x] `runtime` 暴露全局单例 `get_log_buffer()`（sidecar 进程级） → 实际放在 `gateway_log.py` 自身（更内聚）
+- [x] level 推断函数：行首/含 `error|fail` → ERROR；`warn` → WARN；否则 INFO（扩展为 ERROR/WARN/DEBUG/INFO 4 级 + stream 兜底）
+- [x] 单测 ≥ 8 条：append / tail / since_id / dropped 计数 / 多线程并发 / level 推断（**实际 41 条**）
 
 ### T2 · sidecar 4 个 RPC
 
-- [x] `openclaw.gateway.status`：返回 state + pid + port + started_at + uptime + last_log_id
-- [x] `openclaw.gateway.start({force_restart})`：幂等，已运行不重启除非 force
-- [x] `openclaw.gateway.restart`：等价 start({force_restart:true})
-- [x] `openclaw.gateway.tail_log({n, since_id})`：since_id 互斥；返回 entries + max_id + dropped
-- [x] `openclaw.web.open`：spawn `openclaw dashboard` + 隔离 env，立即返回，不阻塞、不解析 stdout
-- [x] 旧 `openclaw.web.get_url` 加 `@deprecated` 注释，保留实现
-- [x] sidecar 测试 ≥ 6 条覆盖新 RPC
+- [ ] `openclaw.gateway.status`：返回 state + pid + port + started_at + last_log_id
+- [ ] `openclaw.gateway.start({force_restart})`：幂等，已运行不重启除非 force
+- [ ] `openclaw.gateway.restart`：等价 start({force_restart:true})
+- [ ] `openclaw.gateway.tail_log({n, since_id})`：since_id 互斥；返回 entries + max_id + dropped
+- [ ] `openclaw.web.open`：spawn `openclaw dashboard` + 隔离 env，立即返回，不阻塞、不解析 stdout
+- [ ] 旧 `openclaw.web.get_url` 加 `@deprecated` 注释，保留实现
+- [ ] sidecar 测试 ≥ 6 条覆盖新 RPC
 
 ### T3 · 前端 IPC 包装
 
-- [x] `apps/desktop/src/ipc/openclaw.ts` 增加 `getGatewayStatus / startGateway / restartGateway / tailGatewayLog / openOpenClawWebUi` 5 个函数
-- [x] Tauri command 转发（src-tauri/src/lib.rs 或 commands.rs）
+- [ ] `apps/desktop/src/ipc/openclaw.ts` 增加 `getGatewayStatus / startGateway / restartGateway / tailGatewayLog / openOpenClawWebUi` 5 个函数
+- [ ] Tauri command 转发（src-tauri/src/lib.rs 或 commands.rs）
 
 ### T4 · 前端 UI
 
-- [x] 拆 StatusPage 现有逻辑到 `SidecarHealth.tsx`
-- [x] 新建 `GatewayStatusCard.tsx`：状态点 + 元数据行 + 3 按钮
-- [x] 新建 `GatewayLogPanel.tsx`：折叠/全屏/清屏，行虚拟列表（slice + max-height + auto-scroll）
-- [x] 新建 `useGatewayPolling` hook：1s 轮询 status；status=running 时同时增量拉 tail_log
-- [x] 文案 / 颜色 / disabled 态遵循现有 SettingsPanel 的 M3 风格
+- [ ] 拆 StatusPage 现有逻辑到 `SidecarHealth.tsx`
+- [ ] 新建 `GatewayStatusCard.tsx`：状态点 + 元数据行 + 3 按钮
+- [ ] 新建 `GatewayLogPanel.tsx`：折叠/全屏/清屏，行虚拟列表（slice + max-height + auto-scroll）
+- [ ] 新建 `useGatewayPolling` hook：1s 轮询 status；status=running 时同时增量拉 tail_log
+- [ ] 文案 / 颜色 / disabled 态遵循现有 SettingsPanel 的 M3 风格
 
 ### T5 · 文档 + 编译 + 验收
 
-- [x] 进展日志 + 任务卡 status 同步
-- [x] 同步 [[../../specs/openclaw-wrapper-ipc]]（新增 4 RPC + 1 deprecated）
-- [x] `pnpm typecheck` / `pnpm vitest run` / **`pnpm tauri build`**（按 [[../../../.ai/rules/40-build-and-release]]，必须出 .exe，汇报时给大小+时间戳）
-- [x] python wrapper 全量回归 ≥ 132 + 新增 14（gateway_log + 4 RPC）
+- [ ] 进展日志 + 任务卡 status 同步
+- [ ] 同步 [[../../specs/openclaw-wrapper-ipc]]（新增 4 RPC + 1 deprecated）
+- [ ] `pnpm typecheck` / `pnpm vitest run` / **`pnpm tauri build`**（按 [[../../../.ai/rules/40-build-and-release]]，必须出 .exe，汇报时给大小+时间戳）
+- [ ] python wrapper 全量回归 ≥ 132 + 新增 14（gateway_log + 4 RPC）
 
 ## 验收标准（与 spec §6 一致）
 
-- [ ] 状态页能看到 Gateway 4 元组（state / pid / port / uptime）
+- [ ] 状态页能看到 Gateway 4 元组（state / pid / port / 启动时间）
 - [ ] [启动 Gateway] 按钮在 stopped 时可点，运行后变 [重启 Gateway]
 - [ ] [OpenClaw Web UI] 按钮点击 ~1s 内浏览器打开 `http://127.0.0.1:19789/`
 - [ ] [Artifex Nexus Web UI] 按钮可见但 disabled
@@ -109,6 +109,12 @@ tags: [story, openclaw, gateway, status, log, M1]
 ## 进展日志
 
 - 2026-05-07 created：基于用户两条反馈（状态页太空 + Web UI 入口绕远路）合并为一个 STORY；Q1-Q9 9 问全部确认；spec [[../../specs/openclaw-status-panel]] v1 落地；本卡进入 in-progress
+- 2026-05-07 用户微调：状态页元数据"运行时长"字段去掉，只保留"启动时间"（spec §1/§2.1/§4.1/§6 同步；STORY 卡 T2/§验收同步）
+- 2026-05-07 **T1 完成**：
+  - 新建 `gateway_log.py`（246 行）：`LogEntry`(frozen dataclass) + `GatewayLogBuffer`(线程安全 deque maxlen=8000) + `infer_level`(ERROR/WARN/DEBUG/INFO 4 级，stream 兜底) + `get_log_buffer`/`reset_log_buffer_for_test` 单例
+  - 单测 `test_gateway_log.py`：**41/41 全绿**（远超规划 ≥8 条），覆盖 append/tail/since/dropped/stats/clear/边界/8 线程并发/单例
+  - 全包回归：**173 passed, 2 skipped, 0 failed**（基线 132 → +41 新增）
+  - 微调：原 T1 计划"改造 runtime.start_gateway"挪到 T2 一起做（与 RPC 同步引入，避免 T1 引入未被消费的副作用）；`get_log_buffer` 放在 `gateway_log.py` 自身（比放 `runtime` 更内聚）
 
 ## 相关
 

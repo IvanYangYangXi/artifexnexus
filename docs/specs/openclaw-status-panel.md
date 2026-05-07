@@ -40,7 +40,7 @@ related_decisions: [0007]
 │                                                            │
 │  ┌─ OpenClaw Gateway ──────────────────────────────────┐   │
 │  │  ● 运行中     PID 12345    端口 19789               │   │
-│  │  启动于 18:09:15（已运行 12 分钟）                  │   │
+│  │  启动于 18:09:15                                    │   │
 │  │  ┌────────────┬───────────────┬──────────────────┐  │   │
 │  │  │ ↻ 重启     │ 🌐 OpenClaw   │ 🚀 Artifex Nexus │  │   │
 │  │  │  Gateway   │   Web UI      │   Web UI（占位） │  │   │
@@ -59,7 +59,7 @@ related_decisions: [0007]
 ```
 
 3 个状态：
-- **● 运行中** — 绿点，PID/port/uptime 全显
+- **● 运行中** — 绿点，显示 PID / port / 启动时间
 - **○ 未运行** — 灰点，仅显"启动 Gateway"按钮
 - **● 异常** — 红点（PID 还在但端口探活失败 / 进程刚退出），显示最后错误日志摘要
 
@@ -83,7 +83,6 @@ related_decisions: [0007]
   "pid": 12345,           // 仅 running，否则 null
   "port": 19789,          // 仅 running，否则 null
   "started_at": 1746602955.0,  // unix ts，仅 running
-  "uptime_seconds": 720,  // 计算字段，仅 running
   "last_error": "...",    // 仅 errored
   "last_log_id": 4521     // 当前内存 buffer 的最大 id（前端拉日志用 since_id 时初始化）
 }
@@ -213,7 +212,7 @@ StatusPage
 ├── SidecarHealth                    （已有，不改）
 ├── GatewayStatusCard (新建)
 │   ├── StateBadge (●/○/●)
-│   ├── MetadataLine (PID / port / uptime)
+│   ├── MetadataLine (PID / port / 启动时间)
 │   └── ActionButtons
 │       ├── StartOrRestartButton
 │       ├── OpenOpenClawWebUiButton
@@ -248,7 +247,7 @@ export async function openOpenClawWebUi(): Promise<{ success: boolean; method: s
 
 ## 6. 验收标准
 
-- [ ] 状态页能看到 Gateway 4 元组（state / pid / port / uptime）
+- [ ] 状态页能看到 Gateway 4 元组（state / pid / port / 启动时间）
 - [ ] [启动 Gateway] 按钮在 stopped 时可点，运行后变 [重启 Gateway]
 - [ ] [OpenClaw Web UI] 按钮点击 ~1s 内浏览器打开 `http://127.0.0.1:19789/`
 - [ ] [Artifex Nexus Web UI] 按钮可见但 disabled，tooltip "M3 milestone 实装"
