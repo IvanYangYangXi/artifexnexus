@@ -82,11 +82,11 @@ tags: [story, openclaw, gateway, status, log, M1]
 
 ### T4 · 前端 UI
 
-- [ ] 拆 StatusPage 现有逻辑到 `SidecarHealth.tsx`
-- [ ] 新建 `GatewayStatusCard.tsx`：状态点 + 元数据行 + 3 按钮
-- [ ] 新建 `GatewayLogPanel.tsx`：折叠/全屏/清屏，行虚拟列表（slice + max-height + auto-scroll）
-- [ ] 新建 `useGatewayPolling` hook：1s 轮询 status；status=running 时同时增量拉 tail_log
-- [ ] 文案 / 颜色 / disabled 态遵循现有 SettingsPanel 的 M3 风格
+- [x] 拆 StatusPage 现有逻辑到 `SidecarHealth.tsx`
+- [x] 新建 `GatewayStatusCard.tsx`：状态点 + 元数据行 + 3 按钮
+- [x] 新建 `GatewayLogPanel.tsx`：折叠/全屏/清屏，行虚拟列表（slice + max-height + auto-scroll）
+- [x] 新建 `useGatewayPolling` hook：1s 轮询 status；status=running 时同时增量拉 tail_log
+- [x] 文案 / 颜色 / disabled 态遵循现有 SettingsPanel 的 M3 风格
 
 ### T5 · 文档 + 编译 + 验收
 
@@ -140,6 +140,23 @@ tags: [story, openclaw, gateway, status, log, M1]
       - `target/release/artifex-nexus-desktop.exe`：**10.95 MB**，2026/5/7 20:51:15
       - `target/release/bundle/nsis/Artifex Nexus_0.1.0_x64-setup.exe`：**2.46 MB**，2026/5/7 20:51:14
     - python wrapper 全包回归：**214 passed, 2 skipped**（基线维持，未退化）
+- 2026-05-07 **T4 完成**：
+  - 新建 `apps/desktop/src/features/openclaw/status/` 子目录（与 SettingsPanel 同父，领域内聚）：
+    - `useGatewayPolling.ts`（hook）：1s 轮询 `getGatewayStatus`；`state==="running"` 时同 tick 增量拉 `tailGatewayLog({ sinceId })`；首次 since_id 用 `status.last_log_id` 初始化跳过历史；`since_id` 用 ref 避免 setState 异步重复拉；卸载守卫 `aliveRef` 防 act warning；导出 `clearLogs` / `refreshNow`
+    - `SidecarHealth.tsx`：从原 `routes/Status.tsx` 拆出来，5s 独立轮询 sidecar（与 1s gateway 轮询解耦）
+    - `GatewayStatusCard.tsx`：状态点（绿/灰/红 + halo）+ 元数据行（PID / 端口 / 启动时间 zh-CN locale 格式化）+ 3 按钮（启动↔重启自适应；OpenClaw Web UI 仅 running 可点；Artifex Nexus Web UI 永远 disabled + tooltip "M3 milestone 实装"）；按钮操作后调 `onAfterAction` 立即刷一次状态，UI 反馈 ≤ 1s
+    - `GatewayLogPanel.tsx`：折叠 / 全屏（max-height 320→70vh）/ 清屏；终端配色（#0f172a 背景 + 按 level 染色 INFO 蓝/WARN 黄/ERROR 红/DEBUG 灰）；自动滚动粘底（用户上滑临时关粘底，回底自动恢复）；dropped 警示行
+    - `StatusPanel.module.css`：M3 风格共享样式（颜色板与 SettingsPanel.module.css 对齐：#2563eb 主色 / #16a34a 绿 / #dc2626 红 / #9ca3af 灰 / #f3f4f6 灰底）
+  - 重构 `routes/Status.tsx`：从 62 行内联 style + 单 5s 轮询，重构为组合 3 个子组件 + `useGatewayPolling`；保留"重新运行安装向导"按钮
+  - 同步 spec `docs/specs/openclaw-status-panel.md` §2.1：start RPC 响应字段 `already_running` 改为 `restarted`（语义反向但更主动）+ 失败约定走 JSON-RPC error 通道（与 T2 实现对齐；STORY-0018 spec-vs-impl 冲突 Q5 已确认改 spec 而非反改 5 处实现）
+  - 验证：
+    - `pnpm typecheck`（apps/desktop）：通过（修了 noUncheckedIndexedAccess 严格模式下 CSS module 索引返回 string|undefined 的 4 处兜底）
+    - `pnpm test`（vitest）：22/22 通过（既有 settings.reducer.test 不退化）
+    - **`pnpm tauri build`：通过**
+      - `target/release/artifex-nexus-desktop.exe`：**10.95 MB**，2026/5/7 21:06:08
+      - `target/release/bundle/nsis/Artifex Nexus_0.1.0_x64-setup.exe`：**2.46 MB**，2026/5/7 21:06:07
+    - python wrapper 全包回归：**214 passed, 2 skipped**（基线维持）
+  - 微调：日志面板未引入第三方虚拟列表库（200 行 ×80 字符 DOM 可承受，参 spec §3.3 性能基线）；T4 暂未补 React 组件单测（项目无 testing-library 基础设施，hook 纯函数测需要 hook-testing-library，引入成本超 T4 范围；建议留到 T5 评估或独立 STORY）
 
 ## 相关
 

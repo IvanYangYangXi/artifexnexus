@@ -1,0 +1,275 @@
+/* OpenClaw 状态页样式（M3 风格，与 SettingsPanel.module.css 同色板） */
+
+/* ---------------------------------------------------------------------------
+   Page wrapper
+   --------------------------------------------------------------------------- */
+
+.page {
+  padding: 24px 28px 48px;
+  max-width: 720px;
+  margin: 0 auto;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.pageTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 20px;
+}
+
+.errorBanner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------------
+   Card 通用容器
+   --------------------------------------------------------------------------- */
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   SidecarHealth
+   --------------------------------------------------------------------------- */
+
+.sidecarRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.sidecarRow code {
+  font-size: 12px;
+  background: #f3f4f6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #6b7280;
+}
+
+/* ---------------------------------------------------------------------------
+   GatewayStatusCard
+   --------------------------------------------------------------------------- */
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.dotRunning {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+
+.dotStopped {
+  background: #9ca3af;
+}
+
+.dotErrored {
+  background: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+}
+
+.gatewayHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gatewayHeader .stateLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.gatewayMeta {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.gatewayMeta code {
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color: #374151;
+}
+
+.gatewayError {
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+}
+
+.btnRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: background 80ms;
+}
+
+.btn:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.btnPrimary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   GatewayLogPanel
+   --------------------------------------------------------------------------- */
+
+.logHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logHeader .cardTitle {
+  margin: 0;
+  flex: 1;
+}
+
+.logToolBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.logToolBtn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.logBody {
+  margin-top: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.logBodyExpanded {
+  max-height: 70vh;
+}
+
+.logEmpty {
+  color: #64748b;
+  font-style: italic;
+  padding: 8px 4px;
+}
+
+.logLine {
+  display: flex;
+  gap: 8px;
+}
+
+.logTs {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.logLevel {
+  flex-shrink: 0;
+  font-weight: 600;
+  width: 44px;
+}
+
+.logLevelInfo {
+  color: #93c5fd;
+}
+
+.logLevelWarn {
+  color: #fbbf24;
+}
+
+.logLevelError {
+  color: #f87171;
+}
+
+.logLevelDebug {
+  color: #94a3b8;
+}
+
+.logText {
+  flex: 1;
+  word-break: break-all;
+}
+
+.logFooter {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #9ca3af;
+  display: flex;
+  justify-content: space-between;
+}
+
+.dropWarn {
+  color: #f59e0b;
+}

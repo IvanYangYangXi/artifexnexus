@@ -96,17 +96,17 @@ related_decisions: [0007]
 ```json
 {
   "success": true,
-  "already_running": false,  // 已在跑且 force_restart=false 时为 true
+  "restarted": false,         // 经历了 stop+start 重启路径时为 true；幂等复用为 false
   "pid": 12345,
   "port": 19789,
-  "started_at": 1746602955.0
+  "message": "gateway 已启动 (pid=12345)"
 }
 ```
 
 行为：
-- `force_restart=false` + 已运行 → 立即返回 `already_running=true`，不重启
-- `force_restart=true` 或未运行 → 调用 `runtime.start_gateway()`；若已运行先 stop 再 start
-- 失败 → `success=false, error: "..."`
+- `force_restart=false` + 已运行 → 立即返回 `restarted=false` + 复用现有 pid，不重启
+- `force_restart=true` 或未运行 → 调用 `runtime.start_gateway()`；若已运行先 stop 再 start，返回 `restarted=true`
+- 失败 → JSON-RPC error 通道（`{ error: { code: -32000, message } }`），不走 result.success=false
 
 #### `openclaw.gateway.restart` — 重启（语法糖）
 

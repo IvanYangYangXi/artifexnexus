@@ -1,56 +1,52 @@
-// 状态页：显示 sidecar 运行状态、端口、隔离目录。
-// 接入 Rust get_status command 获取实时数据。
+// 状态页（STORY-0018 T4 重构）：
+// - SidecarHealth：sidecar 进程状态（5s 轮询，独立）
+// - GatewayStatusCard：gateway 状态点 + 元数据 + 3 按钮（消费 useGatewayPolling）
+// - GatewayLogPanel：实时日志窗口 200 行（消费 useGatewayPolling）
+//
+// 旧逻辑（5s 轮询 sidecar 内联）已拆到 SidecarHealth.tsx；
+// 新轮询（1s gateway status + 增量 tail_log）由 useGatewayPolling 提供。
 
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getStatus, type StatusResponse } from "../ipc/status";
+import GatewayLogPanel from "../features/openclaw/status/GatewayLogPanel";
+import GatewayStatusCard from "../features/openclaw/status/GatewayStatusCard";
+import SidecarHealth from "../features/openclaw/status/SidecarHealth";
+import statusStyles from "../features/openclaw/status/StatusPanel.module.css";
+import { useGatewayPolling } from "../features/openclaw/status/useGatewayPolling";
 
 function Status() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const s = await getStatus();
-        setStatus(s);
-        setError("");
-      } catch (e) {
-        setError(String(e));
-      }
-    };
-    fetchStatus();
-    // 每 5 秒轮询
-    const interval = setInterval(fetchStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const { status, logs, dropped, pollError, clearLogs, refreshNow } =
+    useGatewayPolling();
 
   return (
-    <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif", maxWidth: 500, margin: "0 auto" }}>
-      <h1>Artifex Nexus — 运行状态</h1>
+    <main className={statusStyles.page}>
+      <h1 className={statusStyles.pageTitle}>Artifex Nexus — 运行状态</h1>
 
-      {error && (
-        <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#fef2f2", borderRadius: 8, color: "#dc2626" }}>
-          ⚠️ {error}
+      {pollError && (
+        <div className={statusStyles.errorBanner}>
+          ⚠️ Gateway 轮询失败：{pollError}
         </div>
       )}
 
-      {status && (
-        <div style={{ marginTop: "1.5rem", padding: "1rem", background: "#f0fdf4", borderRadius: 8 }}>
-          <p>🟢 Sidecar：{status.sidecar_running ? "运行中" : "已停止"}</p>
-          <p>🔌 端口：{status.port}</p>
-          <p>📁 隔离目录：<code>{status.openclaw_home}</code></p>
-        </div>
-      )}
+      <SidecarHealth />
 
-      {!status && !error && (
-        <p style={{ marginTop: "1.5rem", color: "#6b7280" }}>正在连接 sidecar...</p>
-      )}
+      <GatewayStatusCard status={status} onAfterAction={refreshNow} />
+
+      <GatewayLogPanel logs={logs} dropped={dropped} onClear={clearLogs} />
 
       <button
+        type="button"
         onClick={() => navigate("/installer")}
-        style={{ marginTop: "1.5rem", padding: "0.5rem 1rem" }}
+        style={{
+          marginTop: 12,
+          padding: "6px 14px",
+          fontSize: 13,
+          background: "#fff",
+          border: "1px solid #d1d5db",
+          borderRadius: 6,
+          color: "#374151",
+          cursor: "pointer",
+        }}
       >
         重新运行安装向导
       </button>
