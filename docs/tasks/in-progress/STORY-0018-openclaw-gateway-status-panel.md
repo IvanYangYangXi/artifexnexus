@@ -77,8 +77,8 @@ tags: [story, openclaw, gateway, status, log, M1]
 
 ### T3 · 前端 IPC 包装
 
-- [ ] `apps/desktop/src/ipc/openclaw.ts` 增加 `getGatewayStatus / startGateway / restartGateway / tailGatewayLog / openOpenClawWebUi` 5 个函数
-- [ ] Tauri command 转发（src-tauri/src/lib.rs 或 commands.rs）
+- [x] `apps/desktop/src/ipc/openclaw.ts` 增加 `getGatewayStatus / startGateway / restartGateway / tailGatewayLog / openOpenClawWebUi` 5 个函数
+- [x] Tauri command 转发（src-tauri/src/lib.rs 或 commands.rs）
 
 ### T4 · 前端 UI
 
@@ -127,6 +127,19 @@ tags: [story, openclaw, gateway, status, log, M1]
   - 全包回归：**214 passed, 2 skipped, 0 failed**（基线 173 → +41）
   - 微调：sidecar.py 已 556 行，新 5 handler 单独放 `sidecar_gateway.py`（薄包装风格）；`_GatewayInfo` 单独放 `gateway_state.py` 而非 runtime.py 内（runtime.py 已 577 行接近上限，分文件更内聚，与 `gateway_log.py` 风格对齐）
   - 范围内：未动 `apps/desktop`，T2 不需要 `pnpm tauri build`
+- 2026-05-07 **T3 完成**：
+  - 新建 `apps/desktop/src-tauri/src/commands/openclaw_gateway.rs`（~225 行）：5 个新 Tauri command（`openclaw_gateway_status` / `_start` / `_restart` / `_tail_log` / `openclaw_web_open`）+ 4 个响应类型（`GatewayStatusResponse` / `GatewayStartResponse` / `GatewayLogBatchResponse` / `WebOpenResponse`）
+  - `commands/mod.rs` 注册 `openclaw_gateway` 子模块；`lib.rs` `invoke_handler` 加 5 行（按 STORY-0018 T3 注释）
+  - `apps/desktop/src/ipc/openclaw.ts` 追加 5 个函数 + 5 个 TS 接口（`GatewayState` / `GatewayLogEntry` / `GatewayStatus` / `GatewayStartResult` / `GatewayLogBatch` / `WebOpenResult`）；与 sidecar 字段名严格对齐（snake_case）
+  - 给 `OpenClawWebUrl` 接口与 `getOpenClawWebUrl()` 加 `@deprecated STORY-0018 T2` JSDoc 注释（与 sidecar/web_ui 同步）
+  - 微调：tauri command 文件单独成 `openclaw_gateway.rs`（与 T2 同款决策：`commands/openclaw.rs` 已 231 行接近 300 硬上限）；`tail_log` Rust 侧实现 `n` 与 `since_id` 互斥逻辑（同传时 sidecar 先收到 since_id，与 spec §2.4 对齐）
+  - 验证：
+    - `pnpm typecheck`（apps/desktop）：通过
+    - `pnpm test`（vitest）：22/22 通过
+    - **`pnpm tauri build`：通过**
+      - `target/release/artifex-nexus-desktop.exe`：**10.95 MB**，2026/5/7 20:51:15
+      - `target/release/bundle/nsis/Artifex Nexus_0.1.0_x64-setup.exe`：**2.46 MB**，2026/5/7 20:51:14
+    - python wrapper 全包回归：**214 passed, 2 skipped**（基线维持，未退化）
 
 ## 相关
 

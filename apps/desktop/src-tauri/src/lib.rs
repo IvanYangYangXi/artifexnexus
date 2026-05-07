@@ -68,7 +68,13 @@ pub fn run() {
             commands::openclaw::openclaw_agent_preset_reset_default,
             commands::openclaw_config::openclaw_config_dump,
             commands::openclaw_config::openclaw_config_patch,
-            commands::openclaw_config::openclaw_config_test_provider
+            commands::openclaw_config::openclaw_config_test_provider,
+            // STORY-0018 T3：Gateway 状态控制面板
+            commands::openclaw_gateway::openclaw_gateway_status,
+            commands::openclaw_gateway::openclaw_gateway_start,
+            commands::openclaw_gateway::openclaw_gateway_restart,
+            commands::openclaw_gateway::openclaw_gateway_tail_log,
+            commands::openclaw_gateway::openclaw_web_open
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

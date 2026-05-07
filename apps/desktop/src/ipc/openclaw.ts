@@ -17,7 +17,12 @@ export interface OpenClawStatus {
   web_ui_available: boolean;
 }
 
-/** openclaw.web.get_url 返回 */
+/** openclaw.web.get_url 返回
+ *
+ * @deprecated STORY-0018 T2：改用 {@link openOpenClawWebUi}。本类型与
+ *   {@link getOpenClawWebUrl} 实现保留一个 release 周期供老前端兼容，
+ *   2026-Q3 移除。
+ */
 export interface OpenClawWebUrl {
   available: boolean;
   url: string | null;
@@ -143,7 +148,11 @@ export async function doctorOpenClaw(): Promise<Record<string, unknown>> {
   return invoke<Record<string, unknown>>("openclaw_doctor");
 }
 
-/** 获取 OpenClaw Control UI 的 URL（带 token） */
+/** 获取 OpenClaw Control UI 的 URL（带 token）
+ *
+ * @deprecated STORY-0018 T2：改用 {@link openOpenClawWebUi}。新前端不应再用本函数；
+ *   实现保留一个 release 周期供回滚兼容，2026-Q3 移除。
+ */
 export async function getOpenClawWebUrl(): Promise<OpenClawWebUrl> {
   return invoke<OpenClawWebUrl>("openclaw_web_get_url");
 }
@@ -190,4 +199,115 @@ export async function testOpenClawProvider(args: {
     modelId: args.modelId,
     authProfileId: args.authProfileId ?? null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// STORY-0018 T3：Gateway 状态控制面板 5 个 RPC
+// 契约见 docs/specs/openclaw-status-panel.md §2 与
+// packages/platform/contracts/schemas/openclaw-gateway-*.schema.json
+// ---------------------------------------------------------------------------
+
+/** Gateway 三态枚举（与 sidecar `gateway_state.GatewayState` 对齐） */
+export type GatewayState = "running" | "stopped" | "errored";
+
+/** 单条 gateway 日志条目 */
+export interface GatewayLogEntry {
+  id: number;
+  /** unix ts（秒，float） */
+  ts: number;
+  level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
+/** openclaw.gateway.status 返回 */
+export interface GatewayStatus {
+  state: GatewayState;
+  pid: number | null;
+  port: number | null;
+  /** unix ts（秒，float）；前端基于此自算 uptime */
+  started_at: number | null;
+  /** 当前 buffer 最大 id；前端首次拉日志时用作 since_id 初值 */
+  last_log_id: number;
+  last_error: string | null;
+}
+
+/** openclaw.gateway.start / restart 返回 */
+export interface GatewayStartResult {
+  success: boolean;
+  /** 是否经历 stop+start 重启路径 */
+  restarted: boolean;
+  pid: number;
+  port: number;
+  message: string;
+}
+
+/** openclaw.gateway.tail_log 返回 */
+export interface GatewayLogBatch {
+  entries: GatewayLogEntry[];
+  /** buffer 当前最大 id；下次轮询用作 since_id */
+  max_id: number;
+  /** buffer 当前条目数（≤ maxlen） */
+  buffer_size: number;
+  /** 因 buffer 满被丢弃的累计行数 */
+  dropped: number;
+}
+
+/** openclaw.web.open 返回（fire-and-forget） */
+export interface WebOpenResult {
+  success: boolean;
+  /** T3 阶段固定 "openclaw_dashboard"，T4 fallback 时可扩展 "tauri_shell" */
+  method: string;
+  pid: number | null;
+  error: string | null;
+}
+
+/** 查询 gateway 进程状态（前端 1s 轮询入口） */
+export async function getGatewayStatus(): Promise<GatewayStatus> {
+  return invoke<GatewayStatus>("openclaw_gateway_status");
+}
+
+/** 启动 gateway（幂等：已运行不重启除非 force_restart=true） */
+export async function startGateway(args?: {
+  forceRestart?: boolean;
+  port?: number;
+}): Promise<GatewayStartResult> {
+  return invoke<GatewayStartResult>("openclaw_gateway_start", {
+    forceRestart: args?.forceRestart ?? false,
+    port: args?.port ?? null,
+  });
+}
+
+/** 重启 gateway（等价 startGateway({forceRestart: true})） */
+export async function restartGateway(args?: {
+  port?: number;
+}): Promise<GatewayStartResult> {
+  return invoke<GatewayStartResult>("openclaw_gateway_restart", {
+    port: args?.port ?? null,
+  });
+}
+
+/** 增量拉取 gateway 日志
+ *
+ * - `n` 与 `sinceId` **互斥**：同传时 sidecar 优先 sinceId（spec §2.4）
+ * - 首次拉取传 `{ n: 200 }`；后续轮询传 `{ sinceId: lastBatch.max_id }`
+ */
+export async function tailGatewayLog(args?: {
+  n?: number;
+  sinceId?: number;
+}): Promise<GatewayLogBatch> {
+  return invoke<GatewayLogBatch>("openclaw_gateway_tail_log", {
+    n: args?.n ?? null,
+    sinceId: args?.sinceId ?? null,
+  });
+}
+
+/** 让 OpenClaw CLI 自开浏览器到 dashboard
+ *
+ * fire-and-forget：success 仅代表 spawn 成功，不代表浏览器一定打开。
+ * 失败时（CLI 未装 / spawn OSError）返回 `{success: false, error}`，
+ * 前端可在此处 fallback 到 `tauri-shell.open(url)`（待 STORY-0018 T4 接入）。
+ */
+export async function openOpenClawWebUi(): Promise<WebOpenResult> {
+  return invoke<WebOpenResult>("openclaw_web_open");
 }
