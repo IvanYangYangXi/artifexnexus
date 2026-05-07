@@ -1,0 +1,9 @@
+# Spike 临时产物目录
+# 大文件 / 可重新生成的产物（如 openclaw config schema 的 1.8MB JSON）放这里。
+# .gitignore 已排除本目录下所有 .json 文件，请勿在此存放需要进 git 的内容。
+# 如需固化某 spike 产物为 spec 一部分，请把内容摘录到 docs/specs/<spec>.md 正文。
+
+# 当前已生成（2026-05-07 EPIC-0001 第二批 spike）：
+# - openclaw-v2026.5.4-config-schema.json    （完整 JSON Schema，1.8MB）
+# - openclaw-v2026.5.4-schema-slice.json     （models/agents/gateway/browser/plugins 切片）
+# - extract-schema.mjs                        （切片抽取脚本，进 git）
