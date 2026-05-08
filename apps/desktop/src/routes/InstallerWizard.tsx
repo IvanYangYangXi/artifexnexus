@@ -7,7 +7,7 @@ import { FIXTURE_ITEMS } from "../features/installer/installer.fixtures";
 import { t } from "../features/installer/installer.i18n";
 import InstallList from "../features/installer/InstallList";
 import LogPanel, { type LogEntry } from "../features/installer/LogPanel";
-import { getOpenClawStatus } from "../ipc/openclaw";
+import { getOpenClawStatus, detectBlenderVersions } from "../ipc/openclaw";
 import styles from "./InstallerWizard.module.css";
 
 const zh = t.zhCN;
@@ -32,6 +32,7 @@ export type InstallerAction =
   | { type: "INSTALL_CHILD_DONE"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_FAIL"; parentId: string; childIndex: number }
   | { type: "UPDATE_CHILD"; parentId: string; childIndex: number; patch: Partial<InstallChildItem> }
+  | { type: "ADD_CHILD"; parentId: string; child: InstallChildItem }
   | { type: "DELETE_CHILD"; parentId: string; childIndex: number }
   | { type: "ADD_LOG"; entry: LogEntry }
   | { type: "CLEAR_LOGS" };
@@ -203,6 +204,17 @@ function installerReducer(
       };
     }
 
+    case "ADD_CHILD": {
+      return {
+        ...state,
+        items: state.items.map((it) => {
+          if (it.id !== action.parentId) return it;
+          const children = it.children ? [...it.children, action.child] : [action.child];
+          return { ...it, children };
+        }),
+      };
+    }
+
     case "DELETE_CHILD": {
       return {
         ...state,
@@ -313,9 +325,36 @@ function InstallerWizard() {
       }
     })();
 
+    // Blender：真实 DCC 检测
+    void (async () => {
+      try {
+        const result = await detectBlenderVersions();
+        const children = result.versions.map((v) => ({
+          label: `Blender ${v.version}`,
+          version: v.version,
+          installPath: "",
+          projectPath: "",
+          scriptPath: "",
+          state: v.installed
+            ? ("installed" as const)
+            : ("not-installed" as const),
+        }));
+        dispatch({
+          type: "UPDATE_ITEM",
+          id: "blender",
+          patch: {
+            children,
+            state: result.versions.length > 0 ? "installed" : "not-installed",
+          },
+        });
+      } catch {
+        // sidecar 不可用，保持 pending
+      }
+    })();
+
     // 其他条目：桩检测
     for (const item of state.items) {
-      if (item.id === "openclaw") continue;
+      if (item.id === "openclaw" || item.id === "blender") continue;
       dispatch({ type: "DETECT", id: item.id });
     }
   };

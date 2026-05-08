@@ -19,6 +19,7 @@ export const t = {
     btnReinstall: "重装",
     btnRetry: "重试",
     btnWebUI: "Web UI",
+    btnAdd: "添加",
 
     // 状态徽章
     statusUnavailable: "不可用",

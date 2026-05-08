@@ -204,6 +204,26 @@ function InstallItemRow({ item }: InstallItemRowProps) {
     console.log(`[installer] settings: ${item.id}`);
   }, [item.id]);
 
+  /** 添加子项：弹出输入框让用户填写版本号 */
+  const handleAddChild = useCallback(() => {
+    const version = window.prompt("请输入 DCC 版本号（如 5.1）：");
+    if (!version || !version.trim()) return;
+
+    const label = `${item.name} ${version.trim()}`;
+    dispatch({
+      type: "ADD_CHILD",
+      parentId: item.id,
+      child: {
+        label,
+        version: version.trim(),
+        installPath: "",
+        projectPath: "",
+        scriptPath: "",
+        state: "not-installed",
+      },
+    });
+  }, [dispatch, item.id, item.name]);
+
   // EPIC-0001 第二批 #2：点击 "Web UI" 按钮，先取 URL 再用系统浏览器打开
   const handleOpenWebUi = useCallback(() => {
     if (item.id !== "openclaw") return;
@@ -428,8 +448,8 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           <span className={styles.comingSoon}>{zh.comingSoon}</span>
         )}
 
-        {/* 三按钮（仅非 expandable 条目显示；DCC 条目按钮在子项行上） */}
-        {!item.expandable && (
+        {/* 三按钮（非 expandable 条目显示全部；expandable 条目显示检测+安装+添加） */}
+        {!item.expandable ? (
           <div className={styles.actions}>
             <button
               type="button"
@@ -504,6 +524,35 @@ function InstallItemRow({ item }: InstallItemRowProps) {
               onClick={handleInstall}
             >
               {getInstallLabel(item.state)}
+            </button>
+          </div>
+        ) : (
+          /* expandable 条目（DCC 行）：检测 + 安装 + 添加 */
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={`${styles.btn} ${isInstalling ? styles.btnDisabled : ""}`}
+              disabled={isInstalling}
+              onClick={handleDetect}
+            >
+              {zh.btnDetect}
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn} ${installDisabled ? styles.btnDisabled : ""}`}
+              disabled={installDisabled}
+              title={installTooltip}
+              onClick={handleInstall}
+            >
+              {getInstallLabel(item.state)}
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn}`}
+              disabled={isInstalling}
+              onClick={handleAddChild}
+            >
+              {zh.btnAdd}
             </button>
           </div>
         )}
