@@ -23,10 +23,11 @@ tags:
 
 ## In Progress
 
-- [ ] [[STORY-0028-gateway-mcp-bridge]]
+
 
 ## Review
 
+- [ ] [[STORY-0028-gateway-mcp-bridge]]
 - [ ] [[../backlog/EPIC-0002-m2-blender-mcp-e2e]]
 - [ ] [[STORY-0027-installer-blender-real-logic]]
 - [ ] [[STORY-0026-dcc-installer-blender]]

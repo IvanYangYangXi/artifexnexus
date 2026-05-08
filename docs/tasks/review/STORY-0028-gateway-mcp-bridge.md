@@ -2,7 +2,7 @@
 id: STORY-0028
 kind: story
 title: Gateway MCP Bridge 插件 — WebSocket→OpenClaw 桥接
-status: in-progress
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair
