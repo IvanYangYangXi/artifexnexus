@@ -24,10 +24,11 @@ tags:
 
 ## In Progress
 
-- [ ] [[STORY-0026-dcc-installer-blender]]
+
 
 ## Review
 
+- [ ] [[STORY-0026-dcc-installer-blender]]
 - [ ] [[STORY-0024-gateway-mcp-tool]]
 - [ ] [[STORY-0021-blender-addon-scaffold]]
 

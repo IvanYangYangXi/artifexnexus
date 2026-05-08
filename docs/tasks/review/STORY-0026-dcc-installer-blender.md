@@ -2,7 +2,7 @@
 id: STORY-0026
 kind: story
 title: Sidecar DCC 安装器 — Blender 插件检测/安装/卸载
-status: in-progress
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair
