@@ -34,12 +34,6 @@ logger = logging.getLogger(__name__)
 # 运行时由 sidecar 注入 _ADDON_SRC_DIR
 _ADDON_SRC_DIR: Optional[Path] = None
 
-# Blender addons 基础路径
-_BLENDER_ADDONS_BASE = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~/AppData/Roaming")),
-    "Blender Foundation", "Blender",
-)
-
 # 插件在 Blender addons 中的目录名前缀
 _ADDON_DIR_PREFIX = "artifex_nexus"
 
@@ -100,38 +94,145 @@ def _get_addon_src_dir() -> Path:
     )
 
 
-# ── 版本检测 ────────────────────────────────────────────────────────────
+# ── 通用 DCC 接口 ────────────────────────────────────────────────────────
 
-def find_blender_versions() -> List[str]:
-    """
-    扫描本机已安装的 Blender 版本。
+# DCC 版本扫描路径映射（key = dcc_id）
+_DCC_VERSION_SCAN_PATHS: Dict[str, str] = {
+    "blender": os.path.join(
+        os.environ.get("APPDATA", os.path.expanduser("~/AppData/Roaming")),
+        "Blender Foundation", "Blender",
+    ),
+    # M7 接入：
+    # "maya": os.path.join(os.path.expanduser("~"), "Documents", "maya"),
+    # "max": os.path.join(os.environ.get("LOCALAPPDATA", ""), "Autodesk", "3dsMax"),
+}
 
-    扫描 %APPDATA%/Blender Foundation/Blender/ 下的版本目录。
-    返回降序排列的版本号列表（如 ["4.2", "4.0", "3.6"]）。
+# DCC 插件安装路径模板（key = dcc_id）
+_DCC_ADDON_PATH_TEMPLATES: Dict[str, str] = {
+    "blender": "{base}/{version}/scripts/addons/",
+    # "maya": "{base}/{version}/scripts/",
+    # "max": "{base}/{version}/ENU/scripts/",
+}
+
+
+def find_dcc_versions(dcc: str) -> List[str]:
+    """扫描本机已安装的 DCC 版本（通用接口）。
+
+    Args:
+        dcc: DCC 标识，如 "blender" / "maya" / "max"
+
+    Returns:
+        降序排列的版本号列表
     """
-    if not os.path.isdir(_BLENDER_ADDONS_BASE):
+    base = _DCC_VERSION_SCAN_PATHS.get(dcc)
+    if not base or not os.path.isdir(base):
         return []
 
     versions = []
     try:
-        for entry in os.scandir(_BLENDER_ADDONS_BASE):
+        for entry in os.scandir(base):
             if entry.is_dir() and entry.name and entry.name[0].isdigit():
                 versions.append(entry.name)
     except OSError:
         pass
 
-    # 降序排列
     return sorted(versions, reverse=True)
 
 
-def _get_blender_addons_dir(version: str) -> str:
-    """获取指定 Blender 版本的 addons 目录"""
-    return os.path.join(_BLENDER_ADDONS_BASE, version, "scripts", "addons")
+def get_dcc_addon_target_dir(dcc: str, dcc_version: str) -> str:
+    """获取插件在 DCC 中的目标安装路径（通用接口）。
+
+    Args:
+        dcc: DCC 标识
+        dcc_version: DCC 版本号
+
+    Returns:
+        目标目录路径
+    """
+    template = _DCC_ADDON_PATH_TEMPLATES.get(dcc)
+    if not template:
+        raise ValueError(f"不支持的 DCC: {dcc}")
+
+    base = _DCC_VERSION_SCAN_PATHS.get(dcc, "")
+    return os.path.join(
+        template.format(base=base, version=dcc_version),
+        _get_addon_dir_name(),
+    )
 
 
-def _get_addon_target_dir(version: str) -> str:
-    """获取插件在 Blender addons 中的目标路径（含插件版本号）"""
-    return os.path.join(_get_blender_addons_dir(version), _get_addon_dir_name())
+def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
+    """安装插件到指定 DCC 版本（通用接口）。
+
+    Args:
+        dcc: DCC 标识
+        dcc_version: DCC 版本号
+        force: 跳过兼容性检查
+
+    Returns:
+        {"success": bool, "method": str|None, "target": str, "error": str|None}
+    """
+    src_dir = str(_get_addon_src_dir())
+    target_dir = get_dcc_addon_target_dir(dcc, dcc_version)
+
+    logger.info(f"安装 {dcc} 插件: {src_dir} → {target_dir}")
+
+    if not os.path.isdir(src_dir):
+        return {"success": False, "method": None, "target": target_dir, "error": f"插件源目录不存在: {src_dir}"}
+
+    compatible, reason = check_version_compatibility(dcc_version)
+    if not compatible and not force:
+        return {"success": False, "method": None, "target": target_dir, "error": reason}
+
+    os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+
+    if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
+        _remove_link_or_dir(target_dir)
+
+    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
+    if method is None:
+        return {"success": False, "method": None, "target": target_dir, "error": f"无法创建链接或复制目录: {err_detail}"}
+
+    logger.info(f"{dcc} {dcc_version} 插件安装成功 ({method})")
+    return {"success": True, "method": method, "target": target_dir, "error": None}
+
+
+def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
+    """卸载插件（通用接口）。"""
+    target_dir = get_dcc_addon_target_dir(dcc, dcc_version)
+    logger.info(f"卸载 {dcc} 插件: {target_dir}")
+
+    if not os.path.exists(target_dir) and not _is_junction_or_symlink(target_dir):
+        return {"success": True, "target": target_dir, "error": None, "message": "插件未安装"}
+
+    try:
+        _remove_link_or_dir(target_dir)
+        return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
+    except Exception as e:
+        return {"success": False, "target": target_dir, "error": str(e)}
+
+
+def is_dcc_addon_installed(dcc: str, dcc_version: str) -> bool:
+    """检查插件是否已安装（通用接口）。"""
+    target_dir = get_dcc_addon_target_dir(dcc, dcc_version)
+    return os.path.exists(target_dir) or _is_junction_or_symlink(target_dir)
+
+
+# ── Blender 便捷别名（向后兼容）───────────────────────────────────────────
+
+def find_blender_versions() -> List[str]:
+    return find_dcc_versions("blender")
+
+
+def install_blender_addon(blender_version: str, force: bool = False) -> Dict:
+    return install_dcc_addon("blender", blender_version, force)
+
+
+def uninstall_blender_addon(blender_version: str) -> Dict:
+    return uninstall_dcc_addon("blender", blender_version)
+
+
+def is_addon_installed(blender_version: str) -> bool:
+    return is_dcc_addon_installed("blender", blender_version)
 
 
 # ── 插件信息 ────────────────────────────────────────────────────────────
@@ -239,119 +340,6 @@ def check_version_compatibility(blender_version: str) -> Tuple[bool, str]:
         return True, f"兼容 ({min_str} ~ {max_str})"
     else:
         return True, f"兼容 (≥ {min_str})"
-
-
-# ── 安装 / 卸载 ─────────────────────────────────────────────────────────
-
-def install_blender_addon(blender_version: str, force: bool = False) -> Dict:
-    """
-    安装 Blender 插件到指定版本。
-
-    使用 junction（Windows）/ symlink（macOS/Linux）优先，
-    失败时 fallback 到复制。
-
-    Args:
-        blender_version: Blender 版本号，如 "4.2"
-        force: 是否跳过覆盖确认
-
-    Returns:
-        {"success": bool, "method": "junction"|"symlink"|"copy", "target": str, "error": str|None}
-    """
-    src_dir = str(_get_addon_src_dir())
-    target_dir = _get_addon_target_dir(blender_version)
-    addons_dir = _get_blender_addons_dir(blender_version)
-
-    logger.info(f"安装 Blender 插件: {src_dir} → {target_dir}")
-
-    # 检查源目录
-    if not os.path.isdir(src_dir):
-        return {
-            "success": False,
-            "method": None,
-            "target": target_dir,
-            "error": f"插件源目录不存在: {src_dir}",
-        }
-
-    # 检查版本兼容性
-    compatible, reason = check_version_compatibility(blender_version)
-    if not compatible and not force:
-        return {
-            "success": False,
-            "method": None,
-            "target": target_dir,
-            "error": reason,
-        }
-
-    # 确保 addons 目录存在
-    os.makedirs(addons_dir, exist_ok=True)
-
-    # 清理已有安装
-    if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
-        _remove_link_or_dir(target_dir)
-
-    # 尝试 junction/symlink/copy
-    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
-
-    if method is None:
-        return {
-            "success": False,
-            "method": None,
-            "target": target_dir,
-            "error": f"无法创建链接或复制目录: {err_detail}",
-        }
-
-    logger.info(f"Blender {blender_version} 插件安装成功 ({method})")
-    return {
-        "success": True,
-        "method": method,
-        "target": target_dir,
-        "error": None,
-    }
-
-
-def uninstall_blender_addon(blender_version: str) -> Dict:
-    """
-    卸载 Blender 插件。
-
-    Args:
-        blender_version: Blender 版本号
-
-    Returns:
-        {"success": bool, "target": str, "error": str|None}
-    """
-    target_dir = _get_addon_target_dir(blender_version)
-
-    logger.info(f"卸载 Blender 插件: {target_dir}")
-
-    if not os.path.exists(target_dir) and not _is_junction_or_symlink(target_dir):
-        return {
-            "success": True,
-            "target": target_dir,
-            "error": None,
-            "message": "插件未安装",
-        }
-
-    try:
-        _remove_link_or_dir(target_dir)
-        logger.info(f"Blender {blender_version} 插件卸载成功")
-        return {
-            "success": True,
-            "target": target_dir,
-            "error": None,
-            "message": "卸载成功",
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "target": target_dir,
-            "error": str(e),
-        }
-
-
-def is_addon_installed(blender_version: str) -> bool:
-    """检查插件是否已安装到指定 Blender 版本"""
-    target_dir = _get_addon_target_dir(blender_version)
-    return os.path.exists(target_dir) or _is_junction_or_symlink(target_dir)
 
 
 # ── Junction / Symlink 工具 ─────────────────────────────────────────────

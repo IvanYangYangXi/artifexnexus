@@ -47,13 +47,12 @@ class TestFindBlenderVersions:
 
     def test_no_blender_installed(self, dcc_installer):
         """无 Blender 安装时返回空列表"""
-        with patch.object(dcc_installer, "_BLENDER_ADDONS_BASE", "/nonexistent/path"):
-            versions = dcc_installer.find_blender_versions()
+        with patch.object(dcc_installer, "_DCC_VERSION_SCAN_PATHS", {"blender": "/nonexistent/path"}):
+            versions = dcc_installer.find_dcc_versions("blender")
             assert versions == []
 
     def test_find_versions_mocked(self, dcc_installer):
         """mock 扫描返回版本列表"""
-        # 使用真实字符串而非 MagicMock，因为 sorted() 需要比较
         class MockDirEntry:
             def __init__(self, name, is_dir_val=True):
                 self.name = name
@@ -65,13 +64,19 @@ class TestFindBlenderVersions:
             MockDirEntry("4.2"),
             MockDirEntry("5.1"),
             MockDirEntry("3.6"),
-            MockDirEntry("config"),  # 非数字开头，应跳过
+            MockDirEntry("config"),
         ]
         with patch("os.scandir", return_value=mock_entries):
-            with patch.object(dcc_installer, "_BLENDER_ADDONS_BASE", "/fake/base"):
+            with patch.object(dcc_installer, "_DCC_VERSION_SCAN_PATHS", {"blender": "/fake/base"}):
                 with patch("os.path.isdir", return_value=True):
-                    versions = dcc_installer.find_blender_versions()
+                    versions = dcc_installer.find_dcc_versions("blender")
                     assert versions == ["5.1", "4.2", "3.6"]
+
+    def test_blender_alias(self, dcc_installer):
+        """Blender 便捷别名调用通用接口"""
+        with patch.object(dcc_installer, "_DCC_VERSION_SCAN_PATHS", {"blender": "/nonexistent/path"}):
+            versions = dcc_installer.find_blender_versions()
+            assert versions == []
 
 
 class TestVersionCompatibility:
@@ -157,27 +162,24 @@ class TestInstallUninstall:
         """force=True 跳过兼容检查"""
         dcc_installer.set_addon_src_dir(str(temp_addon_src / "v5.0.0"))
         with tempfile.TemporaryDirectory() as tmp:
-            # mock addons 目录
-            addons_dir = Path(tmp) / "scripts" / "addons"
-            addons_dir.mkdir(parents=True)
-
-            with patch.object(dcc_installer, "_get_blender_addons_dir", return_value=str(addons_dir)):
+            target_dir = str(Path(tmp) / "target")
+            with patch.object(dcc_installer, "get_dcc_addon_target_dir", return_value=target_dir):
                 with patch.object(dcc_installer, "_link_or_copy_dir", return_value=("copy", "")):
-                    result = dcc_installer.install_blender_addon("4.2", force=True)
+                    result = dcc_installer.install_dcc_addon("blender", "4.2", force=True)
                     assert result["success"] is True
                     assert result["method"] == "copy"
 
     def test_uninstall_not_installed(self, dcc_installer):
         """卸载未安装的插件"""
-        with patch.object(dcc_installer, "_get_addon_target_dir", return_value="/nonexistent/path"):
-            result = dcc_installer.uninstall_blender_addon("5.1")
+        with patch.object(dcc_installer, "get_dcc_addon_target_dir", return_value="/nonexistent/path"):
+            result = dcc_installer.uninstall_dcc_addon("blender", "5.1")
             assert result["success"] is True
             assert "未安装" in result.get("message", "")
 
     def test_is_addon_installed(self, dcc_installer):
         """检查安装状态"""
-        with patch.object(dcc_installer, "_get_addon_target_dir", return_value="/nonexistent"):
-            assert dcc_installer.is_addon_installed("5.1") is False
+        with patch.object(dcc_installer, "get_dcc_addon_target_dir", return_value="/nonexistent"):
+            assert dcc_installer.is_dcc_addon_installed("blender", "5.1") is False
 
 
 class TestJunctionSymlink:

@@ -2,48 +2,50 @@
 
 > 统一 DCC 插件安装/卸载/检测接口。所有 DCC（Blender / Maya / Max / UE）共用。
 
-## Python API
+## Python API（通用接口）
 
 **包**：`artifex_nexus.openclaw_wrapper.dcc_installer`
 
 ### 版本检测
 
-#### `find_blender_versions() → List[str]`
+#### `find_dcc_versions(dcc: str) → List[str]`
 
-扫描 `%APPDATA%/Blender Foundation/Blender/` 下已安装的 Blender 版本。
-
-```python
-versions = find_blender_versions()
-# → ["5.1", "5.0", "4.2"]
-```
-
-- **返回**：降序排列的版本号列表，无安装返回 `[]`
-- **扫描路径**：`%APPDATA%/Blender Foundation/Blender/{version}/`
-
-#### `is_addon_installed(blender_version: str) → bool`
-
-检查插件是否已安装到指定 Blender 版本。
+扫描本机已安装的 DCC 版本。
 
 ```python
-is_addon_installed("5.1")  # → True / False
-```
-
-- **检查方式**：`os.path.exists(target_dir)` 或 `_is_junction_or_symlink(target_dir)`
-
-### 安装/卸载
-
-#### `install_blender_addon(blender_version: str, force: bool = False) → Dict`
-
-安装插件到指定 Blender 版本。
-
-```python
-result = install_blender_addon("5.1")
-# → {"success": True, "method": "junction", "target": "C:\\Users\\...\\addons\\artifex_nexus_v5.0.0", "error": None}
+versions = find_dcc_versions("blender")  # → ["5.1", "5.0", "4.2"]
+versions = find_dcc_versions("maya")     # → ["2024", "2023"]  (M7)
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `blender_version` | `str` | ✅ | Blender 版本号，如 `"5.1"` |
+| `dcc` | `str` | ✅ | DCC 标识：`"blender"` / `"maya"` / `"max"` |
+
+- **返回**：降序排列的版本号列表，无安装返回 `[]`
+
+#### `is_dcc_addon_installed(dcc: str, dcc_version: str) → bool`
+
+检查插件是否已安装到指定 DCC 版本。
+
+```python
+is_dcc_addon_installed("blender", "5.1")  # → True / False
+```
+
+### 安装/卸载
+
+#### `install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) → Dict`
+
+安装插件到指定 DCC 版本。
+
+```python
+result = install_dcc_addon("blender", "5.1")
+# → {"success": True, "method": "junction", "target": "...", "error": None}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `dcc` | `str` | ✅ | DCC 标识 |
+| `dcc_version` | `str` | ✅ | DCC 版本号 |
 | `force` | `bool` | ❌ | 跳过兼容性检查，默认 `False` |
 
 | 返回字段 | 类型 | 说明 |
@@ -53,18 +55,12 @@ result = install_blender_addon("5.1")
 | `target` | `str` | 目标路径 |
 | `error` | `str` \| `None` | 失败原因 |
 
-**安装流程**：
-1. 版本兼容检查（`force=True` 跳过）
-2. 清理已有安装
-3. junction → symlink → copy（优先级递减）
-4. 自动调用 `install_gateway_mcp_bridge()`
-
-#### `uninstall_blender_addon(blender_version: str) → Dict`
+#### `uninstall_dcc_addon(dcc: str, dcc_version: str) → Dict`
 
 卸载插件。
 
 ```python
-result = uninstall_blender_addon("5.1")
+result = uninstall_dcc_addon("blender", "5.1")
 # → {"success": True, "target": "...", "error": None, "message": "卸载成功"}
 ```
 
@@ -79,34 +75,22 @@ info = get_addon_info()
 # → {"name": "Artifex Nexus Bridge", "version": (5,0,0), "blender_min": (5,0,0), "blender_max": (5,1,9)}
 ```
 
-#### `check_version_compatibility(blender_version: str) → Tuple[bool, str]`
+#### `check_version_compatibility(dcc_version: str) → Tuple[bool, str]`
 
-检查 Blender 版本是否兼容。
+检查 DCC 版本是否兼容。
 
 ```python
 compatible, reason = check_version_compatibility("5.1")
 # → (True, "兼容 (5.0.0 ~ 5.1.9)")
-
-compatible, reason = check_version_compatibility("4.2")
-# → (False, "Blender 4.2 低于最低要求 5.0.0")
 ```
 
-**兼容规则**：`blender_min <= blender_version <= blender_max`
+**兼容规则**：`blender_min <= dcc_version <= blender_max`
 
 ### Gateway MCP Bridge
 
 #### `install_gateway_mcp_bridge() → Dict`
 
 部署 mcp-bridge 插件 + patch `openclaw.json` 配置。
-
-```python
-result = install_gateway_mcp_bridge()
-# → {"success": True, "method": "junction", "target": "...", "error": None}
-```
-
-自动完成：
-1. junction/symlink `gateway-plugin/` → `OPENCLAW_HOME/plugins/mcp-bridge/`
-2. patch `openclaw.json`：`plugins.allow += "mcp-bridge"` + `plugins.entries.mcp-bridge`
 
 #### `is_gateway_mcp_bridge_installed() → bool`
 
@@ -116,10 +100,28 @@ result = install_gateway_mcp_bridge()
 
 #### `set_addon_src_dir(path: str) → None`
 
-手动设置插件源目录（优先级高于环境变量和自动检测）。
+手动设置插件源目录。
+
+## Blender 便捷别名（向后兼容）
+
+以下函数是通用接口的 Blender 别名，行为完全一致：
 
 ```python
-set_addon_src_dir("/path/to/packages/dcc/blender/src/artifex_nexus/v5.0.0")
+find_blender_versions()              # → find_dcc_versions("blender")
+install_blender_addon(v, force)      # → install_dcc_addon("blender", v, force)
+uninstall_blender_addon(v)           # → uninstall_dcc_addon("blender", v)
+is_addon_installed(v)                # → is_dcc_addon_installed("blender", v)
+```
+
+## 新增 DCC
+
+在 `_DCC_VERSION_SCAN_PATHS` 和 `_DCC_ADDON_PATH_TEMPLATES` 中添加映射即可：
+
+```python
+_DCC_VERSION_SCAN_PATHS["maya"] = os.path.join(
+    os.path.expanduser("~"), "Documents", "maya",
+)
+_DCC_ADDON_PATH_TEMPLATES["maya"] = "{base}/{version}/scripts/"
 ```
 
 ### 安装流程
