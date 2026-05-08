@@ -51,7 +51,7 @@ tags: [epic, dcc, blender, mcp, M2]
 | S1 | [[../review/STORY-0021-blender-addon-scaffold]] — Blender 插件骨架 | Review | 0.5d | — |
 | S2 | [[../review/STORY-0022-blender-adapter-core]] — BlenderAdapter 核心 | Review | 1d | S1 |
 | S3 | [[../review/STORY-0023-mcp-server-core]] — MCP Server 核心 | Review | 1d | S2 |
-| S4 | [[../ready/STORY-0024-gateway-mcp-tool]] — Gateway 侧工具注册 | Ready | 0.5d | S3 |
+| S4 | [[../review/STORY-0024-gateway-mcp-tool]] — Gateway 侧工具注册 | Review | 0.5d | S3 |
 | S5 | [[../ready/STORY-0025-e2e-smoke-test]] — E2E 冒烟测试 | Ready | 0.5d | S4 |
 | **合计** | | **S1–S3 Review，S4–S5 Ready** | **3.5d** | EPIC-0002 estimate=2w，**剩余 6.5d buffer** |
 

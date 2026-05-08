@@ -19,7 +19,6 @@ tags:
 
 ## Ready
 
-- [ ] [[STORY-0024-gateway-mcp-tool]]
 - [ ] [[STORY-0025-e2e-smoke-test]]
 
 ## In Progress
@@ -27,6 +26,9 @@ tags:
 
 
 ## Review
+
+- [ ] [[STORY-0024-gateway-mcp-tool]]
+- [ ] [[STORY-0021-blender-addon-scaffold]]
 
 - [ ] [[STORY-0021-blender-addon-scaffold]]
 - [ ] [[STORY-0022-blender-adapter-core]]

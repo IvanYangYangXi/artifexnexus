@@ -31,6 +31,7 @@ try:
     from . import config_io as _config_io
     from . import doctor as _doctor
     from . import installer as _installer
+    from . import mcp_bridge as _mcp_bridge
     from . import ports as _ports
     from . import runtime as _runtime
     from . import sidecar_gateway as _sidecar_gateway
@@ -41,6 +42,7 @@ except ImportError:
     import config_io as _config_io  # type: ignore[no-redef]
     import doctor as _doctor  # type: ignore[no-redef]
     import installer as _installer  # type: ignore[no-redef]
+    import mcp_bridge as _mcp_bridge  # type: ignore[no-redef]
     import ports as _ports  # type: ignore[no-redef]
     import runtime as _runtime  # type: ignore[no-redef]
     import sidecar_gateway as _sidecar_gateway  # type: ignore[no-redef]
@@ -626,6 +628,43 @@ def _handle_openclaw_models_fetch_remote(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_mcp_blender_run_python(req_id: Any, params: dict) -> dict:
+    """openclaw.mcp.blender.run_python RPC：在 Blender 中执行 Python 代码。
+
+    Gateway 作为 MCP 客户端连接 Blender MCP Server，
+    转发 tools/call run_python 请求。
+
+    参数：
+        code (str, 可选): 要执行的 Python 代码
+        get_context (bool, 可选): 设为 true 时仅获取编辑器上下文
+        timeout (float, 可选): 超时秒数，默认 30
+
+    返回：
+        MCP tools/call 响应 result（含 content 和 isError）
+    """
+    code = params.get("code", "")
+    get_context = bool(params.get("get_context", False))
+    timeout = float(params.get("timeout", _mcp_bridge.DEFAULT_TIMEOUT))
+
+    try:
+        result = _mcp_bridge.call_blender_run_python(
+            code=code,
+            get_context=get_context,
+            timeout=timeout,
+        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -651,6 +690,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.config.test_provider": _handle_openclaw_config_test_provider,
     "openclaw.auth.set_token": _handle_openclaw_auth_set_token,
     "openclaw.models.fetch_remote": _handle_openclaw_models_fetch_remote,
+    # STORY-0024 M2：Blender MCP 桥接
+    "openclaw.mcp.blender.run_python": _handle_openclaw_mcp_blender_run_python,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,

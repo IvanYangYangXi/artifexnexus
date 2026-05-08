@@ -232,3 +232,38 @@ pub async fn openclaw_agent_preset_reset_default(
         error: result["error"].as_str().map(|s| s.to_string()),
     })
 }
+
+/// 在 Blender 中执行 Python 代码（通过 MCP 桥接）。
+///
+/// Gateway 作为 MCP 客户端连接 Blender MCP Server，
+/// 转发 tools/call run_python 请求。
+///
+/// STORY-0024 M2：Blender MCP 桥接。
+#[tauri::command]
+pub async fn openclaw_mcp_blender_run_python(
+    sidecar: State<'_, SidecarState>,
+    code: Option<String>,
+    get_context: Option<bool>,
+    timeout: Option<f64>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({});
+    if let Some(c) = code {
+        params["code"] = serde_json::Value::String(c);
+    }
+    if let Some(gc) = get_context {
+        params["get_context"] = serde_json::Value::Bool(gc);
+    }
+    if let Some(t) = timeout {
+        params["timeout"] = serde_json::Value::Number(
+            serde_json::Number::from_f64(t).unwrap_or(serde_json::Number::from(30)),
+        );
+    }
+
+    manager.call("openclaw.mcp.blender.run_python", params)
+}

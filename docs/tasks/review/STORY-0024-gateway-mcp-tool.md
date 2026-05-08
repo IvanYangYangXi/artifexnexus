@@ -2,7 +2,7 @@
 id: STORY-0024
 kind: story
 title: Gateway 侧 MCP 工具注册 — mcp_blender_run_python
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair
