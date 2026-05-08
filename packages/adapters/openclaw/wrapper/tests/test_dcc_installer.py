@@ -162,7 +162,7 @@ class TestInstallUninstall:
             addons_dir.mkdir(parents=True)
 
             with patch.object(dcc_installer, "_get_blender_addons_dir", return_value=str(addons_dir)):
-                with patch.object(dcc_installer, "_link_or_copy_dir", return_value="copy"):
+                with patch.object(dcc_installer, "_link_or_copy_dir", return_value=("copy", "")):
                     result = dcc_installer.install_blender_addon("4.2", force=True)
                     assert result["success"] is True
                     assert result["method"] == "copy"
@@ -202,8 +202,9 @@ class TestJunctionSymlink:
             with tempfile.TemporaryDirectory() as dst_tmp:
                 dst = str(Path(dst_tmp) / "dst")
                 # 强制 junction/symlink 失败
-                with patch.object(dcc_installer, "_try_junction", return_value=False):
-                    with patch.object(dcc_installer, "_try_symlink_dir", return_value=False):
-                        method = dcc_installer._link_or_copy_dir(str(src), dst)
+                with patch.object(dcc_installer, "_try_junction", return_value=(False, "mock fail")):
+                    with patch.object(dcc_installer, "_try_symlink_dir", return_value=(False, "mock fail")):
+                        method, err = dcc_installer._link_or_copy_dir(str(src), dst)
                         assert method == "copy"
+                        assert err == ""
                         assert os.path.isdir(dst)

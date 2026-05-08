@@ -288,15 +288,15 @@ def install_blender_addon(blender_version: str, force: bool = False) -> Dict:
     if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
         _remove_link_or_dir(target_dir)
 
-    # 尝试 junction/symlink
-    method = _link_or_copy_dir(src_dir, target_dir)
+    # 尝试 junction/symlink/copy
+    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
 
     if method is None:
         return {
             "success": False,
             "method": None,
             "target": target_dir,
-            "error": "无法创建链接或复制目录",
+            "error": f"无法创建链接或复制目录: {err_detail}",
         }
 
     logger.info(f"Blender {blender_version} 插件安装成功 ({method})")
@@ -387,35 +387,54 @@ def _remove_link_or_dir(path: str) -> None:
         os.remove(path)
 
 
-def _try_junction(src: str, dst: str) -> bool:
-    """尝试创建 Windows junction（目录）。不需要管理员权限。"""
+def _try_junction(src: str, dst: str) -> Tuple[bool, str]:
+    """尝试创建 Windows junction（目录）。不需要管理员权限。
+
+    Returns:
+        (success, error_message)
+    """
     if platform.system() != "Windows":
-        return False
+        return False, "非 Windows 平台"
     try:
         result = subprocess.run(
             ["cmd", "/c", "mklink", "/J", dst, src],
             capture_output=True, text=True, timeout=10,
         )
-        return result.returncode == 0 and os.path.isdir(dst)
-    except Exception:
-        return False
+        if result.returncode == 0 and os.path.isdir(dst):
+            return True, ""
+        err = result.stderr.strip() or result.stdout.strip() or f"返回码 {result.returncode}"
+        return False, err
+    except subprocess.TimeoutExpired:
+        return False, "junction 创建超时"
+    except FileNotFoundError:
+        return False, "cmd.exe 不可用"
+    except Exception as e:
+        return False, str(e)
 
 
-def _try_symlink_dir(src: str, dst: str) -> bool:
-    """尝试创建目录 symlink"""
+def _try_symlink_dir(src: str, dst: str) -> Tuple[bool, str]:
+    """尝试创建目录 symlink。
+
+    Returns:
+        (success, error_message)
+    """
     try:
         os.symlink(src, dst, target_is_directory=True)
-        return True
-    except (OSError, NotImplementedError):
-        return False
+        return True, ""
+    except OSError as e:
+        return False, f"symlink 创建失败: {e}"
+    except NotImplementedError:
+        return False, "当前平台不支持 symlink"
 
 
-def _link_or_copy_dir(src: str, dst: str) -> Optional[str]:
+def _link_or_copy_dir(src: str, dst: str) -> Tuple[Optional[str], str]:
     """
     创建目录引用（优先 junction/symlink，fallback 复制）。
 
     Returns:
-        "junction" | "symlink" | "copy" | None（失败）
+        (method, error_message)
+        method: "junction" | "symlink" | "copy" | None（失败）
+        error_message: 失败时的详细错误信息
     """
     src = os.path.abspath(src)
     dst = os.path.abspath(dst)
@@ -428,16 +447,29 @@ def _link_or_copy_dir(src: str, dst: str) -> Optional[str]:
     os.makedirs(os.path.dirname(dst), exist_ok=True)
 
     # 优先 junction (Windows, 无权限要求)
-    if _try_junction(src, dst):
-        return "junction"
+    ok, err = _try_junction(src, dst)
+    if ok:
+        return "junction", ""
+    junction_err = err
 
     # 其次 symlink
-    if _try_symlink_dir(src, dst):
-        return "symlink"
+    ok, err = _try_symlink_dir(src, dst)
+    if ok:
+        return "symlink", ""
+    symlink_err = err
 
     # fallback: 复制
     try:
         shutil.copytree(src, dst)
-        return "copy"
-    except Exception:
-        return None
+        return "copy", ""
+    except Exception as e:
+        copy_err = str(e)
+
+    # 全部失败：汇总错误信息
+    detail = (
+        f"junction 失败: {junction_err}; "
+        f"symlink 失败: {symlink_err}; "
+        f"copy 失败: {copy_err}"
+    )
+    logger.error(f"安装 Blender 插件失败: {detail}")
+    return None, detail
