@@ -77,6 +77,9 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_blender_detect,
             commands::openclaw::openclaw_dcc_blender_install,
             commands::openclaw::openclaw_dcc_blender_uninstall,
+            // STORY-0028 M2：Gateway MCP Bridge 插件
+            commands::openclaw::openclaw_gateway_mcp_bridge_install,
+            commands::openclaw::openclaw_gateway_mcp_bridge_status,
             // STORY-0018 T3：Gateway 状态控制面板
             commands::openclaw_gateway::openclaw_gateway_status,
             commands::openclaw_gateway::openclaw_gateway_start,

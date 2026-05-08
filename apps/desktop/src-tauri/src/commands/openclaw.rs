@@ -323,3 +323,35 @@ pub async fn openclaw_dcc_blender_uninstall(
 
     manager.call("openclaw.dcc.blender.uninstall", json!({"version": version}))
 }
+
+/// 部署 mcp-bridge 插件到 OpenClaw plugins 目录。
+///
+/// STORY-0028 M2：Gateway MCP Bridge 插件。
+#[tauri::command]
+pub async fn openclaw_gateway_mcp_bridge_install(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.gateway.mcp_bridge.install", json!({}))
+}
+
+/// 检查 mcp-bridge 插件部署状态。
+///
+/// STORY-0028 M2：Gateway MCP Bridge 插件。
+#[tauri::command]
+pub async fn openclaw_gateway_mcp_bridge_status(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.gateway.mcp_bridge.status", json!({}))
+}

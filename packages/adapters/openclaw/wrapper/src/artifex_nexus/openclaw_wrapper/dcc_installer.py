@@ -473,3 +473,99 @@ def _link_or_copy_dir(src: str, dst: str) -> Tuple[Optional[str], str]:
     )
     logger.error(f"安装 Blender 插件失败: {detail}")
     return None, detail
+
+
+# ── Gateway MCP Bridge 插件部署 ──────────────────────────────────────────
+
+def _get_gateway_plugin_src_dir() -> Path:
+    """获取 Gateway 插件源码目录"""
+    env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
+    if env_root:
+        base = Path(env_root) / "packages" / "adapters" / "openclaw" / "gateway-plugin"
+        if base.exists():
+            return base
+
+    _here = Path(__file__).resolve().parent
+    base = (_here / ".." / ".." / ".." / ".." / "adapters" / "openclaw" / "gateway-plugin").resolve()
+    if base.exists():
+        return base
+
+    raise RuntimeError("无法定位 Gateway 插件源码目录")
+
+
+def _get_openclaw_plugins_dir() -> Path:
+    """获取 OpenClaw plugins 目录"""
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".openclaw"),
+    )
+    return Path(openclaw_home) / "plugins"
+
+
+def install_gateway_mcp_bridge() -> Dict:
+    """
+    部署 mcp-bridge 插件到 OpenClaw plugins 目录。
+
+    使用 junction/symlink 将 gateway-plugin/ 链接到 ~/.openclaw/plugins/mcp-bridge/。
+
+    Returns:
+        {"success": bool, "method": str, "target": str, "error": str|None}
+    """
+    src_dir = str(_get_gateway_plugin_src_dir())
+    plugins_dir = _get_openclaw_plugins_dir()
+    target_dir = str(plugins_dir / "mcp-bridge")
+
+    logger.info(f"部署 mcp-bridge 插件: {src_dir} → {target_dir}")
+
+    if not os.path.isdir(src_dir):
+        return {
+            "success": False,
+            "method": None,
+            "target": target_dir,
+            "error": f"插件源码目录不存在: {src_dir}",
+        }
+
+    # 确保 plugins 目录存在
+    os.makedirs(str(plugins_dir), exist_ok=True)
+
+    # 清理已有安装
+    if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
+        _remove_link_or_dir(target_dir)
+
+    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
+
+    if method is None:
+        return {
+            "success": False,
+            "method": None,
+            "target": target_dir,
+            "error": f"无法部署插件: {err_detail}",
+        }
+
+    logger.info(f"mcp-bridge 插件部署成功 ({method}): {target_dir}")
+    return {
+        "success": True,
+        "method": method,
+        "target": target_dir,
+        "error": None,
+    }
+
+
+def is_gateway_mcp_bridge_installed() -> bool:
+    """检查 mcp-bridge 插件是否已部署"""
+    target_dir = str(_get_openclaw_plugins_dir() / "mcp-bridge")
+    return os.path.exists(target_dir) or _is_junction_or_symlink(target_dir)
+
+
+def uninstall_gateway_mcp_bridge() -> Dict:
+    """卸载 mcp-bridge 插件"""
+    target_dir = str(_get_openclaw_plugins_dir() / "mcp-bridge")
+
+    if not os.path.exists(target_dir) and not _is_junction_or_symlink(target_dir):
+        return {"success": True, "target": target_dir, "error": None, "message": "插件未安装"}
+
+    try:
+        _remove_link_or_dir(target_dir)
+        return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
+    except Exception as e:
+        return {"success": False, "target": target_dir, "error": str(e)}

@@ -790,6 +790,48 @@ def _handle_openclaw_dcc_blender_uninstall(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> dict:
+    """openclaw.gateway.mcp_bridge.install RPC：部署 mcp-bridge 插件到 OpenClaw。
+
+    返回：
+        {"success": bool, "method": str, "target": str, "error": str|None}
+    """
+    try:
+        result = _dcc_installer.install_gateway_mcp_bridge()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dict:
+    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态。
+
+    返回：
+        {"installed": bool}
+    """
+    try:
+        installed = _dcc_installer.is_gateway_mcp_bridge_installed()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"installed": installed},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -821,6 +863,9 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.blender.detect": _handle_openclaw_dcc_blender_detect,
     "openclaw.dcc.blender.install": _handle_openclaw_dcc_blender_install,
     "openclaw.dcc.blender.uninstall": _handle_openclaw_dcc_blender_uninstall,
+    # STORY-0028 M2：Gateway MCP Bridge 插件部署
+    "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
+    "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,
