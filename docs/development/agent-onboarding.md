@@ -115,7 +115,82 @@ pnpm openspec:clean       # 删除所有软链（仅删 link，不动 docs/ 真�
 | `DRIFT` 报错 | 软链指向不一致，再跑一次 `pnpm openspec:link` 自动修 |
 | Obsidian 在 `openspec/` 看到的是空目录 | 你还没跑 link 脚本 |
 
-## 6. 故障排查
+## 6. SDK / API 快速开始
+
+> Artifex Nexus 是对 artclaw 项目的重构，核心目标之一是建立**完善的 SDK 和通用 API**。
+> 以下是最常用的扩展点。
+
+### 6.1 接入新 DCC（3 步）
+
+**Step 1**：在 `dccRegistry.ts` 注册 DCC 操作
+
+```ts
+// apps/desktop/src/features/installer/dccRegistry.ts
+export const dccRegistry: Record<string, DCCActions> = {
+  blender: { detect, install, uninstall },
+  // 新增 Maya：
+  maya: {
+    detect: detectMayaVersions,
+    install: (v) => installMayaAddon(v),
+    uninstall: (v) => uninstallMayaAddon(v),
+  },
+};
+```
+
+**Step 2**：实现 sidecar RPC（Python 端）
+
+```python
+# packages/adapters/openclaw/wrapper/src/.../dcc_installer.py
+def find_maya_versions() -> List[str]: ...
+def install_maya_addon(version: str) -> Dict: ...
+```
+
+**Step 3**：注册到 METHOD_TABLE
+
+```python
+# sidecar.py METHOD_TABLE
+"openclaw.dcc.maya.detect": _handle_openclaw_dcc_maya_detect,
+"openclaw.dcc.maya.install": _handle_openclaw_dcc_maya_install,
+```
+
+注册后安装向导自动适配：检测按钮 → 子项填充 → 安装按钮 → 批量安装。
+
+### 6.2 接入新 MCP 工具（Gateway 侧）
+
+```python
+# packages/adapters/openclaw/wrapper/src/.../mcp_bridge.py
+client = MCPBridgeClient.get_instance(host="127.0.0.1", port=8083)
+result = client.call_tool("run_python", {"code": "print('hello')"})
+```
+
+### 6.3 DCC Adapter 接口
+
+所有 DCC adapter 继承 `BaseDCCAdapter`（`packages/dcc/blender/src/.../base_adapter.py`）：
+
+```python
+class BaseDCCAdapter(ABC):
+    def execute_code(self, code: str) -> Dict: ...      # 万能执行器
+    def execute_on_main_thread(self, fn, *args): ...     # 主线程调度
+    def get_selected_objects(self) -> List[Dict]: ...    # 上下文采集
+    def get_scene_info(self) -> Dict: ...
+```
+
+### 6.4 关键注册表
+
+| 注册表 | 位置 | 用途 |
+|--------|------|------|
+| `dccRegistry` | `apps/desktop/src/features/installer/dccRegistry.ts` | DCC 检测/安装/卸载 |
+| `METHOD_TABLE` | `sidecar.py` | Sidecar JSON-RPC 方法路由 |
+| `invoke_handler` | `apps/desktop/src-tauri/src/lib.rs` | Tauri command 注册 |
+| `_tools` | `mcp_server.py` | MCP 工具注册（`register_tool()`） |
+
+### 6.5 统一规范
+
+- **DCC 插件安装**：`[[../specs/dcc-plugin-management]]` — 版本号格式、兼容范围、安装方式、目录结构
+- **MCP 协议**：`[[../specs/blender-mcp]]` — WebSocket + JSON-RPC 2.0 + tools/list/call
+- **安装向导 UI**：`[[../specs/ui/installer-structure]]` — 状态机、依赖门禁、子项行
+
+## 7. 故障排查
 
 | 症状 | 原因 | 解法 |
 |---|---|---|
