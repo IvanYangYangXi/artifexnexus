@@ -168,6 +168,18 @@ def _generate_default_config(
                         }
                     }
                 },
+                "mcp-bridge": {
+                    "enabled": True,
+                    "config": {
+                        "servers": {
+                            "blender-editor": {
+                                "type": "websocket",
+                                "url": "ws://127.0.0.1:8083",
+                                "enabled": True,
+                            }
+                        }
+                    }
+                },
             }
         },
         # CDP 端口段起始 = gateway port + 11

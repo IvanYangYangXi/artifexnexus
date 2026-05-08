@@ -5,6 +5,11 @@
   "workspace": "{{OPENCLAW_WORKSPACE}}",
   "agentRuntime": { "id": "pi" },
   "skills": ["run_python"],
+  "tools": {
+    "allow": [
+      "mcp_blender-editor_*"
+    ]
+  },
   "reasoningDefault": "on",
   "thinkingDefault": "adaptive",
   "verboseDefault": "on",

@@ -23,7 +23,7 @@ tags:
 
 ## In Progress
 
-
+- [ ] [[STORY-0028-gateway-mcp-bridge]]
 
 ## Review
 
