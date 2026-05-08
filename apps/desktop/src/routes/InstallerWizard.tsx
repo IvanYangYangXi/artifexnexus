@@ -7,7 +7,8 @@ import { FIXTURE_ITEMS } from "../features/installer/installer.fixtures";
 import { t } from "../features/installer/installer.i18n";
 import InstallList from "../features/installer/InstallList";
 import LogPanel, { type LogEntry } from "../features/installer/LogPanel";
-import { getOpenClawStatus, detectBlenderVersions } from "../ipc/openclaw";
+import { getOpenClawStatus } from "../ipc/openclaw";
+import { getDCCActions } from "../features/installer/dccRegistry";
 import styles from "./InstallerWizard.module.css";
 
 const zh = t.zhCN;
@@ -325,36 +326,41 @@ function InstallerWizard() {
       }
     })();
 
-    // Blender：真实 DCC 检测
-    void (async () => {
-      try {
-        const result = await detectBlenderVersions();
-        const children = result.versions.map((v) => ({
-          label: `Blender ${v.version}`,
-          version: v.version,
-          installPath: "",
-          projectPath: "",
-          scriptPath: "",
-          state: v.installed
-            ? ("installed" as const)
-            : ("not-installed" as const),
-        }));
-        dispatch({
-          type: "UPDATE_ITEM",
-          id: "blender",
-          patch: {
-            children,
-            state: result.versions.length > 0 ? "installed" : "not-installed",
-          },
-        });
-      } catch {
-        // sidecar 不可用，保持 pending
-      }
-    })();
+    // 已注册的 DCC 条目：真实检测
+    for (const item of state.items) {
+      const dccActions = getDCCActions(item.id);
+      if (!dccActions) continue;
+
+      void (async () => {
+        try {
+          const result = await dccActions.detect();
+          const children = result.versions.map((v) => ({
+            label: `${item.name} ${v.version}`,
+            version: v.version,
+            installPath: "",
+            projectPath: "",
+            scriptPath: "",
+            state: v.installed
+              ? ("installed" as const)
+              : ("not-installed" as const),
+          }));
+          dispatch({
+            type: "UPDATE_ITEM",
+            id: item.id,
+            patch: {
+              children,
+              state: result.versions.length > 0 ? "installed" : "not-installed",
+            },
+          });
+        } catch {
+          // sidecar 不可用，保持当前状态
+        }
+      })();
+    }
 
     // 其他条目：桩检测
     for (const item of state.items) {
-      if (item.id === "openclaw" || item.id === "blender") continue;
+      if (item.id === "openclaw" || getDCCActions(item.id)) continue;
       dispatch({ type: "DETECT", id: item.id });
     }
   };

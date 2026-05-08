@@ -12,11 +12,9 @@ import {
   startOpenClaw,
   getOpenClawStatus,
   getOpenClawWebUrl,
-  detectBlenderVersions,
-  installBlenderAddon,
-  uninstallBlenderAddon,
 } from "../../ipc/openclaw";
 import type { PreserveOptions } from "../../ipc/openclaw";
+import { getDCCActions } from "./dccRegistry";
 import ReinstallConfirmDialog from "./ReinstallConfirmDialog";
 import StatusBadge from "./StatusBadge";
 import InstallChildRow from "./InstallChildRow";
@@ -149,16 +147,16 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       return;
     }
 
-    // STORY-0027：Blender 行 — 调用真实 DCC 检测
-    if (item.id === "blender") {
+    // DCC 行（expandable 条目）：通用检测逻辑
+    const dccActions = getDCCActions(item.id);
+    if (dccActions) {
       void (async () => {
         try {
-          addLog("blender", "info", "正在检测本机 Blender 版本…");
-          const result = await detectBlenderVersions();
+          addLog(item.id, "info", `正在检测本机 ${item.name} 版本…`);
+          const result = await dccActions.detect();
 
-          // 动态填充子项
           const children = result.versions.map((v) => ({
-            label: `Blender ${v.version}`,
+            label: `${item.name} ${v.version}`,
             version: v.version,
             installPath: "",
             projectPath: "",
@@ -170,7 +168,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
 
           dispatch({
             type: "UPDATE_ITEM",
-            id: "blender",
+            id: item.id,
             patch: {
               children,
               state: result.versions.length > 0 ? "installed" : "not-installed",
@@ -179,13 +177,13 @@ function InstallItemRow({ item }: InstallItemRowProps) {
 
           const installedCount = result.versions.filter((v) => v.installed).length;
           addLog(
-            "blender",
+            item.id,
             "info",
-            `检测到 ${result.versions.length} 个 Blender 版本（已装插件: ${installedCount}）`,
+            `检测到 ${result.versions.length} 个 ${item.name} 版本（已装插件: ${installedCount}）`,
           );
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
-          addLog("blender", "error", `检测失败: ${errMsg}`);
+          addLog(item.id, "error", `检测失败: ${errMsg}`);
         }
       })();
       return;
@@ -333,54 +331,53 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       return;
     }
 
-    // STORY-0027：Blender 行 — 调用真实 DCC 安装
-    if (item.id === "blender") {
+    // DCC 行（expandable 条目）：通用安装逻辑
+    const dccActions = getDCCActions(item.id);
+    if (dccActions) {
       void (async () => {
-        // 安装所有子项（检测到的版本）
         const children = item.children ?? [];
         if (children.length === 0) {
-          addLog("blender", "warn", '未检测到 Blender 版本，请先点击"检测"');
-          dispatch({ type: "INSTALL_FAIL", id: "blender", error: "未检测到版本" });
+          addLog(item.id, "warn", `未检测到 ${item.name} 版本，请先点击"检测"`);
+          dispatch({ type: "INSTALL_FAIL", id: item.id, error: "未检测到版本" });
           return;
         }
 
         let allSuccess = true;
         for (const child of children) {
-          if (child.state === "installed") continue; // 跳过已安装
+          if (child.state === "installed") continue;
 
-          addLog("blender", "info", `正在安装到 Blender ${child.version}…`);
+          addLog(item.id, "info", `正在安装到 ${item.name} ${child.version}…`);
           try {
-            const result = await installBlenderAddon(child.version);
+            const result = await dccActions.install(child.version);
             if (result.success) {
-              addLog("blender", "info", `Blender ${child.version} 安装成功 (${result.method})`);
-              // 更新子项状态
+              addLog(item.id, "info", `${item.name} ${child.version} 安装成功 (${result.method})`);
               dispatch({
                 type: "UPDATE_CHILD",
-                parentId: "blender",
+                parentId: item.id,
                 childIndex: children.indexOf(child),
                 patch: { state: "installed" },
               });
             } else {
-              addLog("blender", "error", `Blender ${child.version} 安装失败: ${result.error}`);
+              addLog(item.id, "error", `${item.name} ${child.version} 安装失败: ${result.error}`);
               allSuccess = false;
             }
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
-            addLog("blender", "error", `Blender ${child.version} 安装异常: ${errMsg}`);
+            addLog(item.id, "error", `${item.name} ${child.version} 安装异常: ${errMsg}`);
             allSuccess = false;
           }
         }
 
         dispatch({
           type: allSuccess ? "INSTALL_DONE" : "INSTALL_FAIL",
-          id: "blender",
+          id: item.id,
           error: allSuccess ? undefined : "部分版本安装失败",
         });
       })();
       return;
     }
 
-    // 非 OpenClaw/Blender 行：保持桩行为（M7+ 接真实逻辑）
+    // 非 OpenClaw/DCC 行：保持桩行为（M7+ 接真实逻辑）
     setTimeout(() => {
       const success = Math.random() > 0.3;
       dispatch({
