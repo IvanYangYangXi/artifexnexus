@@ -288,7 +288,7 @@ Agent 通过通配符允许工具：`tools.allow: ["mcp_blender-editor_*"]`
 ### 7.5 部署方式
 
 - **源码**：`packages/adapters/openclaw/gateway-plugin/`（`index.ts` + `openclaw.plugin.json`）
-- **目标**：`~/.openclaw/plugins/mcp-bridge/`
+- **目标**：`~/.artifexnexus/.openclaw/plugins/mcp-bridge/`（通过 `OPENCLAW_HOME` 环境变量定位）
 - **方式**：junction/symlink 优先，fallback 复制
 - **触发**：安装任意 DCC 插件时自动检查并部署（`install_gateway_mcp_bridge()`）
 

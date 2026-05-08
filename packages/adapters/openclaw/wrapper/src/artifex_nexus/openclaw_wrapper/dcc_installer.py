@@ -506,7 +506,7 @@ def install_gateway_mcp_bridge() -> Dict:
     """
     部署 mcp-bridge 插件到 OpenClaw plugins 目录。
 
-    使用 junction/symlink 将 gateway-plugin/ 链接到 ~/.openclaw/plugins/mcp-bridge/。
+    使用 junction/symlink 将 gateway-plugin/ 链接到 OPENCLAW_HOME/plugins/mcp-bridge/。
 
     Returns:
         {"success": bool, "method": str, "target": str, "error": str|None}
