@@ -79,8 +79,25 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
   }, [dispatch, parentId, childIndex, child.version]);
 
   const handleSettings = useCallback(() => {
-    console.log(`[installer] child settings: ${childId}`);
-  }, [childId]);
+    // 弹出编辑版本号和安装路径
+    const newVersion = window.prompt("版本号：", child.version);
+    if (newVersion === null) return; // 取消
+
+    const newInstallPath = window.prompt("安装路径：", child.installPath);
+    if (newInstallPath === null) return; // 取消
+
+    const newLabel = `${parentItem?.name ?? ""} ${newVersion.trim()}`;
+    dispatch({
+      type: "UPDATE_CHILD",
+      parentId,
+      childIndex,
+      patch: {
+        label: newLabel,
+        version: newVersion.trim(),
+        installPath: newInstallPath.trim(),
+      },
+    });
+  }, [dispatch, parentId, childIndex, child.version, child.installPath, parentItem?.name]);
 
   const handleInstall = useCallback(() => {
     if (installDisabled) return;

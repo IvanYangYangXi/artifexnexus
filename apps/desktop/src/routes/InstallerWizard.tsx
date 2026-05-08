@@ -438,20 +438,6 @@ function InstallerWizard() {
             >
               {zh.globalDetect}
             </button>
-            <button
-              type="button"
-              className={styles.toolbarBtn}
-              onClick={handleGlobalSettings}
-            >
-              {zh.globalSettings}
-            </button>
-            <button
-              type="button"
-              className={styles.toolbarBtnPrimary}
-              onClick={handleFinish}
-            >
-              {zh.globalFinish}
-            </button>
           </div>
         </header>
 
