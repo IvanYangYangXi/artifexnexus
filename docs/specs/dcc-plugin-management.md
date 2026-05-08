@@ -195,6 +195,31 @@ junction (Windows) > symlink > copy (fallback)
 └─────────────────────────────────────────────────────────┘
 ```
 
+### 6.3 手动添加子项规则
+
+| DCC | 输入框 | 提示 | 子项行数 |
+|-----|--------|------|---------|
+| Blender | 版本号 | 插件路径：`%APPDATA%/Blender Foundation/Blender/{version}/scripts/addons/` | 1 行/版本 |
+| Maya | 版本号 | 插件路径：`~/Documents/maya/{version}/scripts/` + 中英文自动同步 | 1 行/版本（自动处理 locale） |
+| Max | 版本号 | 插件路径：`%LOCALAPPDATA%/Autodesk/3dsMax/{version}/ENU/scripts/` + 中英文自动同步 | 1 行/版本（自动处理 locale） |
+| UE | 工程路径 | 插件路径：`{project}/Plugins/` | 1 行/工程 |
+
+**规则**：
+- Blender/Maya/Max：插件安装路径根据版本号**自动计算**，用户只需输入版本号
+- Maya/Max 中英文版本路径不同（如 `scripts/` vs `zh_CN/scripts/`），安装器自动同步两份
+- 其他语言默认不安装，用户可手动添加子项指定路径
+- UE 不扫描引擎目录，每个工程一个子项，用户输入工程根目录
+
+### 6.4 子项行字段
+
+| 字段 | 来源 | 示例 |
+|------|------|------|
+| `label` | `{DCC名} {版本号}` | `Blender 5.1` |
+| `version` | 版本号 | `5.1` |
+| `installPath` | 自动计算的插件安装路径 | `%APPDATA%/.../5.1/scripts/addons/` |
+| `scriptPath` | 插件目录名 | `artifex_nexus_v5.0.0` |
+| `projectPath` | UE 工程路径（仅 UE） | `D:\Projects\MyGame\` |
+
 ## 7. 扩展：新 DCC 接入清单
 
 当接入新 DCC（如 Maya）时，需要：

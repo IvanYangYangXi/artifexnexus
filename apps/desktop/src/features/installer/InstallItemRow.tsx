@@ -209,15 +209,47 @@ function InstallItemRow({ item }: InstallItemRowProps) {
     console.log(`[installer] settings: ${item.id}`);
   }, [item.id]);
 
-  /** 添加子项：弹出输入框让用户填写版本号和安装路径 */
+  /** 添加子项：根据 DCC 类型弹出对应输入框 */
   const handleAddChild = useCallback(() => {
-    const version = window.prompt("请输入 DCC 版本号（如 5.1）：");
+    // UE：输入工程路径
+    if (item.id === "unreal") {
+      const projectPath = window.prompt(
+        `请输入 UE 工程根目录（插件将安装到 {目录}\\Plugins\\）：`,
+      );
+      if (!projectPath || !projectPath.trim()) return;
+      const projectName = projectPath.trim().split(/[\\/]/).pop() || "Project";
+      dispatch({
+        type: "ADD_CHILD",
+        parentId: item.id,
+        child: {
+          label: `${item.name} ${projectName}`,
+          version: "",
+          installPath: `${projectPath.trim()}\\Plugins\\`,
+          projectPath: projectPath.trim(),
+          scriptPath: "",
+          state: "not-installed",
+        },
+      });
+      return;
+    }
+
+    // Blender/Maya/Max：输入版本号，路径自动计算
+    const dccActions = getDCCActions(item.id);
+    const hint = dccActions
+      ? "（插件安装路径将自动计算）"
+      : "";
+    const version = window.prompt(`请输入 ${item.name} 版本号（如 5.1）${hint}：`);
     if (!version || !version.trim()) return;
 
-    const installPath = window.prompt(
-      `请输入 ${item.name} ${version.trim()} 的安装路径（如 C:\\Program Files\\Blender Foundation\\Blender 5.1）：`,
-    );
-    if (installPath === null) return; // 用户取消
+    // 自动计算安装路径
+    let installPath = "";
+    if (item.id === "blender") {
+      installPath = `%APPDATA%/Blender Foundation/Blender/${version.trim()}/scripts/addons/`;
+    } else if (item.id === "maya") {
+      installPath = `~/Documents/maya/${version.trim()}/scripts/`;
+    } else if (item.id === "max") {
+      installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version.trim()}/ENU/scripts/`;
+    }
 
     const label = `${item.name} ${version.trim()}`;
     dispatch({
@@ -226,7 +258,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       child: {
         label,
         version: version.trim(),
-        installPath: installPath?.trim() ?? "",
+        installPath,
         projectPath: "",
         scriptPath: "",
         state: "not-installed",
