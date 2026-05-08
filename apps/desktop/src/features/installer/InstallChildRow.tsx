@@ -124,6 +124,23 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
       dispatch({ type: "INSTALL_CHILD_START", parentId, childIndex });
       void (async () => {
         try {
+          // 先检查并安装 mcp-bridge 插件
+          const { invoke } = await import("@tauri-apps/api/core");
+          const bridgeStatus = await invoke<{ installed: boolean }>(
+            "openclaw_gateway_mcp_bridge_status",
+          );
+          if (!bridgeStatus.installed) {
+            const bridgeResult = await invoke<{
+              success: boolean;
+              error: string | null;
+            }>("openclaw_gateway_mcp_bridge_install");
+            if (!bridgeResult.success) {
+              console.error(`[installer] MCP Bridge 部署失败: ${bridgeResult.error}`);
+              dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
+              return;
+            }
+          }
+
           const result = await dccActions.install(child.version);
           if (result.success) {
             dispatch({ type: "INSTALL_CHILD_DONE", parentId, childIndex });

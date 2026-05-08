@@ -388,6 +388,40 @@ function InstallItemRow({ item }: InstallItemRowProps) {
     const dccActions = getDCCActions(item.id);
     if (dccActions) {
       void (async () => {
+        // 先检查并安装 mcp-bridge 插件
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const bridgeStatus = await invoke<{ installed: boolean }>(
+            "openclaw_gateway_mcp_bridge_status",
+          );
+          if (!bridgeStatus.installed) {
+            addLog(item.id, "info", "正在部署 Gateway MCP Bridge 插件…");
+            const bridgeResult = await invoke<{
+              success: boolean;
+              method: string;
+              error: string | null;
+            }>("openclaw_gateway_mcp_bridge_install");
+            if (bridgeResult.success) {
+              addLog(item.id, "info", `MCP Bridge 插件部署成功 (${bridgeResult.method})`);
+            } else {
+              addLog(item.id, "error", `MCP Bridge 插件部署失败: ${bridgeResult.error}`);
+              dispatch({
+                type: "INSTALL_FAIL",
+                id: item.id,
+                error: `MCP Bridge 部署失败: ${bridgeResult.error}`,
+              });
+              return;
+            }
+          } else {
+            addLog(item.id, "info", "MCP Bridge 插件已安装");
+          }
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          addLog(item.id, "error", `MCP Bridge 检查失败: ${errMsg}`);
+          dispatch({ type: "INSTALL_FAIL", id: item.id, error: errMsg });
+          return;
+        }
+
         const children = item.children ?? [];
         if (children.length === 0) {
           addLog(item.id, "warn", `未检测到 ${item.name} 版本，请先点击"检测"`);
