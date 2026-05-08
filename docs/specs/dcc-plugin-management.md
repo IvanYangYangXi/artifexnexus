@@ -220,7 +220,106 @@ junction (Windows) > symlink > copy (fallback)
 | `scriptPath` | 插件目录名 | `artifex_nexus_v5.0.0` |
 | `projectPath` | UE 工程路径（仅 UE） | `D:\Projects\MyGame\` |
 
-## 7. 扩展：新 DCC 接入清单
+## 7. Gateway MCP Bridge 插件
+
+### 7.1 概述
+
+`mcp-bridge` 是 OpenClaw Gateway 插件，作为 **WebSocket → OpenClaw MCP** 的桥接层。
+所有 DCC 的 MCP Server（Blender / Maya / Max / UE）都通过此插件接入 OpenClaw。
+
+**为什么需要 mcp-bridge**：
+- OpenClaw v2026.5.4 原生 `mcp.servers` 只支持 `sse` 和 `streamable-http` transport
+- DCC MCP Server 使用 WebSocket（双向通信、实时性更好）
+- mcp-bridge 作为中间层，将 WebSocket 工具注册为 OpenClaw agent tools
+
+### 7.2 架构
+
+```
+OpenClaw Agent
+  │ tools.allow: ["mcp_blender-editor_*", "mcp_maya-primary_*", ...]
+  ▼
+Gateway Plugin (mcp-bridge)
+  │ plugins.entries.mcp-bridge.config.servers
+  │   blender-editor: ws://127.0.0.1:8083
+  │   maya-primary:   ws://127.0.0.1:8084
+  ▼
+DCC MCP Server (WebSocket)
+  │ tools: [run_python]
+  ▼
+DCC Adapter → DCC API
+```
+
+### 7.3 配置格式
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "mcp-bridge": {
+        "enabled": true,
+        "config": {
+          "servers": {
+            "blender-editor": {
+              "type": "websocket",
+              "url": "ws://127.0.0.1:8083",
+              "enabled": true
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### 7.4 工具命名规则
+
+```
+mcp_{server-name}_{tool-name}
+
+示例：
+  mcp_blender-editor_run_python
+  mcp_maya-primary_run_python
+  mcp_max-primary_run_python
+```
+
+Agent 通过通配符允许工具：`tools.allow: ["mcp_blender-editor_*"]`
+
+### 7.5 部署方式
+
+- **源码**：`packages/adapters/openclaw/gateway-plugin/`（`index.ts` + `openclaw.plugin.json`）
+- **目标**：`~/.openclaw/plugins/mcp-bridge/`
+- **方式**：junction/symlink 优先，fallback 复制
+- **触发**：安装任意 DCC 插件时自动检查并部署（`install_gateway_mcp_bridge()`）
+
+### 7.6 自动安装规则
+
+安装任意 DCC 插件时（父行或子项），自动执行：
+
+```
+1. 检查 mcp-bridge 状态（openclaw_gateway_mcp_bridge_status）
+2. 未安装 → 自动部署（openclaw_gateway_mcp_bridge_install）
+3. 已安装 → 跳过
+4. 重装 DCC 插件时 mcp-bridge 也重新部署
+```
+
+此规则对所有 DCC 通用（Blender / Maya / Max / UE）。
+
+### 7.7 新增 DCC Server
+
+在 `bootstrap.py` 的 `plugins.entries.mcp-bridge.config.servers` 中添加：
+
+```python
+"maya-primary": {
+    "type": "websocket",
+    "url": "ws://127.0.0.1:8084",
+    "enabled": True,
+}
+```
+
+同时在 agent preset 的 `tools.allow` 中添加 `mcp_maya-primary_*`。
+
+## 8. 扩展：新 DCC 接入清单
 
 当接入新 DCC（如 Maya）时，需要：
 
@@ -229,9 +328,11 @@ junction (Windows) > symlink > copy (fallback)
 3. **注册 RPC**：在 `sidecar.py` 的 METHOD_TABLE 中添加 `openclaw.dcc.{dcc}.*`
 4. **注册 Tauri command**：在 `commands/openclaw.rs` 中添加对应函数
 5. **更新安装向导**：在 `installer.fixtures.ts` 中添加 DCC 条目
-6. **更新本文档**：补充 DCC 特定的目标路径
+6. **注册 mcp-bridge server**：在 `bootstrap.py` 的 `servers` 中添加条目
+7. **更新 agent preset**：在 `tools.allow` 中添加 `mcp_{dcc}-*_*`
+8. **更新本文档**：补充 DCC 特定的目标路径
 
-## 相关
+## 9. 相关
 
 - `[[install]]` — 整体安装与部署规范
 - `[[系统架构设计]]` — 分层依赖与 MCP 工具最小化
