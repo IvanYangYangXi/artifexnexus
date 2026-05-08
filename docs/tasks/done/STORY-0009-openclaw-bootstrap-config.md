@@ -2,7 +2,7 @@
 id: STORY-0009
 kind: story
 title: bootstrap 真实初始化 ~/.artifexnexus + silent 写 openclaw.json
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai

@@ -2,7 +2,7 @@
 id: STORY-0011
 kind: story
 title: 健康检查 — HTTP/WS probe + lock 文件 + doctor 三通道
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai

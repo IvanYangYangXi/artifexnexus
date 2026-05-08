@@ -2,7 +2,7 @@
 id: STORY-0012
 kind: story
 title: 端口冲突处理 — 19789 被占时按 +20 步进自动迁移
-status: review
+status: done
 priority: P2
 owner: "@ivan"
 assignee: ai

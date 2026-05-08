@@ -2,7 +2,7 @@
 id: EPIC-0002
 kind: epic
 title: M2 · 骨架贯通 · Blender MCP
-status: backlog
+status: ready
 priority: P1
 owner: "@ivan"
 assignee: pair
@@ -46,8 +46,16 @@ tags: [epic, dcc, blender, mcp, M2]
 
 ## 子节点（STORY 列表）
 
-- [ ] 待 align 展开
+| # | STORY | 状态 | 估时 | 依赖 |
+|---|-------|------|------|------|
+| S1 | [[../review/STORY-0021-blender-addon-scaffold]] — Blender 插件骨架 | Review | 0.5d | — |
+| S2 | [[../review/STORY-0022-blender-adapter-core]] — BlenderAdapter 核心 | Review | 1d | S1 |
+| S3 | [[../review/STORY-0023-mcp-server-core]] — MCP Server 核心 | Review | 1d | S2 |
+| S4 | [[../ready/STORY-0024-gateway-mcp-tool]] — Gateway 侧工具注册 | Ready | 0.5d | S3 |
+| S5 | [[../ready/STORY-0025-e2e-smoke-test]] — E2E 冒烟测试 | Ready | 0.5d | S4 |
+| **合计** | | **S1–S3 Review，S4–S5 Ready** | **3.5d** | EPIC-0002 estimate=2w，**剩余 6.5d buffer** |
 
 ## 进展日志
 
 - 2026-05-04 created
+- 2026-05-08 STORY 拆分完成：S1–S5（STORY-0021 ~ STORY-0025），覆盖 Blender Addon → Adapter → MCP Server → Gateway 工具注册 → E2E 冒烟全链路。复刻范围确认：只复刻核心 MCP（run_python + adapter），不要 Qt/事件拦截/Skill。

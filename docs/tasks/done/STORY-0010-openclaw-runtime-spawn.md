@@ -2,7 +2,7 @@
 id: STORY-0010
 kind: story
 title: runtime 拉起 OpenClaw gateway 子进程 + 日志回传
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai

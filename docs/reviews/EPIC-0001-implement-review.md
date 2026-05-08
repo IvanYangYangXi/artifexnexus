@@ -1,7 +1,7 @@
 ---
 tags: [review, EPIC-0001, M1, implement]
 created: 2026-05-07
-status: draft
+status: done
 related_epic: "[[../tasks/ready/EPIC-0001-m1-onboarding-install]]"
 related_handoff: "[[../_handoff/EPIC-0001-implement-handoff]]"
 reviewer: ai (reviewer-mode session)

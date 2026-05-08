@@ -2,7 +2,7 @@
 id: STORY-0020
 kind: story
 title: OpenClaw 重装确认弹窗 + 选择性保留
-status: in-progress
+status: done
 priority: P2
 owner: "@ivan"
 assignee: pair

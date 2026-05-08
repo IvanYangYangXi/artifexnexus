@@ -9,11 +9,6 @@ tags:
 
 ## Backlog
 
-- [ ] [[STORY-0015-openclaw-settings-panel]]
-- [ ] [[STORY-0016-openclaw-web-ui-entry]]
-- [ ] [[STORY-0017-openclaw-agent-preset]]
-- [ ] [[EPIC-0000-m0-installer-wizard]]
-- [ ] [[EPIC-0002-m2-blender-mcp-e2e]]
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
 - [ ] [[EPIC-0004-m4-skill-system]]
 - [ ] [[EPIC-0005-m5-tool-system]]
@@ -22,10 +17,10 @@ tags:
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
 
-
 ## Ready
 
-- [ ] [[EPIC-0001-m1-onboarding-install]]
+- [ ] [[STORY-0024-gateway-mcp-tool]]
+- [ ] [[STORY-0025-e2e-smoke-test]]
 
 ## In Progress
 
@@ -33,6 +28,9 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0021-blender-addon-scaffold]]
+- [ ] [[STORY-0022-blender-adapter-core]]
+- [ ] [[STORY-0023-mcp-server-core]]
 - [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
 - [ ] [[STORY-0013-openclaw-status-ui]]
 - [ ] [[STORY-0012-openclaw-port-conflict]]
@@ -43,6 +41,14 @@ tags:
 
 ## Done
 
+- [x] [[EPIC-0000-m0-installer-wizard]]
+- [x] [[EPIC-0001-m1-onboarding-install]]
+- [x] [[STORY-0015-openclaw-settings-panel]]
+- [x] [[STORY-0016-openclaw-web-ui-entry]]
+- [x] [[STORY-0017-openclaw-agent-preset]]
+- [x] [[STORY-0018-openclaw-gateway-status-panel]]
+- [x] [[STORY-0019-openclaw-remote-model-list]]
+- [x] [[STORY-0020-openclaw-reinstall-confirm]]
 - [x] [[STORY-0007-openclaw-spec-realign]]
 - [x] [[TASK-0001-openclaw-wrapper]]
 - [x] [[STORY-0006-merge-installer-into-desktop]]

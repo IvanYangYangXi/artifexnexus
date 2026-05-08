@@ -2,7 +2,7 @@
 id: STORY-0018
 kind: story
 title: OpenClaw Gateway 状态控制面板（含日志 tail + 启停 + Web UI 简化）
-status: in-progress
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

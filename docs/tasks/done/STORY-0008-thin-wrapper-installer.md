@@ -2,7 +2,7 @@
 id: STORY-0008
 kind: story
 title: 薄壳安装器 — 调上游 install-cli.sh + NDJSON 进度回传
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai

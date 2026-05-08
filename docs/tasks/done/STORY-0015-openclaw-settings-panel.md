@@ -2,7 +2,7 @@
 id: STORY-0015
 kind: story
 title: OpenClaw 设置面板 — 9 大主流 LLM provider 多预设管理
-status: in-progress
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

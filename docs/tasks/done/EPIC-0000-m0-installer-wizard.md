@@ -2,7 +2,7 @@
 id: EPIC-0000
 kind: epic
 title: M0 · 安装向导框架
-status: backlog
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair
@@ -45,16 +45,16 @@ M0 只做 **UI 结构 + 交互骨架 + 状态机**，真实安装逻辑留给 M1
 
 ## 可分发定义（DoD）
 
-- [ ] `tauri build` 出 Windows installer artifact
-- [ ] 双击安装后首启进入新向导
-- [ ] 清单可点，按钮走桩数据但状态会变
-- [ ] OpenClaw 未装前其他项按钮 disabled
+- [x] `tauri build` 出 Windows installer artifact
+- [x] 双击安装后首启进入新向导
+- [x] 清单可点，按钮走桩数据但状态会变
+- [x] OpenClaw 未装前其他项按钮 disabled
 
 ## 出口条件
 
-- [ ] `docs/specs/ui/installer-structure.md` 状态为 accepted
-- [ ] 所有 STORY 进入 `done/`
-- [ ] 手动冒烟：从全新 Windows 账户装起，无报错
+- [x] `docs/specs/ui/installer-structure.md` 状态为 accepted
+- [x] 所有 STORY 进入 `done/`
+- [x] 手动冒烟：从全新 Windows 账户装起，无报错
 
 ## 设计要点
 
@@ -74,3 +74,4 @@ M0 只做 **UI 结构 + 交互骨架 + 状态机**，真实安装逻辑留给 M1
 ## 进展日志
 
 - 2026-05-04 created · 落位路线图 M0，挂上安装向导新需求
+- 2026-05-08 EPIC-0000 全部完成：STORY-0001~0006 全部 done，`pnpm tauri build` 产出 exe + setup.exe，安装向导清单式 UI 交付。

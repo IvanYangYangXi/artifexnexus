@@ -1,7 +1,7 @@
 ---
 tags: [handoff, EPIC-0001, M1, implement]
 created: 2026-05-06
-status: draft
+status: done
 related_epic: "[[../tasks/ready/EPIC-0001-m1-onboarding-install]]"
 ---
 

@@ -2,7 +2,7 @@
 id: STORY-0017
 kind: story
 title: Artifex Nexus 默认 agent 预设自动注入
-status: in-progress
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

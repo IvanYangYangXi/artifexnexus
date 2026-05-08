@@ -2,7 +2,7 @@
 id: STORY-0016
 kind: story
 title: OpenClaw Web UI 入口按钮 + URL 探测
-status: in-progress
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

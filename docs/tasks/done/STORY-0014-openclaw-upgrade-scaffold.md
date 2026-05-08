@@ -2,7 +2,7 @@
 id: STORY-0014
 kind: story
 title: 版本升级通道接口预留 — openclaw upgrade --to vX.Y.Z（M1 仅留接口）
-status: review
+status: done
 priority: P3
 owner: "@ivan"
 assignee: ai

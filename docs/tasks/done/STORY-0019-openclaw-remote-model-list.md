@@ -2,7 +2,7 @@
 id: STORY-0019
 kind: story
 title: 远端模型列表自动获取
-status: in-progress
+status: done
 priority: P2
 owner: "@ivan"
 assignee: pair

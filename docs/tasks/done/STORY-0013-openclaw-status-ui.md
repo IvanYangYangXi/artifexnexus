@@ -2,7 +2,7 @@
 id: STORY-0013
 kind: story
 title: 安装清单 OpenClaw 行接入真实状态 — sidecar.openclaw.status RPC
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai
