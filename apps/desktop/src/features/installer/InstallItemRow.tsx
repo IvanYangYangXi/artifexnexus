@@ -173,12 +173,14 @@ function InstallItemRow({ item }: InstallItemRowProps) {
 
           const children = [...detectedChildren, ...existingManual];
 
+          // 父项状态：至少一个子项已安装 → installed，否则 → not-installed
+          const hasInstalled = children.some((c) => c.state === "installed");
           dispatch({
             type: "UPDATE_ITEM",
             id: item.id,
             patch: {
               children,
-              state: children.length > 0 ? "installed" : "not-installed",
+              state: hasInstalled ? "installed" : "not-installed",
             },
           });
 
