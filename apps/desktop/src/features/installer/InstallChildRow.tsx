@@ -128,9 +128,13 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
           if (result.success) {
             dispatch({ type: "INSTALL_CHILD_DONE", parentId, childIndex });
           } else {
+            const errMsg = result.error || "未知错误";
+            console.error(`[installer] 子项安装失败: ${child.label} — ${errMsg}`);
             dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
           }
-        } catch {
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          console.error(`[installer] 子项安装异常: ${child.label} — ${errMsg}`);
           dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
         }
       })();
