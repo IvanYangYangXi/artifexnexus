@@ -155,7 +155,50 @@ def install_maya_addon(version: str) -> Dict: ...
 
 注册后安装向导自动适配：检测按钮 → 子项填充 → 安装按钮 → 批量安装。
 
-### 6.2 接入新 MCP 工具（Gateway 侧）
+### 6.2 Blender 插件安装 API
+
+**Python 端**（`dcc_installer.py`）：
+
+```python
+from artifex_nexus.openclaw_wrapper.dcc_installer import (
+    find_blender_versions,        # → List[str]  扫描本机 Blender 版本
+    install_blender_addon,        # → Dict       安装插件（junction/symlink/copy）
+    uninstall_blender_addon,      # → Dict       卸载插件
+    is_addon_installed,           # → bool       检查是否已安装
+    get_addon_info,               # → Dict       读取 bl_info 元信息
+    check_version_compatibility,  # → (bool, str) 版本兼容检查
+    install_gateway_mcp_bridge,   # → Dict       部署 mcp-bridge 插件 + patch 配置
+    is_gateway_mcp_bridge_installed,  # → bool
+)
+```
+
+**TypeScript 端**（`dccRegistry.ts` + `ipc/openclaw.ts`）：
+
+```ts
+// 注册新 DCC（一行）
+dccRegistry["maya"] = { detect: detectMayaVersions, install: installMayaAddon, uninstall: uninstallMayaAddon };
+
+// IPC 函数
+detectBlenderVersions(): Promise<BlenderDetectResult>
+installBlenderAddon(version: string, force?: boolean): Promise<BlenderInstallResult>
+uninstallBlenderAddon(version: string): Promise<BlenderUninstallResult>
+```
+
+**安装流程**：检测 → 版本兼容检查 → junction/symlink/copy → 自动部署 mcp-bridge → patch openclaw.json。
+
+### 6.3 Gateway MCP Bridge API
+
+**插件源码**：`packages/adapters/openclaw/gateway-plugin/`（`index.ts` + `openclaw.plugin.json`）
+
+**部署**：`install_gateway_mcp_bridge()` 自动完成：
+1. junction/symlink `gateway-plugin/` → `OPENCLAW_HOME/plugins/mcp-bridge/`
+2. patch `openclaw.json`：`plugins.allow += "mcp-bridge"` + `plugins.entries.mcp-bridge`
+
+**工具命名**：`mcp_{server-name}_{tool-name}`（如 `mcp_blender-editor_run_python`）
+
+**新增 DCC Server**：在 `_patch_openclaw_config_for_mcp_bridge()` 的 `servers` 中添加条目即可。
+
+### 6.4 接入新 MCP 工具（Gateway 侧）
 
 ```python
 # packages/adapters/openclaw/wrapper/src/.../mcp_bridge.py
@@ -163,7 +206,7 @@ client = MCPBridgeClient.get_instance(host="127.0.0.1", port=8083)
 result = client.call_tool("run_python", {"code": "print('hello')"})
 ```
 
-### 6.3 DCC Adapter 接口
+### 6.5 DCC Adapter 接口
 
 所有 DCC adapter 继承 `BaseDCCAdapter`（`packages/dcc/blender/src/.../base_adapter.py`）：
 
@@ -175,7 +218,7 @@ class BaseDCCAdapter(ABC):
     def get_scene_info(self) -> Dict: ...
 ```
 
-### 6.4 关键注册表
+### 6.6 关键注册表
 
 | 注册表 | 位置 | 用途 |
 |--------|------|------|
@@ -183,8 +226,9 @@ class BaseDCCAdapter(ABC):
 | `METHOD_TABLE` | `sidecar.py` | Sidecar JSON-RPC 方法路由 |
 | `invoke_handler` | `apps/desktop/src-tauri/src/lib.rs` | Tauri command 注册 |
 | `_tools` | `mcp_server.py` | MCP 工具注册（`register_tool()`） |
+| `mcp-bridge servers` | `openclaw.json` → `plugins.entries.mcp-bridge.config.servers` | Gateway 侧 MCP 服务器连接 |
 
-### 6.5 统一规范
+### 6.7 统一规范
 
 - **DCC 插件安装**：`[[../specs/dcc-plugin-management]]` — 版本号格式、兼容范围、安装方式、目录结构
 - **MCP 协议**：`[[../specs/blender-mcp]]` — WebSocket + JSON-RPC 2.0 + tools/list/call
