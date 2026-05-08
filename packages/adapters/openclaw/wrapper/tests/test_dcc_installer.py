@@ -53,11 +53,19 @@ class TestFindBlenderVersions:
 
     def test_find_versions_mocked(self, dcc_installer):
         """mock 扫描返回版本列表"""
+        # 使用真实字符串而非 MagicMock，因为 sorted() 需要比较
+        class MockDirEntry:
+            def __init__(self, name, is_dir_val=True):
+                self.name = name
+                self._is_dir = is_dir_val
+            def is_dir(self):
+                return self._is_dir
+
         mock_entries = [
-            MagicMock(is_dir=lambda: True, name="4.2"),
-            MagicMock(is_dir=lambda: True, name="5.1"),
-            MagicMock(is_dir=lambda: True, name="3.6"),
-            MagicMock(is_dir=lambda: True, name="config"),  # 非数字开头，应跳过
+            MockDirEntry("4.2"),
+            MockDirEntry("5.1"),
+            MockDirEntry("3.6"),
+            MockDirEntry("config"),  # 非数字开头，应跳过
         ]
         with patch("os.scandir", return_value=mock_entries):
             with patch.object(dcc_installer, "_BLENDER_ADDONS_BASE", "/fake/base"):

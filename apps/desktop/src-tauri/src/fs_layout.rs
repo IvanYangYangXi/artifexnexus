@@ -8,6 +8,8 @@ use std::path::PathBuf;
 pub struct FsLayout {
     /// ~/.artifexnexus/
     pub root: PathBuf,
+    /// 项目源码根目录（用于 DCC 插件安装等需要访问源码的场景）
+    pub project_root: PathBuf,
     /// ~/.artifexnexus/.openclaw/（OPENCLAW_HOME）
     pub openclaw_home: PathBuf,
     /// ~/.artifexnexus/.openclaw/state/（OPENCLAW_STATE_DIR）
@@ -31,6 +33,11 @@ impl FsLayout {
         let suffix = if is_dev { ".dev" } else { "" };
         let root_name = format!(".artifexnexus{suffix}");
         let root = home.join(&root_name);
+
+        // 项目源码根目录：优先 CARGO_MANIFEST_DIR（开发模式），
+        // 其次从 exe 路径向上查找（打包模式）
+        let project_root = resolve_project_root();
+
         let openclaw_home = root.join(".openclaw");
         let openclaw_state_dir = openclaw_home.join("state");
         let openclaw_config_path = openclaw_home.join("openclaw.json");
@@ -40,6 +47,7 @@ impl FsLayout {
 
         Self {
             root,
+            project_root,
             openclaw_home,
             openclaw_state_dir,
             openclaw_config_path,
@@ -86,6 +94,10 @@ impl FsLayout {
                 "ARTIFEX_NEXUS_HOME".to_string(),
                 self.root.to_string_lossy().to_string(),
             ),
+            (
+                "ARTIFEX_NEXUS_PROJECT_ROOT".to_string(),
+                self.project_root.to_string_lossy().to_string(),
+            ),
         ]
     }
 }
@@ -102,6 +114,41 @@ fn dirs_next_home() -> PathBuf {
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// 解析项目源码根目录。
+///
+/// 优先级：
+///   1. CARGO_MANIFEST_DIR（开发模式：Cargo.toml 所在目录 → 向上 2 层到仓库根）
+///   2. 从 exe 路径向上查找（打包模式：查找包含 packages/ 的目录）
+///   3. 当前工作目录
+fn resolve_project_root() -> PathBuf {
+    // 开发模式：CARGO_MANIFEST_DIR = apps/desktop/src-tauri/
+    // → 向上 2 层 = 仓库根
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let candidate = PathBuf::from(&manifest_dir)
+            .join("../../..");  // src-tauri → desktop → apps → 仓库根
+        let normalized = candidate.canonicalize().unwrap_or(candidate);
+        if normalized.join("packages").exists() {
+            return normalized;
+        }
+    }
+
+    // 打包模式：从 exe 路径向上查找
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut current = exe_path.parent().map(|p| p.to_path_buf());
+        for _ in 0..8 {
+            if let Some(ref dir) = current {
+                if dir.join("packages").exists() {
+                    return dir.clone();
+                }
+                current = dir.parent().map(|p| p.to_path_buf());
+            }
+        }
+    }
+
+    // fallback
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 #[cfg(test)]

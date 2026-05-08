@@ -58,20 +58,45 @@ def set_addon_src_dir(path: str) -> None:
 
 
 def _get_addon_src_dir() -> Path:
-    """获取插件源目录（版本化路径）"""
-    if _ADDON_SRC_DIR is None:
-        # 默认：相对于当前文件的 packages/dcc/blender/src/artifex_nexus/v{version}/
-        _here = Path(__file__).resolve().parent
-        # artifex_nexus/openclaw_wrapper/dcc_installer.py
-        # → ../../../../dcc/blender/src/artifex_nexus
-        base = (_here / ".." / ".." / ".." / ".." / "dcc" / "blender" / "src" / "artifex_nexus").resolve()
-        # 查找版本目录（如 v5.0.0）
+    """获取插件源目录（版本化路径）。
+
+    优先级：
+      1. 环境变量 ARTIFEX_NEXUS_ROOT（sidecar 启动时注入）
+      2. 显式调用 set_addon_src_dir()
+      3. 基于 __file__ 的相对路径（开发模式）
+    """
+    if _ADDON_SRC_DIR is not None:
+        return _ADDON_SRC_DIR
+
+    # 环境变量注入（生产模式：sidecar 由 Tauri 启动）
+    env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
+    if env_root:
+        base = Path(env_root) / "packages" / "dcc" / "blender" / "src" / "artifex_nexus"
         if base.exists():
             for entry in sorted(base.iterdir(), reverse=True):
                 if entry.is_dir() and entry.name.startswith("v"):
+                    logger.info(f"DCC 安装器: 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {entry}")
                     return entry
-        raise RuntimeError("无法定位插件源目录，请调用 set_addon_src_dir()")
-    return _ADDON_SRC_DIR
+        raise RuntimeError(
+            f"环境变量 ARTIFEX_NEXUS_PROJECT_ROOT={env_root}，"
+            f"但未找到插件源目录: {base}"
+        )
+
+    # 基于 __file__ 的相对路径（开发模式）
+    _here = Path(__file__).resolve().parent
+    # artifex_nexus/openclaw_wrapper/dcc_installer.py
+    # → ../../../../dcc/blender/src/artifex_nexus
+    base = (_here / ".." / ".." / ".." / ".." / "dcc" / "blender" / "src" / "artifex_nexus").resolve()
+    if base.exists():
+        for entry in sorted(base.iterdir(), reverse=True):
+            if entry.is_dir() and entry.name.startswith("v"):
+                logger.info(f"DCC 安装器: 通过相对路径定位插件源目录 = {entry}")
+                return entry
+
+    raise RuntimeError(
+        "无法定位插件源目录。请设置环境变量 ARTIFEX_NEXUS_ROOT 或调用 set_addon_src_dir()。"
+        f"\n  已尝试路径: {base}"
+    )
 
 
 # ── 版本检测 ────────────────────────────────────────────────────────────
