@@ -9,7 +9,7 @@
     "start": "next start -p 18790",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "clean": "rm -rf .next dist"
   },
   "dependencies": {

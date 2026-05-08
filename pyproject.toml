@@ -35,7 +35,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["packages/*/tests"]
+testpaths = ["packages"]
 
 [tool.mypy]
 python_version = "3.11"
