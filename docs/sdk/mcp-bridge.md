@@ -85,3 +85,66 @@ Agent 通过通配符允许：`tools.allow: ["mcp_blender-editor_*"]`
 
 - `[[dcc-installer]]` — DCC 插件安装 SDK（自动触发 mcp-bridge 部署）
 - `[[../specs/dcc-plugin-management]]` §7 — 完整规范
+
+## API 参考
+
+### Python: `MCPBridgeClient`
+
+**包**：`artifex_nexus.openclaw_wrapper.mcp_bridge`
+
+#### `MCPBridgeClient.get_instance(host="127.0.0.1", port=8083) → MCPBridgeClient`
+
+获取单例客户端。
+
+```python
+client = MCPBridgeClient.get_instance(port=8083)
+```
+
+#### `client.connect(timeout=5.0) → bool`
+
+连接 Blender MCP Server（含 MCP initialize 握手）。
+
+```python
+if client.connect():
+    print("已连接")
+```
+
+#### `client.call_tool(tool_name: str, arguments: dict, timeout=30.0) → Dict`
+
+调用 MCP 工具。
+
+```python
+result = client.call_tool("run_python", {"code": "print('hello')"})
+# → {"content": [{"type": "text", "text": "hello"}], "isError": False}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `tool_name` | `str` | ✅ | 工具名称，如 `"run_python"` |
+| `arguments` | `dict` | ✅ | 工具参数 |
+| `timeout` | `float` | ❌ | 超时秒数，默认 30 |
+
+#### `client.disconnect() → None`
+
+断开连接。
+
+#### `call_blender_run_python(code: str, get_context=False, timeout=30.0) → Dict`
+
+便捷函数：调用 Blender `run_python` 工具。
+
+```python
+from artifex_nexus.openclaw_wrapper.mcp_bridge import call_blender_run_python
+
+result = call_blender_run_python("result = 'hello from blender'")
+# → {"content": [{"type": "text", "text": "返回值: hello from blender"}], "isError": False}
+
+# 获取编辑器上下文
+result = call_blender_run_python("", get_context=True)
+# → {"content": [{"type": "text", "text": "{...}"}], "isError": False}
+```
+
+### TypeScript: Gateway Plugin
+
+**位置**：`packages/adapters/openclaw/gateway-plugin/src/index.ts`
+
+插件通过 OpenClaw Plugin SDK 注册工具，无需手动调用。工具命名：`mcp_{server-name}_{tool-name}`。
