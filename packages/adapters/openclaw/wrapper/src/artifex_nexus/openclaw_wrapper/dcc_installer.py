@@ -17,6 +17,7 @@ dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
@@ -504,9 +505,11 @@ def _get_openclaw_plugins_dir() -> Path:
 
 def install_gateway_mcp_bridge() -> Dict:
     """
-    部署 mcp-bridge 插件到 OpenClaw plugins 目录。
+    部署 mcp-bridge 插件到 OpenClaw plugins 目录 + patch openclaw.json 配置。
 
-    使用 junction/symlink 将 gateway-plugin/ 链接到 OPENCLAW_HOME/plugins/mcp-bridge/。
+    1. junction/symlink gateway-plugin/ → OPENCLAW_HOME/plugins/mcp-bridge/
+    2. 确保 openclaw.json 中 plugins.entries.mcp-bridge 已配置
+    3. 确保 openclaw.json 中 plugins.allow 包含 "mcp-bridge"
 
     Returns:
         {"success": bool, "method": str, "target": str, "error": str|None}
@@ -543,12 +546,81 @@ def install_gateway_mcp_bridge() -> Dict:
         }
 
     logger.info(f"mcp-bridge 插件部署成功 ({method}): {target_dir}")
+
+    # Patch openclaw.json：确保 plugins.entries.mcp-bridge 和 plugins.allow 已配置
+    _patch_openclaw_config_for_mcp_bridge()
+
     return {
         "success": True,
         "method": method,
         "target": target_dir,
         "error": None,
     }
+
+
+def _patch_openclaw_config_for_mcp_bridge() -> None:
+    """Patch openclaw.json：添加 mcp-bridge 插件配置。
+
+    幂等：如果配置已存在则跳过。
+    """
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".openclaw"),
+    )
+    config_path = os.path.join(openclaw_home, "openclaw.json")
+
+    if not os.path.exists(config_path):
+        logger.warning(f"openclaw.json 不存在: {config_path}，跳过 mcp-bridge 配置 patch")
+        return
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception as e:
+        logger.warning(f"读取 openclaw.json 失败: {e}")
+        return
+
+    changed = False
+
+    # 确保 plugins 结构
+    if "plugins" not in config:
+        config["plugins"] = {}
+        changed = True
+
+    # 确保 plugins.allow 包含 "mcp-bridge"
+    allow: list = config["plugins"].get("allow", [])
+    if "mcp-bridge" not in allow:
+        allow.append("mcp-bridge")
+        config["plugins"]["allow"] = allow
+        changed = True
+        logger.info("openclaw.json: plugins.allow 已添加 mcp-bridge")
+
+    # 确保 plugins.entries.mcp-bridge 已配置
+    entries = config["plugins"].get("entries", {})
+    if "mcp-bridge" not in entries:
+        entries["mcp-bridge"] = {
+            "enabled": True,
+            "config": {
+                "servers": {
+                    "blender-editor": {
+                        "type": "websocket",
+                        "url": "ws://127.0.0.1:8083",
+                        "enabled": True,
+                    }
+                }
+            },
+        }
+        config["plugins"]["entries"] = entries
+        changed = True
+        logger.info("openclaw.json: plugins.entries.mcp-bridge 已添加")
+
+    if changed:
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            logger.info(f"openclaw.json 已更新: {config_path}")
+        except Exception as e:
+            logger.error(f"写入 openclaw.json 失败: {e}")
 
 
 def is_gateway_mcp_bridge_installed() -> bool:
