@@ -211,6 +211,20 @@ function InstallItemRow({ item }: InstallItemRowProps) {
     console.log(`[installer] settings: ${item.id}`);
   }, [item.id]);
 
+  /** 根据 DCC 类型和版本号自动计算安装路径 */
+  const calcInstallPath = useCallback((dccId: string, version: string): string => {
+    switch (dccId) {
+      case "blender":
+        return `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
+      case "maya":
+        return `~/Documents/maya/${version}/scripts/`;
+      case "max":
+        return `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
+      default:
+        return "";
+    }
+  }, []);
+
   /** 添加子项：根据 DCC 类型弹出对应输入框 */
   const handleAddChild = useCallback(() => {
     // UE：输入工程路径
@@ -235,23 +249,16 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       return;
     }
 
-    // Blender/Maya/Max：输入版本号，路径自动计算
-    const dccActions = getDCCActions(item.id);
-    const hint = dccActions
-      ? "（插件安装路径将自动计算）"
-      : "";
-    const version = window.prompt(`请输入 ${item.name} 版本号（如 5.1）${hint}：`);
+    // Blender/Maya/Max：输入版本号 → 自动计算路径 → 确认/修改
+    const version = window.prompt(`请输入 ${item.name} 版本号（如 5.1）：`);
     if (!version || !version.trim()) return;
 
-    // 自动计算安装路径
-    let installPath = "";
-    if (item.id === "blender") {
-      installPath = `%APPDATA%/Blender Foundation/Blender/${version.trim()}/scripts/addons/`;
-    } else if (item.id === "maya") {
-      installPath = `~/Documents/maya/${version.trim()}/scripts/`;
-    } else if (item.id === "max") {
-      installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version.trim()}/ENU/scripts/`;
-    }
+    const autoPath = calcInstallPath(item.id, version.trim());
+    const installPath = window.prompt(
+      `插件安装路径（可修改）：`,
+      autoPath,
+    );
+    if (installPath === null) return; // 用户取消
 
     const label = `${item.name} ${version.trim()}`;
     dispatch({
@@ -260,13 +267,13 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       child: {
         label,
         version: version.trim(),
-        installPath,
+        installPath: installPath.trim() || autoPath,
         projectPath: "",
         scriptPath: "",
         state: "not-installed",
       },
     });
-  }, [dispatch, item.id, item.name]);
+  }, [dispatch, item.id, item.name, calcInstallPath]);
 
   // EPIC-0001 第二批 #2：点击 "Web UI" 按钮，先取 URL 再用系统浏览器打开
   const handleOpenWebUi = useCallback(() => {

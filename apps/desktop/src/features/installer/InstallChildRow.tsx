@@ -79,11 +79,27 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
   }, [dispatch, parentId, childIndex, child.version]);
 
   const handleSettings = useCallback(() => {
-    // 弹出编辑版本号和安装路径
+    // 弹出编辑版本号和安装路径（自动计算默认值）
     const newVersion = window.prompt("版本号：", child.version);
     if (newVersion === null) return; // 取消
 
-    const newInstallPath = window.prompt("安装路径：", child.installPath);
+    // 自动计算默认安装路径
+    let defaultPath = child.installPath;
+    if (!defaultPath && newVersion.trim()) {
+      switch (parentId) {
+        case "blender":
+          defaultPath = `%APPDATA%/Blender Foundation/Blender/${newVersion.trim()}/scripts/addons/`;
+          break;
+        case "maya":
+          defaultPath = `~/Documents/maya/${newVersion.trim()}/scripts/`;
+          break;
+        case "max":
+          defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion.trim()}/ENU/scripts/`;
+          break;
+      }
+    }
+
+    const newInstallPath = window.prompt("安装路径（可修改）：", defaultPath);
     if (newInstallPath === null) return; // 取消
 
     const newLabel = `${parentItem?.name ?? ""} ${newVersion.trim()}`;
@@ -94,7 +110,7 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
       patch: {
         label: newLabel,
         version: newVersion.trim(),
-        installPath: newInstallPath.trim(),
+        installPath: newInstallPath.trim() || defaultPath,
       },
     });
   }, [dispatch, parentId, childIndex, child.version, child.installPath, parentItem?.name]);
