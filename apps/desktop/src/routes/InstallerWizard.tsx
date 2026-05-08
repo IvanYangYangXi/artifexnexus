@@ -2,7 +2,7 @@
 // Installer wizard page container: route entry, renders install list + state machine + dependency gate.
 
 import { useReducer, createContext, useContext, useEffect, useCallback, type Dispatch } from "react";
-import type { InstallItem, InstallItemState } from "../features/installer/installer.types";
+import type { InstallItem, InstallItemState, InstallChildItem } from "../features/installer/installer.types";
 import { FIXTURE_ITEMS } from "../features/installer/installer.fixtures";
 import { t } from "../features/installer/installer.i18n";
 import InstallList from "../features/installer/InstallList";
@@ -31,6 +31,7 @@ export type InstallerAction =
   | { type: "INSTALL_CHILD_START"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_DONE"; parentId: string; childIndex: number }
   | { type: "INSTALL_CHILD_FAIL"; parentId: string; childIndex: number }
+  | { type: "UPDATE_CHILD"; parentId: string; childIndex: number; patch: Partial<InstallChildItem> }
   | { type: "DELETE_CHILD"; parentId: string; childIndex: number }
   | { type: "ADD_LOG"; entry: LogEntry }
   | { type: "CLEAR_LOGS" };
@@ -183,6 +184,20 @@ function installerReducer(
           if (!child) return it;
           const newChildren = [...it.children];
           newChildren[action.childIndex] = { ...child, state: "failed" };
+          return { ...it, children: newChildren };
+        }),
+      };
+    }
+
+    case "UPDATE_CHILD": {
+      return {
+        ...state,
+        items: state.items.map((it) => {
+          if (it.id !== action.parentId || !it.children) return it;
+          const child = it.children[action.childIndex];
+          if (!child) return it;
+          const newChildren = [...it.children];
+          newChildren[action.childIndex] = { ...child, ...action.patch };
           return { ...it, children: newChildren };
         }),
       };

@@ -2,7 +2,7 @@
 id: STORY-0027
 kind: story
 title: 安装向导 Blender 行接真实 DCC 安装逻辑
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

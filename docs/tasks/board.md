@@ -20,7 +20,6 @@ tags:
 ## Ready
 
 - [ ] [[STORY-0025-e2e-smoke-test]]
-- [ ] [[STORY-0027-installer-blender-real-logic]]
 
 ## In Progress
 
@@ -28,6 +27,7 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0027-installer-blender-real-logic]]
 - [ ] [[STORY-0026-dcc-installer-blender]]
 - [ ] [[STORY-0024-gateway-mcp-tool]]
 - [ ] [[STORY-0021-blender-addon-scaffold]]

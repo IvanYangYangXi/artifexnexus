@@ -397,3 +397,70 @@ export async function fetchRemoteModels(args: {
     token: args.token,
   });
 }
+
+// ---------------------------------------------------------------------------
+// STORY-0027 M2：Blender DCC 安装器 IPC
+// ---------------------------------------------------------------------------
+
+/** 单个 Blender 版本检测结果 */
+export interface BlenderVersionInfo {
+  version: string;
+  installed: boolean;
+  compatible: boolean;
+  compat_reason: string;
+}
+
+/** 插件元信息 */
+export interface BlenderAddonInfo {
+  name: string;
+  version: string;
+  blender_min: string;
+  blender_max: string | null;
+}
+
+/** openclaw.dcc.blender.detect 返回 */
+export interface BlenderDetectResult {
+  versions: BlenderVersionInfo[];
+  addon_info: BlenderAddonInfo;
+}
+
+/** openclaw.dcc.blender.install 返回 */
+export interface BlenderInstallResult {
+  success: boolean;
+  method: "junction" | "symlink" | "copy" | null;
+  target: string;
+  error: string | null;
+}
+
+/** openclaw.dcc.blender.uninstall 返回 */
+export interface BlenderUninstallResult {
+  success: boolean;
+  target: string;
+  error: string | null;
+  message?: string;
+}
+
+/** 检测本机 Blender 版本及插件安装状态 */
+export async function detectBlenderVersions(): Promise<BlenderDetectResult> {
+  return invoke<BlenderDetectResult>("openclaw_dcc_blender_detect");
+}
+
+/** 安装 Artifex Nexus 插件到指定 Blender 版本 */
+export async function installBlenderAddon(
+  version: string,
+  force?: boolean,
+): Promise<BlenderInstallResult> {
+  return invoke<BlenderInstallResult>("openclaw_dcc_blender_install", {
+    version,
+    force: force ?? false,
+  });
+}
+
+/** 卸载 Artifex Nexus 插件 */
+export async function uninstallBlenderAddon(
+  version: string,
+): Promise<BlenderUninstallResult> {
+  return invoke<BlenderUninstallResult>("openclaw_dcc_blender_uninstall", {
+    version,
+  });
+}

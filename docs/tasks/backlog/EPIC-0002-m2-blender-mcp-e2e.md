@@ -54,7 +54,7 @@ tags: [epic, dcc, blender, mcp, M2]
 | S4 | [[../review/STORY-0024-gateway-mcp-tool]] — Gateway 侧工具注册 | Review | 0.5d | S3 |
 | S5 | [[../ready/STORY-0025-e2e-smoke-test]] — E2E 冒烟测试 | Ready | 0.5d | S4 |
 | S6 | [[../review/STORY-0026-dcc-installer-blender]] — Sidecar DCC 安装器 | Review | 1d | S3 |
-| S7 | [[../ready/STORY-0027-installer-blender-real-logic]] — 安装向导 Blender 行接真实逻辑 | Ready | 1d | S6 |
+| S7 | [[../review/STORY-0027-installer-blender-real-logic]] — 安装向导 Blender 行接真实逻辑 | Review | 1d | S6 |
 | **合计** | | **S1–S4 Review，S5–S7 Ready** | **5.5d** | EPIC-0002 estimate=2w，**剩余 4.5d buffer** |
 
 ## 进展日志

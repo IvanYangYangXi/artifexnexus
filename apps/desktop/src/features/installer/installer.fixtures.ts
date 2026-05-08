@@ -28,24 +28,8 @@ export const FIXTURE_ITEMS: InstallItem[] = [
     iconKey: "blender",
     state: "pending",
     expandable: true,
-    children: [
-      {
-        label: "Blender 4.2 主机",
-        version: "4.2.1",
-        installPath: "C:\\Program Files\\Blender Foundation\\Blender 4.2",
-        projectPath: "",
-        scriptPath: "<install>/plugins/blender/init.py",
-        state: "pending",
-      },
-      {
-        label: "Blender 4.4 实验",
-        version: "4.4.0",
-        installPath: "D:\\Tools\\Blender-4.4",
-        projectPath: "",
-        scriptPath: "<install>/plugins/blender/init.py",
-        state: "pending",
-      },
-    ],
+    // STORY-0027：children 初始为空，检测后动态填充
+    children: [],
   },
   {
     id: "unreal",
