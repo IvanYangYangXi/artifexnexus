@@ -29,6 +29,7 @@ try:
     from . import agent_preset as _agent_preset
     from . import bootstrap as _bootstrap
     from . import config_io as _config_io
+    from . import dcc_installer as _dcc_installer
     from . import doctor as _doctor
     from . import installer as _installer
     from . import mcp_bridge as _mcp_bridge
@@ -40,6 +41,7 @@ except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
     import bootstrap as _bootstrap  # type: ignore[no-redef]
     import config_io as _config_io  # type: ignore[no-redef]
+    import dcc_installer as _dcc_installer  # type: ignore[no-redef]
     import doctor as _doctor  # type: ignore[no-redef]
     import installer as _installer  # type: ignore[no-redef]
     import mcp_bridge as _mcp_bridge  # type: ignore[no-redef]
@@ -665,6 +667,129 @@ def _handle_openclaw_mcp_blender_run_python(req_id: Any, params: dict) -> dict:
         }
 
 
+# ── DCC 安装器 RPC handlers ─────────────────────────────────────────────
+
+def _handle_openclaw_dcc_blender_detect(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.blender.detect RPC：检测本机 Blender 版本及插件安装状态。
+
+    返回：
+        {
+            "versions": [
+                {
+                    "version": "4.2",
+                    "installed": true,
+                    "compatible": true,
+                    "compat_reason": "兼容",
+                    "addon_info": {...}
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        versions = _dcc_installer.find_blender_versions()
+        addon_info = _dcc_installer.get_addon_info()
+
+        result_versions = []
+        for ver in versions:
+            installed = _dcc_installer.is_addon_installed(ver)
+            compatible, reason = _dcc_installer.check_version_compatibility(ver)
+            result_versions.append({
+                "version": ver,
+                "installed": installed,
+                "compatible": compatible,
+                "compat_reason": reason,
+            })
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "versions": result_versions,
+                "addon_info": {
+                    "name": addon_info.get("name", ""),
+                    "version": ".".join(str(x) for x in addon_info.get("version", (5, 0, 0))),
+                    "blender_min": ".".join(str(x) for x in addon_info.get("blender_min", (5, 0, 0))),
+                    "blender_max": ".".join(str(x) for x in addon_info.get("blender_max", (5, 1, 9))) if addon_info.get("blender_max") else None,
+                },
+            },
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_blender_install(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.blender.install RPC：安装插件到指定 Blender 版本。
+
+    参数：
+        version (str): Blender 版本号，如 "4.2"
+        force (bool, 可选): 是否跳过兼容性检查
+
+    返回：
+        {"success": bool, "method": "junction"|"symlink"|"copy", "target": str, "error": str|None}
+    """
+    version = params.get("version", "")
+    force = bool(params.get("force", False))
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.install_blender_addon(version, force=force)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_blender_uninstall(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.blender.uninstall RPC：卸载插件。
+
+    参数：
+        version (str): Blender 版本号
+
+    返回：
+        {"success": bool, "target": str, "error": str|None}
+    """
+    version = params.get("version", "")
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.uninstall_blender_addon(version)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -692,6 +817,10 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.models.fetch_remote": _handle_openclaw_models_fetch_remote,
     # STORY-0024 M2：Blender MCP 桥接
     "openclaw.mcp.blender.run_python": _handle_openclaw_mcp_blender_run_python,
+    # STORY-0026 M2：DCC 安装器
+    "openclaw.dcc.blender.detect": _handle_openclaw_dcc_blender_detect,
+    "openclaw.dcc.blender.install": _handle_openclaw_dcc_blender_install,
+    "openclaw.dcc.blender.uninstall": _handle_openclaw_dcc_blender_uninstall,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,

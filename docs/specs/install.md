@@ -40,7 +40,7 @@ status: draft
 |------|---------|------|
 | Python 包（core / skill / contracts / openclaw uplink） | **配置 + sys.path** | Python 天然支持，无需文件系统改动 |
 | OpenClaw Gateway 插件 | **symlink** 到 `~/.artifexnexus/.openclaw/extensions/` | OpenClaw 主动扫描该目录 |
-| Blender addon | **symlink** 到 Blender 的 `addons/` | Blender 主动扫描 |
+| Blender addon | **symlink** 到 Blender 的 `addons/`（详见 [[dcc-plugin-management]]） | Blender 主动扫描 |
 | UE 插件 | **copy** 到 `<Project>/Plugins/ArtifexNexusForUnreal/` | UE 路径敏感、编译产物多，symlink 在 Win 上易失败 |
 | Skill 包 | **copy + 版本管理** 到 `~/.artifexnexus/.openclaw/workspace/skills/` | OpenClaw 平台规则；保证 Gateway 看到的版本与 SkillInstaller 注册的一致 |
 | OpenClaw 本身 | **薄壳安装** → `~/.artifexnexus/.openclaw/cli/<version>/` | 调用上游 install-cli.sh，按版本隔离 |

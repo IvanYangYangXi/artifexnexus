@@ -31,8 +31,9 @@ logger = logging.getLogger("artifex.blender")
 bl_info = {
     "name": "Artifex Nexus Bridge",
     "author": "Artifex Nexus",
-    "version": (0, 1, 0),
-    "blender": (3, 0, 0),
+    "version": (5, 0, 0),
+    "blender": (5, 0, 0),
+    "blender_max": (5, 1, 9),
     "location": "View3D > Sidebar > Artifex Nexus",
     "description": "Artifex Nexus MCP Bridge — AI 驱动的 Blender 操作",
     "category": "Interface",

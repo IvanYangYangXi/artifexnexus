@@ -73,6 +73,10 @@ pub fn run() {
             commands::openclaw_config::openclaw_models_fetch_remote,
             // STORY-0024 M2：Blender MCP 桥接
             commands::openclaw::openclaw_mcp_blender_run_python,
+            // STORY-0026 M2：DCC 安装器
+            commands::openclaw::openclaw_dcc_blender_detect,
+            commands::openclaw::openclaw_dcc_blender_install,
+            commands::openclaw::openclaw_dcc_blender_uninstall,
             // STORY-0018 T3：Gateway 状态控制面板
             commands::openclaw_gateway::openclaw_gateway_status,
             commands::openclaw_gateway::openclaw_gateway_start,

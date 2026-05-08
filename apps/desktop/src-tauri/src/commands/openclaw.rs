@@ -267,3 +267,59 @@ pub async fn openclaw_mcp_blender_run_python(
 
     manager.call("openclaw.mcp.blender.run_python", params)
 }
+
+/// 检测本机 Blender 版本及插件安装状态。
+///
+/// STORY-0026 M2：DCC 安装器。
+#[tauri::command]
+pub async fn openclaw_dcc_blender_detect(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.blender.detect", json!({}))
+}
+
+/// 安装 Artifex Nexus 插件到指定 Blender 版本。
+///
+/// STORY-0026 M2：DCC 安装器。
+#[tauri::command]
+pub async fn openclaw_dcc_blender_install(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({"version": version});
+    if let Some(f) = force {
+        params["force"] = serde_json::Value::Bool(f);
+    }
+
+    manager.call("openclaw.dcc.blender.install", params)
+}
+
+/// 卸载 Artifex Nexus 插件。
+///
+/// STORY-0026 M2：DCC 安装器。
+#[tauri::command]
+pub async fn openclaw_dcc_blender_uninstall(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.blender.uninstall", json!({"version": version}))
+}

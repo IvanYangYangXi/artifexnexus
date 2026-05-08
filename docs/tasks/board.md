@@ -20,10 +20,11 @@ tags:
 ## Ready
 
 - [ ] [[STORY-0025-e2e-smoke-test]]
+- [ ] [[STORY-0027-installer-blender-real-logic]]
 
 ## In Progress
 
-
+- [ ] [[STORY-0026-dcc-installer-blender]]
 
 ## Review
 
