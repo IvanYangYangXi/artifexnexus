@@ -108,10 +108,46 @@ def _generate_default_config(
         "gateway": {
             "port": port,
             "mode": "local",
+            # Control UI 浏览器白名单
+            # Browser-origin allowlist for the gateway Control UI WebSocket.
+            #
+            # 背景 / Background：
+            # 上游 v2026.5.4 的 Control UI 默认使用严格 origin 校验。当本机存在
+            # 任何代理头（例如某些浏览器扩展、企业代理或路由器透明代理注入
+            # X-Forwarded-For）时，gateway 不再把 loopback 客户端当作"local"，
+            # 必须命中显式 allowedOrigins 白名单，否则握手时返回 1008
+            # "origin not allowed" 拒绝连接。
+            #
+            # 我们默认放行：
+            # - http://127.0.0.1:{port} / http://localhost:{port}：从浏览器直接访问
+            # - tauri://localhost / https://tauri.localhost：Tauri Desktop 内嵌访问
+            "controlUi": {
+                "enabled": True,
+                "allowedOrigins": [
+                    f"http://127.0.0.1:{port}",
+                    f"http://localhost:{port}",
+                    "tauri://localhost",
+                    "https://tauri.localhost",
+                ],
+                # M1 本地 Tauri 部署属于 trusted local：禁用 Control UI 的
+                # device-identity pairing（默认会让 ws 握手返回 1008
+                # "pairing required: device is not approved yet"），
+                # 改用 token/password 的 gateway.auth 即可。
+                #
+                # M1 (local Tauri) is a trusted-local profile: disable Control UI
+                # device pairing handshake and rely on gateway.auth instead.
+                # 上游说明（schema）："Use only for short-lived debugging on
+                # trusted networks" — 在 M1 单机场景这就是常态。
+                "dangerouslyDisableDeviceAuth": True,
+            },
         },
         "agents": {
             "defaults": {
                 "workspace": str(workspace_path),
+                # 默认推理模型：避免 WebUI 启动时 fallback 到未配置的 "openai"
+                # 用户安装 provider 后可在设置面板修改
+                "reasoningDefault": "on",
+                "thinkingDefault": "adaptive",
             }
         },
         # Plugin 裁剪：仅保留 Artifex Nexus 需要的 plugin
@@ -119,11 +155,19 @@ def _generate_default_config(
         # 实测 v2026.5.4 plugin ID：
         #   - browser: @openclaw/browser-plugin (ID: browser)
         #   - file: File Transfer (ID: file-transfer)
+        #   - memory-core: 记忆核心 + 梦境模式（dreaming）
         #   - shell/mcp/gateway 是内置能力，不需要在 plugins 中配置
         "plugins": {
             "entries": {
                 "browser": {"enabled": True},
                 "file-transfer": {"enabled": True},
+                "memory-core": {
+                    "config": {
+                        "dreaming": {
+                            "enabled": True,
+                        }
+                    }
+                },
             }
         },
         # CDP 端口段起始 = gateway port + 11
@@ -144,6 +188,86 @@ def _write_config(config_path: Path, config: dict) -> None:
     config_path.write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+# ---------------------------------------------------------------------------
+# 选择性保留逻辑（STORY-0020）
+# ---------------------------------------------------------------------------
+
+
+def _apply_preserve_options(
+    new_config: dict,
+    old_config: dict,
+    preserve_options: dict,
+) -> dict:
+    """按 preserve_options 深合并旧配置到新配置。
+
+    Apply selective preservation of old config into newly generated config.
+    gateway.auth.token 始终使用新值（安全考虑）。
+
+    Args:
+        new_config: 新生成的默认配置。
+        old_config: 旧 openclaw.json 的内容。
+        preserve_options: 保留选项（preserveProviders / preserveAuth /
+            preserveAgents / preservePlugins）。
+
+    Returns:
+        合并后的配置。
+    """
+    result = json.loads(json.dumps(new_config))  # deep copy
+
+    if preserve_options.get("preserveProviders"):
+        old_providers = old_config.get("models", {}).get("providers")
+        if isinstance(old_providers, dict) and old_providers:
+            result.setdefault("models", {})["providers"] = old_providers
+            logger.info("preserve: 恢复 models.providers (%d 个)", len(old_providers))
+
+    if preserve_options.get("preserveAuth"):
+        old_auth = old_config.get("auth", {})
+        if isinstance(old_auth, dict):
+            old_profiles = old_auth.get("profiles")
+            old_order = old_auth.get("order")
+            if isinstance(old_profiles, dict) and old_profiles:
+                result.setdefault("auth", {})["profiles"] = old_profiles
+                logger.info("preserve: 恢复 auth.profiles (%d 个)", len(old_profiles))
+            if isinstance(old_order, dict) and old_order:
+                result.setdefault("auth", {})["order"] = old_order
+                logger.info("preserve: 恢复 auth.order")
+
+    if preserve_options.get("preserveAgents"):
+        old_agents = old_config.get("agents", {})
+        if isinstance(old_agents, dict):
+            old_defaults = old_agents.get("defaults")
+            old_list = old_agents.get("list")
+            if isinstance(old_defaults, dict) and old_defaults:
+                result.setdefault("agents", {})["defaults"] = old_defaults
+                logger.info("preserve: 恢复 agents.defaults")
+            if isinstance(old_list, list) and old_list:
+                result.setdefault("agents", {})["list"] = old_list
+                logger.info("preserve: 恢复 agents.list (%d 个)", len(old_list))
+
+    if preserve_options.get("preservePlugins"):
+        old_plugins = old_config.get("plugins", {}).get("entries")
+        if isinstance(old_plugins, dict) and old_plugins:
+            # 合并策略：旧的 plugin 条目补充到新默认中（新默认已有的不覆盖）
+            new_entries = result.get("plugins", {}).get("entries", {})
+            for plugin_id, plugin_cfg in old_plugins.items():
+                if plugin_id not in new_entries:
+                    new_entries[plugin_id] = plugin_cfg
+                    logger.info("preserve: 恢复 plugin %s", plugin_id)
+                else:
+                    # 已有的 plugin：深合并 config 子节点
+                    if isinstance(plugin_cfg, dict) and isinstance(new_entries[plugin_id], dict):
+                        old_cfg = plugin_cfg.get("config", {})
+                        if old_cfg:
+                            new_entries[plugin_id].setdefault("config", {}).update(old_cfg)
+            result.setdefault("plugins", {})["entries"] = new_entries
+
+    # gateway.auth.token 始终使用新值（安全考虑，不保留旧 token）
+    # 此处无需额外操作——new_config 中的 token 字段是由 runtime 另行生成的，
+    # 如果 _generate_default_config 里没有 gateway.auth，则由 bootstrap 后续步骤处理。
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +306,42 @@ def _create_directory_layout(openclaw_home: Path) -> list[Path]:
             created.append(d)
 
     return created
+
+
+# ---------------------------------------------------------------------------
+# workspace 人格文件预置
+# ---------------------------------------------------------------------------
+
+_WORKSPACE_ASSETS_DIR = Path(__file__).parent / "assets" / "agents" / "workspace"
+"""workspace 预设文件资源目录。"""
+
+_WORKSPACE_IDENTITY_FILES = ["IDENTITY.md", "SOUL.md", "USER.md"]
+"""需要预置到 workspace 的人格文件列表。"""
+
+
+def _install_workspace_identity_files(openclaw_home: Path) -> None:
+    """预置 workspace 的人格文件（IDENTITY.md / SOUL.md / USER.md）。
+
+    Install default identity files to the agent workspace directory.
+    仅在目标文件不存在时写入（不覆盖用户修改）。
+    """
+    workspace_dir = openclaw_home / DEFAULT_WORKSPACE
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    for filename in _WORKSPACE_IDENTITY_FILES:
+        target = workspace_dir / filename
+        if target.exists():
+            # 不覆盖用户已修改的文件
+            continue
+        source = _WORKSPACE_ASSETS_DIR / filename
+        if not source.exists():
+            logger.warning("workspace 预设文件缺失: %s", source)
+            continue
+        try:
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            logger.info("预置 workspace 文件: %s", target)
+        except OSError as exc:
+            logger.warning("写入 workspace 文件失败: %s: %s", target, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +388,7 @@ def bootstrap(
     openclaw_home: Path,
     version: str = "v2026.5.4",
     port: int = DEFAULT_PORT,
+    preserve_options: Optional[dict] = None,
 ) -> BootstrapResult:
     """初始化 ~/.artifexnexus/.openclaw/ 目录布局 + 生成 openclaw.json。
 
@@ -237,6 +398,12 @@ def bootstrap(
         openclaw_home: OPENCLAW_HOME 路径（~/.artifexnexus/.openclaw/）。
         version: OpenClaw 版本号，默认 v2026.5.4。
         port: gateway 端口，默认 19789。
+        preserve_options: 重装时的保留选项。键：
+            - preserveProviders (bool): 保留 models.providers
+            - preserveAuth (bool): 保留 auth.profiles + auth.order
+            - preserveAgents (bool): 保留 agents.defaults + agents.list
+            - preservePlugins (bool): 保留 plugins.entries（与新默认合并）
+            为 None 或全 False 时行为与之前一致（全新覆写）。
 
     Returns:
         BootstrapResult: 包含创建目录列表、配置路径、token 是否新生成等信息。
@@ -252,14 +419,26 @@ def bootstrap(
         # 1. 创建目录布局
         created_dirs = _create_directory_layout(openclaw_home)
 
-        # 2. 生成默认配置
+        # 2. 预置 workspace 人格文件（IDENTITY.md / SOUL.md / USER.md）
+        _install_workspace_identity_files(openclaw_home)
+
+        # 3. 读取旧配置（用于 preserve 合并）
+        old_config: Optional[dict] = None
+        if preserve_options and any(preserve_options.values()):
+            old_config = read_config(openclaw_home)
+
+        # 4. 生成默认配置
         config = _generate_default_config(openclaw_home, port)
 
-        # 3. 写入 openclaw.json
+        # 5. 按 preserve_options 深合并旧配置到新配置
+        if old_config and preserve_options:
+            config = _apply_preserve_options(config, old_config, preserve_options)
+
+        # 6. 写入 openclaw.json
         config_path = openclaw_home / "openclaw.json"
         _write_config(config_path, config)
 
-        # 4. 注入 Artifex Nexus 默认 agent 预设（失败仅 warn，不阻塞 bootstrap）
+        # 7. 注入 Artifex Nexus 默认 agent 预设（失败仅 warn，不阻塞 bootstrap）
         # EPIC-0001 第二批 #3 / STORY-0017
         _try_install_default_agent_preset(openclaw_home)
 
@@ -328,15 +507,37 @@ def get_gateway_port(openclaw_home: Path) -> int:
 
 
 def get_gateway_token(openclaw_home: Path) -> Optional[str]:
-    """从 openclaw.json 读取 gateway.token。
+    """从 openclaw.json 读取 gateway 鉴权 token。
 
-    Read gateway.token from openclaw.json.
+    Read the gateway auth token from openclaw.json.
+
+    上游 v2026.5.4 schema 把 token 放在 ``gateway.auth.token``（``token`` 模式时）。
+    早期 spike 假设的顶层 ``gateway.token`` 已被废弃，但兼容一段时间。
+
+    Returns:
+        token 字符串；未配置或非 token 模式时返回 ``None``。
     """
     config = read_config(openclaw_home)
-    if config:
-        token = config.get("gateway", {}).get("token", "")
-        if token and len(token) >= 48:
-            return token
+    if not config:
+        return None
+
+    gw = config.get("gateway", {}) if isinstance(config, dict) else {}
+    if not isinstance(gw, dict):
+        return None
+
+    # 主路径：v2026.5.4 真实位置
+    auth = gw.get("auth", {})
+    if isinstance(auth, dict):
+        tok = auth.get("token")
+        # token 字段可以是 string 或 SecretRef object；只取明文 string
+        if isinstance(tok, str) and tok:
+            return tok
+
+    # 兼容老路径（早期 spike 假设的顶层 gateway.token）
+    legacy = gw.get("token")
+    if isinstance(legacy, str) and legacy:
+        return legacy
+
     return None
 
 
@@ -344,6 +545,7 @@ def bootstrap_with_port_probe(
     openclaw_home: Path,
     version: str = "v2026.5.4",
     preferred_port: int = _ports.DEFAULT_PORT,
+    preserve_options: Optional[dict] = None,
 ) -> tuple[BootstrapResult, int]:
     """bootstrap + 端口探测一体化。
 
@@ -355,6 +557,7 @@ def bootstrap_with_port_probe(
         openclaw_home: OPENCLAW_HOME 路径。
         version: OpenClaw 版本号。
         preferred_port: 首选端口，默认 19789。
+        preserve_options: 重装时保留选项（透传给 bootstrap()）。
 
     Returns:
         (BootstrapResult, selected_port): bootstrap 结果和最终选定端口。
@@ -379,6 +582,6 @@ def bootstrap_with_port_probe(
     _ports.write_last_port(str(ports_json), selected_port)
 
     # 4. bootstrap
-    result = bootstrap(openclaw_home, version, selected_port)
+    result = bootstrap(openclaw_home, version, selected_port, preserve_options=preserve_options)
 
     return result, selected_port

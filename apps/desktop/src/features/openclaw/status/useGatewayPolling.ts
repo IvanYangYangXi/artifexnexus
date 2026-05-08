@@ -58,9 +58,10 @@ export function useGatewayPolling(): GatewayPollingState {
       setStatus(next);
       setPollError("");
 
-      // 首次：初始化 since_id 为 status.last_log_id，跳过历史日志
+      // 首次：从 0 开始拉，获取 sidecar buffer 中全部历史日志。
+      // 这样切换 tab 后再回来时能重新加载已有日志，而不是从空开始。
       if (sinceIdRef.current === null) {
-        sinceIdRef.current = next.last_log_id;
+        sinceIdRef.current = 0;
       }
 
       // 仅 running 时拉日志：stopped/errored 时 sidecar 不会再产新行，省一次 RPC

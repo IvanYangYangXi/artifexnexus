@@ -11,10 +11,9 @@ import styles from "../SettingsPanel.module.css";
 const zh = t.zhCN;
 
 const MODE_OPTIONS: { value: AuthMode; label: string }[] = [
-  { value: "api-key", label: zh.authModeApiKey },
+  { value: "api_key", label: zh.authModeApiKey },
   { value: "oauth", label: zh.authModeOauth },
   { value: "token", label: zh.authModeToken },
-  { value: "paste", label: zh.authModePaste },
 ];
 
 /** 是否脱敏占位（≥8 个 *） */
@@ -27,9 +26,11 @@ interface Props {
   dispatch: Dispatch<SettingsAction>;
   /** 当前 provider id（外层 ProvidersTab 传入） */
   providerId: string;
+  /** 高级模式（显示 mode 下拉 / email 字段） */
+  advancedMode?: boolean;
 }
 
-export default function AuthInlineSection({ state, dispatch, providerId }: Props) {
+export default function AuthInlineSection({ state, dispatch, providerId, advancedMode = false }: Props) {
   // 仅展示 provider 字段匹配的 profiles（v3 心智：profile 属于 provider）
   const ownProfiles = useMemo(
     () => state.authProfiles.filter((a) => a.provider === providerId),
@@ -74,7 +75,9 @@ export default function AuthInlineSection({ state, dispatch, providerId }: Props
             >
               <span className={styles.inlineAuthCaret}>{expanded ? "▾" : "▸"}</span>
               <span className={styles.inlineAuthId}>{a.id}</span>
-              <span className={styles.listItemBadge}>{a.mode}</span>
+              {advancedMode && (
+                <span className={styles.listItemBadge}>{a.mode}</span>
+              )}
               {isDefault && (
                 <span className={styles.listItemBadge}>默认</span>
               )}
@@ -99,6 +102,7 @@ export default function AuthInlineSection({ state, dispatch, providerId }: Props
                   profile={a}
                   ownCount={ownProfiles.length}
                   dispatch={dispatch}
+                  advancedMode={advancedMode}
                 />
               </div>
             )}
@@ -119,9 +123,10 @@ interface InlineAuthFormProps {
   profile: AuthProfileForm;
   ownCount: number;
   dispatch: Dispatch<SettingsAction>;
+  advancedMode?: boolean;
 }
 
-function InlineAuthForm({ profile, ownCount, dispatch }: InlineAuthFormProps) {
+function InlineAuthForm({ profile, ownCount, dispatch, advancedMode = false }: InlineAuthFormProps) {
   const handleDelete = () => {
     if (ownCount === 1) {
       const ok = window.confirm(zh.inlineAuthLastWarn);
@@ -130,79 +135,79 @@ function InlineAuthForm({ profile, ownCount, dispatch }: InlineAuthFormProps) {
     dispatch({ type: "DELETE_AUTH_PROFILE", id: profile.id });
   };
 
-  const showApiKey = profile.mode === "api-key" || profile.mode === "paste";
-
   return (
     <>
-      <div className={styles.formRow}>
-        <label className={styles.formLabel}>{zh.fieldAuthMode}</label>
-        <select
-          className={styles.formSelect}
-          value={profile.mode}
-          onChange={(e) =>
-            dispatch({
-              type: "UPDATE_AUTH_PROFILE",
-              id: profile.id,
-              patch: { mode: e.target.value as AuthMode },
-            })
-          }
-        >
-          {MODE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {showApiKey && (
+      {advancedMode && (
         <div className={styles.formRow}>
-          <label className={styles.formLabel}>{zh.fieldApiKey}</label>
-          <input
-            className={styles.formInput}
-            type="password"
-            autoComplete="off"
-            value={profile.apiKey}
-            placeholder={
-              isMaskedApiKey(profile.apiKey)
-                ? zh.apiKeyMaskedHint
-                : zh.apiKeyPlaceholder
-            }
-            onFocus={(e) => {
-              if (isMaskedApiKey(profile.apiKey)) {
-                dispatch({
-                  type: "UPDATE_AUTH_PROFILE",
-                  id: profile.id,
-                  patch: { apiKey: "" },
-                });
-                e.currentTarget.value = "";
-              }
-            }}
+          <label className={styles.formLabel}>{zh.fieldAuthMode}</label>
+          <select
+            className={styles.formSelect}
+            value={profile.mode}
             onChange={(e) =>
               dispatch({
                 type: "UPDATE_AUTH_PROFILE",
                 id: profile.id,
-                patch: { apiKey: e.target.value },
+                patch: { mode: e.target.value as AuthMode },
+              })
+            }
+          >
+            {MODE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className={styles.formRow}>
+        <label className={styles.formLabel}>{zh.fieldApiKey}</label>
+        <input
+          className={styles.formInput}
+          type="password"
+          autoComplete="off"
+          value={profile.apiKey}
+          placeholder={
+            isMaskedApiKey(profile.apiKey)
+              ? zh.apiKeyMaskedHint
+              : zh.apiKeyPlaceholder
+          }
+          onFocus={(e) => {
+            if (isMaskedApiKey(profile.apiKey)) {
+              dispatch({
+                type: "UPDATE_AUTH_PROFILE",
+                id: profile.id,
+                patch: { apiKey: "" },
+              });
+              e.currentTarget.value = "";
+            }
+          }}
+          onChange={(e) =>
+            dispatch({
+              type: "UPDATE_AUTH_PROFILE",
+              id: profile.id,
+              patch: { apiKey: e.target.value },
+            })
+          }
+        />
+      </div>
+
+      {advancedMode && (
+        <div className={styles.formRow}>
+          <label className={styles.formLabel}>{zh.fieldEmail}</label>
+          <input
+            className={styles.formInput}
+            value={profile.email ?? ""}
+            onChange={(e) =>
+              dispatch({
+                type: "UPDATE_AUTH_PROFILE",
+                id: profile.id,
+                patch: { email: e.target.value || undefined },
               })
             }
           />
         </div>
       )}
-
-      <div className={styles.formRow}>
-        <label className={styles.formLabel}>{zh.fieldEmail}</label>
-        <input
-          className={styles.formInput}
-          value={profile.email ?? ""}
-          onChange={(e) =>
-            dispatch({
-              type: "UPDATE_AUTH_PROFILE",
-              id: profile.id,
-              patch: { email: e.target.value || undefined },
-            })
-          }
-        />
-      </div>
 
       <div className={styles.formRow}>
         <label className={styles.formLabel}>{zh.fieldNotes}</label>

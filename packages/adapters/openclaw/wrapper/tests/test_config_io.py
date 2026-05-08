@@ -296,3 +296,176 @@ class TestTestProvider:
         result = config_io.test_provider(fake_bin, fake_home, "", "gpt-4o-mini")
         assert result.success is False
         assert "必填" in (result.error or "")
+
+
+# ---------------------------------------------------------------------------
+# strip_auth_profile_secrets
+# ---------------------------------------------------------------------------
+
+
+class TestStripAuthProfileSecrets:
+    """v2026.5.4 后：auth.profiles.<id> 的 secret 字段必须被剔除。"""
+
+    def test_strips_token_field_from_profile(self):
+        patch_payload = {
+            "auth": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "mode": "token",
+                        "token": "sk-real-key",
+                    }
+                }
+            }
+        }
+        cleaned = config_io.strip_auth_profile_secrets(patch_payload)
+        prof = cleaned["auth"]["profiles"]["deepseek-default"]
+        assert "token" not in prof
+        # 元数据保留
+        assert prof["provider"] == "deepseek"
+        assert prof["mode"] == "token"
+
+    def test_strips_apikey_and_aliases(self):
+        patch_payload = {
+            "auth": {
+                "profiles": {
+                    "x": {
+                        "provider": "openai",
+                        "mode": "api_key",
+                        "apiKey": "sk-1",
+                        "api_key": "sk-2",
+                        "secret": "s",
+                        "password": "p",
+                    }
+                }
+            }
+        }
+        cleaned = config_io.strip_auth_profile_secrets(patch_payload)
+        prof = cleaned["auth"]["profiles"]["x"]
+        for k in ("apiKey", "api_key", "secret", "password"):
+            assert k not in prof
+        assert prof["provider"] == "openai"
+
+    def test_no_auth_section_passthrough(self):
+        patch_payload = {"models": {"providers": {"openai": {"baseUrl": "x"}}}}
+        cleaned = config_io.strip_auth_profile_secrets(patch_payload)
+        assert cleaned == patch_payload
+
+    def test_does_not_mutate_input(self):
+        original = {
+            "auth": {"profiles": {"x": {"provider": "openai", "token": "sk-real"}}}
+        }
+        config_io.strip_auth_profile_secrets(original)
+        # 原对象不变
+        assert original["auth"]["profiles"]["x"]["token"] == "sk-real"
+
+    def test_preserves_unrelated_secrets_in_models_section(self):
+        """models.providers.<id>.headers.Authorization 之类的 secret 不归本函数管。"""
+        patch_payload = {
+            "auth": {"profiles": {"x": {"provider": "openai", "token": "sk-1"}}},
+            "models": {
+                "providers": {
+                    "openai": {"headers": {"Authorization": "Bearer sk-2"}}
+                }
+            },
+        }
+        cleaned = config_io.strip_auth_profile_secrets(patch_payload)
+        # auth.profiles.<id>.token 被删
+        assert "token" not in cleaned["auth"]["profiles"]["x"]
+        # models 节点不动
+        assert (
+            cleaned["models"]["providers"]["openai"]["headers"]["Authorization"]
+            == "Bearer sk-2"
+        )
+
+
+# ---------------------------------------------------------------------------
+# set_auth_token
+# ---------------------------------------------------------------------------
+
+
+class TestSetAuthToken:
+    def test_success(self, fake_home: Path, fake_bin: Path):
+        sent: list[tuple] = []
+
+        def fake_paste(bin_p, home, provider, profile_id, token, *, expires_in=None):
+            sent.append((bin_p, home, provider, profile_id, token, expires_in))
+            return True, None
+
+        result = config_io.set_auth_token(
+            fake_bin,
+            fake_home,
+            "deepseek",
+            "deepseek-default",
+            "sk-real-key-1234567890",
+            paste_token_fn=fake_paste,
+        )
+        assert result.success is True
+        assert result.profile_id == "deepseek-default"
+        assert sent[0][2] == "deepseek"
+        assert sent[0][3] == "deepseek-default"
+        assert sent[0][4] == "sk-real-key-1234567890"
+
+    def test_rejects_masked_token(self, fake_home: Path, fake_bin: Path):
+        called = []
+
+        def fake_paste(*a, **kw):
+            called.append(1)
+            return True, None
+
+        result = config_io.set_auth_token(
+            fake_bin,
+            fake_home,
+            "deepseek",
+            "deepseek-default",
+            "*" * 16,
+            paste_token_fn=fake_paste,
+        )
+        assert result.success is False
+        assert "脱敏" in (result.error or "")
+        assert called == []  # 没有真的去调 CLI
+
+    def test_rejects_empty_token(self, fake_home: Path, fake_bin: Path):
+        result = config_io.set_auth_token(
+            fake_bin, fake_home, "deepseek", "deepseek-default", ""
+        )
+        assert result.success is False
+        assert "必填" in (result.error or "")
+
+    def test_rejects_missing_provider(self, fake_home: Path, fake_bin: Path):
+        result = config_io.set_auth_token(
+            fake_bin, fake_home, "", "x", "sk-1", paste_token_fn=lambda *a, **kw: (True, None)
+        )
+        assert result.success is False
+        assert "provider" in (result.error or "")
+
+    def test_paste_failure_returns_error(self, fake_home: Path, fake_bin: Path):
+        result = config_io.set_auth_token(
+            fake_bin,
+            fake_home,
+            "deepseek",
+            "deepseek-default",
+            "sk-real",
+            paste_token_fn=lambda *a, **kw: (False, "schema validate failed"),
+        )
+        assert result.success is False
+        assert "schema validate" in (result.error or "")
+
+    def test_passes_expires_in(self, fake_home: Path, fake_bin: Path):
+        captured: dict = {}
+
+        def fake_paste(*a, **kw):
+            captured.update(kw)
+            return True, None
+
+        config_io.set_auth_token(
+            fake_bin,
+            fake_home,
+            "deepseek",
+            "deepseek-default",
+            "sk-real",
+            expires_in="365d",
+            paste_token_fn=fake_paste,
+        )
+        assert captured.get("expires_in") == "365d"
+

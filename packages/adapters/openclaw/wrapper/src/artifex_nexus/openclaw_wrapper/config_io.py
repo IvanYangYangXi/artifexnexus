@@ -41,7 +41,12 @@ logger = logging.getLogger(__name__)
 CONFIG_TIMEOUT = 8.0
 """``openclaw config get/patch`` 超时秒。"""
 
-INFER_TIMEOUT = 15.0
+INFER_TIMEOUT = 45.0
+"""``openclaw infer model run`` 超时秒。
+
+上游 CLI 每次 cold start ~2.5s（Node.js 初始化），加上某些 provider（如
+网易 CodeMaker）响应延迟较高，实测单次 infer 总耗时可达 20-25s。
+设为 45s 留足余量，前端会展示"测试中…"进度提示。"""
 """``openclaw infer`` 测试连接超时秒。"""
 
 API_KEY_MASK = "*"
@@ -126,6 +131,27 @@ class TestProviderResult:
             "success": self.success,
             "latencyMs": self.latency_ms,
             "modelEcho": self.model_echo,
+            "error": self.error,
+        }
+
+
+@dataclass
+class SetAuthTokenResult:
+    """``openclaw.auth.set_token`` 返回值。
+
+    Result of writing a provider API key into ``auth-profiles.json`` via
+    ``openclaw models auth paste-token``. On success the upstream CLI also
+    updates ``auth.profiles.<id>`` metadata in ``openclaw.json``.
+    """
+
+    success: bool
+    profile_id: Optional[str] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "success": self.success,
+            "profileId": self.profile_id,
             "error": self.error,
         }
 
@@ -227,6 +253,50 @@ def strip_unchanged_secrets(patch: Any) -> Any:
     return patch
 
 
+def strip_auth_profile_secrets(patch: Any) -> Any:
+    """从 patch 的 ``auth.profiles.<id>`` 节点剔除任何 secret 字段。
+
+    Strip secret-looking fields (``token`` / ``apiKey`` / ``api_key`` …) from
+    ``auth.profiles.<id>`` regardless of mask state.
+
+    上游 v2026.5.4 schema 把 ``auth.profiles.<id>`` 收敛成纯元数据
+    （``provider`` / ``mode`` / ``email`` / ``displayName``）+
+    ``additionalProperties: false``，任何 secret 字段都会被 schema validate
+    拒绝。凭证另走 ``openclaw models auth paste-token`` 写
+    ``state/agents/<agentId>/agent/auth-profiles.json``。
+
+    本函数仅处理 ``auth.profiles.*`` 子节点；不影响 ``models.providers.*``
+    等其它位置的 secret（那些由 ``strip_unchanged_secrets`` 按脱敏判定处理）。
+    """
+    if not isinstance(patch, dict):
+        return patch
+    auth = patch.get("auth")
+    if not isinstance(auth, dict):
+        return patch
+    profiles = auth.get("profiles")
+    if not isinstance(profiles, dict):
+        return patch
+
+    cleaned_profiles: dict = {}
+    for pid, prof in profiles.items():
+        if not isinstance(prof, dict):
+            cleaned_profiles[pid] = prof
+            continue
+        cleaned_profiles[pid] = {
+            k: v
+            for k, v in prof.items()
+            if not (
+                isinstance(k, str)
+                and k.lower().replace("-", "_") in SECRET_FIELD_NAMES
+            )
+        }
+    new_auth = dict(auth)
+    new_auth["profiles"] = cleaned_profiles
+    new_patch = dict(patch)
+    new_patch["auth"] = new_auth
+    return new_patch
+
+
 # ---------------------------------------------------------------------------
 # subprocess 封装
 # ---------------------------------------------------------------------------
@@ -280,13 +350,18 @@ def _run_config_patch(
     patch: dict,
     timeout: float = CONFIG_TIMEOUT,
 ) -> tuple[bool, Optional[str]]:
-    """``openclaw config patch --stdin --strict-json``；返回 ``(success, error?)``。
+    """``openclaw config patch --stdin``；返回 ``(success, error?)``。
 
     error 含 stderr 前 500 字符（剔除可能的 secret 行）。
+
+    Note: v2026.5.4 的 ``config patch`` **不支持** ``--strict-json`` 选项
+    （历史 spike 笔记里写过、实际 CLI 没实现），无脑加上会 ``unknown option``
+    退出 1 → 整条 patch 失败。stdin 走的本来就是 JSON5，schema validate +
+    atomic write 已经默认开启，``--strict-json`` 是冗余约束。
     """
     try:
         proc = _sp.run_openclaw(
-            ["config", "patch", "--stdin", "--strict-json"],
+            ["config", "patch", "--stdin"],
             openclaw_home,
             bin_path=openclaw_bin,
             timeout=timeout,
@@ -322,14 +397,41 @@ def dump_config(
     Aggregate ``models.providers`` / ``auth.profiles`` / ``auth.order`` /
     ``agents.defaults`` from upstream and merge with wrapper extras.
     All secret-looking fields are masked before return.
+
+    性能优化（STORY-0018 hot-fix）：直接读 openclaw.json 文件而非 4 次 spawn CLI。
+    上游 CLI 每次 cold start ~2.4s（Node.js 初始化 + schema 加载），4 次 = ~10s。
+    直接读文件 <100ms，且对"只读"操作完全安全（写仍走 ``config patch``）。
+    若文件读取失败则 fallback 到原来的 CLI 方式。
     """
-    getter: ConfigGetFn = config_get_fn or _run_config_get
     home = Path(openclaw_home).expanduser().resolve()
 
-    providers = getter(openclaw_bin, home, "models.providers") or {}
-    auth_profiles = getter(openclaw_bin, home, "auth.profiles") or {}
-    auth_order = getter(openclaw_bin, home, "auth.order") or {}
-    agent_defaults = getter(openclaw_bin, home, "agents.defaults") or {}
+    # 优先直接读 openclaw.json（性能最优路径）
+    config_file = home / "openclaw.json"
+    root: Optional[dict] = None
+    if config_get_fn is None and config_file.exists():
+        try:
+            raw = config_file.read_text(encoding="utf-8")
+            root = json.loads(raw)
+            if not isinstance(root, dict):
+                root = None
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("直接读 openclaw.json 失败，fallback 到 CLI: %s", exc)
+            root = None
+
+    if root is not None:
+        # 从完整 config 中提取各节
+        providers = root.get("models", {}).get("providers", {})
+        auth_profiles = root.get("auth", {}).get("profiles", {})
+        auth_order = root.get("auth", {}).get("order", {})
+        agent_defaults = root.get("agents", {}).get("defaults", {})
+    else:
+        # fallback：4 次 CLI spawn（慢但可靠）
+        getter: ConfigGetFn = config_get_fn or _run_config_get
+        providers = getter(openclaw_bin, home, "models.providers") or {}
+        auth_profiles = getter(openclaw_bin, home, "auth.profiles") or {}
+        auth_order = getter(openclaw_bin, home, "auth.order") or {}
+        agent_defaults = getter(openclaw_bin, home, "agents.defaults") or {}
+
     extras = read_extras(home)
 
     return ConfigDump(
@@ -357,16 +459,21 @@ def patch_config(
     """把面板修改 patch 到 OpenClaw + extras。
 
     1. 从 patch 中剔除"用户未改的 secret 字段"（避免把 ``*`` 串写回 OpenClaw）
-    2. 调用 ``openclaw config patch --stdin --strict-json``
+    2. 调用 ``openclaw config patch --stdin``
     3. 若 ``extras_patch`` 给出，深合并写回 ``state/artifex-nexus-extras.json``
 
     extras_patch 与 patch 物理隔离：上游不收的字段（``displayName`` / ``notes``）
-    走 extras，避免被 strict-json 拒绝。
+    走 extras，避免被 schema validate 拒绝。
     """
     patcher: ConfigPatchFn = config_patch_fn or _run_config_patch
     home = Path(openclaw_home).expanduser().resolve()
 
+    # 1) 剔除"未改的脱敏 secret 占位"（防止把 ******* 写回上游）
+    # 2) 强制剔除 auth.profiles.<id> 下的任何 secret 字段
+    #    （上游 v2026.5.4 schema 把 profile 收敛成纯元数据，凭证另走 paste-token；
+    #     若 patch 残留 token / apiKey 会被 schema validate 拒绝 → 整个 patch 失败）
     cleaned = strip_unchanged_secrets(copy.deepcopy(patch))
+    cleaned = strip_auth_profile_secrets(cleaned)
 
     # 仅当 cleaned 非空时才调 patch（剔除完可能成空 dict）
     if cleaned:
@@ -414,26 +521,38 @@ def test_provider(
     auth_profile_id: Optional[str] = None,
     timeout: float = INFER_TIMEOUT,
 ) -> TestProviderResult:
-    """通过 ``openclaw infer`` 发一次最小请求做联通性测试。
+    """通过 ``openclaw infer model run`` 发一次最小请求做联通性测试。
 
-    Spike 待解（spec §10 P3）：当前实现先尝试 ``openclaw infer``；若该子命令不存在
-    或非零退出，返回 ``error`` 描述（前端据此提示"无法测试，请保存后在 OpenClaw 内联调"）。
-    M2 可加 HTTP 直 ping baseUrl 作 fallback。
+    Run ``openclaw infer model run --model <provider>/<model> --prompt ping``
+    to validate provider connectivity (auth + endpoint reachable).
+
+    上游 v2026.5.4 实测 CLI 形态：
+    - ``infer`` 是命令组（audio/embedding/image/model/tts/video/web）
+    - ``infer model run`` 是文本推理子命令
+    - **没有** ``--provider`` 选项；模型用 ``provider/model`` 复合字符串
+    - **没有** ``--auth-profile`` 选项；profile 由 ``auth.order`` 自动选
+
+    早期 spike 假设的 ``openclaw infer --provider <p> --model <m>`` 已不存在。
     """
     if not provider_id or not model_id:
         return TestProviderResult(success=False, error="provider_id / model_id 必填")
 
     cli_args = [
         "infer",
-        "--provider",
-        provider_id,
+        "model",
+        "run",
         "--model",
-        model_id,
+        f"{provider_id}/{model_id}",
         "--prompt",
         "ping",
+        "--json",
     ]
+    # auth_profile_id 上游不支持显式覆盖；仅作日志线索保留参数
     if auth_profile_id:
-        cli_args.extend(["--auth-profile", auth_profile_id])
+        logger.debug(
+            "test_provider: auth_profile_id=%s ignored (上游 CLI 不支持显式覆盖)",
+            auth_profile_id,
+        )
 
     home = Path(openclaw_home).expanduser().resolve()
     started = time.monotonic()
@@ -466,3 +585,279 @@ def test_provider(
         latency_ms=latency_ms,
         model_echo=out[:120] if out else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# set_auth_token
+# ---------------------------------------------------------------------------
+
+
+# 测试可注入回调：(bin, home, provider, profile_id, token, expires_in?) -> (success, error?)
+SetAuthTokenFn = Callable[..., tuple]
+
+SET_TOKEN_TIMEOUT = 10.0
+"""``openclaw models auth paste-token`` 超时秒（含 schema validate + 落盘）。"""
+
+
+def _run_paste_token(
+    openclaw_bin: Path,
+    openclaw_home: Path,
+    provider: str,
+    profile_id: str,
+    token: str,
+    *,
+    expires_in: Optional[str] = None,
+    timeout: float = SET_TOKEN_TIMEOUT,
+) -> tuple[bool, Optional[str]]:
+    """``openclaw models auth paste-token`` via stdin。返回 ``(success, error?)``。
+
+    上游会同时：
+    1. 把 ``token`` 写入 ``state/agents/<agentId>/agent/auth-profiles.json``
+    2. 在 ``openclaw.json`` 的 ``auth.profiles.<profile_id>`` 注册元数据
+       （``provider`` + ``mode: "token"``）
+
+    Token 通过 stdin 而非 argv 传入：避免 token 出现在进程列表 / shell 历史。
+    """
+    cli_args = [
+        "models",
+        "auth",
+        "paste-token",
+        "--provider",
+        provider,
+        "--profile-id",
+        profile_id,
+    ]
+    if expires_in:
+        cli_args.extend(["--expires-in", expires_in])
+
+    # token 末尾追换行，模拟用户回车提交（CLI 是 readline-based prompt）
+    stdin_payload = token if token.endswith("\n") else f"{token}\n"
+
+    try:
+        proc = _sp.run_openclaw(
+            cli_args,
+            openclaw_home,
+            bin_path=openclaw_bin,
+            timeout=timeout,
+            input=stdin_payload,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as exc:
+        return False, f"调用 openclaw models auth paste-token 失败: {exc}"
+
+    if proc.returncode != 0:
+        # 注意：stderr 可能含被脱敏后的 echo；按 500 字符截断已能定位错误类型
+        err = (proc.stderr or proc.stdout or "").strip()[:500]
+        return False, err or f"openclaw models auth paste-token exit={proc.returncode}"
+    return True, None
+
+
+def set_auth_token(
+    openclaw_bin: Path,
+    openclaw_home: Path,
+    provider: str,
+    profile_id: str,
+    token: str,
+    *,
+    expires_in: Optional[str] = None,
+    paste_token_fn: Optional[SetAuthTokenFn] = None,
+) -> SetAuthTokenResult:
+    """把 API token 写到上游 ``auth-profiles.json``（凭证）+ ``openclaw.json`` 元数据。
+
+    Set a provider API token by spawning ``openclaw models auth paste-token``,
+    which atomically updates both ``auth-profiles.json`` and ``openclaw.json``.
+
+    设计要点（见 docs/specs/openclaw-settings-panel.md v2-post-spike-fix）：
+    - 凭证**不走** ``openclaw config patch``：上游 v2026.5.4 已把
+      ``auth.profiles.<id>`` schema 收敛为纯元数据 + ``additionalProperties: false``
+    - Token **永不出 argv**：通过 stdin 喂 CLI prompt
+    - 若 ``token`` 是脱敏占位（全 ``*`` 串）→ 拒绝并返回错误
+      （前端应该在 patch 前判定，sidecar 不替前端做静默 noop）
+    """
+    if not provider:
+        return SetAuthTokenResult(success=False, error="provider 必填")
+    if not profile_id:
+        return SetAuthTokenResult(success=False, error="profile_id 必填")
+    if not isinstance(token, str) or not token:
+        return SetAuthTokenResult(success=False, error="token 必填且为非空字符串")
+    if is_masked_value(token):
+        return SetAuthTokenResult(
+            success=False,
+            profile_id=profile_id,
+            error="token 是脱敏占位（全 * 串），拒绝写入；前端应仅在用户输入新值时调用",
+        )
+
+    runner = paste_token_fn or _run_paste_token
+    home = Path(openclaw_home).expanduser().resolve()
+
+    ok, err = runner(
+        openclaw_bin, home, provider, profile_id, token, expires_in=expires_in
+    )
+    if not ok:
+        return SetAuthTokenResult(success=False, profile_id=profile_id, error=err)
+    return SetAuthTokenResult(success=True, profile_id=profile_id)
+
+
+# ---------------------------------------------------------------------------
+# fetch_remote_models
+# ---------------------------------------------------------------------------
+
+FETCH_MODELS_TIMEOUT = 10.0
+"""远端 ``GET /models`` 超时秒。"""
+
+
+@dataclass
+class RemoteModelInfo:
+    """远端返回的单个模型元信息。
+
+    A single model entry returned by the remote provider's /models endpoint.
+    """
+
+    id: str
+    name: str = ""
+    owned_by: str = ""
+
+    def to_dict(self) -> dict:
+        d: dict[str, Any] = {"id": self.id}
+        if self.name:
+            d["name"] = self.name
+        if self.owned_by:
+            d["ownedBy"] = self.owned_by
+        return d
+
+
+@dataclass
+class FetchRemoteModelsResult:
+    """``fetch_remote_models`` 返回值。
+
+    Result of fetching the remote provider model list via ``GET {baseUrl}/models``.
+    """
+
+    success: bool
+    models: list[RemoteModelInfo] = field(default_factory=list)
+    error: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        d: dict[str, Any] = {"success": self.success}
+        if self.models:
+            d["models"] = [m.to_dict() for m in self.models]
+        if self.error:
+            d["error"] = self.error
+        return d
+
+
+def fetch_remote_models(
+    base_url: str,
+    token: str,
+    *,
+    timeout: float = FETCH_MODELS_TIMEOUT,
+) -> FetchRemoteModelsResult:
+    """调远端 provider 的 OpenAI 兼容 ``GET /models`` 接口获取模型列表。
+
+    Fetch the model list from a remote provider's OpenAI-compatible
+    ``GET {baseUrl}/models`` endpoint.
+
+    设计要点：
+    - ``base_url`` 通常以 ``/v1`` 结尾（如 ``https://api.deepseek.com/v1``），
+      本函数会自动拼 ``/models``
+    - 返回 OpenAI 标准格式 ``{"data": [{"id": ..., "owned_by": ...}]}``
+    - 对于不支持此端点的 provider（如网易 CodeMaker）会收到 403/404，
+      graceful 返回 error
+
+    参数：
+        base_url: provider baseUrl（如 ``https://api.deepseek.com/v1``）
+        token: API key / bearer token
+        timeout: HTTP 超时秒数
+    """
+    if not base_url:
+        return FetchRemoteModelsResult(success=False, error="baseUrl 必填")
+    if not token:
+        return FetchRemoteModelsResult(success=False, error="token 必填（请先保存凭据）")
+
+    # 拼接 /models 路径（兼容末尾有无斜杠）
+    url = base_url.rstrip("/") + "/models"
+
+    try:
+        import urllib.request
+        import urllib.error
+
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Accept", "application/json")
+
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        code = e.code
+        if code == 404:
+            return FetchRemoteModelsResult(
+                success=False,
+                error="该 provider 不支持自动获取模型列表（404），请手动填写",
+            )
+        elif code == 403:
+            return FetchRemoteModelsResult(
+                success=False,
+                error="鉴权被拒（403），请检查 API Key 是否正确",
+            )
+        elif code == 401:
+            return FetchRemoteModelsResult(
+                success=False,
+                error="API Key 无效或已过期（401）",
+            )
+        return FetchRemoteModelsResult(
+            success=False, error=f"HTTP {code}: {str(e)[:200]}"
+        )
+    except urllib.error.URLError as e:
+        return FetchRemoteModelsResult(
+            success=False, error=f"网络错误: {str(e.reason)[:200]}"
+        )
+    except TimeoutError:
+        return FetchRemoteModelsResult(
+            success=False, error=f"请求超时（>{timeout}s）"
+        )
+    except Exception as e:
+        return FetchRemoteModelsResult(
+            success=False, error=f"请求异常: {type(e).__name__}: {str(e)[:200]}"
+        )
+
+    # 解析 OpenAI 标准响应格式
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return FetchRemoteModelsResult(
+            success=False, error="响应不是有效 JSON"
+        )
+
+    # OpenAI 格式：{"object":"list","data":[{"id":"...","owned_by":"..."}]}
+    model_list = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(model_list, list):
+        # 某些 provider 可能直接返回数组
+        if isinstance(data, list):
+            model_list = data
+        else:
+            return FetchRemoteModelsResult(
+                success=False,
+                error="响应格式不符预期（需要 {data: [...]} 或直接数组）",
+            )
+
+    models: list[RemoteModelInfo] = []
+    for item in model_list:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id", "")).strip()
+        if not model_id:
+            continue
+        models.append(
+            RemoteModelInfo(
+                id=model_id,
+                name=str(item.get("name", "")).strip() or model_id,
+                owned_by=str(item.get("owned_by", "")).strip(),
+            )
+        )
+
+    if not models:
+        return FetchRemoteModelsResult(
+            success=False, error="远端返回空模型列表"
+        )
+
+    logger.info("fetch_remote_models: 获取到 %d 个模型 from %s", len(models), url)
+    return FetchRemoteModelsResult(success=True, models=models)

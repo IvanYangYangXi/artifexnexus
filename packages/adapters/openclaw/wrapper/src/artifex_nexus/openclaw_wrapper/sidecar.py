@@ -7,9 +7,19 @@ Methods: ping, get_port, openclaw.install, openclaw.bootstrap, openclaw.start,
          openclaw.upgrade, openclaw.rollback, openclaw.web.get_url,
          openclaw.agent_preset.status, openclaw.agent_preset.reset_default,
          openclaw.config.dump, openclaw.config.patch, openclaw.config.test_provider
+         openclaw.auth.set_token
+
+Lifecycle:
+    sidecar 退出（正常 / Tauri 主进程关窗 / SIGTERM）时，必须主动停掉它
+    spawn 的 gateway 子进程；否则会留下孤儿（见 runtime._cleanup_orphan_gateways
+    的注释）。这通过 ``atexit`` + ``signal`` hook 实现。Windows 控制台关闭信号
+    走 ``CTRL_BREAK_EVENT``；Tauri 主进程退出时会向 sidecar 的 stdin 关闭，
+    主循环 EOF 自然退出 → 触发 atexit。
 """
 
+import atexit
 import json
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -141,6 +151,11 @@ def _handle_openclaw_bootstrap(req_id: Any, params: dict) -> dict:
         version (str): 版本号，默认 v2026.5.4
         openclaw_home (str, 可选): OPENCLAW_HOME 路径
         port (int, 可选): 首选端口，默认 19789
+        preserve_options (dict, 可选): 重装时保留选项
+            - preserveProviders (bool)
+            - preserveAuth (bool)
+            - preserveAgents (bool)
+            - preservePlugins (bool)
 
     返回：
         { success, created_dirs, config_path, token_generated, port }
@@ -148,10 +163,12 @@ def _handle_openclaw_bootstrap(req_id: Any, params: dict) -> dict:
     version = _get_version(params)
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
     preferred_port = params.get("port", 19789)
+    preserve_options = params.get("preserve_options")
 
     try:
         result, selected_port = _bootstrap.bootstrap_with_port_probe(
-            Path(openclaw_home), version, preferred_port
+            Path(openclaw_home), version, preferred_port,
+            preserve_options=preserve_options,
         )
         return {
             "jsonrpc": "2.0",
@@ -528,6 +545,87 @@ def _handle_openclaw_config_test_provider(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_auth_set_token(req_id: Any, params: dict) -> dict:
+    """openclaw.auth.set_token RPC：把 API token 写到上游凭证文件 + 元数据。
+
+    参数：
+        provider (str, 必填): provider id（如 ``deepseek``）
+        profileId (str, 必填): auth profile id（如 ``deepseek-default``）
+        token (str, 必填): 新 token；脱敏占位会被拒绝
+        expiresIn (str, 可选): 过期时长（如 ``"365d"``）
+        openclaw_home (str, 可选)
+
+    返回：
+        { success, profileId?, error? }
+
+    实现：spawn ``openclaw models auth paste-token --provider <p>
+    --profile-id <id>`` via stdin（token 不入 argv）。上游 CLI 会同时写
+    ``state/agents/<agentId>/agent/auth-profiles.json`` 和 ``openclaw.json``
+    的 ``auth.profiles.<id>`` 元数据。
+    """
+    openclaw_home = Path(params.get("openclaw_home", str(_get_openclaw_home())))
+    provider = params.get("provider", "") or params.get("providerId", "")
+    profile_id = params.get("profileId", "") or params.get("profile_id", "")
+    token = params.get("token", "")
+    expires_in = params.get("expiresIn") or params.get("expires_in")
+
+    try:
+        bin_path = _resolve_openclaw_bin(openclaw_home)
+        result = _config_io.set_auth_token(
+            bin_path,
+            openclaw_home,
+            provider,
+            profile_id,
+            token,
+            expires_in=expires_in,
+        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result.to_dict(),
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_models_fetch_remote(req_id: Any, params: dict) -> dict:
+    """openclaw.models.fetch_remote RPC：调远端 provider 的 /models 获取模型列表。
+
+    Fetch model list from a remote provider's OpenAI-compatible GET /models.
+
+    参数：
+        baseUrl (str, 必填): provider 的 baseUrl（如 https://api.deepseek.com/v1）
+        token (str, 必填): API key / bearer token
+        timeout (float, 可选): HTTP 超时秒数，默认 10
+
+    返回：
+        { success, models?: [{id, name?, ownedBy?}], error? }
+    """
+    base_url = params.get("baseUrl", "")
+    token = params.get("token", "")
+    timeout = float(params.get("timeout", _config_io.FETCH_MODELS_TIMEOUT))
+
+    try:
+        result = _config_io.fetch_remote_models(
+            base_url, token, timeout=timeout
+        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result.to_dict(),
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -551,6 +649,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.config.dump": _handle_openclaw_config_dump,
     "openclaw.config.patch": _handle_openclaw_config_patch,
     "openclaw.config.test_provider": _handle_openclaw_config_test_provider,
+    "openclaw.auth.set_token": _handle_openclaw_auth_set_token,
+    "openclaw.models.fetch_remote": _handle_openclaw_models_fetch_remote,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,
@@ -587,11 +687,62 @@ def handle_request(request: dict) -> dict:
         }
 
 
+def _shutdown_gateway_quietly() -> None:
+    """sidecar 退出时静默停掉 gateway 子进程，避免孤儿残留。
+
+    Quiet shutdown hook: stop any gateway process spawned by this sidecar
+    before the Python interpreter exits. Called from ``atexit`` and from
+    signal handlers (SIGTERM / SIGINT / SIGBREAK on Windows).
+
+    设计要点：
+        - **幂等**：多次触发只生效一次（_runtime.stop_gateway 自身幂等）
+        - **静默**：任何异常都吞掉（atexit 抛出会污染 stderr，且此时 stdout
+          可能已关闭，写日志会引发 BrokenPipeError）
+        - **快速**：不能阻塞 sidecar 退出超过 SHUTDOWN_TIMEOUT（5s）
+    """
+    try:
+        if _runtime.is_running():
+            _runtime.stop_gateway()
+    except Exception:
+        pass
+
+
+def _signal_handler(signum: int, _frame: Any) -> None:
+    """收到终止信号时停 gateway，然后正常退出。
+
+    Signal handler: stop gateway then exit. ``atexit`` will fire as part of
+    sys.exit, but we call shutdown explicitly to ensure stop_gateway runs even
+    if some atexit handler upstream raises.
+    """
+    _shutdown_gateway_quietly()
+    sys.exit(0)
+
+
 def main() -> None:
     """stdio JSON-RPC 主循环：逐行读取 stdin，逐行写回 stdout。
 
     Main stdio JSON-RPC loop: reads NDJSON from stdin, writes NDJSON to stdout.
+
+    Lifecycle hooks:
+        - ``atexit``：覆盖正常退出 / 异常退出 / stdin EOF（Tauri 关窗时
+          stdin 关闭 → for 循环结束 → main 返回 → atexit 触发）
+        - SIGTERM：Tauri 主动 kill sidecar（POSIX）
+        - SIGINT (Ctrl+C)：开发期手动中断
+        - SIGBREAK：Windows CTRL_BREAK_EVENT（Tauri 退出时父进程 group break）
     """
+    # 注册退出 hook
+    atexit.register(_shutdown_gateway_quietly)
+
+    # 注册信号 hook（Win/POSIX 通用 + Win 专属 SIGBREAK）
+    try:
+        signal.signal(signal.SIGTERM, _signal_handler)
+        signal.signal(signal.SIGINT, _signal_handler)
+        if hasattr(signal, "SIGBREAK"):  # Windows
+            signal.signal(signal.SIGBREAK, _signal_handler)
+    except (ValueError, OSError):
+        # 在某些环境（比如 PyInstaller 子线程）下注册可能失败，不阻塞启动
+        pass
+
     for line in sys.stdin:
         line = line.strip()
         if not line:

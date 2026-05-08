@@ -10,10 +10,9 @@ import styles from "../SettingsPanel.module.css";
 const zh = t.zhCN;
 
 const MODE_OPTIONS: { value: AuthMode; label: string }[] = [
-  { value: "api-key", label: zh.authModeApiKey },
+  { value: "api_key", label: zh.authModeApiKey },
   { value: "oauth", label: zh.authModeOauth },
   { value: "token", label: zh.authModeToken },
-  { value: "paste", label: zh.authModePaste },
 ];
 
 interface Props {
@@ -115,7 +114,7 @@ export default function AuthProfilesTab({ state, dispatch }: Props) {
               </select>
             </div>
 
-            {(selected.mode === "api-key" || selected.mode === "paste") && (
+            {selected.mode === "api_key" && (
               <div className={styles.formRow}>
                 <label className={styles.formLabel}>{zh.fieldApiKey}</label>
                 <input

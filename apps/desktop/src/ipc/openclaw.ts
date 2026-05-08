@@ -77,6 +77,18 @@ export interface OpenClawConfigTestResult {
   error: string | null;
 }
 
+/** openclaw.auth.set_token 返回
+ *
+ * STORY-0018 hot-fix：v2026.5.4 后凭证不再走 `auth.profiles.<id>.token`
+ * （schema additionalProperties: false 拒收），改走 `models auth paste-token`
+ * 写 `state/agents/<agentId>/agent/auth-profiles.json`。
+ */
+export interface OpenClawAuthSetTokenResult {
+  success: boolean;
+  profileId: string | null;
+  error: string | null;
+}
+
 /** 安装进度事件 */
 export interface InstallEvent {
   phase: string;
@@ -125,10 +137,22 @@ export async function installOpenClaw(
 }
 
 /** Bootstrap 初始化 */
+/** 重装时的保留选项（STORY-0020） */
+export interface PreserveOptions {
+  preserveProviders?: boolean;
+  preserveAuth?: boolean;
+  preserveAgents?: boolean;
+  preservePlugins?: boolean;
+}
+
 export async function bootstrapOpenClaw(
   version?: string,
+  preserveOptions?: PreserveOptions,
 ): Promise<OpenClawBootstrapResult> {
-  return invoke<OpenClawBootstrapResult>("openclaw_bootstrap", { version });
+  return invoke<OpenClawBootstrapResult>("openclaw_bootstrap", {
+    version,
+    preserveOptions: preserveOptions ?? null,
+  });
 }
 
 /** 启动 OpenClaw gateway */
@@ -198,6 +222,32 @@ export async function testOpenClawProvider(args: {
     providerId: args.providerId,
     modelId: args.modelId,
     authProfileId: args.authProfileId ?? null,
+  });
+}
+
+/** 设置 provider API token（写入上游 auth-profiles.json + openclaw.json 元数据）。
+ *
+ * STORY-0018 hot-fix：上游 v2026.5.4 把 `auth.profiles.<id>` schema 收敛为纯
+ * 元数据（`additionalProperties: false`），凭证不能再走 `config patch`。
+ * 本函数透传到 sidecar 的 `openclaw.auth.set_token`，spawn
+ * `openclaw models auth paste-token --provider <p> --profile-id <id>`，
+ * token 经 stdin 传入（不入 argv，避免泄漏到进程列表）。
+ *
+ * 调用约束：
+ * - `token` 必须是用户新输入的明文；脱敏占位（全 `*` 串）会被 sidecar 拒绝
+ * - 调用前应先用 {@link patchOpenClawConfig} 写入 profile 元数据（provider + mode）
+ */
+export async function setOpenClawAuthToken(args: {
+  provider: string;
+  profileId: string;
+  token: string;
+  expiresIn?: string;
+}): Promise<OpenClawAuthSetTokenResult> {
+  return invoke<OpenClawAuthSetTokenResult>("openclaw_auth_set_token", {
+    provider: args.provider,
+    profileId: args.profileId,
+    token: args.token,
+    expiresIn: args.expiresIn ?? null,
   });
 }
 
@@ -310,4 +360,40 @@ export async function tailGatewayLog(args?: {
  */
 export async function openOpenClawWebUi(): Promise<WebOpenResult> {
   return invoke<WebOpenResult>("openclaw_web_open");
+}
+
+// ---------------------------------------------------------------------------
+// STORY-0019：远端模型列表获取
+// ---------------------------------------------------------------------------
+
+/** 远端模型信息 */
+export interface RemoteModelInfo {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+}
+
+/** 远端模型列表获取结果 */
+export interface FetchRemoteModelsResult {
+  success: boolean;
+  models?: RemoteModelInfo[];
+  error?: string;
+}
+
+/** 从远端 provider 的 OpenAI 兼容 /models 端点获取模型列表。
+ *
+ * STORY-0019：前端"获取模型列表"按钮调用入口。
+ * 对于不支持该端点的 provider（如网易 CodeMaker，返回 404），
+ * 会 graceful 返回 `{success: false, error: "..."}` 而不是 throw。
+ *
+ * 调用前提：provider 的 baseUrl 和 token 已保存（需要先保存一次）。
+ */
+export async function fetchRemoteModels(args: {
+  baseUrl: string;
+  token: string;
+}): Promise<FetchRemoteModelsResult> {
+  return invoke<FetchRemoteModelsResult>("openclaw_models_fetch_remote", {
+    baseUrl: args.baseUrl,
+    token: args.token,
+  });
 }

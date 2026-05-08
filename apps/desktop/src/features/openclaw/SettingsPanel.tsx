@@ -7,6 +7,7 @@ import {
   dumpOpenClawConfig,
   patchOpenClawConfig,
   resetOpenClawAgentPreset,
+  setOpenClawAuthToken,
 } from "../../ipc/openclaw";
 import {
   buildPatchFromState,
@@ -108,9 +109,53 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           });
           return;
         }
+
+        // STORY-0018 hot-fix：profile 元数据写完后，凭证字段（apiKey）单独
+        // 走 `openclaw models auth paste-token`（v2026.5.4 schema 把
+        // auth.profiles.<id> 收敛为纯元数据，token 不能再走 config patch）。
+        // 仅对"有新 apiKey 且不是脱敏占位"的 profile 调 set_token。
+        // 简化后 mode 下拉仅在高级模式显示，API Key 输入框始终可用，
+        // 因此 filter 不再检查 mode（paste-token 会自动处理）。
+        const isMaskedApiKey = (v: string): boolean =>
+          v.length >= 8 && /^\*+$/.test(v);
+        const tokenWrites = state.authProfiles.filter(
+          (p) => p.apiKey && !isMaskedApiKey(p.apiKey),
+        );
+        // 串行写入凭证（sidecar Mutex 不支持并发，但每次 ~2.5s CLI cold start 不可避免）
+        const tokenErrors: string[] = [];
+        for (const p of tokenWrites) {
+          try {
+            const r = await setOpenClawAuthToken({
+              provider: p.provider,
+              profileId: p.id,
+              token: p.apiKey,
+            });
+            if (!r.success) {
+              tokenErrors.push(`${p.id}: ${r.error || "unknown"}`);
+            }
+          } catch (e) {
+            tokenErrors.push(
+              `${p.id}: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
+        if (tokenErrors.length > 0) {
+          dispatch({
+            type: "SAVE_ERROR",
+            message: `元数据已保存，但凭证写入失败（可重试）: ${tokenErrors.join("; ")}`,
+          });
+          return;
+        }
+
         dispatch({ type: "SAVE_SUCCESS" });
-        // 保存成功后立即关闭 modal（用户最直觉的反馈）
-        onClose();
+        // STORY-0018 hot-fix：上游每次 patch 后 CLI 都提示
+        // "Restart the gateway to apply"。这里在 console 留痕，未来可
+        // 改成 toast / 自动 restart（先最小侵入，避免改 UX 变更面更大）。
+        // 测试连接（test_provider）若刚改完 catalog 就立即跑可能拿到旧数据。
+        console.info(
+          "[OpenClawSettings] saved; gateway restart recommended for catalog/provider changes to take effect",
+        );
+        // 保存成功后不关闭面板，让用户能看到结果并继续操作
       } catch (e) {
         dispatch({
           type: "SAVE_ERROR",
@@ -259,6 +304,11 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           {state.lastSaveError && (
             <span className={`${styles.statusBar} ${styles.statusErr}`}>
               {state.lastSaveError}
+            </span>
+          )}
+          {!state.lastSaveError && !state.dirty && !state.saving && state.load.kind === "ready" && (
+            <span className={`${styles.statusBar} ${styles.statusOk}`}>
+              已保存
             </span>
           )}
           <button

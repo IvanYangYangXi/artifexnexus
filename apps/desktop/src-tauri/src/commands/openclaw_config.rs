@@ -43,6 +43,19 @@ pub struct OpenClawConfigTestProviderResponse {
     pub error: Option<String>,
 }
 
+/// `openclaw.auth.set_token` 返回结构。
+///
+/// STORY-0018 hot-fix：上游 v2026.5.4 把 `auth.profiles.<id>` 收敛为纯元数据
+/// （additionalProperties: false），凭证另走 `openclaw models auth paste-token`
+/// 写 `auth-profiles.json`。本结构对齐 sidecar 端 `SetAuthTokenResult.to_dict()`。
+#[derive(Debug, Serialize, Clone)]
+pub struct OpenClawAuthSetTokenResponse {
+    pub success: bool,
+    #[serde(rename = "profileId")]
+    pub profile_id: Option<String>,
+    pub error: Option<String>,
+}
+
 /// 聚合 dump：providers / authProfiles / authOrder / agentDefaults / extras（apiKey 已脱敏）。
 #[tauri::command]
 pub async fn openclaw_config_dump(
@@ -116,6 +129,106 @@ pub async fn openclaw_config_test_provider(
         success: result["success"].as_bool().unwrap_or(false),
         latency_ms: result["latencyMs"].as_u64().map(|n| n as u32),
         model_echo: result["modelEcho"].as_str().map(|s| s.to_string()),
+        error: result["error"].as_str().map(|s| s.to_string()),
+    })
+}
+
+/// 把 API token 写入上游 `auth-profiles.json` + 同步 `openclaw.json` 元数据。
+///
+/// STORY-0018 hot-fix：透传到 sidecar 的 `openclaw.auth.set_token`，由 wrapper
+/// spawn `openclaw models auth paste-token --provider <p> --profile-id <id>`，
+/// token 经 stdin 传入（不入 argv，避免泄漏到进程列表）。
+///
+/// 调用前提：profile 元数据（provider + mode）已通过 `openclaw_config_patch`
+/// 写入；本命令仅负责凭证字段。脱敏占位（全 `*` 串）会被 sidecar 拒绝。
+#[tauri::command]
+pub async fn openclaw_auth_set_token(
+    sidecar: State<'_, SidecarState>,
+    provider: String,
+    profile_id: String,
+    token: String,
+    expires_in: Option<String>,
+) -> Result<OpenClawAuthSetTokenResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({
+        "provider": provider,
+        "profileId": profile_id,
+        "token": token,
+    });
+    if let Some(exp) = expires_in {
+        params["expiresIn"] = json!(exp);
+    }
+    let result = manager.call("openclaw.auth.set_token", params)?;
+
+    Ok(OpenClawAuthSetTokenResponse {
+        success: result["success"].as_bool().unwrap_or(false),
+        profile_id: result["profileId"].as_str().map(|s| s.to_string()),
+        error: result["error"].as_str().map(|s| s.to_string()),
+    })
+}
+
+/// 远端模型列表中的单个模型信息。
+#[derive(serde::Serialize)]
+pub struct RemoteModelInfo {
+    id: String,
+    name: Option<String>,
+    #[serde(rename = "ownedBy")]
+    owned_by: Option<String>,
+}
+
+/// 远端模型列表获取结果。
+#[derive(serde::Serialize)]
+pub struct FetchRemoteModelsResponse {
+    success: bool,
+    models: Vec<RemoteModelInfo>,
+    error: Option<String>,
+}
+
+/// 从远端 provider 的 OpenAI 兼容 `/models` 端点获取模型列表。
+///
+/// STORY-0019：前端"获取模型列表"按钮的后端。透传到 sidecar 的
+/// `openclaw.models.fetch_remote`，由 wrapper 直接 HTTP GET `{baseUrl}/models`。
+/// 对于不支持该端点的 provider（如返回 404/403），graceful 返回错误信息。
+#[tauri::command]
+pub async fn openclaw_models_fetch_remote(
+    sidecar: State<'_, SidecarState>,
+    base_url: String,
+    token: String,
+) -> Result<FetchRemoteModelsResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let params = json!({
+        "baseUrl": base_url,
+        "token": token,
+    });
+    let result = manager.call("openclaw.models.fetch_remote", params)?;
+
+    let models_raw = result["models"].as_array();
+    let models = models_raw
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?.to_string();
+                    Some(RemoteModelInfo {
+                        id,
+                        name: m["name"].as_str().map(|s| s.to_string()),
+                        owned_by: m["ownedBy"].as_str().map(|s| s.to_string()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(FetchRemoteModelsResponse {
+        success: result["success"].as_bool().unwrap_or(false),
+        models,
         error: result["error"].as_str().map(|s| s.to_string()),
     })
 }

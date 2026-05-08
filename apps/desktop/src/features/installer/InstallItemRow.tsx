@@ -1,7 +1,7 @@
 // 安装清单单行：图标占位 + 名称 + 状态徽章 + 三按钮 + 展开/折叠子项。
 // Install list row: icon placeholder + name + status badge + 3 action buttons + expand/collapse children.
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import type { InstallItem } from "./installer.types";
 import { t } from "./installer.i18n";
@@ -13,6 +13,8 @@ import {
   getOpenClawStatus,
   getOpenClawWebUrl,
 } from "../../ipc/openclaw";
+import type { PreserveOptions } from "../../ipc/openclaw";
+import ReinstallConfirmDialog from "./ReinstallConfirmDialog";
 import StatusBadge from "./StatusBadge";
 import InstallChildRow from "./InstallChildRow";
 import SettingsPanel from "../openclaw/SettingsPanel";
@@ -61,10 +63,35 @@ function InstallItemRow({ item }: InstallItemRowProps) {
   // 仅 OpenClaw 行使用；非 OpenClaw 行恒为 false 不渲染按钮。
   const [gatewayRunning, setGatewayRunning] = useState<boolean>(false);
   const [webUiAvailable, setWebUiAvailable] = useState<boolean>(false);
+  // STORY-0020：重装确认弹窗
+  const [showReinstallConfirm, setShowReinstallConfirm] = useState(false);
+  const [pendingPreserveOptions, setPendingPreserveOptions] = useState<PreserveOptions | null>(null);
   const [openingWebUi, setOpeningWebUi] = useState<boolean>(false);
 
   // EPIC-0001 第二批 #1：OpenClaw 设置面板 modal 开关
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+
+  // STORY-0018 hot-fix：OpenClaw 行挂载时主动跑一次 status，避免
+  // 用户首次进入安装页时 Web UI 按钮永远 disabled（必须先点"检测"
+  // 才能拿到 gateway_running / web_ui_available 两个门禁位）。
+  // 仅 OpenClaw 行执行；非 OpenClaw 行用桩状态保留旧行为。
+  useEffect(() => {
+    if (item.id !== "openclaw") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await getOpenClawStatus();
+        if (cancelled) return;
+        setGatewayRunning(status.gateway_running);
+        setWebUiAvailable(status.web_ui_available);
+      } catch {
+        // 静默：sidecar 不可用时按 false 处理
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
 
   const isInstalling = item.state === "installing";
   const gated = isInstallGated(item, items);
@@ -163,6 +190,17 @@ function InstallItemRow({ item }: InstallItemRowProps) {
   const handleInstall = useCallback(() => {
     if (installDisabled) return;
 
+    // STORY-0020：已安装状态下重装，先弹窗确认
+    if (item.id === "openclaw" && (item.state === "installed" || item.state === "update-available")) {
+      setShowReinstallConfirm(true);
+      return;
+    }
+
+    doInstall(null);
+  }, [installDisabled, item.id, item.state]);
+
+  /** 实际执行安装链（首次安装 preserveOpts=null，重装时带选项） */
+  const doInstall = useCallback((preserveOpts: PreserveOptions | null) => {
     dispatch({ type: "INSTALL_START", id: item.id });
 
     // OpenClaw 行：触发真实安装链（install → bootstrap → start）
@@ -190,7 +228,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           addLog("openclaw", "info", "OpenClaw 安装完成");
 
           addLog("openclaw", "info", "开始初始化配置...");
-          const bootstrapResult = await bootstrapOpenClaw("v2026.5.4");
+          const bootstrapResult = await bootstrapOpenClaw("v2026.5.4", preserveOpts ?? undefined);
           if (!bootstrapResult.success) {
             const errMsg = "初始化失败";
             addLog("openclaw", "error", errMsg);
@@ -210,6 +248,19 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           addLog("openclaw", "info", "Gateway 启动成功");
 
           dispatch({ type: "INSTALL_DONE", id: "openclaw" });
+
+          // STORY-0018 hot-fix：安装链完成后立即同步 Web UI 门禁状态。
+          // 否则用户必须手动点"检测"才能解锁 Web UI 按钮，体验割裂。
+          // 这里直接复用 status RPC 的两个布尔位（gateway_running /
+          // web_ui_available），避开 handleDetect 里的 dispatch（已经
+          // 由 INSTALL_DONE 推到 installed 状态）。
+          try {
+            const status = await getOpenClawStatus();
+            setGatewayRunning(status.gateway_running);
+            setWebUiAvailable(status.web_ui_available);
+          } catch {
+            // 静默：sidecar 偶尔有瞬时不可用，下一次 mount/手动检测会修
+          }
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           addLog("openclaw", "error", errMsg);
@@ -227,10 +278,27 @@ function InstallItemRow({ item }: InstallItemRowProps) {
         id: item.id,
       });
     }, 1500);
-  }, [dispatch, item.id, installDisabled]);
+  }, [dispatch, item.id, addLog]);
+
+  // STORY-0020：弹窗确认回调
+  const handleReinstallConfirm = useCallback((opts: PreserveOptions) => {
+    setShowReinstallConfirm(false);
+    setPendingPreserveOptions(opts);
+    doInstall(opts);
+  }, [doInstall]);
+
+  const handleReinstallCancel = useCallback(() => {
+    setShowReinstallConfirm(false);
+  }, []);
 
   return (
     <>
+      {showReinstallConfirm && (
+        <ReinstallConfirmDialog
+          onConfirm={handleReinstallConfirm}
+          onCancel={handleReinstallCancel}
+        />
+      )}
       <div className={styles.row}>
         {/* 展开/折叠箭头（仅 expandable 条目显示） */}
         <span

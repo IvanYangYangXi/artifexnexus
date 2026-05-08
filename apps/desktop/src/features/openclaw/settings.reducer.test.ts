@@ -32,31 +32,34 @@ describe("dumpToState", () => {
     const dump: OpenClawConfigDump = {
       providers: {
         openai: {
-          protocol: "openai",
+          // STORY-0018 hot-fix：上游 v2026.5.4 不再认 protocol（前端虚构字段，进 extras）
           baseUrl: "https://api.openai.com/v1",
-          models: [{ id: "gpt-4o-mini", isDefault: true }],
+          models: [{ id: "gpt-4o-mini", name: "GPT-4o Mini" }],
         },
       },
       authProfiles: {
         "openai-default": {
           provider: "openai",
-          mode: "api-key",
-          token: "********",
+          mode: "api_key",
+          // 上游 v2026.5.4 profile 不再有 token 字段（凭证在 auth-profiles.json）；
+          // dumpToState 仅消费元数据，apiKey 由 sidecar 单独脱敏返回
         },
       },
       authOrder: { openai: ["openai-default"] },
       agentDefaults: { model: "openai/gpt-4o-mini" },
       extras: {
-        providerExtras: { openai: { displayName: "我的 GPT" } },
+        providerExtras: { openai: { displayName: "我的 GPT", protocol: "openai" } },
+        // model 级 isDefault 走 extras.modelExtras
+        modelExtras: { openai: { "gpt-4o-mini": { isDefault: true } } },
       },
     };
     const r = dumpToState(dump);
     expect(r.providers).toHaveLength(1);
     expect(r.providers[0]!.id).toBe("openai");
     expect(r.providers[0]!.displayName).toBe("我的 GPT");
+    expect(r.providers[0]!.protocol).toBe("openai");
     expect(r.providers[0]!.authProfileId).toBe("openai-default");
     expect(r.providers[0]!.models[0]!.isDefault).toBe(true);
-    expect(r.authProfiles[0]!.apiKey).toBe("********");
     expect(r.defaultAgent.defaultModel).toBe("openai/gpt-4o-mini");
   });
 
@@ -125,7 +128,7 @@ describe("settingsReducer", () => {
       alsoAuth: false,
     });
     expect(s.providers[0]!.models).toHaveLength(1);
-    expect(s.providers[0]!.models[0]!.id).toBe("deepseek-chat");
+    expect(s.providers[0]!.models[0]!.id).toBe("deepseek-v4-flash");
     expect(s.providers[0]!.models[0]!.isDefault).toBe(true);
   });
 
@@ -223,7 +226,9 @@ describe("buildPatchFromState", () => {
     ).toBeDefined();
   });
 
-  it("preserves apiKey field in patch (sidecar will strip mask)", () => {
+  it("excludes apiKey/token from patch (v2026.5.4: profile is metadata-only)", () => {
+    // STORY-0018 hot-fix：上游 schema 不再接受 auth.profiles.<id>.token
+    // 凭证另由 setOpenClawAuthToken (paste-token) 写入
     let s = settingsReducer(createInitialState(), {
       type: "ADD_PROVIDER_FROM_TEMPLATE",
       templateKey: "openai",
@@ -236,9 +241,196 @@ describe("buildPatchFromState", () => {
       patch: { apiKey: "sk-real" },
     });
     const { patch } = buildPatchFromState(s);
-    const profiles = (patch as { auth: { profiles: Record<string, { token?: string }> } })
-      .auth.profiles;
-    expect(profiles[authId]!.token).toBe("sk-real");
+    const profiles = (
+      patch as {
+        auth: { profiles: Record<string, Record<string, unknown>> };
+      }
+    ).auth.profiles;
+    // patch 只携带元数据
+    expect(profiles[authId]!.provider).toBeDefined();
+    expect(profiles[authId]!.mode).toBeDefined();
+    // patch 绝不携带凭证字段（schema 会拒收 → "Unrecognized key: token"）
+    expect(profiles[authId]!.token).toBeUndefined();
+    expect(profiles[authId]!.apiKey).toBeUndefined();
+    // state.authProfiles 里仍保留 apiKey，供保存按钮 handler 取用调 setAuthToken
+    expect(s.authProfiles.find((a) => a.id === authId)!.apiKey).toBe("sk-real");
+  });
+
+  // STORY-0018 hot-fix（2026/5/8）：上游 v2026.5.4 schema 真值表
+  // 详见 d:\probe2.py 实测：provider 不收 protocol/timeoutMs，
+  // model 不收 isDefault/timeoutMs/temperature(顶层)/capabilities，
+  // model.name 必填。
+  describe("v2026.5.4 schema mapping", () => {
+    it("provider 节点不再含 protocol（进 extras）", () => {
+      const s = settingsReducer(createInitialState(), {
+        type: "ADD_PROVIDER_FROM_TEMPLATE",
+        templateKey: "deepseek",
+        alsoAuth: false,
+      });
+      const id = s.providers[0]!.id;
+      const { patch, extrasPatch } = buildPatchFromState(s);
+      const prov = (
+        patch as { models: { providers: Record<string, Record<string, unknown>> } }
+      ).models.providers[id];
+      // 上游 v2026.5.4 不接受 protocol（前端虚构字段）：剥离
+      expect(prov!.protocol).toBeUndefined();
+      // extras 保留前端语义
+      const pExtras = (
+        extrasPatch as { providerExtras: Record<string, Record<string, unknown>> }
+      ).providerExtras[id];
+      expect(pExtras!.protocol).toBeDefined();
+    });
+
+    it("model.name 缺省时用 id 兜底（schema required string minLength 1）", () => {
+      let s = settingsReducer(createInitialState(), { type: "ADD_PROVIDER_BLANK" });
+      const pid = s.providers[0]!.id;
+      s = settingsReducer(s, {
+        type: "ADD_MODEL",
+        providerId: pid,
+        modelId: "kimi-k2.5",
+      });
+      const { patch } = buildPatchFromState(s);
+      const m = (
+        patch as {
+          models: {
+            providers: Record<
+              string,
+              { models: Array<Record<string, unknown>> }
+            >;
+          };
+        }
+      ).models.providers[pid]!.models[0];
+      expect(m!.id).toBe("kimi-k2.5");
+      expect(m!.name).toBe("kimi-k2.5"); // fallback
+    });
+
+    it("model.temperature 顶层 → 包进 params.temperature", () => {
+      let s = settingsReducer(createInitialState(), { type: "ADD_PROVIDER_BLANK" });
+      const pid = s.providers[0]!.id;
+      s = settingsReducer(s, {
+        type: "ADD_MODEL",
+        providerId: pid,
+        modelId: "m1",
+      });
+      s = settingsReducer(s, {
+        type: "UPDATE_MODEL",
+        providerId: pid,
+        index: 0,
+        patch: { temperature: 0.7 },
+      });
+      const { patch } = buildPatchFromState(s);
+      const m = (
+        patch as {
+          models: {
+            providers: Record<
+              string,
+              { models: Array<{ temperature?: unknown; params?: Record<string, unknown> }> }
+            >;
+          };
+        }
+      ).models.providers[pid]!.models[0];
+      expect(m!.temperature).toBeUndefined(); // 顶层不能有
+      expect(m!.params).toEqual({ temperature: 0.7 });
+    });
+
+    it("model.capabilities → reasoning + input 数组", () => {
+      let s = settingsReducer(createInitialState(), { type: "ADD_PROVIDER_BLANK" });
+      const pid = s.providers[0]!.id;
+      s = settingsReducer(s, {
+        type: "ADD_MODEL",
+        providerId: pid,
+        modelId: "m1",
+      });
+      s = settingsReducer(s, {
+        type: "UPDATE_MODEL",
+        providerId: pid,
+        index: 0,
+        patch: { capabilities: { vision: true, reasoning: true } },
+      });
+      const { patch } = buildPatchFromState(s);
+      const m = (
+        patch as {
+          models: {
+            providers: Record<
+              string,
+              {
+                models: Array<{
+                  reasoning?: unknown;
+                  input?: unknown;
+                  capabilities?: unknown;
+                }>;
+              }
+            >;
+          };
+        }
+      ).models.providers[pid]!.models[0];
+      // capabilities 字段被剥离
+      expect(m!.capabilities).toBeUndefined();
+      // 拆映射
+      expect(m!.reasoning).toBe(true);
+      expect(m!.input).toEqual(["text", "image"]);
+    });
+
+    it("model.isDefault / timeoutMs → 进 extras.modelExtras", () => {
+      let s = settingsReducer(createInitialState(), { type: "ADD_PROVIDER_BLANK" });
+      const pid = s.providers[0]!.id;
+      s = settingsReducer(s, {
+        type: "ADD_MODEL",
+        providerId: pid,
+        modelId: "m1",
+      });
+      s = settingsReducer(s, {
+        type: "UPDATE_MODEL",
+        providerId: pid,
+        index: 0,
+        patch: { isDefault: true, timeoutMs: 60000 },
+      });
+      const { patch, extrasPatch } = buildPatchFromState(s);
+      const m = (
+        patch as {
+          models: {
+            providers: Record<
+              string,
+              { models: Array<Record<string, unknown>> }
+            >;
+          };
+        }
+      ).models.providers[pid]!.models[0];
+      expect(m!.isDefault).toBeUndefined();
+      expect(m!.timeoutMs).toBeUndefined();
+      const ext = (
+        extrasPatch as {
+          modelExtras?: Record<string, Record<string, Record<string, unknown>>>;
+        }
+      ).modelExtras;
+      expect(ext?.[pid]?.["m1"]).toEqual({ isDefault: true, timeoutMs: 60000 });
+    });
+
+    it("provider.protocol → model.api 字段（每个 model 都打）", () => {
+      let s = settingsReducer(createInitialState(), {
+        type: "ADD_PROVIDER_FROM_TEMPLATE",
+        templateKey: "deepseek",
+        alsoAuth: false,
+      });
+      // deepseek 模板默认 protocol 是 "openai-compatible" → 映射成上游
+      // schema 接受的 "openai-completions"
+      const pid = s.providers[0]!.id;
+      const { patch } = buildPatchFromState(s);
+      const ms = (
+        patch as {
+          models: {
+            providers: Record<
+              string,
+              { models: Array<{ api?: unknown }> }
+            >;
+          };
+        }
+      ).models.providers[pid]!.models;
+      expect(ms.length).toBeGreaterThan(0);
+      for (const m of ms) {
+        expect(m.api).toBe("openai-completions");
+      }
+    });
   });
 
   it("custom headers are parsed into headers object", () => {

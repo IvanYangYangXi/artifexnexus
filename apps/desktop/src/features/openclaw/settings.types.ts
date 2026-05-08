@@ -10,8 +10,19 @@ export type Protocol =
   | "google"
   | "azure-openai";
 
-/** 鉴权方式枚举（spec §4.2）。 */
-export type AuthMode = "api-key" | "oauth" | "token" | "paste";
+/**
+ * 鉴权方式枚举（spec §4.2）。
+ *
+ * 与上游 v2026.5.4 schema (`auth.profiles.<id>.mode`) 严格对齐：
+ * 仅允许 `"api_key"` / `"oauth"` / `"token"` 三个值。
+ *
+ * 历史值 `"api-key"`（连字符）和 `"paste"` 已废弃：
+ * - `"api-key"` → `"api_key"`（schema 要下划线）
+ * - `"paste"` → 合并到 `"api_key"`（UI 行为本就一致）
+ *
+ * 老配置由 reducer.asAuthMode 自动迁移。
+ */
+export type AuthMode = "api_key" | "oauth" | "token";
 
 /** 单个模型条目（provider.models[]）。 */
 export interface ModelEntry {
@@ -143,7 +154,9 @@ export const PROVIDER_TEMPLATES: readonly ProviderTemplate[] = [
     defaultId: "deepseek",
     protocol: "openai-compatible",
     baseUrl: "https://api.deepseek.com/v1",
-    defaultModels: ["deepseek-chat"],
+    // deepseek-chat 将于 2026/07/24 弃用（OpenClaw v2026.5.4 catalog 提示）
+    // 新一代默认模型：deepseek-v4-flash
+    defaultModels: ["deepseek-v4-flash"],
   },
   {
     key: "volcengine-doubao",

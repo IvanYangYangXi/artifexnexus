@@ -6,7 +6,8 @@ import type { SettingsState, SettingsAction } from "../settings.reducer";
 import { parseCustomHeaders } from "../settings.reducer";
 import { PROVIDER_TEMPLATES } from "../settings.types";
 import type { Protocol } from "../settings.types";
-import { testOpenClawProvider } from "../../../ipc/openclaw";
+import { testOpenClawProvider, fetchRemoteModels } from "../../../ipc/openclaw";
+import type { RemoteModelInfo } from "../../../ipc/openclaw";
 import { t } from "../settings.i18n";
 import styles from "../SettingsPanel.module.css";
 import AuthInlineSection from "./AuthInlineSection";
@@ -33,6 +34,9 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
   const [alsoAuth, setAlsoAuth] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [newModelId, setNewModelId] = useState("");
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [remoteModels, setRemoteModels] = useState<RemoteModelInfo[] | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
 
@@ -85,6 +89,58 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
       }
     })();
   }, [selected, dispatch]);
+
+  const handleFetchModels = useCallback(() => {
+    if (!selected) return;
+    // 需要 baseUrl + 关联的 auth profile 里的 apiKey
+    if (!selected.baseUrl) {
+      setFetchError("请先填写 baseUrl");
+      return;
+    }
+    // 从 state 里查找关联的 auth profile 拿 token
+    const profile = state.authProfiles.find(
+      (a) => a.id === selected.authProfileId,
+    );
+    const token = profile?.apiKey;
+    if (!token || /^\*+$/.test(token)) {
+      setFetchError("请先保存 API Key（凭据未找到或为脱敏占位）");
+      return;
+    }
+
+    setFetchingModels(true);
+    setFetchError(null);
+    setRemoteModels(null);
+    void (async () => {
+      try {
+        const r = await fetchRemoteModels({
+          baseUrl: selected.baseUrl,
+          token,
+        });
+        if (r.success && r.models && r.models.length > 0) {
+          setRemoteModels(r.models);
+        } else {
+          setFetchError(r.error || "未获取到任何模型");
+        }
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setFetchingModels(false);
+      }
+    })();
+  }, [selected, state.authProfiles]);
+
+  const handleImportRemoteModels = useCallback(
+    (modelIds: string[]) => {
+      if (!selected || modelIds.length === 0) return;
+      dispatch({
+        type: "IMPORT_REMOTE_MODELS",
+        providerId: selected.id,
+        modelIds,
+      });
+      setRemoteModels(null);
+    },
+    [selected, dispatch],
+  );
 
   const headersValid =
     !selected?.customHeadersJson.trim() ||
@@ -331,7 +387,94 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
                   >
                     {zh.btnAdd}
                   </button>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    disabled={fetchingModels}
+                    onClick={handleFetchModels}
+                    title="从远端 API 获取可用模型列表（需要先保存凭据）"
+                  >
+                    {fetchingModels ? "获取中…" : "获取模型列表"}
+                  </button>
                 </div>
+                {fetchError && (
+                  <div style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>
+                    {fetchError}
+                  </div>
+                )}
+                {remoteModels && remoteModels.length > 0 && (
+                  <div
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 4,
+                      padding: 8,
+                      marginTop: 8,
+                      maxHeight: 180,
+                      overflowY: "auto",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: "#6b7280" }}>
+                        远端可用模型（{remoteModels.length} 个）
+                      </span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          type="button"
+                          className={`${styles.btn} ${styles.btnSmall}`}
+                          onClick={() =>
+                            handleImportRemoteModels(
+                              remoteModels.map((m) => m.id),
+                            )
+                          }
+                        >
+                          全部导入
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.btn} ${styles.btnGhost} ${styles.btnSmall}`}
+                          onClick={() => setRemoteModels(null)}
+                        >
+                          关闭
+                        </button>
+                      </div>
+                    </div>
+                    {remoteModels.map((m) => (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "3px 0",
+                          borderBottom: "1px solid #f3f4f6",
+                        }}
+                      >
+                        <span style={{ fontSize: 13 }}>
+                          {m.name || m.id}
+                          {m.ownedBy && (
+                            <span style={{ color: "#9ca3af", fontSize: 11, marginLeft: 6 }}>
+                              ({m.ownedBy})
+                            </span>
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          className={`${styles.btn} ${styles.btnGhost} ${styles.btnSmall}`}
+                          onClick={() => handleImportRemoteModels([m.id])}
+                        >
+                          导入
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -351,6 +494,7 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
                 state={state}
                 dispatch={dispatch}
                 providerId={selected.id}
+                advancedMode={advancedMode}
               />
             </fieldset>
 

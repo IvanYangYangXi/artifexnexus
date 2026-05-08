@@ -51,7 +51,7 @@ pub fn run() {
 
     let manager = SidecarManager::new(sidecar_path);
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Mutex::new(manager) as SidecarState)
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +69,8 @@ pub fn run() {
             commands::openclaw_config::openclaw_config_dump,
             commands::openclaw_config::openclaw_config_patch,
             commands::openclaw_config::openclaw_config_test_provider,
+            commands::openclaw_config::openclaw_auth_set_token,
+            commands::openclaw_config::openclaw_models_fetch_remote,
             // STORY-0018 T3：Gateway 状态控制面板
             commands::openclaw_gateway::openclaw_gateway_status,
             commands::openclaw_gateway::openclaw_gateway_start,
@@ -81,6 +83,33 @@ pub fn run() {
             // 注意：setup 中无法直接访问 State，需要在首次调用时 lazy init
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
+
+    // STORY-0018 hot-fix：监听 RunEvent::ExitRequested / Exit，
+    // 在主进程退出前同步停掉 sidecar 管理的 gateway，避免孤儿残留。
+    //
+    // Why：仅靠 sidecar 自身的 atexit 不够——Tauri 在 release 模式下用
+    // CTRL_BREAK_EVENT 终结子进程组，sidecar 收到信号但 stdout 已关，
+    // 而 gateway 进程是 sidecar 的"孙子"，需要 sidecar 走 stop_gateway
+    // 才能干净地杀（taskkill /T /F + wait_pid_dead）。
+    //
+    // 这里我们在 ExitRequested（用户点关闭窗口）和 Exit（最终退出）
+    // 两个时机都尝试 stop，幂等。Tauri 主进程会等所有 Command 返回再
+    // 真正退出，sidecar 有充足时间收 child（最多 SHUTDOWN_TIMEOUT=5s）。
+    use tauri::{Manager as _, RunEvent};
+    app.run(|app_handle, event| match event {
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            // best-effort：忽略所有错误，主进程必须退出
+            if let Some(state) = app_handle.try_state::<SidecarState>() {
+                if let Ok(mut manager) = state.lock() {
+                    if manager.is_running() {
+                        // 调 sidecar 的 openclaw.stop（等价于 stop_gateway）
+                        let _ = manager.call("openclaw.stop", serde_json::json!({}));
+                    }
+                }
+            }
+        }
+        _ => {}
+    });
 }

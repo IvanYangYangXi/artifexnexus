@@ -89,7 +89,8 @@ export type SettingsAction =
       latencyMs: number | null;
       error: string | null;
     }
-  | { type: "RESET_DIRTY" };
+  | { type: "RESET_DIRTY" }
+  | { type: "IMPORT_REMOTE_MODELS"; providerId: string; modelIds: string[] };
 
 // ---------------------------------------------------------------------------
 // 初始 state
@@ -150,8 +151,11 @@ function asProtocol(v: unknown): Protocol {
 }
 
 function asAuthMode(v: unknown): AuthMode {
-  const allowed: AuthMode[] = ["api-key", "oauth", "token", "paste"];
-  return allowed.includes(v as AuthMode) ? (v as AuthMode) : "api-key";
+  // 上游 schema 合法值（v2026.5.4）：api_key / oauth / token
+  const allowed: AuthMode[] = ["api_key", "oauth", "token"];
+  // 老值迁移：api-key → api_key, paste → api_key
+  if (v === "api-key" || v === "paste") return "api_key";
+  return allowed.includes(v as AuthMode) ? (v as AuthMode) : "api_key";
 }
 
 export function dumpToState(dump: OpenClawConfigDump): {
@@ -161,27 +165,38 @@ export function dumpToState(dump: OpenClawConfigDump): {
 } {
   const providerExtras = asObject(asObject(dump.extras).providerExtras);
   const authExtras = asObject(asObject(dump.extras).authExtras);
+  // STORY-0018 hot-fix：model 级 isDefault/timeoutMs 上游不收，存 extras.modelExtras
+  const modelExtrasRoot = asObject(asObject(dump.extras).modelExtras);
   const authOrder = dump.authOrder ?? {};
 
   const providers: ProviderForm[] = Object.entries(asObject(dump.providers)).map(
     ([id, raw]) => {
       const obj = asObject(raw);
       const extra = asObject(providerExtras[id]);
+      const modelExtrasForProvider = asObject(modelExtrasRoot[id]);
       const modelsRaw = asArray(obj.models);
       const models: ModelEntry[] = modelsRaw.map((m) => {
         const mObj = asObject(m);
-        const cap = asObject(mObj.capabilities);
+        const mExtra = asObject(modelExtrasForProvider[asString(mObj.id)]);
+        // 上游 reasoning + input → 前端 capabilities
+        const inputArr = asArray(mObj.input).map((x) => asString(x));
+        // 上游 params.temperature → 前端 temperature
+        const paramsObj = asObject(mObj.params);
         return {
           id: asString(mObj.id),
-          isDefault: mObj.isDefault === true,
-          maxTokens: typeof mObj.maxTokens === "number" ? mObj.maxTokens : undefined,
+          // isDefault 从 extras 读（上游不存这个字段）
+          isDefault: mExtra.isDefault === true,
+          maxTokens:
+            typeof mObj.maxTokens === "number" ? mObj.maxTokens : undefined,
           temperature:
-            typeof mObj.temperature === "number" ? mObj.temperature : undefined,
+            typeof paramsObj.temperature === "number"
+              ? paramsObj.temperature
+              : undefined,
           timeoutMs:
-            typeof mObj.timeoutMs === "number" ? mObj.timeoutMs : undefined,
+            typeof mExtra.timeoutMs === "number" ? mExtra.timeoutMs : undefined,
           capabilities: {
-            vision: cap.vision === true,
-            reasoning: cap.reasoning === true,
+            vision: inputArr.includes("image"),
+            reasoning: mObj.reasoning === true,
           },
         };
       });
@@ -190,7 +205,9 @@ export function dumpToState(dump: OpenClawConfigDump): {
       return {
         id,
         displayName: asString(extra.displayName, id),
-        protocol: asProtocol(obj.protocol),
+        // protocol 从 extras 读（v2026.5.4 上游 provider 节点不存 protocol，
+        // 也不再依赖它来路由 —— 改用 model[*].api，但前端 UX 仍按 provider 维度展示）
+        protocol: asProtocol(extra.protocol ?? obj.protocol),
         baseUrl: asString(obj.baseUrl),
         models,
         authProfileId:
@@ -259,49 +276,116 @@ export function parseCustomHeaders(json: string): Record<string, unknown> | null
 /** 把 form 全量打包成 patch + extrasPatch（保存按钮调用） */
 export function buildPatchFromState(state: SettingsState): BuiltPatch {
   // providers → models.providers.<id>.*
+  //
+  // STORY-0018 hot-fix（schema 真值表，2026/5/8 经 d:\probe2.py 实测）：
+  //   provider 接受字段：baseUrl / apiKey / auth / headers / params / models
+  //     - `auth` 是枚举字面值（"api-key" / "aws-sdk" / "oauth" / "token"），
+  //       **不是** auth profile id；profile 绑定走 auth.order.<providerId> = [profileId]
+  //     - `protocol` / `timeoutMs` 上游不认（前端虚构字段），转入 extras
+  //   model[*] 接受字段：id / name / api / reasoning / input / maxTokens /
+  //     contextWindow / params / headers / cost
+  //     - `name` 必填且非空 → 缺省时 fallback 用 id
+  //     - 顶层 `temperature` 不接受，要包到 params.temperature
+  //     - `isDefault` / `timeoutMs` / `capabilities` 不接受 → 拆映射 + 转 extras
+  //         capabilities.reasoning → reasoning: true
+  //         capabilities.vision    → input: ["text", "image"]
+  //   any unknown key → schema validate 直接拒整条 patch。
   const providersOut: Record<string, unknown> = {};
   const providerExtras: Record<string, unknown> = {};
+  // model 级 extras：{ providerId: { modelId: { isDefault?, timeoutMs? } } }
+  // 用于回填上游不认但前端有意义的字段
+  const modelExtras: Record<string, Record<string, Record<string, unknown>>> = {};
   const authOrderOut: Record<string, string[]> = {};
+
+  // 前端 Protocol 枚举 → 上游 model[*].api 枚举映射
+  // 上游 api 合法值（实测自 d:\probe2.py）：
+  //   openai-completions / openai-responses / openai-codex-responses /
+  //   anthropic-messages / google-generative-ai / github-copilot /
+  //   bedrock-converse-stream / ollama / azure-openai-responses
+  // 前端 Protocol：openai / openai-compatible / anthropic / google / azure-openai
+  // openai-compatible 走 openai-completions（最通用的 OpenAI Chat Completions 协议）
+  const protocolToApi: Record<string, string> = {
+    "openai": "openai-completions",
+    "openai-compatible": "openai-completions",
+    "anthropic": "anthropic-messages",
+    "google": "google-generative-ai",
+    "azure-openai": "azure-openai-responses",
+  };
 
   for (const p of state.providers) {
     const headers = parseCustomHeaders(p.customHeadersJson) ?? {};
-    providersOut[p.id] = {
-      protocol: p.protocol,
-      baseUrl: p.baseUrl,
-      models: p.models.map((m) => ({
+    const inferredApi: string | undefined = protocolToApi[p.protocol];
+
+    const modelsExtraForProvider: Record<string, Record<string, unknown>> = {};
+
+    const modelsOut = p.models.map((m) => {
+      // 保留 isDefault / timeoutMs 到 extras（schema 不认）
+      const mExtra: Record<string, unknown> = {};
+      if (m.isDefault) mExtra.isDefault = true;
+      if (m.timeoutMs !== undefined) mExtra.timeoutMs = m.timeoutMs;
+      if (Object.keys(mExtra).length > 0) {
+        modelsExtraForProvider[m.id] = mExtra;
+      }
+
+      // capabilities → schema 字段
+      // vision  -> input 包含 "image"
+      // reasoning -> reasoning: true
+      const inputModalities: string[] = ["text"];
+      if (m.capabilities?.vision) inputModalities.push("image");
+
+      // params：把前端 temperature 包进去；预留扩展位
+      const paramsObj: Record<string, unknown> = {};
+      if (m.temperature !== undefined) paramsObj.temperature = m.temperature;
+
+      return {
         id: m.id,
-        ...(m.isDefault ? { isDefault: true } : {}),
+        // schema 必填且非空：缺省时用 id 兜底（避免保存崩）
+        name: (m as { name?: string }).name?.trim() || m.id,
+        ...(inferredApi ? { api: inferredApi } : {}),
         ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
-        ...(m.temperature !== undefined ? { temperature: m.temperature } : {}),
-        ...(m.timeoutMs !== undefined ? { timeoutMs: m.timeoutMs } : {}),
-        ...(m.capabilities &&
-        (m.capabilities.vision || m.capabilities.reasoning)
-          ? {
-              capabilities: {
-                ...(m.capabilities.vision ? { vision: true } : {}),
-                ...(m.capabilities.reasoning ? { reasoning: true } : {}),
-              },
-            }
-          : {}),
-      })),
+        ...(m.capabilities?.reasoning ? { reasoning: true } : {}),
+        ...(inputModalities.length > 1 ? { input: inputModalities } : {}),
+        ...(Object.keys(paramsObj).length > 0 ? { params: paramsObj } : {}),
+      };
+    });
+
+    // provider 顶层只放 schema 接受的键
+    providersOut[p.id] = {
+      baseUrl: p.baseUrl,
+      models: modelsOut,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
-    providerExtras[p.id] = { displayName: p.displayName };
+
+    // protocol 等前端字段进 extras（不发上游，保留 UX 状态）
+    providerExtras[p.id] = {
+      displayName: p.displayName,
+      ...(p.protocol ? { protocol: p.protocol } : {}),
+    };
+    if (Object.keys(modelsExtraForProvider).length > 0) {
+      modelExtras[p.id] = modelsExtraForProvider;
+    }
 
     if (p.authProfileId) {
+      // auth.order.<providerId> = [profileId, ...]
       authOrderOut[p.id] = [p.authProfileId];
     }
   }
 
   // authProfiles → auth.profiles.<id>.*
+  //
+  // STORY-0018 hot-fix：上游 v2026.5.4 schema 把 auth.profiles.<id> 收敛为纯元数据
+  //   { provider, mode, email?, displayName? }（additionalProperties: false）
+  // 凭证（apiKey/token）不能再塞到这里，否则 schema validate 报
+  //   "Unrecognized key: token"。
+  // → patch 只携带元数据；apiKey 由调用方在 patch 成功后用
+  //   `setOpenClawAuthToken` 单独写入（走 `openclaw models auth paste-token`，
+  //   写到 state/agents/<agentId>/agent/auth-profiles.json）。
   const authProfilesOut: Record<string, unknown> = {};
   const authExtras: Record<string, unknown> = {};
   for (const a of state.authProfiles) {
     authProfilesOut[a.id] = {
       provider: a.provider,
       mode: a.mode,
-      // apiKey 字段如为脱敏占位，sidecar 会剔除；这里照传
-      ...(a.apiKey ? { token: a.apiKey } : {}),
       ...(a.email ? { email: a.email } : {}),
     };
     if (a.notes) {
@@ -333,6 +417,7 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
   const extrasPatch: Record<string, unknown> = {
     providerExtras,
     authExtras,
+    ...(Object.keys(modelExtras).length > 0 ? { modelExtras } : {}),
   };
 
   return { patch, extrasPatch };
@@ -484,7 +569,7 @@ export function settingsReducer(
         const newAuth: AuthProfileForm = {
           id: authId,
           provider: id,
-          mode: "api-key",
+          mode: "api_key",
           apiKey: "",
         };
         next.authProfiles = [...state.authProfiles, newAuth];
@@ -575,7 +660,7 @@ export function settingsReducer(
       const newAuth: AuthProfileForm = {
         id,
         provider: action.provider,
-        mode: action.mode ?? "api-key",
+        mode: action.mode ?? "api_key",
         apiKey: "",
       };
       return markDirty({
@@ -637,6 +722,29 @@ export function settingsReducer(
 
     case "RESET_DIRTY":
       return { ...state, dirty: false };
+
+    case "IMPORT_REMOTE_MODELS": {
+      // 把远端获取到的 modelIds 合并到指定 provider 的 models 列表中
+      // 已存在的（按 id 去重）不重复添加；新增的第一条标记 isDefault（如果当前无 default）
+      const target = state.providers.find((p) => p.id === action.providerId);
+      if (!target) return state;
+      const existing = new Set(target.models.map((m) => m.id));
+      const newModels = action.modelIds.filter((id) => !existing.has(id));
+      if (newModels.length === 0) return state;
+      const hasDefault = target.models.some((m) => m.isDefault);
+      const additions: ModelEntry[] = newModels.map((id, idx) => ({
+        id,
+        isDefault: !hasDefault && idx === 0,
+      }));
+      return markDirty({
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === action.providerId
+            ? { ...p, models: [...p.models, ...additions] }
+            : p,
+        ),
+      });
+    }
 
     default:
       return state;

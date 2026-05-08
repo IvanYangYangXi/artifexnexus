@@ -303,6 +303,11 @@
   color: #6b7280;
 }
 
+.btnSmall {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
 .btnDisabled {
   opacity: 0.5;
   cursor: not-allowed;

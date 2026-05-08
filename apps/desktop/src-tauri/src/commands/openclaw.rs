@@ -99,6 +99,7 @@ pub async fn openclaw_install(
 pub async fn openclaw_bootstrap(
     sidecar: State<'_, SidecarState>,
     version: Option<String>,
+    preserve_options: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
 
@@ -106,9 +107,12 @@ pub async fn openclaw_bootstrap(
         manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
     }
 
-    let params = json!({
+    let mut params = json!({
         "version": version.unwrap_or_else(|| "v2026.5.4".to_string()),
     });
+    if let Some(opts) = preserve_options {
+        params["preserve_options"] = opts;
+    }
 
     manager.call("openclaw.bootstrap", params)
 }
