@@ -57,7 +57,7 @@ def mock_adapter():
         "error": None,
         "output": "hello from blender\n",
     }
-    adapter.execute_deferred = lambda fn, *args: fn(*args)
+    adapter.execute_on_main_thread = lambda fn, *args: fn(*args)
     return adapter
 
 
@@ -69,7 +69,6 @@ def mcp_server(mock_adapter):
 
     server = MCPServer(host="127.0.0.1", port=18083)
     server.set_adapter(mock_adapter)
-    server.set_main_thread_executor(mock_adapter.execute_deferred)
     register_builtin_tools(server, mock_adapter)
     return server
 

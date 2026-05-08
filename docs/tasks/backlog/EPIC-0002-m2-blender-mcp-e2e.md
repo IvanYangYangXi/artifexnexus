@@ -2,7 +2,7 @@
 id: EPIC-0002
 kind: epic
 title: M2 · 骨架贯通 · Blender MCP
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

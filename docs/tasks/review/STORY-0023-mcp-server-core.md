@@ -8,6 +8,9 @@ owner: "@ivan"
 assignee: pair
 estimate: 1d
 created: 2026-05-08
+updated: 2026-05-08
+design_notes:
+  - "2026-05-08: _execute_on_main_thread 从 execute_deferred+Future 轮询改为 loop.run_in_executor(adapter.execute_on_main_thread)，消除 1s 轮询延迟，超时 30s 由 adapter 层统一保护"
 parent: "[[../backlog/EPIC-0002-m2-blender-mcp-e2e]]"
 milestone: M2
 related_packages:
@@ -34,3 +37,4 @@ tags: [story, mcp, websocket, blender, M2]
 - 保留：MCPServer 类 + WebSocket 连接处理 + MCP 协议路由 + 端口探测
 - 保留：`_register_builtin_tools` 中的 `run_python` 工具注册
 - 保留：`_execute_on_main_thread` 主线程调度（通过 adapter）
+- **设计优化**：主线程调度从 `execute_deferred` + `Future` 轮询改为 `loop.run_in_executor` + `adapter.execute_on_main_thread`，消除 1s 轮询延迟，超时由 adapter 层 30s 统一保护，依赖改为 `_adapter_ref` 直调

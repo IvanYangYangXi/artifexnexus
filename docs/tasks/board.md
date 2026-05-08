@@ -27,14 +27,13 @@ tags:
 
 ## Review
 
+- [ ] [[../backlog/EPIC-0002-m2-blender-mcp-e2e]]
 - [ ] [[STORY-0027-installer-blender-real-logic]]
 - [ ] [[STORY-0026-dcc-installer-blender]]
 - [ ] [[STORY-0024-gateway-mcp-tool]]
-- [ ] [[STORY-0021-blender-addon-scaffold]]
-
-- [ ] [[STORY-0021-blender-addon-scaffold]]
-- [ ] [[STORY-0022-blender-adapter-core]]
 - [ ] [[STORY-0023-mcp-server-core]]
+- [ ] [[STORY-0022-blender-adapter-core]]
+- [ ] [[STORY-0021-blender-addon-scaffold]]
 - [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
 - [ ] [[STORY-0013-openclaw-status-ui]]
 - [ ] [[STORY-0012-openclaw-port-conflict]]

@@ -139,7 +139,7 @@ if _HAS_BPY:
             try:
                 from blender_addon.mcp_server import register_builtin_tools
                 register_builtin_tools(server, adapter)
-                server.set_main_thread_executor(adapter.execute_deferred)
+                server.set_adapter(adapter)
 
                 if server.start():
                     self.report({"INFO"}, f"MCP Server 已启动 — 端口 {server.actual_port}")

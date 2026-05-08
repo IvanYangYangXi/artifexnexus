@@ -273,8 +273,8 @@ class MCPServer:
             }
 
         try:
-            # 如果设置了主线程执行器且 handler 需要主线程，在主线程执行
-            if tool_def.get("_main_thread", False) and self._main_thread_executor:
+            # 需要主线程执行：通过 adapter.execute_on_main_thread 调度
+            if tool_def.get("_main_thread", False) and self._adapter_ref:
                 result = await self._execute_on_main_thread(handler, arguments)
             elif asyncio.iscoroutinefunction(handler):
                 result = await handler(arguments)
@@ -300,51 +300,34 @@ class MCPServer:
             }
 
     async def _execute_on_main_thread(self, handler: Callable, arguments: dict) -> Any:
-        """在 Blender 主线程执行工具 handler（通过 Future 等待结果）。
+        """在 Blender 主线程执行工具 handler。
 
-        使用轮询等待：每秒检查一次，硬超时 60s 兜底。
+        通过 loop.run_in_executor 调用 adapter.execute_on_main_thread，
+        避免阻塞 asyncio 事件循环，消除旧实现的 1s 轮询延迟。
+        adapter.execute_on_main_thread 内部有 30s 超时保护。
         """
-        import concurrent.futures
-        future = concurrent.futures.Future()
-        cancelled = [False]
+        if self._adapter_ref is None:
+            raise RuntimeError("DCC adapter 未注入，无法调度主线程执行")
 
-        def _run():
-            if cancelled[0]:
-                future.cancel()
-                return
-            try:
-                result = handler(arguments)
-                if not cancelled[0]:
-                    future.set_result(result)
-            except Exception as e:
-                if not cancelled[0]:
-                    future.set_exception(e)
-
-        self._main_thread_executor(_run)
-
-        # 轮询等待 Future 完成
         loop = asyncio.get_event_loop()
-        wrapped = asyncio.wrap_future(future, loop=loop)
-        elapsed = 0.0
-        poll_interval = 1.0
-        hard_timeout = 60.0
 
-        while elapsed < hard_timeout:
-            try:
-                return await asyncio.wait_for(
-                    asyncio.shield(wrapped),
-                    timeout=poll_interval,
-                )
-            except asyncio.TimeoutError:
-                elapsed += poll_interval
-
-        # 硬超时
-        cancelled[0] = True
-        logger.error(f"主线程执行超时 ({hard_timeout:.0f}s)")
-        future.cancel()
-        raise TimeoutError(
-            f"工具执行超时 ({hard_timeout:.0f}s)，Blender 主线程可能被阻塞。"
-        )
+        # adapter.execute_on_main_thread(handler, arguments)
+        #   → fn=handler, args=(arguments,) → handler(arguments)
+        # 在线程池中阻塞等待主线程执行结果，不阻塞 asyncio 事件循环
+        try:
+            result = await loop.run_in_executor(
+                None,
+                self._adapter_ref.execute_on_main_thread,
+                handler,
+                arguments,
+            )
+            return result
+        except TimeoutError:
+            logger.error("主线程执行超时 (30s)")
+            raise
+        except Exception:
+            logger.error("主线程执行异常", exc_info=True)
+            raise
 
     # ── Tool 注册接口 ──
 

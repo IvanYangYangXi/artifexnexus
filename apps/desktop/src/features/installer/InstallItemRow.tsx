@@ -147,7 +147,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       return;
     }
 
-    // DCC 行（expandable 条目）：通用检测逻辑
+    // DCC 行（expandable 条目）：通用检测逻辑（合并手动添加的子项）
     const dccActions = getDCCActions(item.id);
     if (dccActions) {
       void (async () => {
@@ -155,23 +155,30 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           addLog(item.id, "info", `正在检测本机 ${item.name} 版本…`);
           const result = await dccActions.detect();
 
-          const children = result.versions.map((v) => ({
+          const detectedChildren = result.versions.map((v) => ({
             label: `${item.name} ${v.version}`,
             version: v.version,
-            installPath: "",
+            installPath: `%APPDATA%/Blender Foundation/Blender/${v.version}/scripts/addons`,
             projectPath: "",
-            scriptPath: "",
+            scriptPath: `artifex_nexus_v${result.addon_info.version}`,
             state: v.installed
               ? ("installed" as const)
               : ("not-installed" as const),
           }));
+
+          // 保留手动添加的子项（installPath 非空且版本不在检测结果中）
+          const existingManual = (item.children ?? []).filter(
+            (c) => c.installPath && !detectedChildren.some((d) => d.version === c.version),
+          );
+
+          const children = [...detectedChildren, ...existingManual];
 
           dispatch({
             type: "UPDATE_ITEM",
             id: item.id,
             patch: {
               children,
-              state: result.versions.length > 0 ? "installed" : "not-installed",
+              state: children.length > 0 ? "installed" : "not-installed",
             },
           });
 
@@ -202,10 +209,15 @@ function InstallItemRow({ item }: InstallItemRowProps) {
     console.log(`[installer] settings: ${item.id}`);
   }, [item.id]);
 
-  /** 添加子项：弹出输入框让用户填写版本号 */
+  /** 添加子项：弹出输入框让用户填写版本号和安装路径 */
   const handleAddChild = useCallback(() => {
     const version = window.prompt("请输入 DCC 版本号（如 5.1）：");
     if (!version || !version.trim()) return;
+
+    const installPath = window.prompt(
+      `请输入 ${item.name} ${version.trim()} 的安装路径（如 C:\\Program Files\\Blender Foundation\\Blender 5.1）：`,
+    );
+    if (installPath === null) return; // 用户取消
 
     const label = `${item.name} ${version.trim()}`;
     dispatch({
@@ -214,7 +226,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       child: {
         label,
         version: version.trim(),
-        installPath: "",
+        installPath: installPath?.trim() ?? "",
         projectPath: "",
         scriptPath: "",
         state: "not-installed",

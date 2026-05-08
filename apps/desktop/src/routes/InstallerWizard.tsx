@@ -326,7 +326,7 @@ function InstallerWizard() {
       }
     })();
 
-    // 已注册的 DCC 条目：真实检测
+    // 已注册的 DCC 条目：真实检测（合并手动添加的子项）
     for (const item of state.items) {
       const dccActions = getDCCActions(item.id);
       if (!dccActions) continue;
@@ -334,22 +334,30 @@ function InstallerWizard() {
       void (async () => {
         try {
           const result = await dccActions.detect();
-          const children = result.versions.map((v) => ({
+          // 检测到的版本 → 子项
+          const detectedChildren = result.versions.map((v) => ({
             label: `${item.name} ${v.version}`,
             version: v.version,
-            installPath: "",
+            installPath: `%APPDATA%/Blender Foundation/Blender/${v.version}/scripts/addons`,
             projectPath: "",
-            scriptPath: "",
+            scriptPath: `artifex_nexus_v${result.addon_info.version}`,
             state: v.installed
               ? ("installed" as const)
               : ("not-installed" as const),
           }));
+
+          // 保留手动添加的子项（installPath 非空且版本不在检测结果中）
+          const existingManual = (item.children ?? []).filter(
+            (c) => c.installPath && !detectedChildren.some((d) => d.version === c.version),
+          );
+
+          const children = [...detectedChildren, ...existingManual];
           dispatch({
             type: "UPDATE_ITEM",
             id: item.id,
             patch: {
               children,
-              state: result.versions.length > 0 ? "installed" : "not-installed",
+              state: children.length > 0 ? "installed" : "not-installed",
             },
           });
         } catch {

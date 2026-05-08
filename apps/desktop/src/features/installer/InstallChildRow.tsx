@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import type { InstallChildItem } from "./installer.types";
 import { t } from "./installer.i18n";
 import { useInstaller, isInstallGated } from "../../routes/InstallerWizard";
+import { getDCCActions } from "./dccRegistry";
 import StatusBadge from "./StatusBadge";
 import styles from "./InstallChildRow.module.css";
 
@@ -50,8 +51,32 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
   const childId = `${parentId}/${childIndex}`;
 
   const handleDetect = useCallback(() => {
+    // DCC 子项：真实检测（检查单个版本是否已安装）
+    const dccActions = getDCCActions(parentId);
+    if (dccActions) {
+      void (async () => {
+        try {
+          const result = await dccActions.detect();
+          const versionInfo = result.versions.find((v) => v.version === child.version);
+          if (versionInfo) {
+            dispatch({
+              type: "UPDATE_CHILD",
+              parentId,
+              childIndex,
+              patch: {
+                state: versionInfo.installed ? "installed" : "not-installed",
+              },
+            });
+          }
+        } catch {
+          // 静默
+        }
+      })();
+      return;
+    }
+
     dispatch({ type: "DETECT_CHILD", parentId, childIndex });
-  }, [dispatch, parentId, childIndex]);
+  }, [dispatch, parentId, childIndex, child.version]);
 
   const handleSettings = useCallback(() => {
     console.log(`[installer] child settings: ${childId}`);
@@ -60,8 +85,27 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
   const handleInstall = useCallback(() => {
     if (installDisabled) return;
 
-    dispatch({ type: "INSTALL_CHILD_START", parentId, childIndex });
+    // DCC 子项：真实安装逻辑
+    const dccActions = getDCCActions(parentId);
+    if (dccActions) {
+      dispatch({ type: "INSTALL_CHILD_START", parentId, childIndex });
+      void (async () => {
+        try {
+          const result = await dccActions.install(child.version);
+          if (result.success) {
+            dispatch({ type: "INSTALL_CHILD_DONE", parentId, childIndex });
+          } else {
+            dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
+          }
+        } catch {
+          dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
+        }
+      })();
+      return;
+    }
 
+    // 非 DCC 子项：桩行为
+    dispatch({ type: "INSTALL_CHILD_START", parentId, childIndex });
     setTimeout(() => {
       const success = Math.random() > 0.3;
       dispatch({
@@ -70,7 +114,7 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
         childIndex,
       });
     }, 1500);
-  }, [dispatch, parentId, childIndex, installDisabled]);
+  }, [dispatch, parentId, childIndex, child.version, installDisabled]);
 
   const handleDelete = useCallback(() => {
     // 删除前弹窗确认
