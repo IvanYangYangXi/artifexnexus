@@ -1,12 +1,10 @@
-// 桌面壳根组件：路由 + Echo 测试。
-// 骨架阶段：路由（installer / status / settings）+ Echo 按钮。
+// 桌面壳根组件：路由导航 + 页面切换。
 
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import InstallerWizard from "./routes/InstallerWizard";
 import SetupWizard from "./routes/SetupWizard";
 import Status from "./routes/Status";
 import Settings from "./routes/Settings";
-import EchoTest from "./components/EchoTest";
 
 function App() {
   return (
@@ -41,9 +39,6 @@ function App() {
           <Route path="/setup-wizard" element={<SetupWizard />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
-
-        {/* Echo 测试（开发用） */}
-        <EchoTest />
       </div>
     </BrowserRouter>
   );

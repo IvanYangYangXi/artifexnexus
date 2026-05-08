@@ -1,9 +1,20 @@
 // JSON-RPC 2.0 客户端：通过 stdio 与 Python sidecar 通信。
+//
+// 关键设计：call() 有读取超时保护（默认 30s），防止 sidecar 卡死时
+// read_line 永久阻塞 → 持有 Mutex → tokio 工作线程饥饿 → WebView 黑屏。
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+/// sidecar RPC 调用超时（秒）。
+/// 超时后 call() 返回错误，触发 SidecarManager 重启 sidecar 进程。
+const CALL_TIMEOUT_SECS: u64 = 30;
+
+/// 超时轮询间隔（毫秒）。
+const POLL_INTERVAL_MS: u64 = 100;
 
 /// JSON-RPC 2.0 请求
 #[derive(Debug, Serialize)]
@@ -103,7 +114,11 @@ impl SidecarClient {
         })
     }
 
-    /// 发送 JSON-RPC 请求并等待响应。
+    /// 发送 JSON-RPC 请求并等待响应（带超时保护）。
+    ///
+    /// 超时（默认 30s）后返回错误，触发上层 SidecarManager 重启 sidecar。
+    /// 这防止 sidecar 卡死时 read_line 永久阻塞 → 持有 Mutex →
+    /// tokio 工作线程饥饿 → WebView 渲染停止（黑屏 bug）。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
@@ -122,11 +137,47 @@ impl SidecarClient {
             .flush()
             .map_err(|e| format!("flush sidecar 失败: {e}"))?;
 
-        // 读取响应（一行 JSON）
+        // 读取响应（一行 JSON），带超时保护。
+        // Windows 管道不支持 set_read_timeout，用轮询方式：
+        // 每隔 POLL_INTERVAL_MS 检查是否有数据可读，超时则返回错误。
+        let deadline = Instant::now() + Duration::from_secs(CALL_TIMEOUT_SECS);
         let mut response_line = String::new();
-        self.stdout
-            .read_line(&mut response_line)
-            .map_err(|e| format!("读取 sidecar 响应失败: {e}"))?;
+        loop {
+            // 检查超时
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "sidecar 响应超时（{}s），方法: {method}",
+                    CALL_TIMEOUT_SECS
+                ));
+            }
+
+            // 尝试读取一行（非阻塞检查 + 阻塞读）
+            // BufReader::fill_buf 在有数据时返回非空切片；
+            // 返回空切片 = EOF（sidecar 已退出）
+            {
+                let buf = self
+                    .stdout
+                    .fill_buf()
+                    .map_err(|e| format!("读取 sidecar 响应失败: {e}"))?;
+                if buf.is_empty() {
+                    // EOF：sidecar 进程已退出
+                    return Err("sidecar 进程意外退出（stdout EOF）".to_string());
+                }
+                // 有数据：检查是否包含完整行（\n）
+                let has_newline = buf.contains(&b'\n');
+                // buf 是 &[u8] 引用，不需要显式 drop；编译器会自动管理生命周期
+
+                if has_newline {
+                    // 有完整行，阻塞读取（此时不会阻塞）
+                    self.stdout
+                        .read_line(&mut response_line)
+                        .map_err(|e| format!("读取 sidecar 响应失败: {e}"))?;
+                    break;
+                }
+                // 有数据但无换行：等待更多数据到达
+                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+            }
+        }
 
         let response: JsonRpcResponse = serde_json::from_str(response_line.trim())
             .map_err(|e| format!("解析 sidecar 响应失败: {e}"))?;

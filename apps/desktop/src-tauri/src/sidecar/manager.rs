@@ -57,7 +57,10 @@ impl SidecarManager {
         Ok(())
     }
 
-    /// 发送 JSON-RPC 请求。
+    /// 发送 JSON-RPC 请求（带超时保护 + 崩溃重启）。
+    ///
+    /// 当 sidecar 响应超时或 IO 错误时，先杀掉旧 sidecar 进程再重启，
+    /// 避免旧进程残留占用端口/stdin。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let client = self
             .client
@@ -66,8 +69,10 @@ impl SidecarManager {
 
         match client.call(method, params.clone()) {
             Ok(result) => Ok(result),
-            Err(_e) => {
-                // 调用失败，尝试重启
+            Err(e) => {
+                // 调用失败（含超时），丢弃旧客户端（Drop 会尝试回收子进程）
+                // 然后重新 spawn 一个新的 sidecar 进程
+                let err_msg = e;
                 self.client = None;
                 self.start()?;
                 // 重试一次，使用原始 params
@@ -75,6 +80,9 @@ impl SidecarManager {
                     .as_mut()
                     .ok_or_else(|| "sidecar 重启后仍不可用".to_string())?
                     .call(method, params)
+                    .map_err(|retry_err| {
+                        format!("sidecar 调用失败（已重启重试）: {retry_err}（原错误: {err_msg}）")
+                    })
             }
         }
     }

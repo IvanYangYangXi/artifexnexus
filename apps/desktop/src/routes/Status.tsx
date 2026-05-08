@@ -6,7 +6,6 @@
 // 旧逻辑（5s 轮询 sidecar 内联）已拆到 SidecarHealth.tsx；
 // 新轮询（1s gateway status + 增量 tail_log）由 useGatewayPolling 提供。
 
-import { useNavigate } from "react-router-dom";
 import GatewayLogPanel from "../features/openclaw/status/GatewayLogPanel";
 import GatewayStatusCard from "../features/openclaw/status/GatewayStatusCard";
 import SidecarHealth from "../features/openclaw/status/SidecarHealth";
@@ -14,7 +13,6 @@ import statusStyles from "../features/openclaw/status/StatusPanel.module.css";
 import { useGatewayPolling } from "../features/openclaw/status/useGatewayPolling";
 
 function Status() {
-  const navigate = useNavigate();
   const { status, logs, dropped, pollError, clearLogs, refreshNow } =
     useGatewayPolling();
 
@@ -33,23 +31,6 @@ function Status() {
       <GatewayStatusCard status={status} onAfterAction={refreshNow} />
 
       <GatewayLogPanel logs={logs} dropped={dropped} onClear={clearLogs} />
-
-      <button
-        type="button"
-        onClick={() => navigate("/installer")}
-        style={{
-          marginTop: 12,
-          padding: "6px 14px",
-          fontSize: 13,
-          background: "#fff",
-          border: "1px solid #d1d5db",
-          borderRadius: 6,
-          color: "#374151",
-          cursor: "pointer",
-        }}
-      >
-        重新运行安装向导
-      </button>
     </main>
   );
 }
