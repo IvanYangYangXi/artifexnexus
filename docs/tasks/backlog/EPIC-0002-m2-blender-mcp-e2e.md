@@ -57,7 +57,7 @@ tags: [epic, dcc, blender, mcp, M2]
 | S7 | [[../review/STORY-0027-installer-blender-real-logic]] — 安装向导 Blender 行接真实逻辑 | Review | 1d | S6 |
 | S8 | [[../review/STORY-0028-gateway-mcp-bridge]] — Gateway MCP Bridge 插件 | Review | 1d | S3 |
 | S9 | [[../review/STORY-0029-dcc-port-settings]] — DCC 端口设置 | Review | 0.5d | S8 |
-| S10 | [[STORY-0030-deploy-validation-on-detect]] — 检测按钮增加部署校验 | Backlog | 0.5d | S8 |
+| S10 | [[../review/STORY-0030-deploy-validation-on-detect]] — 检测按钮增加部署校验 | Review | 0.5d | S8 |
 | **合计** | | **S1–S9 Review，S10 Backlog** | **7.5d** | EPIC-0002 estimate=2w，**剩余 2.5d buffer** |
 
 ## 进展日志

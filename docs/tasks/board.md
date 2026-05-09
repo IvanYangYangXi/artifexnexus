@@ -9,7 +9,6 @@ tags:
 
 ## Backlog
 
-- [ ] [[../backlog/STORY-0030-deploy-validation-on-detect]]
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
 - [ ] [[EPIC-0004-m4-skill-system]]
 - [ ] [[EPIC-0005-m5-tool-system]]
@@ -28,6 +27,7 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0030-deploy-validation-on-detect]]
 - [ ] [[STORY-0029-dcc-port-settings]]
 - [ ] [[STORY-0028-gateway-mcp-bridge]]
 - [ ] [[../backlog/EPIC-0002-m2-blender-mcp-e2e]]

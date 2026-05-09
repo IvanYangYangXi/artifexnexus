@@ -55,6 +55,20 @@ Tauri 壳（UI + Rust 后端）
 
 > DEV 环境用 `~/.artifexnexus.dev/` 后缀隔离，所有子目录布局完全一致（路径逻辑零分支）。
 
+### 2.1 DCC 插件安装策略
+
+从 M2 起，所有 DCC 插件的安装部署统一使用 **物理拷贝（`shutil.copytree`）**，
+弃用 junction/symlink。原因：
+
+- OpenClaw v2026.5.4 discovery 调用 `fs.realpathSync` 解析跨卷 junction 指向源码盘，
+  被 trusted-root 安全检查拒绝（ADR 0008）
+- 物理拷贝使文件可审计——每次安装后在 `state/deploy-manifest.json` 记录所有文件的
+  `sha256 + size`，后续 `openclaw.deploy.validate` RPC 可校验完整性
+
+新增 DCC 时接入方式：在安装函数中调用 `_record_deployment()` 自动注册，校验机制零配置。
+详见 [[../development/context-handoff-copy-model-and-validation]] 和
+[[../decisions/0008-copy-model-deploy-manifest]]。
+
 ## 3. 隔离策略（强约束）
 
 1. **环境变量隔离**：子进程只继承白名单环境变量；显式设置上游官方三件套（详见

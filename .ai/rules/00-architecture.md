@@ -50,7 +50,10 @@ DCC 内任何 API 调用必须在主线程执行。MCP 处理线程通过 `comma
 
 - Python 包：通过 `artifexnexus.json.source_path` + `sys.path` 引用源码（开发模式），**不要根级 symlink**
 - Skill 包：由 `SkillInstaller` copy + 版本管理到 `~/.artifexnexus/.openclaw/workspace/skills/`，**不要 symlink**
-- Blender addon / OpenClaw Gateway 插件：**symlink** 到宿主的扫描目录
+- **Blender addon / OpenClaw Gateway 插件：物理拷贝（`shutil.copytree`）+ `deploy-manifest.json` 校验，弃用 junction/symlink**（ADR 0008）
+  - 每次安装自动记录所有文件的 `{path, sha256, size}` 到 manifest
+  - 前端"检测"按钮调用 `openclaw.deploy.validate` 校验文件完整性
+  - 新增 DCC 接入：安装函数中调用 `_record_deployment()` 即自动注册，零配置
 - UE 插件：**copy** 到 `<Project>/Plugins/ArtifexNexusForUnreal/`
 
 ## 7. 契约即源（Contracts as Source of Truth）

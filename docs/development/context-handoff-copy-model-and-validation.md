@@ -195,23 +195,99 @@ Schema:
 - 删除 junction/symlink 分支
 - 重命名为 `_copy_dir_with_manifest(src, dst, deployment_id)` → 同时生成校验记录
 
+> **2026-05-09 决策**：直接删除 `_link_or_copy_dir()`、`_try_junction()`、`_try_symlink_dir()`。
+> 安装函数直接使用 `shutil.copytree()` + `_record_deployment()`。
+
+### 3.6 校验覆盖范围与未来 DCC 接入指南
+
+#### 3.6.1 当前校验范围
+
+校验范围**由安装行为自动注册**，不依赖静态白名单：
+
+| deployment_id | 源目录 | 目标目录 | 触发点 |
+|---------------|--------|---------|--------|
+| `blender-addon-{version}` | `blender_addon/` | `%APPDATA%/.../addons/artifex_nexus/` | `install_dcc_addon("blender", version)` |
+| `gateway-mcp-bridge` | `gateway-plugin/` | `OPENCLAW_HOME/cli/{v}/.../extensions/mcp-bridge/` | `install_gateway_mcp_bridge()` |
+
+校验内容：目录下所有非生成文件（排除 `__pycache__/`、`*.pyc`、`*.pyo`、`.DS_Store`、`Thumbs.db`、`*.egg-info/`）的 `{path, sha256, size}`。
+
+#### 3.6.2 未来新增 DCC 插件的校验接入方式
+
+**模式自注册 — 安装函数中调用 `_record_deployment()` 即可**，无需修改校验逻辑：
+
+```python
+# 新增 DCC 示例：Maya 插件（M7）
+def install_maya_addon(version: str) -> Dict:
+    src = _get_maya_addon_src_dir()
+    dst = _get_maya_addon_target_dir(version)
+
+    shutil.copytree(src, dst, ignore=_get_ignore_patterns_for_shutil())
+
+    _record_deployment(
+        deployment_id=f"maya-addon-{version}",
+        source=src,
+        target=dst,
+        source_version=_get_source_version(Path(src)),
+    )
+    return {"success": True}
+```
+
+卸载时对应调用：
+
+```python
+def uninstall_maya_addon(version: str) -> Dict:
+    ...
+    _remove_link_or_dir(dst)
+    _remove_from_manifest(f"maya-addon-{version}")
+```
+
+#### 3.6.3 deployment_id 命名约定
+
+```
+{component}-{type}[-{variant}]
+```
+
+| DCC | ID 示例 | 备注 |
+|-----|---------|------|
+| Blender | `blender-addon-5.1` | version 取自 Blender 版本号 |
+| Gateway | `gateway-mcp-bridge` | 全局唯一，不绑定版本 |
+| Maya (M7) | `maya-addon-2026` | |
+| 3ds Max (M7) | `max-addon-2026` | |
+| Unreal (M7) | `unreal-addon-5.5` | |
+| Houdini (M7) | `houdini-addon-20.5` | |
+
+#### 3.6.4 需要更新的 spec 文档
+
+- [x] `docs/decisions/0008-copy-model-deploy-manifest.md` — ADR 0008（2026-05-09 已创建）
+- [x] `docs/specs/openclaw-wrapper-runtime.md` — 安装策略段落（2026-05-09 已更新）
+- [x] `.ai/rules/00-architecture.md` — 新增"安装与引用规则"节（2026-05-09 已更新）
+- [ ] `docs/specs/dcc-plugin-install.md`（如存在）— 待创建
+
 ---
 
 ## 4. 相关代码入口（快速定位）
 
 | 功能 | 文件 | 关键函数/行 |
 |------|------|------------|
-| Gateway 插件安装 | `dcc_installer.py:643` | `install_gateway_mcp_bridge()` |
-| Blender 安装 | `dcc_installer.py:171` | `install_dcc_addon()` |
-| 安装方式选择 | `dcc_installer.py:558` | `_link_or_copy_dir()` |
-| OpenClaw plugins 目录定位 | `dcc_installer.py:624` | `_get_openclaw_plugins_dir()` |
-| Blender addon 源码定位 | `dcc_installer.py:55` | `_get_addon_src_dir()` |
-| 注册表刷新 | `dcc_installer.py:783` | `_refresh_plugin_registry()` |
-| 前端安装按钮 | `InstallItemRow.tsx:352` | `doInstall()` |
-| 前端子行安装 | `InstallChildRow.tsx:145` | `handleChildInstall()` |
-| sidecar RPC 入口 | `sidecar.py:793` | `_handle_openclaw_gateway_mcp_bridge_install()` |
-| sidecar Blender RPC | `sidecar.py:725` | `_handle_openclaw_dcc_blender_install()` |
-| bootstrap 配置生成 | `bootstrap.py:145` | `_build_default_config()` |
+| Gateway 插件安装 | `dcc_installer.py` | `install_gateway_mcp_bridge()` |
+| Blender 安装 | `dcc_installer.py` | `install_dcc_addon()` |
+| 部署清单记录 | `dcc_installer.py` | `_record_deployment()` / `_remove_from_manifest()` |
+| 全局校验 | `dcc_installer.py` | `validate_all_deployments()` |
+| 文件扫描（带排除） | `dcc_installer.py` | `_scan_dir_files()` / `_is_ignored_path()` |
+| 部署清单 IO | `dcc_installer.py` | `_read_deploy_manifest()` / `_write_deploy_manifest()` |
+| 源码版本提取 | `dcc_installer.py` | `_get_source_version()` |
+| OpenClaw plugins 目录定位 | `dcc_installer.py` | `_get_openclaw_plugins_dir()` |
+| Blender addon 源码定位 | `dcc_installer.py` | `_get_addon_src_dir()` |
+| 注册表刷新 | `dcc_installer.py` | `_refresh_plugin_registry()` |
+| 统一 OPENCLAW_HOME | `dcc_installer.py` | `_get_openclaw_home_dir()` |
+| **部署校验 RPC 入口** | `sidecar.py` | `_handle_openclaw_deploy_validate()` |
+| Gateway MCP Bridge 安装 RPC | `sidecar.py` | `_handle_openclaw_gateway_mcp_bridge_install()` |
+| Blender 安装 RPC | `sidecar.py` | `_handle_openclaw_dcc_blender_install()` |
+| **Rust 校验命令** | `src-tauri/src/commands/openclaw.rs` | `openclaw_deploy_validate()` |
+| **前端 TS IPC** | `src/ipc/openclaw.ts` | `validateDeployments()` |
+| 前端父行检测 | `InstallItemRow.tsx` | `handleDetect` — DCC 行末尾追加校验 |
+| 前端子行检测 | `InstallChildRow.tsx` | `handleDetect` — 末尾追加校验 |
+| bootstrap 配置生成 | `bootstrap.py` | `_build_default_config()` |
 
 ---
 

@@ -2,16 +2,18 @@
 id: STORY-0030
 kind: story
 title: 安装向导"检测"按钮增加部署文件校验
-status: backlog
+status: review
 priority: P2
 owner: "@ivan"
 assignee: pair
 estimate: 0.5d
 created: 2026-05-09
+updated: 2026-05-09
 parent: "[[EPIC-0002-m2-blender-mcp-e2e]]"
 milestone: M2
 related_packages:
   - "apps/desktop/src"
+  - "apps/desktop/src-tauri"
   - "packages/adapters/openclaw/wrapper"
 tags: [story, deploy, validation, checksum, detector, M2]
 ---
@@ -27,12 +29,12 @@ tags: [story, deploy, validation, checksum, detector, M2]
 - 当前前端"检测"按钮只检查目录是否存在（`is_dcc_addon_installed()`），不做文件完整性校验
 
 ## 验收标准
-- [ ] 新建 `openclaw_deploy_validate` Tauri 命令（Rust），调用 sidecar RPC `openclaw.deploy.validate`
-- [ ] 新建前端 IPC 函数 `validateDeployments()`，返回 `DeployValidationResult[]`
-- [ ] `InstallItemRow.tsx` 的 DCC 父行"检测"流程末尾调用 `validateDeployments()`，结果推到日志面板
-- [ ] `InstallChildRow.tsx` 的子行"检测"流程同样增加校验调用
-- [ ] 校验结果摘要显示在日志面板：`ok N / outdated N / corrupted N / missing N`
-- [ ] "检测"按钮文案不变，校验为追加行为（不替代现有安装状态检测）
+- [x] 新建 `openclaw_deploy_validate` Tauri 命令（Rust），调用 sidecar RPC `openclaw.deploy.validate`
+- [x] 新建前端 IPC 函数 `validateDeployments()`，返回 `DeployValidationResult[]`
+- [x] `InstallItemRow.tsx` 的 DCC 父行"检测"流程末尾调用 `validateDeployments()`，结果推到日志面板
+- [x] `InstallChildRow.tsx` 的子行"检测"流程同样增加校验调用
+- [x] 校验结果摘要显示在日志面板：`ok N / outdated N / corrupted N / missing N`
+- [x] "检测"按钮文案不变，校验为追加行为（不替代现有安装状态检测）
 
 ## 技术要点
 
@@ -119,3 +121,15 @@ try {
 - 不实现自动修复（corrupted → 一键重装 留到 M4）
 - 不实现定时轮询校验
 - 不实现通知/弹窗提醒
+
+## 实施记录（2026-05-09）
+
+| 文件 | 改动 |
+|------|------|
+| `src-tauri/src/commands/openclaw.rs` | 新增 `openclaw_deploy_validate` Tauri 命令，调用 sidecar `openclaw.deploy.validate` |
+| `src-tauri/src/lib.rs` | 注册 `openclaw_deploy_validate` 到 `generate_handler![]` |
+| `src/ipc/openclaw.ts` | 新增 `validateDeployments()` + `DeployValidationResult` / `DeployValidationItem` 类型 |
+| `src/features/installer/InstallItemRow.tsx` | DCC 父行 `handleDetect` 末尾追加校验调用，日志输出摘要 + 异常详情 |
+| `src/features/installer/InstallChildRow.tsx` | 子行 `handleDetect` 末尾追加校验调用（仅输出异常状态） |
+
+**验证**：Rust `cargo check` 通过，TypeScript `tsc --noEmit` 通过。

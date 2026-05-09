@@ -497,3 +497,35 @@ export async function setDCCPort(
 ): Promise<DCCPortSetResult> {
   return invoke<DCCPortSetResult>("openclaw_dcc_port_set", { dcc, port });
 }
+
+// ── STORY-0030：部署文件校验 ─────────────────────────────────────────────
+
+/** 单个部署项的校验结果 */
+export interface DeployValidationItem {
+  id: string;
+  status: "ok" | "outdated" | "missing" | "corrupted";
+  target: string;
+  sourceVersion: string;
+  currentVersion?: string;
+  deployedAt: string;
+  details: string;
+  missing_files?: string[];
+  corrupted_files?: string[];
+}
+
+/** 全局部署校验返回 */
+export interface DeployValidationResult {
+  deployments: DeployValidationItem[];
+  summary: {
+    total: number;
+    ok: number;
+    outdated: number;
+    missing: number;
+    corrupted: number;
+  };
+}
+
+/** 全局部署文件校验：对比 deploy-manifest.json 与磁盘 sha256 */
+export async function validateDeployments(): Promise<DeployValidationResult> {
+  return invoke<DeployValidationResult>("openclaw_deploy_validate");
+}

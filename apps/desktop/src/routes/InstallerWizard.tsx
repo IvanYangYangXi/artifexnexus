@@ -7,7 +7,7 @@ import { FIXTURE_ITEMS } from "../features/installer/installer.fixtures";
 import { t } from "../features/installer/installer.i18n";
 import InstallList from "../features/installer/InstallList";
 import LogPanel, { type LogEntry } from "../features/installer/LogPanel";
-import { getOpenClawStatus } from "../ipc/openclaw";
+import { getOpenClawStatus, validateDeployments } from "../ipc/openclaw";
 import { getDCCActions } from "../features/installer/dccRegistry";
 import styles from "./InstallerWizard.module.css";
 
@@ -294,6 +294,30 @@ function InstallerWizard() {
           id: "openclaw",
           patch: { state: newState },
         });
+        addLog("openclaw", "info", `OpenClaw 状态: ${newState === "installed" ? "已安装" : newState === "update-available" ? "可更新" : "未安装"}`);
+
+        // STORY-0030：部署文件校验
+        try {
+          const validation = await validateDeployments();
+          const { summary } = validation;
+          if (summary.total === 0) {
+            addLog("openclaw", "info", "部署文件校验: 暂无部署记录");
+          } else {
+            const parts: string[] = [];
+            if (summary.ok > 0) parts.push(`✅ ${summary.ok} 正常`);
+            if (summary.outdated > 0) parts.push(`🔄 ${summary.outdated} 可更新`);
+            if (summary.corrupted > 0) parts.push(`⚠️ ${summary.corrupted} 损坏`);
+            if (summary.missing > 0) parts.push(`❌ ${summary.missing} 缺失`);
+            addLog("openclaw", "info", `部署文件校验: ${parts.join(" · ")}`);
+            for (const dep of validation.deployments) {
+              if (dep.status !== "ok") {
+                addLog("openclaw", "warn", `  ${dep.status}: ${dep.details}`);
+              }
+            }
+          }
+        } catch (e) {
+          addLog("openclaw", "warn", `部署文件校验失败: ${e instanceof Error ? e.message : String(e)}`);
+        }
       } catch {
         dispatch({
           type: "UPDATE_ITEM",
@@ -310,6 +334,7 @@ function InstallerWizard() {
 
       void (async () => {
         try {
+          addLog(item.id, "info", `正在检测本机 ${item.name} 版本…`);
           const result = await dccActions.detect();
           // 检测到的版本 → 子项
           const detectedChildren = result.versions.map((v) => ({
@@ -340,6 +365,36 @@ function InstallerWizard() {
               state: hasInstalled ? "installed" : "not-installed",
             },
           });
+
+          const installedCount = result.versions.filter((v) => v.installed).length;
+          addLog(
+            item.id,
+            "info",
+            `检测到 ${result.versions.length} 个 ${item.name} 版本（已装插件: ${installedCount}）`,
+          );
+
+          // STORY-0030：部署文件校验
+          try {
+            const validation = await validateDeployments();
+            const { summary } = validation;
+            if (summary.total === 0) {
+              addLog(item.id, "info", "部署文件校验: 暂无部署记录");
+            } else {
+              const parts: string[] = [];
+              if (summary.ok > 0) parts.push(`✅ ${summary.ok} 正常`);
+              if (summary.outdated > 0) parts.push(`🔄 ${summary.outdated} 可更新`);
+              if (summary.corrupted > 0) parts.push(`⚠️ ${summary.corrupted} 损坏`);
+              if (summary.missing > 0) parts.push(`❌ ${summary.missing} 缺失`);
+              addLog(item.id, "info", `部署文件校验: ${parts.join(" · ")}`);
+              for (const dep of validation.deployments) {
+                if (dep.status !== "ok") {
+                  addLog(item.id, "warn", `  ${dep.status}: ${dep.details}`);
+                }
+              }
+            }
+          } catch (e) {
+            addLog(item.id, "warn", `部署文件校验失败: ${e instanceof Error ? e.message : String(e)}`);
+          }
         } catch {
           // sidecar 不可用，保持当前状态
         }

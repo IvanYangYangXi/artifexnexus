@@ -12,6 +12,7 @@ import {
   startOpenClaw,
   getOpenClawStatus,
   getOpenClawWebUrl,
+  validateDeployments,
 } from "../../ipc/openclaw";
 import type { PreserveOptions } from "../../ipc/openclaw";
 import { getDCCActions } from "./dccRegistry";
@@ -134,6 +135,31 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             id: "openclaw",
             patch: { state: newState },
           });
+
+          addLog("openclaw", "info", `OpenClaw 状态: ${newState === "installed" ? "已安装" : newState === "update-available" ? "可更新" : "未安装"}`);
+
+          // STORY-0030：部署文件校验
+          try {
+            const validation = await validateDeployments();
+            const { summary } = validation;
+            if (summary.total === 0) {
+              addLog("openclaw", "info", "部署文件校验: 暂无部署记录");
+            } else {
+              const parts: string[] = [];
+              if (summary.ok > 0) parts.push(`✅ ${summary.ok} 正常`);
+              if (summary.outdated > 0) parts.push(`🔄 ${summary.outdated} 可更新`);
+              if (summary.corrupted > 0) parts.push(`⚠️ ${summary.corrupted} 损坏`);
+              if (summary.missing > 0) parts.push(`❌ ${summary.missing} 缺失`);
+              addLog("openclaw", "info", `部署文件校验: ${parts.join(" · ")}`);
+              for (const dep of validation.deployments) {
+                if (dep.status !== "ok") {
+                  addLog("openclaw", "warn", `  ${dep.status}: ${dep.details}`);
+                }
+              }
+            }
+          } catch (e) {
+            addLog("openclaw", "warn", `部署文件校验失败: ${e instanceof Error ? e.message : String(e)}`);
+          }
         } catch {
           setGatewayRunning(false);
           setWebUiAvailable(false);
@@ -190,6 +216,29 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             "info",
             `检测到 ${result.versions.length} 个 ${item.name} 版本（已装插件: ${installedCount}）`,
           );
+
+          // STORY-0030：追加部署文件校验
+          try {
+            const validation = await validateDeployments();
+            const { summary } = validation;
+            if (summary.total === 0) {
+              addLog(item.id, "info", "部署文件校验: 暂无部署记录（尚未安装任何插件）");
+            } else {
+              const parts: string[] = [];
+              if (summary.ok > 0) parts.push(`✅ ${summary.ok} 正常`);
+              if (summary.outdated > 0) parts.push(`🔄 ${summary.outdated} 可更新`);
+              if (summary.corrupted > 0) parts.push(`⚠️ ${summary.corrupted} 损坏`);
+              if (summary.missing > 0) parts.push(`❌ ${summary.missing} 缺失`);
+              addLog(item.id, "info", `部署文件校验: ${parts.join(" · ")}`);
+              for (const dep of validation.deployments) {
+                if (dep.status !== "ok") {
+                  addLog(item.id, "warn", `  ${dep.status}: ${dep.details}`);
+                }
+              }
+            }
+          } catch (e) {
+            addLog(item.id, "warn", `部署文件校验失败: ${e instanceof Error ? e.message : String(e)}`);
+          }
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           addLog(item.id, "error", `检测失败: ${errMsg}`);

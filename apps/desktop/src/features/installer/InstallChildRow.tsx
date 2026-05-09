@@ -6,6 +6,7 @@ import type { InstallChildItem } from "./installer.types";
 import { t } from "./installer.i18n";
 import { useInstaller, isInstallGated } from "../../routes/InstallerWizard";
 import { getDCCActions } from "./dccRegistry";
+import { validateDeployments } from "../../ipc/openclaw";
 import StatusBadge from "./StatusBadge";
 import styles from "./InstallChildRow.module.css";
 
@@ -68,6 +69,21 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
               childIndex,
               patch: { state: newState as "installed" | "not-installed" },
             });
+
+            // STORY-0030：追加部署文件校验
+            try {
+              const validation = await validateDeployments();
+              const { summary } = validation;
+              if (summary.total === 0) {
+                addLog(parentId, "info", `[${child.label}] 部署文件校验: 暂无部署记录`);
+              } else if (summary.corrupted > 0 || summary.missing > 0) {
+                addLog(parentId, "warn", `[${child.label}] 部署文件校验: ⚠️ ${summary.corrupted} 损坏, ❌ ${summary.missing} 缺失`);
+              } else {
+                addLog(parentId, "info", `[${child.label}] 部署文件校验: ✅ ${summary.ok} 正常`);
+              }
+            } catch (e) {
+              addLog(parentId, "warn", `[${child.label}] 部署文件校验失败: ${e instanceof Error ? e.message : String(e)}`);
+            }
           } else {
             addLog(parentId, "warn", `[${child.label}] 未在检测结果中找到版本 ${child.version}`);
           }

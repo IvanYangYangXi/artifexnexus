@@ -390,3 +390,19 @@ pub async fn openclaw_dcc_port_set(
 
     manager.call("openclaw.dcc.port.set", json!({"dcc": dcc, "port": port}))
 }
+
+/// 全局部署校验：对比 deploy-manifest.json 与磁盘文件的 sha256。
+///
+/// STORY-0030 M2：安装向导"检测"按钮增加部署文件校验。
+#[tauri::command]
+pub async fn openclaw_deploy_validate(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.deploy.validate", json!({}))
+}

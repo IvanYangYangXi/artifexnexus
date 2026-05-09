@@ -83,6 +83,8 @@ pub fn run() {
             // STORY-0029 M2：DCC 端口管理
             commands::openclaw::openclaw_dcc_port_get,
             commands::openclaw::openclaw_dcc_port_set,
+            // STORY-0030 M2：部署文件校验
+            commands::openclaw::openclaw_deploy_validate,
             // STORY-0018 T3：Gateway 状态控制面板
             commands::openclaw_gateway::openclaw_gateway_status,
             commands::openclaw_gateway::openclaw_gateway_start,

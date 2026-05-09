@@ -18,6 +18,7 @@ dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import logging
@@ -47,6 +48,16 @@ _MANIFEST_FILENAME = "deploy-manifest.json"
 
 _MANIFEST_VERSION = 1
 """部署清单 schema 版本。"""
+
+# 扫描/校验时排除的 glob 模式（生成文件、系统文件不应参与校验）
+_SCAN_IGNORE_PATTERNS = [
+    "__pycache__/",
+    "*.pyc",
+    "*.pyo",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.egg-info/",
+]
 
 
 def _get_openclaw_home_dir() -> str:
@@ -234,7 +245,7 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     # 跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝。
     # 物理拷贝更稳健且避免跨卷问题。（决策变更 2026-05-09）
     try:
-        shutil.copytree(src_dir, target_dir)
+        shutil.copytree(src_dir, target_dir, ignore=_get_ignore_patterns_for_shutil())
         method = "copy"
     except Exception as e:
         err_detail = str(e)
@@ -591,17 +602,53 @@ def _scan_dir_files(src_dir: Path) -> List[dict]:
     """扫描目录下所有文件的相对路径、sha256、大小。
 
     Scan all files under src_dir and return list of {path, sha256, size}.
+    排除 `__pycache__/`、`*.pyc`、`.DS_Store` 等生成文件。
     """
     files = []
     for entry in sorted(src_dir.rglob("*")):
-        if entry.is_file():
-            rel = entry.relative_to(src_dir).as_posix()
-            files.append({
-                "path": rel,
-                "sha256": _compute_file_sha256(entry),
-                "size": entry.stat().st_size,
-            })
+        if not entry.is_file():
+            continue
+        # 检查是否命中排除模式
+        rel = entry.relative_to(src_dir).as_posix()
+        if _is_ignored_path(rel):
+            continue
+        files.append({
+            "path": rel,
+            "sha256": _compute_file_sha256(entry),
+            "size": entry.stat().st_size,
+        })
     return files
+
+
+def _is_ignored_path(rel_path: str) -> bool:
+    """判断相对路径是否命中排除模式。
+
+    Check if a relative path matches any ignore pattern.
+    """
+    for pattern in _SCAN_IGNORE_PATTERNS:
+        # 匹配完整路径或路径的任意组成部分
+        parts = rel_path.replace("\\", "/").split("/")
+        for part in parts:
+            if fnmatch.fnmatch(part, pattern.rstrip("/")):
+                return True
+        if fnmatch.fnmatch(rel_path, pattern):
+            return True
+    return False
+
+
+def _get_ignore_patterns_for_shutil():
+    """返回 shutil.copytree 的 ignore 函数。
+
+    Returns a callable suitable for shutil.copytree(ignore=...).
+    """
+    def _ignore(directory: str, files: list) -> set:
+        ignored = set()
+        for f in files:
+            if _is_ignored_path(f):
+                ignored.add(f)
+        return ignored
+
+    return _ignore
 
 
 def _read_deploy_manifest() -> dict:
@@ -900,7 +947,7 @@ def install_gateway_mcp_bridge() -> Dict:
     # 原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
     # 跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝。
     try:
-        shutil.copytree(src_dir, target_dir)
+        shutil.copytree(src_dir, target_dir, ignore=_get_ignore_patterns_for_shutil())
         method = "copy"
     except Exception as e:
         return {
