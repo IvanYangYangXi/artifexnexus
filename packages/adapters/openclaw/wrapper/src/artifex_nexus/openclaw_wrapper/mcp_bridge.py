@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
-DEFAULT_BLENDER_MCP_PORT = 8083
-"""Blender MCP Server 默认端口"""
+DEFAULT_BLENDER_MCP_PORT = 18083
+"""Blender MCP Server 默认端口（高位端口，避免与 artclaw 8083 冲突）"""
 
 DEFAULT_TIMEOUT = 30.0
 """默认调用超时（秒）"""

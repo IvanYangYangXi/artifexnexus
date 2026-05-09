@@ -52,7 +52,7 @@ result = install_gateway_mcp_bridge()
           "servers": {
             "blender-editor": {
               "type": "websocket",
-              "url": "ws://127.0.0.1:8083",
+              "url": "ws://127.0.0.1:18083",
               "enabled": true
             }
           }

@@ -62,7 +62,7 @@ def _get_mcp_server():
     global _mcp_server
     if _mcp_server is None:
         from blender_addon.mcp_server import MCPServer
-        _mcp_server = MCPServer(port=8083)
+        _mcp_server = MCPServer(port=18083)
     return _mcp_server
 
 

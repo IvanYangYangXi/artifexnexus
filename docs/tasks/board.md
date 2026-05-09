@@ -20,6 +20,7 @@ tags:
 ## Ready
 
 - [ ] [[STORY-0025-e2e-smoke-test]]
+- [ ] [[STORY-0029-dcc-port-settings]]
 
 ## In Progress
 
