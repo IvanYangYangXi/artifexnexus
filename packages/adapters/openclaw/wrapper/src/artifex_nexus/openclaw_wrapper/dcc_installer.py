@@ -707,7 +707,9 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
         changed = True
 
     # 确保 plugins.allow 包含 "mcp-bridge"
-    allow: list = config["plugins"].get("allow", [])
+    allow = config["plugins"].get("allow")
+    if not isinstance(allow, list):
+        allow = []
     if "mcp-bridge" not in allow:
         allow.append("mcp-bridge")
         config["plugins"]["allow"] = allow
