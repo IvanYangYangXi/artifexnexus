@@ -10,6 +10,16 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
+- [ ] [[STORY-0031-m3-ui-tokens-components]]
+- [ ] [[STORY-0032-m3-ui-global-layout]]
+- [ ] [[STORY-0033-m3-ui-b-sidebar]]
+- [ ] [[STORY-0034-m3-ui-chat-module]]
+- [ ] [[STORY-0035-m3-ui-skills-tools]]
+- [ ] [[STORY-0036-m3-ui-system-module]]
+- [ ] [[STORY-0037-m3-ui-settings-right-panel]]
+- [ ] [[STORY-0038-m3-ui-desktop-embed]]
+- [ ] [[STORY-0039-m3-func-chat-api]]
+- [ ] [[STORY-0040-m3-func-modules-api]]
 - [ ] [[EPIC-0004-m4-skill-system]]
 - [ ] [[EPIC-0005-m5-tool-system]]
 - [ ] [[EPIC-0006-m6-memory-system]]
@@ -17,9 +27,10 @@ tags:
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
 
+
 ## Ready
 
-- [ ] [[STORY-0025-e2e-smoke-test]]
+
 
 ## In Progress
 
@@ -27,16 +38,18 @@ tags:
 
 ## Review
 
-- [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
-- [ ] [[STORY-0013-openclaw-status-ui]]
-- [ ] [[STORY-0012-openclaw-port-conflict]]
-- [ ] [[STORY-0011-openclaw-health-check]]
-- [ ] [[STORY-0010-openclaw-runtime-spawn]]
-- [ ] [[STORY-0009-openclaw-bootstrap-config]]
-- [ ] [[STORY-0008-thin-wrapper-installer]]
+
 
 ## Done
 
+- [ ] [[STORY-0025-e2e-smoke-test]]
+- [ ] [[STORY-0008-thin-wrapper-installer]]
+- [ ] [[STORY-0009-openclaw-bootstrap-config]]
+- [ ] [[STORY-0010-openclaw-runtime-spawn]]
+- [ ] [[STORY-0011-openclaw-health-check]]
+- [ ] [[STORY-0012-openclaw-port-conflict]]
+- [ ] [[STORY-0013-openclaw-status-ui]]
+- [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
 - [x] [[EPIC-0002-m2-blender-mcp-e2e]]
 - [x] [[STORY-0030-deploy-validation-on-detect]]
 - [x] [[STORY-0029-dcc-port-settings]]
