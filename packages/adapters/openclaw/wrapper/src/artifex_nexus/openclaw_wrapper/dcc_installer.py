@@ -614,11 +614,21 @@ def _get_gateway_plugin_src_dir() -> Path:
 
 
 def _get_openclaw_plugins_dir() -> Path:
-    """获取 OpenClaw extensions 目录（OpenClaw 插件扫描此目录）"""
+    """获取 OpenClaw 内置 extensions 目录（OpenClaw 扫描此目录加载插件）"""
     openclaw_home = os.environ.get(
         "OPENCLAW_HOME",
         os.path.join(os.path.expanduser("~"), ".openclaw"),
     )
+    # OpenClaw 内置插件在 cli/{version}/node_modules/openclaw/dist/extensions/
+    # 需要找到当前使用的版本目录
+    cli_dir = Path(openclaw_home) / "cli"
+    if cli_dir.exists():
+        for entry in sorted(cli_dir.iterdir(), reverse=True):
+            if entry.is_dir() and entry.name.startswith("v"):
+                bundled = entry / "node_modules" / "openclaw" / "dist" / "extensions"
+                if bundled.exists():
+                    return bundled
+    # fallback
     return Path(openclaw_home) / "extensions"
 
 
