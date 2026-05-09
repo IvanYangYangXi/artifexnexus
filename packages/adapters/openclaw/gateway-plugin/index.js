@@ -398,3 +398,6 @@ function default_1(api) {
         },
     };
 }
+// CommonJS 兼容：确保 module.exports 直接是函数
+// （OpenClaw 插件系统期望 module.exports = fn，而非 { default: fn }）
+module.exports = exports.default;
