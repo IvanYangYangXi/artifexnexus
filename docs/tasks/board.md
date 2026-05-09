@@ -27,16 +27,6 @@ tags:
 
 ## Review
 
-- [ ] [[STORY-0030-deploy-validation-on-detect]]
-- [ ] [[STORY-0029-dcc-port-settings]]
-- [ ] [[STORY-0028-gateway-mcp-bridge]]
-- [ ] [[../backlog/EPIC-0002-m2-blender-mcp-e2e]]
-- [ ] [[STORY-0027-installer-blender-real-logic]]
-- [ ] [[STORY-0026-dcc-installer-blender]]
-- [ ] [[STORY-0024-gateway-mcp-tool]]
-- [ ] [[STORY-0023-mcp-server-core]]
-- [ ] [[STORY-0022-blender-adapter-core]]
-- [ ] [[STORY-0021-blender-addon-scaffold]]
 - [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
 - [ ] [[STORY-0013-openclaw-status-ui]]
 - [ ] [[STORY-0012-openclaw-port-conflict]]
@@ -47,6 +37,17 @@ tags:
 
 ## Done
 
+- [x] [[EPIC-0002-m2-blender-mcp-e2e]]
+- [x] [[STORY-0030-deploy-validation-on-detect]]
+- [x] [[STORY-0029-dcc-port-settings]]
+- [x] [[STORY-0028-gateway-mcp-bridge]]
+- [x] [[STORY-0027-installer-blender-real-logic]]
+- [x] [[STORY-0026-dcc-installer-blender]]
+- [x] [[STORY-0025-e2e-smoke-test]]
+- [x] [[STORY-0024-gateway-mcp-tool]]
+- [x] [[STORY-0023-mcp-server-core]]
+- [x] [[STORY-0022-blender-adapter-core]]
+- [x] [[STORY-0021-blender-addon-scaffold]]
 - [x] [[EPIC-0000-m0-installer-wizard]]
 - [x] [[EPIC-0001-m1-onboarding-install]]
 - [x] [[STORY-0015-openclaw-settings-panel]]
