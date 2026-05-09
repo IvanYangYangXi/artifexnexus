@@ -98,6 +98,10 @@ impl FsLayout {
                 "ARTIFEX_NEXUS_PROJECT_ROOT".to_string(),
                 self.project_root.to_string_lossy().to_string(),
             ),
+            (
+                "OPENCLAW_BUNDLED_PLUGINS_DIR".to_string(),
+                self.openclaw_home.join("extensions").to_string_lossy().to_string(),
+            ),
         ]
     }
 }
