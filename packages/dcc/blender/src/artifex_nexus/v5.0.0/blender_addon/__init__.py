@@ -2,18 +2,13 @@
 Artifex Nexus Blender Addon — 侧栏面板 + MCP Server 生命周期管理
 ================================================================
 
-复刻自 artclaw_bridge/subprojects/DCCClawBridge/blender_addon.py，
-精简：去掉 Qt Bridge、事件拦截、Tool Manager 相关代码。
-
 在 Blender 侧栏（N 面板）提供：
   - 状态指示灯（红/绿）
   - 启动/停止按钮
   - 端口号显示
   - MCP Server 生命周期管理
 
-安装方式：
-  1. 将 packages/dcc/blender/src/artifex_nexus 放到 Blender addons 目录
-  2. 在 Blender 偏好设置中启用 "Artifex Nexus Bridge"
+addon 启用时自动启动 MCP Server，无需手动操作。
 
 CI 兼容：bpy 导入失败时（非 Blender 环境），仅暴露子模块供测试导入。
 """
@@ -40,10 +35,10 @@ bl_info = {
 }
 
 # ── 路径注入 ────────────────────────────────────────────────────────────
+# 确保当前 addon 目录在 sys.path 中，以便相对导入 mcp_server 等同级模块
 _addon_dir = Path(__file__).parent
-_src_dir = _addon_dir.parent  # packages/dcc/blender/src/artifex_nexus
-if str(_src_dir) not in sys.path:
-    sys.path.insert(0, str(_src_dir))
+if str(_addon_dir) not in sys.path:
+    sys.path.insert(0, str(_addon_dir))
 
 # ── bpy 导入（CI 环境无 bpy，跳过 Blender 特有代码）────────────────────
 try:
@@ -61,7 +56,7 @@ def _get_mcp_server():
     """延迟导入 MCPServer，避免循环依赖"""
     global _mcp_server
     if _mcp_server is None:
-        from blender_addon.mcp_server import MCPServer
+        from mcp_server import MCPServer
         _mcp_server = MCPServer(port=18083)
     return _mcp_server
 
@@ -70,9 +65,35 @@ def _get_adapter():
     """延迟导入 BlenderAdapter"""
     global _adapter
     if _adapter is None:
-        from blender_addon.blender_adapter import BlenderAdapter
+        from blender_adapter import BlenderAdapter
         _adapter = BlenderAdapter()
     return _adapter
+
+
+def _auto_start_server():
+    """自动启动 MCP Server（addon 启用时调用）"""
+    try:
+        server = _get_mcp_server()
+        adapter = _get_adapter()
+
+        if server.is_running:
+            logger.info("MCP Server 已在运行，跳过自动启动")
+            return
+
+        from mcp_server import register_builtin_tools
+        register_builtin_tools(server, adapter)
+        server.set_adapter(adapter)
+
+        if server.start():
+            logger.info(f"Artifex Nexus MCP Server 自动启动成功 — 端口 {server.actual_port}")
+            print(f"[Artifex Nexus] MCP Server 已启动: ws://127.0.0.1:{server.actual_port}")
+        else:
+            logger.error("MCP Server 自动启动失败")
+            print("[Artifex Nexus] MCP Server 自动启动失败")
+
+    except Exception as e:
+        logger.error(f"MCP Server 自动启动异常: {e}")
+        print(f"[Artifex Nexus] MCP Server 自动启动异常: {e}")
 
 
 # ── Blender 特有代码（仅在 bpy 可用时定义）─────────────────────────────
@@ -95,12 +116,10 @@ if _HAS_BPY:
             row = layout.row(align=True)
             if server.is_running:
                 row.alert = False
-                row.label(text="●", icon="PLAY")
-                row.label(text="运行中")
+                row.label(text="MCP Server 运行中", icon="PLAY")
             else:
                 row.alert = True
-                row.label(text="●", icon="PAUSE")
-                row.label(text="已停止")
+                row.label(text="MCP Server 已停止", icon="PAUSE")
 
             # ── 端口信息 ──
             if server.is_running and server.actual_port:
@@ -112,14 +131,13 @@ if _HAS_BPY:
             # ── 启动/停止按钮 ──
             row = layout.row(align=True)
             if server.is_running:
-                row.operator("artifex.stop_server", text="停止", icon="CANCEL")
+                row.operator("artifex.stop_server", text="停止 MCP Server", icon="CANCEL")
             else:
-                row.operator("artifex.start_server", text="启动", icon="PLAY")
+                row.operator("artifex.start_server", text="启动 MCP Server", icon="PLAY")
 
             # ── 信息 ──
             layout.separator()
-            layout.label(text="MCP Bridge v0.1.0")
-            layout.label(text="AI 驱动的 Blender 操作")
+            layout.label(text="Artifex Nexus MCP Bridge v5.0.0")
 
 
     class ARTIFEX_OT_StartServer(bpy.types.Operator):
@@ -137,7 +155,7 @@ if _HAS_BPY:
                 return {"FINISHED"}
 
             try:
-                from blender_addon.mcp_server import register_builtin_tools
+                from mcp_server import register_builtin_tools
                 register_builtin_tools(server, adapter)
                 server.set_adapter(adapter)
 
@@ -193,10 +211,13 @@ if _HAS_BPY:
 
 
     def register():
-        """Blender addon 注册入口"""
+        """Blender addon 注册入口 — 注册完成后自动启动 MCP Server"""
         for cls in _classes:
             bpy.utils.register_class(cls)
         logger.info("Artifex Nexus Blender addon registered")
+
+        # 自动启动 MCP Server
+        _auto_start_server()
 
 
     def unregister():
@@ -206,6 +227,7 @@ if _HAS_BPY:
         if _mcp_server is not None and _mcp_server.is_running:
             try:
                 _mcp_server.stop()
+                logger.info("MCP Server 已随 addon 禁用自动停止")
             except Exception as e:
                 logger.error(f"Error stopping MCP Server during unregister: {e}")
 

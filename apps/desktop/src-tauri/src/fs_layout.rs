@@ -173,11 +173,13 @@ mod tests {
     fn test_sidecar_env() {
         let layout = FsLayout::new();
         let env = layout.sidecar_env_strings();
-        assert_eq!(env.len(), 5);
+        assert_eq!(env.len(), 7);
         assert_eq!(env[0].0, "OPENCLAW_HOME");
         assert_eq!(env[1].0, "OPENCLAW_STATE_DIR");
         assert_eq!(env[2].0, "OPENCLAW_CONFIG_PATH");
         assert_eq!(env[3].0, "OPENCLAW_NO_ONBOARD");
         assert_eq!(env[4].0, "ARTIFEX_NEXUS_HOME");
+        assert_eq!(env[5].0, "ARTIFEX_NEXUS_PROJECT_ROOT");
+        assert_eq!(env[6].0, "OPENCLAW_BUNDLED_PLUGINS_DIR");
     }
 }

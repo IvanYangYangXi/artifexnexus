@@ -39,10 +39,8 @@ _ADDON_DIR_PREFIX = "artifex_nexus"
 
 
 def _get_addon_dir_name() -> str:
-    """获取插件目录名（含版本号），如 artfex_nexus_v0.1.0"""
-    info = get_addon_info()
-    ver = ".".join(str(x) for x in info.get("version", (0, 1, 0)))
-    return f"{_ADDON_DIR_PREFIX}_v{ver}"
+    """获取插件目录名（固定名，不含版本号以避免 Python import 点号问题）"""
+    return _ADDON_DIR_PREFIX
 
 
 def set_addon_src_dir(path: str) -> None:
@@ -70,6 +68,11 @@ def _get_addon_src_dir() -> Path:
         if base.exists():
             for entry in sorted(base.iterdir(), reverse=True):
                 if entry.is_dir() and entry.name.startswith("v"):
+                    # Blender addon 在 vX.Y.Z/blender_addon/ 子目录中
+                    addon_dir = entry / "blender_addon"
+                    if addon_dir.exists():
+                        logger.info(f"DCC 安装器: 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {addon_dir}")
+                        return addon_dir
                     logger.info(f"DCC 安装器: 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {entry}")
                     return entry
         raise RuntimeError(
@@ -85,6 +88,11 @@ def _get_addon_src_dir() -> Path:
     if base.exists():
         for entry in sorted(base.iterdir(), reverse=True):
             if entry.is_dir() and entry.name.startswith("v"):
+                # Blender addon 在 vX.Y.Z/blender_addon/ 子目录中
+                addon_dir = entry / "blender_addon"
+                if addon_dir.exists():
+                    logger.info(f"DCC 安装器: 通过相对路径定位插件源目录 = {addon_dir}")
+                    return addon_dir
                 logger.info(f"DCC 安装器: 通过相对路径定位插件源目录 = {entry}")
                 return entry
 
@@ -634,11 +642,17 @@ def _get_openclaw_plugins_dir() -> Path:
 
 def install_gateway_mcp_bridge() -> Dict:
     """
-    部署 mcp-bridge 插件到 OpenClaw plugins 目录 + patch openclaw.json 配置。
+    部署 mcp-bridge 插件到 OpenClaw bundled extensions 目录 + patch 配置 + 刷注册表。
 
-    1. junction/symlink gateway-plugin/ → OPENCLAW_HOME/plugins/mcp-bridge/
+    Deploy mcp-bridge plugin to OpenClaw's bundled extensions directory,
+    patch openclaw.json config, and refresh the plugin registry.
+
+    安装步骤：
+    1. 物理拷贝 gateway-plugin/ → dist/extensions/mcp-bridge/（不用 junction/symlink，
+       因为 OpenClaw discovery 会 realpath 解析，跨卷 junction 导致路径逃逸被拒绝）
     2. 确保 openclaw.json 中 plugins.entries.mcp-bridge 已配置
     3. 确保 openclaw.json 中 plugins.allow 包含 "mcp-bridge"
+    4. 执行 `openclaw plugins registry --refresh` 更新注册表缓存
 
     Returns:
         {"success": bool, "method": str, "target": str, "error": str|None}
@@ -660,24 +674,31 @@ def install_gateway_mcp_bridge() -> Dict:
     # 确保 plugins 目录存在
     os.makedirs(str(plugins_dir), exist_ok=True)
 
-    # 清理已有安装
+    # 清理已有安装（junction/symlink/旧目录）
     if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
         _remove_link_or_dir(target_dir)
 
-    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
-
-    if method is None:
+    # 强制使用物理拷贝（不用 junction/symlink）。
+    # 原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
+    # 跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝。
+    try:
+        shutil.copytree(src_dir, target_dir)
+        method = "copy"
+    except Exception as e:
         return {
             "success": False,
             "method": None,
             "target": target_dir,
-            "error": f"无法部署插件: {err_detail}",
+            "error": f"复制插件文件失败: {e}",
         }
 
     logger.info(f"mcp-bridge 插件部署成功 ({method}): {target_dir}")
 
     # Patch openclaw.json：确保 plugins.entries.mcp-bridge 和 plugins.allow 已配置
     _patch_openclaw_config_for_mcp_bridge()
+
+    # 刷新注册表缓存：让 Gateway 下次启动时能正确发现 mcp-bridge
+    _refresh_plugin_registry()
 
     return {
         "success": True,
@@ -716,11 +737,10 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
         config["plugins"] = {}
         changed = True
 
-    # 确保 plugins.allow 包含 "mcp-bridge"
+    # 确保 plugins.allow 包含 "mcp-bridge"（仅当 allow 列表已存在时追加，
+    # 避免凭空创建一个只含 mcp-bridge 的 allow 列表导致其他插件被排除）
     allow = config["plugins"].get("allow")
-    if not isinstance(allow, list):
-        allow = []
-    if "mcp-bridge" not in allow:
+    if isinstance(allow, list) and "mcp-bridge" not in allow:
         allow.append("mcp-bridge")
         config["plugins"]["allow"] = allow
         changed = True
@@ -759,10 +779,60 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
             logger.error(f"写入 openclaw.json 失败: {e}")
 
 
+def _refresh_plugin_registry() -> None:
+    """执行 `openclaw plugins registry --refresh` 更新注册表缓存。
+
+    Run `openclaw plugins registry --refresh` to update the installs.json
+    cache so Gateway can discover newly deployed plugins on next start.
+
+    Best-effort：失败不阻断安装流程。
+    """
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".openclaw"),
+    )
+    # 查找 openclaw CLI
+    cli_dir = Path(openclaw_home) / "cli"
+    openclaw_bin = None
+    if cli_dir.exists():
+        for entry in sorted(cli_dir.iterdir(), reverse=True):
+            if entry.is_dir() and entry.name.startswith("v"):
+                candidate = entry / "openclaw.cmd"
+                if candidate.exists():
+                    openclaw_bin = str(candidate)
+                    break
+
+    if not openclaw_bin:
+        logger.warning("未找到 openclaw CLI，跳过 registry refresh")
+        return
+
+    env = os.environ.copy()
+    env["OPENCLAW_HOME"] = openclaw_home
+    env["OPENCLAW_STATE_DIR"] = str(Path(openclaw_home) / "state")
+    env["OPENCLAW_CONFIG_PATH"] = str(Path(openclaw_home) / "openclaw.json")
+    env["OPENCLAW_NO_ONBOARD"] = "1"
+
+    try:
+        result = subprocess.run(
+            [openclaw_bin, "plugins", "registry", "--refresh"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            logger.info(f"registry refresh 成功: {result.stdout.strip()}")
+        else:
+            logger.warning(f"registry refresh 非零退出 ({result.returncode}): {result.stderr.strip()}")
+    except Exception as e:
+        logger.warning(f"registry refresh 失败: {e}")
+
+
 def is_gateway_mcp_bridge_installed() -> bool:
-    """检查 mcp-bridge 插件是否已部署"""
-    target_dir = str(_get_openclaw_plugins_dir() / "mcp-bridge")
-    return os.path.exists(target_dir) or _is_junction_or_symlink(target_dir)
+    """检查 mcp-bridge 插件是否已正确部署（目录存在且含 manifest）"""
+    target_dir = _get_openclaw_plugins_dir() / "mcp-bridge"
+    manifest = target_dir / "openclaw.plugin.json"
+    return manifest.exists()
 
 
 def uninstall_gateway_mcp_bridge() -> Dict:

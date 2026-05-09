@@ -441,7 +441,15 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             }>("openclaw_gateway_mcp_bridge_install");
             if (bridgeResult.success) {
               addLog(item.id, "info", `MCP Bridge 插件部署成功 (${bridgeResult.method})`);
-              addLog(item.id, "warn", "⚠️ 请重启 Gateway 使 MCP Bridge 生效（状态页 → 停止 → 启动）");
+              // 自动重启 Gateway 加载新插件
+              try {
+                addLog(item.id, "info", "正在重启 Gateway 加载 MCP Bridge…");
+                const { restartGateway } = await import("../../ipc/openclaw");
+                await restartGateway();
+                addLog(item.id, "info", "Gateway 已重启，MCP Bridge 已生效");
+              } catch (restartErr) {
+                addLog(item.id, "warn", "⚠️ Gateway 重启失败，请手动重启（状态页 → 停止 → 启动）");
+              }
             } else {
               addLog(item.id, "error", `MCP Bridge 插件部署失败: ${bridgeResult.error}`);
               dispatch({

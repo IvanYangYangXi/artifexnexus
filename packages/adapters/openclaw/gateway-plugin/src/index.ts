@@ -344,7 +344,7 @@ export default function (api: PluginAPI) {
     const fs = require("node:fs");
     const path = require("node:path");
     const os = require("node:os");
-    const cfgPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
+    const cfgPath = process.env.OPENCLAW_CONFIG_PATH || path.join(process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw"), "openclaw.json");
     const raw = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
     pluginConfig =
       (raw?.plugins?.entries?.["mcp-bridge"]?.config as Record<string, unknown>) || {};

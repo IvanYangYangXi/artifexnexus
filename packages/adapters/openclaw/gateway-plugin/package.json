@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw/mcp-bridge",
+  "version": "5.0.0",
+  "private": true,
+  "description": "Bridge external MCP servers (WebSocket) into OpenClaw agent tools",
+  "type": "commonjs",
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

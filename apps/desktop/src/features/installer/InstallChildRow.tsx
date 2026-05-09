@@ -165,7 +165,15 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
               return;
             }
             addLog(parentId, "info", `[${child.label}] MCP Bridge 部署成功 (${bridgeResult.method})`);
-            addLog(parentId, "warn", `[${child.label}] ⚠️ 请重启 Gateway 使 MCP Bridge 生效`);
+            // 自动重启 Gateway 加载新插件
+            try {
+              addLog(parentId, "info", `[${child.label}] 正在重启 Gateway 加载 MCP Bridge…`);
+              const { restartGateway } = await import("../../ipc/openclaw");
+              await restartGateway();
+              addLog(parentId, "info", `[${child.label}] Gateway 已重启，MCP Bridge 已生效`);
+            } catch {
+              addLog(parentId, "warn", `[${child.label}] ⚠️ Gateway 重启失败，请手动重启`);
+            }
           }
 
           addLog(parentId, "info", `[${child.label}] 正在安装插件到 ${child.version}（目标: ${child.installPath || "自动计算"}）…`);
