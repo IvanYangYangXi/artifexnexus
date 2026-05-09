@@ -43,6 +43,28 @@ AI Agent 可调用 Blender 操作
    - 因为 addon 目录通过 `sys.path.insert` 加入搜索路径后直接 import
    - `from .base_adapter import ...` → `from base_adapter import ...`
 
+6. **`contracts.tools` 必须预声明工具名（v2026.5.4 新增）**
+   - `openclaw.plugin.json` 中 `contracts.tools: []`（空数组）= 静默拒绝所有 `registerTool()` 调用
+   - 必须精确列出工具名，不支持通配符（内部使用 `Set.has()` 精确匹配）
+   - 示例：`"contracts": {"tools": ["mcp_blender-editor_run_python", "mcp_blender-editor_get_context"]}`
+
+7. **插件入口函数必须同步（v2026.5.4 的 `runPluginRegisterSync` 铁律）**
+   - `async function(api)` → 直接 throw `"plugin register must be synchronous"`
+   - `guarded.close()` 在 register 返回后立即执行，之后的 `registerTool()` 全部无效
+   - 正确模式：同步 `function(api)` + 预注册静态工具定义 + 后台异步连接
+
+8. **不能使用 Agent 的 `tools.allow` 排他性过滤**
+   - `agents.list[].tools.allow` 是排他白名单，匹配 0 个工具时直接报错 `No callable tools remain`
+   - 由于工具注册与 session 创建存在时序竞态，应完全移除 `tools` 字段
+
+9. **注册表缓存必须手动刷新**
+   - 修改 `openclaw.plugin.json` 后必须执行 `openclaw plugins registry --refresh`
+   - 否则 Gateway 使用旧 `manifestHash` 对应的 contracts → 新声明的工具仍被拒绝
+
+10. **`gateway.port` 必须与实际启动端口一致**
+    - `openclaw.json` 中 `gateway.port` 值被 `openclaw dashboard` 等命令用于生成 Web UI URL
+    - Tauri app 用 `--port 19789` 覆盖实际端口时，配置文件也要同步更新
+
 ---
 
 ## 2. 当前状态（改动总览）
@@ -52,10 +74,11 @@ AI Agent 可调用 Blender 操作
 |------|---------|
 | `packages/dcc/blender/src/artifex_nexus/v5.0.0/blender_addon/__init__.py` | 修复导入；addon 启用自动启动 MCP Server |
 | `packages/dcc/blender/src/artifex_nexus/v5.0.0/blender_addon/blender_adapter.py` | 相对导入 → 绝对导入 |
-| `packages/adapters/openclaw/gateway-plugin/openclaw.plugin.json` | 添加 activation + contracts |
-| `packages/adapters/openclaw/gateway-plugin/src/index.ts` | 配置路径用 env |
-| `packages/adapters/openclaw/gateway-plugin/index.js` | 同上（编译产物） |
+| `packages/adapters/openclaw/gateway-plugin/openclaw.plugin.json` | 添加 activation + contracts.tools 精确工具名声明 |
+| `packages/adapters/openclaw/gateway-plugin/src/index.ts` | 配置路径用 env；改为同步入口 + 预注册静态工具定义 + 后台异步连接 |
+| `packages/adapters/openclaw/gateway-plugin/index.js` | 同上（esbuild CJS bundle 编译产物） |
 | `packages/adapters/openclaw/wrapper/.../dcc_installer.py` | junction→copy；目录名去版本号；src 指向 blender_addon/；新增 registry refresh |
+| `packages/adapters/openclaw/wrapper/.../assets/agents/artifex-nexus.preset.json.tpl` | 移除 `tools.allow` 排他性过滤 |
 | `apps/desktop/src-tauri/src/fs_layout.rs` | test 断言数量 5→7 |
 | `apps/desktop/src/features/installer/InstallItemRow.tsx` | mcp-bridge 安装后自动 restartGateway |
 | `apps/desktop/src/features/installer/InstallChildRow.tsx` | 同上 |

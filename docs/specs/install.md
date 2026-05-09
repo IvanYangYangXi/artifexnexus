@@ -15,8 +15,7 @@ status: draft
 ├── .openclaw/                                # OpenClaw 隔离安装（薄壳模式，调用上游 install-cli.sh）
 │   ├── cli/                                  # 按版本分目录安装
 │   │   └── v2026.5.4/
-│   ├── extensions/
-│   │   └── artifex-nexus-mcp-bridge/         # symlink → 源码 packages/.../gateway-plugin/dist/
+│   ├── extensions/                           # （不再使用，旧 junction/symlink 目录已清理）
 │   ├── workspace/
 │   │   └── skills/                           # Skill 已安装目录（由 SkillInstaller 管理版本）
 │   └── openclaw.json                         # OpenClaw 自身配置
@@ -31,17 +30,16 @@ status: draft
 
 | 模式 | 命令 | 适用 | 行为 |
 |------|------|------|------|
-| **link** | `artifex install --link` | 开发者 | 写入 `artifexnexus.json.source_path = <repo>`；运行时 sys.path 引用源码；Blender addon / Gateway 插件用 symlink；UE 仍 copy |
-| **copy** | `artifex install --copy` | 终端用户/发布 | 全部 copy 到 `~/.artifexnexus/`，独立稳定 |
+| **copy** | `artifex install` | 终端用户/发布/开发者 | 全部 copy 到 `~/.artifexnexus/`，独立稳定。Gateway 插件部署到 `dist/extensions/mcp-bridge/`；DCC addon 物理拷贝到各 DCC 的 addons 目录 |
 
 ## 3. 各组件部署策略
 
 | 组件 | 引用方式 | 原因 |
 |------|---------|------|
 | Python 包（core / skill / contracts / openclaw uplink） | **配置 + sys.path** | Python 天然支持，无需文件系统改动 |
-| OpenClaw Gateway 插件 | **symlink** 到 `~/.artifexnexus/.openclaw/extensions/` | OpenClaw 主动扫描该目录 |
-| Blender addon | **symlink** 到 Blender 的 `addons/`（详见 [[dcc-plugin-management]]） | Blender 主动扫描 |
-| UE 插件 | **copy** 到 `<Project>/Plugins/ArtifexNexusForUnreal/` | UE 路径敏感、编译产物多，symlink 在 Win 上易失败 |
+| OpenClaw Gateway 插件 | **copy** 到 `<OPENCLAW_HOME>/cli/{version}/node_modules/openclaw/dist/extensions/mcp-bridge/` | OpenClaw v2026.5.4 的 `fs.realpathSync` 安全检查不兼容 junction/symlink |
+| Blender addon | **copy** 到 Blender 的 `addons/artifex_nexus/`（详见 [[dcc-plugin-management]]） | 同上；统一 copy 模型 |
+| UE 插件 | **copy** 到 `<Project>/Plugins/ArtifexNexusForUnreal/` | UE 路径敏感、编译产物多 |
 | Skill 包 | **copy + 版本管理** 到 `~/.artifexnexus/.openclaw/workspace/skills/` | OpenClaw 平台规则；保证 Gateway 看到的版本与 SkillInstaller 注册的一致 |
 | OpenClaw 本身 | **薄壳安装** → `~/.artifexnexus/.openclaw/cli/<version>/` | 调用上游 install-cli.sh，按版本隔离 |
 

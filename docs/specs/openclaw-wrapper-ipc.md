@@ -20,7 +20,7 @@ status: draft
 │  Rust（apps/desktop/src-tauri/）          │
 │  · 子进程 spawn / kill / 重启             │
 │  · 端口探测（bind→close）                 │
-│  · UE plugin copy / Blender symlink       │
+│  · UE plugin copy / Blender copy          │
 │  · 单实例锁、原生通知                     │
 └────────────────┬─────────────────────────┘
                  │ stdio JSON-RPC 2.0（常驻 sidecar）
@@ -46,7 +46,7 @@ status: draft
 |---|---|---|
 | 子进程 spawn / kill / 重启 | **Rust** | Tauri 强项，跨平台稳 |
 | 端口绑定探测（bind→close） | **Rust** | 系统调用，必须 Rust |
-| UE plugin copy / Blender symlink | **Rust** | 跨平台 fs 行为差异大 |
+| UE plugin copy / Blender copy | **Rust** | 跨平台 fs 行为差异大 |
 | 单实例锁 (`run/app.lock`) | **Rust** | 同上 |
 | 原生通知（toast / SmartScreen 等） | **Rust** | 必须原生 API |
 | 配置读写、schema 校验 | **Python** | 与 CLI 复用 |

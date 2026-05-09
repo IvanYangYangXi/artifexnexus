@@ -7,7 +7,12 @@
     "onStartup": true
   },
   "contracts": {
-    "tools": []
+    "tools": [
+      "mcp_blender-editor_run_python",
+      "mcp_blender-editor_get_context",
+      "mcp_maya-primary_run_python",
+      "mcp_unreal-editor_run_python"
+    ]
   },
   "configSchema": {
     "type": "object",

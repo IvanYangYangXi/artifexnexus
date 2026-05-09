@@ -6,13 +6,14 @@ dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
   - 只保留 Blender 相关逻辑
   - 去掉 Houdini / SP / SD / ComfyUI
   - 去掉 Skill 安装 / Python 依赖安装（M4 再做）
-  - 保留 junction/symlink 优先 + fallback 复制
+  - 统一使用物理拷贝（copy），弃用 junction/symlink（2026-05-09 决策变更）
 
 设计：
   - find_blender_versions() → 扫描本机已安装版本
-  - install_blender_addon(version) → junction/symlink 安装
-  - uninstall_blender_addon(version) → 删除链接
+  - install_dcc_addon(dcc, version) → 物理拷贝安装
+  - uninstall_dcc_addon(dcc, version) → 删除目录
   - get_addon_info() → 读取 bl_info 获取兼容版本范围
+  - install_gateway_mcp_bridge() → 部署 mcp-bridge 插件到 OpenClaw extensions
 """
 
 from __future__ import annotations
@@ -196,9 +197,17 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
         _remove_link_or_dir(target_dir)
 
-    method, err_detail = _link_or_copy_dir(src_dir, target_dir)
-    if method is None:
-        return {"success": False, "method": None, "target": target_dir, "error": f"无法创建链接或复制目录: {err_detail}"}
+    # 强制使用物理拷贝（不用 junction/symlink）。
+    # 原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
+    # 跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝。
+    # 物理拷贝更稳健且避免跨卷问题。（决策变更 2026-05-09）
+    try:
+        shutil.copytree(src_dir, target_dir)
+        method = "copy"
+    except Exception as e:
+        err_detail = str(e)
+        logger.error(f"安装 {dcc} 插件失败: copy 失败: {err_detail}")
+        return {"success": False, "method": None, "target": target_dir, "error": f"复制目录失败: {err_detail}"}
 
     logger.info(f"{dcc} {dcc_version} 插件安装成功 ({method})")
     return {"success": True, "method": method, "target": target_dir, "error": None}
@@ -557,7 +566,13 @@ def _try_symlink_dir(src: str, dst: str) -> Tuple[bool, str]:
 
 def _link_or_copy_dir(src: str, dst: str) -> Tuple[Optional[str], str]:
     """
-    创建目录引用（优先 junction/symlink，fallback 复制）。
+    [DEPRECATED] 创建目录引用（优先 junction/symlink，fallback 复制）。
+
+    .. deprecated:: 5.0.0
+        全面弃用 junction/symlink，统一使用 shutil.copytree()。
+        原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
+        跨卷 junction 导致路径逃逸被 trusted-root 安全检查拒绝。
+        此函数保留仅为向后兼容参考，不再有调用方。
 
     Returns:
         (method, error_message)

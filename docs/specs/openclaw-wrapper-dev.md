@@ -23,7 +23,7 @@ apps/
     │   │   ├── commands/         # Tauri Command：暴露给前端
     │   │   ├── sidecar/          # 与 Python sidecar 的 stdio JSON-RPC 客户端
     │   │   ├── ports/            # 端口探测（bind→close→真实占用）
-    │   │   └── fs_layout/        # ~/.artifexnexus/ 目录生成、UE copy、Blender symlink
+    │   │   └── fs_layout/        # ~/.artifexnexus/ 目录生成、UE copy、Blender copy
     │   └── tauri.conf.json
     ├── src/                      # 前端（React）
     │   ├── routes/

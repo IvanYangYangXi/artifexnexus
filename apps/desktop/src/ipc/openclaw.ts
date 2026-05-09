@@ -427,7 +427,7 @@ export interface BlenderDetectResult {
 /** openclaw.dcc.blender.install 返回 */
 export interface BlenderInstallResult {
   success: boolean;
-  method: "junction" | "symlink" | "copy" | null;
+  method: "copy" | null;
   target: string;
   error: string | null;
 }

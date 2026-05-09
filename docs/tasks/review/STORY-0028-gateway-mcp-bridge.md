@@ -23,12 +23,13 @@ tags: [story, mcp, gateway, bridge, blender, M2]
 ## 验收标准
 - [x] 复刻 artclaw `platforms/openclaw/gateway/index.ts` 的 mcp-bridge 插件
 - [x] 支持 WebSocket 连接 Blender MCP Server
-- [x] 自动 tools/list → 注册到 OpenClaw agent tools
-- [x] 支持 late discovery（Blender 后启动也能自动发现）
+- [x] 同步预注册工具定义 + 后台异步连接（适配 v2026.5.4 同步约束）
+- [x] 支持 late discovery（Blender 后启动 → 重连后 execute 可用）
 - [x] 工具命名：`mcp_{server-name}_{tool-name}`（如 `mcp_blender-editor_run_python`）
 - [x] bootstrap 时自动写入 `plugins.entries.mcp-bridge` 配置
-- [x] Agent preset 的 `tools.allow` 添加 `mcp_blender-editor_*`
+- [x] `contracts.tools` 精确声明工具名（v2026.5.4 强制要求）
 - [x] 安装 Blender 插件时自动写入 `mcp-bridge.config.servers.blender-editor`
+- [x] ~~Agent preset 的 `tools.allow`~~ → 已移除（排他性过滤导致竞态阻断）
 
 ## 技术要点
 - 复刻 `artclaw_bridge/platforms/openclaw/gateway/index.ts`

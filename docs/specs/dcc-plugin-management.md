@@ -11,7 +11,7 @@ status: draft
 ## 1. 核心原则
 
 1. **版本隔离**：插件按版本分目录存储，不同版本互不覆盖
-2. **链接优先**：安装优先使用 junction/symlink，失败时 fallback 到复制
+2. **物理拷贝优先**：安装统一使用 copy 模式（OpenClaw v2026.5.4 的 trusted-root 安全检查不兼容 junction/symlink）
 3. **精确匹配**：插件声明兼容的 DCC 版本范围，安装时自动校验
 4. **统一接口**：所有 DCC 通过相同的 sidecar RPC 接口管理
 
@@ -83,33 +83,32 @@ packages/dcc/{dcc_name}/src/artifex_nexus/
 
 ```
 # Blender
-%APPDATA%/Blender Foundation/Blender/{dcc_version}/scripts/addons/artifex_nexus_v{addon_version}/
+%APPDATA%/Blender Foundation/Blender/{dcc_version}/scripts/addons/artifex_nexus/
 
 # Maya（M7 实现）
-~/Documents/maya/{dcc_version}/scripts/artifex_nexus_v{addon_version}/
+~/Documents/maya/{dcc_version}/scripts/artifex_nexus/
 
 # 3ds Max（M7 实现）
-%LOCALAPPDATA%/Autodesk/3dsMax/{dcc_version}/scripts/artifex_nexus_v{addon_version}/
+%LOCALAPPDATA%/Autodesk/3dsMax/{dcc_version}/scripts/artifex_nexus/
 ```
 
 **规则**：
-- 目标目录名 = `artifex_nexus_v{addon_version}`（如 `artifex_nexus_v5.0.0`）
-- 不同插件版本安装到不同目录，互不覆盖
-- 同一 DCC 版本可同时安装多个插件版本（但 Blender 只会加载一个）
+- 目标目录名 = `artifex_nexus`（固定名，不含版本号后缀，避免 Python 模块名包含点号导致 import 失败）
+- 同一 DCC 版本只保留一份插件安装（覆盖式更新）
 
 ## 4. 安装方式
 
-### 4.1 优先级
+### 4.1 统一使用物理拷贝（copy）
 
-```
-junction (Windows) > symlink > copy (fallback)
-```
+> **决策变更（2026-05-09）**：全面弃用 junction/symlink，统一使用 copy。
+>
+> **原因**：OpenClaw v2026.5.4 的插件 discovery 对 Gateway plugin 和 DCC addon 均做
+> `fs.realpathSync` / 安全沙箱检查，junction/symlink 导致路径解析逃逸 trusted-root。
+> 物理拷贝更稳健且避免跨卷问题。
 
-| 方式 | 平台 | 权限要求 | 优点 | 缺点 |
-|------|------|---------|------|------|
-| junction | Windows | 无 | 无需管理员，自动同步源码变更 | 仅目录，不可跨盘符 |
-| symlink | macOS/Linux | 无（开发者模式） | 自动同步 | Windows 需开发者模式 |
-| copy | 全平台 | 无 | 独立稳定 | 不自动同步 |
+| 方式 | 说明 |
+|------|------|
+| copy | 物理拷贝整个目录树。独立稳定，不受路径解析影响 |
 
 ### 4.2 安装流程
 
@@ -119,7 +118,7 @@ junction (Windows) > symlink > copy (fallback)
 3. 兼容 → 直接安装
 4. 不兼容 → 提示用户（force=True 可跳过）
 5. 清理旧安装 → 删除已有 junction/symlink/目录
-6. 创建链接 → junction → symlink → copy
+6. 物理拷贝 → shutil.copytree(src, target)
 7. 验证 → 检查目标目录存在且内容正确
 ```
 
@@ -168,8 +167,8 @@ junction (Windows) > symlink > copy (fallback)
 ```json
 {
   "success": true,
-  "method": "junction",
-  "target": "C:\\Users\\...\\addons\\artifex_nexus_v5.0.0",
+  "method": "copy",
+  "target": "C:\\Users\\...\\addons\\artifex_nexus",
   "error": null
 }
 ```
@@ -217,7 +216,7 @@ junction (Windows) > symlink > copy (fallback)
 | `label` | `{DCC名} {版本号}` | `Blender 5.1` |
 | `version` | 版本号 | `5.1` |
 | `installPath` | 自动计算的插件安装路径 | `%APPDATA%/.../5.1/scripts/addons/` |
-| `scriptPath` | 插件目录名 | `artifex_nexus_v5.0.0` |
+| `scriptPath` | 插件目录名 | `artifex_nexus` |
 | `projectPath` | UE 工程路径（仅 UE） | `D:\Projects\MyGame\` |
 
 ## 7. Gateway MCP Bridge 插件
@@ -236,18 +235,22 @@ junction (Windows) > symlink > copy (fallback)
 
 ```
 OpenClaw Agent
-  │ tools.allow: ["mcp_blender-editor_*", "mcp_maya-primary_*", ...]
+  │ （不设 tools.allow，使用所有已注册工具）
   ▼
 Gateway Plugin (mcp-bridge)
   │ plugins.entries.mcp-bridge.config.servers
-  │   blender-editor: ws://127.0.0.1:8083
-  │   maya-primary:   ws://127.0.0.1:8084
+  │   blender-editor: ws://127.0.0.1:18083
+  │   maya-primary:   ws://127.0.0.1:18084
   ▼
 DCC MCP Server (WebSocket)
   │ tools: [run_python]
   ▼
 DCC Adapter → DCC API
 ```
+
+> **重要**：v2026.5.4 要求插件在 `contracts.tools` 中精确声明工具名，
+> 且入口函数必须同步完成所有 `registerTool()` 调用。
+> 详见 `docs/sdk/mcp-bridge.md` "OpenClaw v2026.5.4 插件开发关键约束"。
 
 ### 7.3 配置格式
 
@@ -279,17 +282,22 @@ mcp_{server-name}_{tool-name}
 
 示例：
   mcp_blender-editor_run_python
+  mcp_blender-editor_get_context
   mcp_maya-primary_run_python
   mcp_max-primary_run_python
 ```
 
-Agent 通过通配符允许工具：`tools.allow: ["mcp_blender-editor_*"]`
+> 注意：不再使用 Agent 的 `tools.allow` 通配符过滤。
+> 原因：mcp-bridge 工具注册与 Agent session 创建存在时序竞态，
+> `tools.allow` 匹配失败时会直接阻断对话（`No callable tools remain`）。
 
 ### 7.5 部署方式
 
-- **源码**：`packages/adapters/openclaw/gateway-plugin/`（`index.ts` + `openclaw.plugin.json`）
+- **源码**：`packages/adapters/openclaw/gateway-plugin/`（`src/index.ts` + `openclaw.plugin.json`）
+- **编译**：esbuild CJS bundle → `index.js`
 - **目标**：`~/.artifexnexus/.openclaw/cli/{version}/node_modules/openclaw/dist/extensions/mcp-bridge/`
-- **方式**：junction/symlink 优先，fallback 复制
+- **方式**：**物理拷贝**（不使用 junction/symlink，原因同 §4.1）
+- **部署后**：必须执行 `openclaw plugins registry --refresh` 更新注册表缓存
 - **触发**：安装任意 DCC 插件时自动检查并部署（`install_gateway_mcp_bridge()`）
 
 ### 7.6 自动安装规则
@@ -307,17 +315,24 @@ Agent 通过通配符允许工具：`tools.allow: ["mcp_blender-editor_*"]`
 
 ### 7.7 新增 DCC Server
 
-在 `bootstrap.py` 的 `plugins.entries.mcp-bridge.config.servers` 中添加：
+在 `_patch_openclaw_config_for_mcp_bridge()` 的 `servers` 中添加：
 
 ```python
 "maya-primary": {
     "type": "websocket",
-    "url": "ws://127.0.0.1:8084",
+    "url": "ws://127.0.0.1:18084",
     "enabled": True,
 }
 ```
 
-同时在 agent preset 的 `tools.allow` 中添加 `mcp_maya-primary_*`。
+同时在 `openclaw.plugin.json` → `contracts.tools` 中添加工具名：
+```json
+"mcp_maya-primary_run_python"
+```
+
+并在 `index.ts` 的 `TOOL_DEFINITIONS` 中添加对应工具定义。
+
+> ⚠️ 不再需要修改 agent preset 的 `tools.allow`（已移除该字段）。
 
 ## 8. 扩展：新 DCC 接入清单
 
@@ -328,9 +343,11 @@ Agent 通过通配符允许工具：`tools.allow: ["mcp_blender-editor_*"]`
 3. **注册 RPC**：在 `sidecar.py` 的 METHOD_TABLE 中添加 `openclaw.dcc.{dcc}.*`
 4. **注册 Tauri command**：在 `commands/openclaw.rs` 中添加对应函数
 5. **更新安装向导**：在 `installer.fixtures.ts` 中添加 DCC 条目
-6. **注册 mcp-bridge server**：在 `bootstrap.py` 的 `servers` 中添加条目
-7. **更新 agent preset**：在 `tools.allow` 中添加 `mcp_{dcc}-*_*`
-8. **更新本文档**：补充 DCC 特定的目标路径
+6. **注册 mcp-bridge server**：在 `_patch_openclaw_config_for_mcp_bridge()` 的 `servers` 中添加条目
+7. **声明工具名**：在 `openclaw.plugin.json` → `contracts.tools` 中精确添加工具名
+8. **添加工具定义**：在 `index.ts` 的 `TOOL_DEFINITIONS` 中添加条目
+9. **刷新注册表**：部署后执行 `openclaw plugins registry --refresh`
+10. **更新本文档**：补充 DCC 特定的目标路径
 
 ## 9. 相关
 

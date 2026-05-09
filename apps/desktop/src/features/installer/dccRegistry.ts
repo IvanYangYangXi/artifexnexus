@@ -38,7 +38,7 @@ export interface DCCDetectResult {
 /** 安装结果 */
 export interface DCCInstallResult {
   success: boolean;
-  method: "junction" | "symlink" | "copy" | null;
+  method: "copy" | null;
   target: string;
   error: string | null;
 }

@@ -63,7 +63,7 @@ status: draft
 | M1 | 本组文档定稿 | 评审通过 |
 | M2 | Tauri 壳能拉起内嵌 OpenClaw（dev 模式） | 端口探测 + 状态面板 |
 | M3 | Win `.exe` / macOS `.dmg` 首个内部版 | 双击装 / 卸载干净 |
-| M4 | DCC 插件自动投放（UE copy / Blender symlink） | UE 5.7 + Blender 5.1 验证 |
+| M4 | DCC 插件自动投放（统一 copy 模式） | UE 5.7 + Blender 5.1 验证 |
 | M5 | 官方 Skill 预装 + 首启向导 | 新机零配置可用 |
 
 ## 相关

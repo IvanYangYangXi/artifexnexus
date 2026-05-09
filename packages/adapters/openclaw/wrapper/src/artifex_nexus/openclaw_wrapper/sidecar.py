@@ -730,7 +730,7 @@ def _handle_openclaw_dcc_blender_install(req_id: Any, params: dict) -> dict:
         force (bool, 可选): 是否跳过兼容性检查
 
     返回：
-        {"success": bool, "method": "junction"|"symlink"|"copy", "target": str, "error": str|None}
+        {"success": bool, "method": "copy", "target": str, "error": str|None}
     """
     version = params.get("version", "")
     force = bool(params.get("force", False))

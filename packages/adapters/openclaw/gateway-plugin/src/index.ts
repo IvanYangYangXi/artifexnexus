@@ -332,7 +332,15 @@ interface PluginAPI {
   }) => void;
 }
 
-/** @param api - OpenClaw Plugin SDK API */
+/** @param api - OpenClaw Plugin SDK API
+ *
+ * 重要：OpenClaw v2026.5.4 的 plugin loader 使用 runPluginRegisterSync()
+ * 调用入口函数——不支持 async，不 await Promise。
+ * 因此入口必须是**同步函数**，且所有 registerTool() 必须在同步返回前完成。
+ *
+ * 策略：在同步阶段立即注册 contracts.tools 中声明的所有工具（execute 内部
+ * 检查连接状态），WebSocket 连接放后台异步 fire-and-forget。
+ */
 export default function (api: PluginAPI) {
   const logger = api.log || console;
   const clients = new Map<string, McpWebSocketClient>();
@@ -364,39 +372,64 @@ export default function (api: PluginAPI) {
     `[mcp-bridge] Config source: ${configSource}, servers: [${serversSummary.join(", ")}]`,
   );
 
-  // 已注册工具名（去重）
-  const registeredToolNames = new Set<string>();
+  // --- 预注册工具（同步阶段） ---
+  // OpenClaw 要求 registerTool() 在同步 register() 调用期间完成。
+  // 我们直接注册 contracts.tools 中声明的工具，execute 内部通过 client 引用
+  // 检查连接状态并转发调用。
+  // 每个 server 对应一个 client 引用（初始 null，连接后赋值）。
+  const serverClients = new Map<string, McpWebSocketClient | null>();
 
-  function registerToolsForServer(
-    serverName: string,
-    client: McpWebSocketClient,
-    tools: McpTool[],
-  ): void {
-    let newCount = 0;
-    for (const tool of tools) {
+  for (const [serverName, serverDef] of Object.entries(servers)) {
+    if (serverDef.enabled === false) {
+      logger.info(`[mcp-bridge] Server "${serverName}" is disabled, skipping`);
+      continue;
+    }
+    if (serverDef.type !== "websocket" || !serverDef.url) {
+      continue;
+    }
+    // 预创建 client 引用占位
+    serverClients.set(serverName, null);
+  }
+
+  // 预注册工具：根据 server name 生成固定工具名
+  // Blender server "blender-editor" → 工具 "mcp_blender-editor_run_python"
+  // 工具定义在 contracts.tools 里已声明；这里按 server 预注册已知工具。
+  const KNOWN_TOOLS: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {
+    "blender-editor": [
+      {
+        name: "run_python",
+        description: "在 Blender 中执行 Python 代码。\n\n上下文变量（已自动注入，无需 import）:\n  S = 选中对象列表\n  W = 当前场景文件路径\n  L = bpy 模块\n  C = bpy.context\n  D = bpy.data\n  bpy = bpy 模块\n\n将返回值赋给 result 变量，框架会自动提取并返回。\n所有写操作都有 Undo 支持（Ctrl+Z 可撤销）。\n\n快捷上下文: 设 get_context=true（无需 code）可获取编辑器状态。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "要执行的 Python 代码" },
+            get_context: { type: "boolean", description: "设为 true 时直接返回编辑器上下文（软件/版本/选中对象/场景），无需提供 code", default: false },
+          },
+          required: [],
+        },
+      },
+    ],
+  };
+
+  let totalRegistered = 0;
+
+  for (const [serverName] of serverClients) {
+    const knownTools = KNOWN_TOOLS[serverName] || [];
+    for (const tool of knownTools) {
       const openclawToolName = `mcp_${serverName}_${tool.name}`;
-
-      if (registeredToolNames.has(openclawToolName)) {
-        continue;
-      }
-
-      const parameters = tool.inputSchema || {
-        type: "object",
-        properties: {},
-      };
 
       api.registerTool({
         name: openclawToolName,
-        description: `[MCP:${serverName}] ${tool.description || tool.name}`,
-        parameters,
+        description: `[MCP:${serverName}] ${tool.description}`,
+        parameters: tool.inputSchema,
         async execute(_id, params) {
-          if (!client.connected) {
-            client.stats.toolErrorCount++;
+          const client = serverClients.get(serverName);
+          if (!client || !client.connected) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `MCP server "${serverName}" is not connected. The DCC application may not be running.`,
+                  text: `MCP server "${serverName}" is not connected. Please ensure Blender is running with Artifex Nexus addon enabled.`,
                 },
               ],
               isError: true,
@@ -432,35 +465,17 @@ export default function (api: PluginAPI) {
           }
         },
       });
-
-      registeredToolNames.add(openclawToolName);
-      newCount++;
-    }
-
-    if (newCount > 0) {
-      logger.info(
-        `[mcp-bridge] Registered ${newCount} new tool(s) from "${serverName}" (total: ${registeredToolNames.size})`,
-      );
+      totalRegistered++;
     }
   }
 
-  // 连接每个配置的 server
-  const initPromise = (async () => {
+  logger.info(`[mcp-bridge] Pre-registered ${totalRegistered} tool(s) synchronously`);
+
+  // --- 后台异步连接（fire-and-forget） ---
+  // 连接成功后更新 serverClients 引用，使 execute 可用。
+  void (async () => {
     for (const [serverName, serverDef] of Object.entries(servers)) {
-      if (serverDef.enabled === false) {
-        logger.info(`[mcp-bridge] Server "${serverName}" is disabled, skipping`);
-        continue;
-      }
-
-      if (serverDef.type !== "websocket") {
-        logger.warn(
-          `[mcp-bridge] Server "${serverName}" has unsupported type "${serverDef.type}"`,
-        );
-        continue;
-      }
-
-      if (!serverDef.url) {
-        logger.error(`[mcp-bridge] Server "${serverName}" is missing "url" field`);
+      if (serverDef.enabled === false || serverDef.type !== "websocket" || !serverDef.url) {
         continue;
       }
 
@@ -468,25 +483,22 @@ export default function (api: PluginAPI) {
         serverName,
         serverDef.url as string,
         logger,
-        (tools) => registerToolsForServer(serverName, client, tools),
+        (tools) => {
+          // 重连时更新工具信息（但不需要 re-register，因为已预注册）
+          logger.info(`[mcp-bridge] Discovered ${tools.length} tools from "${serverName}" on (re)connect`);
+        },
       );
       clients.set(serverName, client);
+      serverClients.set(serverName, client);
 
       try {
         await client.connect();
+        logger.info(`[mcp-bridge] Background connect to "${serverName}" succeeded`);
       } catch (err) {
         logger.warn(
           `[mcp-bridge] Initial connection to "${serverName}" failed: ${(err as Error).message}. Will retry in background.`,
         );
       }
-    }
-
-    if (registeredToolNames.size > 0) {
-      logger.info(`[mcp-bridge] Total tools registered: ${registeredToolNames.size}`);
-    } else {
-      logger.warn(
-        `[mcp-bridge] No tools registered yet. Tools will be registered when MCP servers come online.`,
-      );
     }
   })();
 
@@ -506,6 +518,6 @@ export default function (api: PluginAPI) {
   };
 }
 
-// CommonJS 兼容：确保 module.exports 直接是函数
-// （OpenClaw 插件系统期望 module.exports = fn，而非 { default: fn }）
-module.exports = exports.default;
+// 注意：不要在这里写 module.exports = exports.default
+// esbuild 打包时会自动处理 export default → module.exports.default
+// OpenClaw 的 resolvePluginModuleExport 会自动 unwrap .default 属性
