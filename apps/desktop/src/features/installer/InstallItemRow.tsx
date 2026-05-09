@@ -468,11 +468,11 @@ function InstallItemRow({ item }: InstallItemRowProps) {
         for (const child of children) {
           if (child.state === "installed") continue;
 
-          addLog(item.id, "info", `正在安装到 ${item.name} ${child.version}…`);
+          addLog(item.id, "info", `正在安装到 ${item.name} ${child.version}（目标: ${child.installPath || "自动计算"}）…`);
           try {
             const result = await dccActions.install(child.version);
             if (result.success) {
-              addLog(item.id, "info", `${item.name} ${child.version} 安装成功 (${result.method})`);
+              addLog(item.id, "info", `${item.name} ${child.version} 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
               dispatch({
                 type: "UPDATE_CHILD",
                 parentId: item.id,

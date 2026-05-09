@@ -33,7 +33,7 @@ function getInstallLabel(state: InstallChildItem["state"]): string {
 
 /** 子项行组件：渲染字段、状态徽章、四按钮（检测/设置/安装/删除），含依赖门禁 */
 function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) {
-  const { state, dispatch } = useInstaller();
+  const { state, dispatch, addLog } = useInstaller();
   const { items } = state;
 
   const parentItem = items.find((it) => it.id === parentId);
@@ -54,29 +54,33 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
     // DCC 子项：真实检测（检查单个版本是否已安装）
     const dccActions = getDCCActions(parentId);
     if (dccActions) {
+      addLog(parentId, "info", `[${child.label}] 正在检测安装状态…`);
       void (async () => {
         try {
           const result = await dccActions.detect();
           const versionInfo = result.versions.find((v) => v.version === child.version);
           if (versionInfo) {
+            const newState = versionInfo.installed ? "installed" : "not-installed";
+            addLog(parentId, "info", `[${child.label}] 检测结果: ${newState === "installed" ? "已安装" : "未安装"}`);
             dispatch({
               type: "UPDATE_CHILD",
               parentId,
               childIndex,
-              patch: {
-                state: versionInfo.installed ? "installed" : "not-installed",
-              },
+              patch: { state: newState as "installed" | "not-installed" },
             });
+          } else {
+            addLog(parentId, "warn", `[${child.label}] 未在检测结果中找到版本 ${child.version}`);
           }
-        } catch {
-          // 静默
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          addLog(parentId, "error", `[${child.label}] 检测失败: ${errMsg}`);
         }
       })();
       return;
     }
 
     dispatch({ type: "DETECT_CHILD", parentId, childIndex });
-  }, [dispatch, parentId, childIndex, child.version]);
+  }, [dispatch, parentId, childIndex, child.version, addLog]);
 
   const handleSettings = useCallback(() => {
     // 弹出编辑版本号和安装路径（自动计算默认值）
@@ -126,32 +130,38 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
         try {
           // 先检查并安装 mcp-bridge 插件
           const { invoke } = await import("@tauri-apps/api/core");
+          addLog(parentId, "info", `[${child.label}] 检查 MCP Bridge 插件…`);
           const bridgeStatus = await invoke<{ installed: boolean }>(
             "openclaw_gateway_mcp_bridge_status",
           );
           if (!bridgeStatus.installed) {
+            addLog(parentId, "info", `[${child.label}] 正在部署 MCP Bridge 插件…`);
             const bridgeResult = await invoke<{
               success: boolean;
+              method: string;
               error: string | null;
             }>("openclaw_gateway_mcp_bridge_install");
             if (!bridgeResult.success) {
-              console.error(`[installer] MCP Bridge 部署失败: ${bridgeResult.error}`);
+              addLog(parentId, "error", `[${child.label}] MCP Bridge 部署失败: ${bridgeResult.error}`);
               dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
               return;
             }
+            addLog(parentId, "info", `[${child.label}] MCP Bridge 部署成功 (${bridgeResult.method})`);
           }
 
+          addLog(parentId, "info", `[${child.label}] 正在安装插件到 ${child.version}…`);
           const result = await dccActions.install(child.version);
           if (result.success) {
+            addLog(parentId, "info", `[${child.label}] 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
             dispatch({ type: "INSTALL_CHILD_DONE", parentId, childIndex });
           } else {
             const errMsg = result.error || "未知错误";
-            console.error(`[installer] 子项安装失败: ${child.label} — ${errMsg}`);
+            addLog(parentId, "error", `[${child.label}] 安装失败: ${errMsg}`);
             dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
           }
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
-          console.error(`[installer] 子项安装异常: ${child.label} — ${errMsg}`);
+          addLog(parentId, "error", `[${child.label}] 安装异常: ${errMsg}`);
           dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
         }
       })();
@@ -175,8 +185,28 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
     if (!window.confirm(zh.childDeleteConfirm.replace("{label}", child.label))) {
       return;
     }
+
+    // DCC 子项：真实卸载
+    const dccActions = getDCCActions(parentId);
+    if (dccActions) {
+      addLog(parentId, "info", `[${child.label}] 正在卸载插件…`);
+      void (async () => {
+        try {
+          const result = await dccActions.uninstall(child.version);
+          if (result.success) {
+            addLog(parentId, "info", `[${child.label}] 卸载成功`);
+          } else {
+            addLog(parentId, "error", `[${child.label}] 卸载失败: ${result.error}`);
+          }
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          addLog(parentId, "error", `[${child.label}] 卸载异常: ${errMsg}`);
+        }
+      })();
+    }
+
     dispatch({ type: "DELETE_CHILD", parentId, childIndex });
-  }, [dispatch, parentId, childIndex, child.label]);
+  }, [dispatch, parentId, childIndex, child.label, addLog]);
 
   return (
     <div className={styles.row}>
