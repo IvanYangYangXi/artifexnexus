@@ -1,7 +1,7 @@
 {
   "id": "artifex-nexus",
   "default": true,
-  "name": "Artifex Nexus（DCC 桥默认助手）",
+  "name": "Artifex Nexus (DCC Bridge Default Agent)",
   "workspace": "{{OPENCLAW_WORKSPACE}}",
   "agentRuntime": { "id": "pi" },
   "skills": ["run_python"],

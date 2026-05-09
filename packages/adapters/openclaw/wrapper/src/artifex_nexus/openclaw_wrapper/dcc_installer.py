@@ -49,16 +49,26 @@ _MANIFEST_VERSION = 1
 """部署清单 schema 版本。"""
 
 
+def _get_openclaw_home_dir() -> str:
+    """获取 OPENCLAW_HOME 路径（统一入口）。
+
+    所有 dcc_installer 内部函数均通过此函数获取隔离目录路径，
+    确保与 sidecar.py / fs_layout.rs 保持一致：~/.artifexnexus/.openclaw/。
+
+    Returns the OPENCLAW_HOME directory path.
+    """
+    return os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".artifexnexus", ".openclaw"),
+    )
+
+
 def _get_manifest_path() -> Path:
     """获取部署清单文件路径。
 
     Returns the path to deploy-manifest.json.
     """
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".artifexnexus", ".openclaw"),
-    )
-    return Path(openclaw_home) / "state" / _MANIFEST_FILENAME
+    return Path(_get_openclaw_home_dir()) / "state" / _MANIFEST_FILENAME
 
 
 def _get_addon_dir_name() -> str:
@@ -286,10 +296,7 @@ def get_dcc_port(dcc: str) -> Dict:
     default_port = _DCC_DEFAULT_PORTS.get(dcc, 18083)
 
     # 从 openclaw.json 读取当前配置
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".openclaw"),
-    )
+    openclaw_home = _get_openclaw_home_dir()
     config_path = os.path.join(openclaw_home, "openclaw.json")
 
     port = default_port
@@ -334,10 +341,7 @@ def set_dcc_port(dcc: str, port: int) -> Dict:
     server_name = f"{dcc}-editor" if dcc == "blender" else f"{dcc}-primary"
     new_url = f"ws://127.0.0.1:{port}"
 
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".openclaw"),
-    )
+    openclaw_home = _get_openclaw_home_dir()
     config_path = os.path.join(openclaw_home, "openclaw.json")
 
     if not os.path.exists(config_path):
@@ -840,10 +844,7 @@ def _get_gateway_plugin_src_dir() -> Path:
 
 def _get_openclaw_plugins_dir() -> Path:
     """获取 OpenClaw 内置 extensions 目录（OpenClaw 扫描此目录加载插件）"""
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".openclaw"),
-    )
+    openclaw_home = _get_openclaw_home_dir()
     # OpenClaw 内置插件在 cli/{version}/node_modules/openclaw/dist/extensions/
     # 需要找到当前使用的版本目录
     cli_dir = Path(openclaw_home) / "cli"
@@ -937,10 +938,7 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
 
     幂等：如果配置已存在则跳过。
     """
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".openclaw"),
-    )
+    openclaw_home = _get_openclaw_home_dir()
     config_path = os.path.join(openclaw_home, "openclaw.json")
 
     if not os.path.exists(config_path):
@@ -1011,10 +1009,7 @@ def _refresh_plugin_registry() -> None:
 
     Best-effort：失败不阻断安装流程。
     """
-    openclaw_home = os.environ.get(
-        "OPENCLAW_HOME",
-        os.path.join(os.path.expanduser("~"), ".openclaw"),
-    )
+    openclaw_home = _get_openclaw_home_dir()
     # 查找 openclaw CLI
     cli_dir = Path(openclaw_home) / "cli"
     openclaw_bin = None

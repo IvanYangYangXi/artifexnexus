@@ -9,6 +9,7 @@ tags:
 
 ## Backlog
 
+- [ ] [[../backlog/STORY-0030-deploy-validation-on-detect]]
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
 - [ ] [[EPIC-0004-m4-skill-system]]
 - [ ] [[EPIC-0005-m5-tool-system]]
