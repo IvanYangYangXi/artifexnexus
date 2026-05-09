@@ -735,8 +735,13 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
 
     if changed:
         try:
-            with open(config_path, "w", encoding="utf-8") as f:
+            # 原子写入：先写临时文件，再 rename
+            tmp_path = config_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, config_path)
             logger.info(f"openclaw.json 已更新: {config_path}")
         except Exception as e:
             logger.error(f"写入 openclaw.json 失败: {e}")
