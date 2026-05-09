@@ -441,6 +441,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             }>("openclaw_gateway_mcp_bridge_install");
             if (bridgeResult.success) {
               addLog(item.id, "info", `MCP Bridge 插件部署成功 (${bridgeResult.method})`);
+              addLog(item.id, "warn", "⚠️ 请重启 Gateway 使 MCP Bridge 生效（状态页 → 停止 → 启动）");
             } else {
               addLog(item.id, "error", `MCP Bridge 插件部署失败: ${bridgeResult.error}`);
               dispatch({
