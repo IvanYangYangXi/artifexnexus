@@ -646,7 +646,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             </button>
           </div>
         ) : (
-          /* expandable 条目（DCC 行）：检测 + 安装 + 添加 */
+          /* expandable 条目（DCC 行）：检测 + 安装 + 添加 + 设置 */
           <div className={styles.actions}>
             <button
               type="button"
@@ -672,6 +672,14 @@ function InstallItemRow({ item }: InstallItemRowProps) {
               onClick={handleAddChild}
             >
               {zh.btnAdd}
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn}`}
+              disabled={isInstalling}
+              onClick={handleSettings}
+            >
+              {zh.btnSettings}
             </button>
           </div>
         )}
