@@ -1,8 +1,0 @@
-{
-  "name": "artifex-nexus-mcp-bridge",
-  "version": "0.0.0",
-  "displayName": "Artifex Nexus MCP Bridge",
-  "description": "Bridges OpenClaw Gateway tool calls to DCC MCP servers via JSON-RPC over WebSocket.",
-  "entry": "dist/index.js",
-  "compatibleWith": { "openclaw": ">=0.x <1.x" }
-}

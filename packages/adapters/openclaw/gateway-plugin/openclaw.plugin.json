@@ -3,6 +3,7 @@
   "name": "MCP Bridge",
   "description": "Bridge external MCP servers (WebSocket) into OpenClaw agent tools. Connects to Blender MCP Server for AI-driven 3D operations.",
   "version": "5.0.0",
+  "main": "src/index.ts",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
