@@ -1,7 +1,7 @@
 ---
 tags: [context, handoff, install, deploy, M2]
 created: 2026-05-09
-status: draft
+status: accepted
 ---
 
 # Context Handoff: 统一 Copy 安装模型 + 全局文件校验
@@ -97,16 +97,37 @@ AI Agent 可调用 Blender 操作
 
 ## 3. 待做：统一 Copy 模型 + 全局校验
 
+> **状态（2026-05-09）**：代码已全部迁移为 copy 模式 + manifest 校验。见下方实施记录。
+
 ### 3.1 改动范围
 
 需要将 **所有** 安装部署从 junction/symlink 改为 copy：
 
-| 部署目标 | 当前方式 | 改为 |
-|---------|---------|------|
-| Gateway mcp-bridge → dist/extensions/ | ✅ 已改为 copy | 保持 |
-| Blender addon → AppData/.../addons/ | junction | **改为 copy** |
-| (M4) Maya plugin | 未实现 | copy |
-| (M4) Max plugin | 未实现 | copy |
+| 部署目标 | 当前方式 | 改为 | 状态 |
+|---------|---------|------|------|
+| Gateway mcp-bridge → dist/extensions/ | ✅ 已改为 copy | 保持 | ✅ 已完成 |
+| Blender addon → AppData/.../addons/ | junction | **改为 copy** | ✅ 已完成 |
+| (M4) Maya plugin | 未实现 | copy | 🔜 M4 |
+| (M4) Max plugin | 未实现 | copy | 🔜 M4 |
+
+### 3.1.1 实施记录（2026-05-09）
+
+**代码清理**：
+- 删除 `_link_or_copy_dir()` 废弃函数（dcc_installer.py）
+- 删除 `_try_junction()` / `_try_symlink_dir()` 废弃函数
+- 保留 `_is_junction_or_symlink()` / `_remove_link_or_dir()` 用于旧安装迁移清理
+- `install_dcc_addon()` / `install_gateway_mcp_bridge()` 均直接使用 `shutil.copytree()`
+
+**校验机制**：
+- 新增 `deploy-manifest.json` 部署清单（路径：`OPENCLAW_HOME/state/deploy-manifest.json`）
+- 新增 `validate_all_deployments()` 全局校验函数 → 返回 `{id, status: ok/outdated/missing/corrupted}`
+- 安装时自动记录 manifest（`_record_deployment()`），卸载时自动移除（`_remove_from_manifest()`）
+- 校验对比 sha256 + 版本号，支持 outdated 检测
+- 新增 RPC 入口 `openclaw.deploy.validate`（sidecar.py METHOD_TABLE）
+
+**测试**：
+- 修复 3 个旧测试（`test_get_addon_dir_name` / `test_install_force_incompatible` / 删除 `test_link_or_copy_dir_fallback`）
+- 新增 8 个 manifest 校验测试（`TestDeployManifest` 类，28 测试全绿）
 
 ### 3.2 全局文件校验机制设计（建议）
 

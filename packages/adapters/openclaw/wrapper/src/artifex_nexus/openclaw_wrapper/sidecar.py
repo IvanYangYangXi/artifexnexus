@@ -897,6 +897,56 @@ def _handle_openclaw_dcc_port_set(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_deploy_validate(req_id: Any, params: dict) -> dict:
+    """openclaw.deploy.validate RPC：全局部署校验。
+
+    遍历 deploy-manifest.json 中的所有部署项，对比磁盘文件的 sha256 校验和。
+    返回每个部署项的状态：ok / outdated / missing / corrupted。
+
+    Validate all deployments against deploy-manifest.json.
+    Returns list of {id, status, target, sourceVersion, ...} per deployment.
+
+    返回：
+        {
+            "deployments": [
+                {
+                    "id": str,
+                    "status": "ok" | "outdated" | "missing" | "corrupted",
+                    "target": str,
+                    "sourceVersion": str,
+                    "deployedAt": str,
+                    "details": str,
+                },
+                ...
+            ],
+            "summary": {"total": int, "ok": int, "outdated": int, "missing": int, "corrupted": int},
+        }
+    """
+    try:
+        results = _dcc_installer.validate_all_deployments()
+        summary = {
+            "total": len(results),
+            "ok": sum(1 for r in results if r["status"] == "ok"),
+            "outdated": sum(1 for r in results if r["status"] == "outdated"),
+            "missing": sum(1 for r in results if r["status"] == "missing"),
+            "corrupted": sum(1 for r in results if r["status"] == "corrupted"),
+        }
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "deployments": results,
+                "summary": summary,
+            },
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -934,6 +984,8 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0029 M2：DCC 端口管理
     "openclaw.dcc.port.get": _handle_openclaw_dcc_port_get,
     "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
+    # STORY-0029 T2：全局部署校验
+    "openclaw.deploy.validate": _handle_openclaw_deploy_validate,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,

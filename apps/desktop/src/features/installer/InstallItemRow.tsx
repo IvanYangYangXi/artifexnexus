@@ -376,6 +376,16 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           }
           addLog("openclaw", "info", "OpenClaw 安装完成");
 
+          // 重装场景：先停止旧 Gateway 释放端口，避免 bootstrap 端口探测
+          // 因占用而步进到非预期端口（如 19789 → 19809）
+          addLog("openclaw", "info", "正在停止旧 Gateway（如有）...");
+          try {
+            const { stopOpenClaw } = await import("../../ipc/openclaw");
+            await stopOpenClaw();
+          } catch {
+            // 旧 Gateway 可能本来就没跑，忽略
+          }
+
           addLog("openclaw", "info", "开始初始化配置...");
           const bootstrapResult = await bootstrapOpenClaw("v2026.5.4", preserveOpts ?? undefined);
           if (!bootstrapResult.success) {

@@ -18,12 +18,14 @@ dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import platform
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -37,6 +39,26 @@ _ADDON_SRC_DIR: Optional[Path] = None
 
 # 插件在 Blender addons 中的目录名前缀
 _ADDON_DIR_PREFIX = "artifex_nexus"
+
+# ── Deploy Manifest 常量 ─────────────────────────────────────────────────
+
+_MANIFEST_FILENAME = "deploy-manifest.json"
+"""部署清单文件名（位于 OPENCLAW_HOME/state/ 下）。"""
+
+_MANIFEST_VERSION = 1
+"""部署清单 schema 版本。"""
+
+
+def _get_manifest_path() -> Path:
+    """获取部署清单文件路径。
+
+    Returns the path to deploy-manifest.json.
+    """
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".artifexnexus", ".openclaw"),
+    )
+    return Path(openclaw_home) / "state" / _MANIFEST_FILENAME
 
 
 def _get_addon_dir_name() -> str:
@@ -209,6 +231,14 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
         logger.error(f"安装 {dcc} 插件失败: copy 失败: {err_detail}")
         return {"success": False, "method": None, "target": target_dir, "error": f"复制目录失败: {err_detail}"}
 
+    # 记录部署清单
+    source_version = _get_source_version(Path(src_dir))
+    deployment_id = f"{dcc}-addon-{dcc_version}"
+    try:
+        _record_deployment(deployment_id, src_dir, target_dir, source_version)
+    except Exception as e:
+        logger.warning(f"部署清单记录失败（不阻断安装）: {e}")
+
     logger.info(f"{dcc} {dcc_version} 插件安装成功 ({method})")
     return {"success": True, "method": method, "target": target_dir, "error": None}
 
@@ -223,6 +253,12 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
 
     try:
         _remove_link_or_dir(target_dir)
+        # 从部署清单移除
+        deployment_id = f"{dcc}-addon-{dcc_version}"
+        try:
+            _remove_from_manifest(deployment_id)
+        except Exception as e:
+            logger.warning(f"部署清单清理失败（不阻断卸载）: {e}")
         return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
     except Exception as e:
         return {"success": False, "target": target_dir, "error": str(e)}
@@ -524,98 +560,264 @@ def _remove_link_or_dir(path: str) -> None:
         os.remove(path)
 
 
-def _try_junction(src: str, dst: str) -> Tuple[bool, str]:
-    """尝试创建 Windows junction（目录）。不需要管理员权限。
+# ── 部署清单（Deploy Manifest）管理 ────────────────────────────────────────
+#
+# 每次安装时生成 deploy-manifest.json，记录每个部署项的文件校验和与版本。
+# 全局检测时对比 manifest 与磁盘文件，返回 ok / outdated / missing / corrupted。
+#
+# Schema 见 docs/inbox/context-handoff-copy-model-and-validation.md §3.2
 
-    Returns:
-        (success, error_message)
+
+def _compute_file_sha256(filepath: Path) -> str:
+    """计算单个文件的 SHA-256 哈希（hex 字符串）。
+
+    Compute SHA-256 hash of a single file.
     """
-    if platform.system() != "Windows":
-        return False, "非 Windows 平台"
+    sha = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def _scan_dir_files(src_dir: Path) -> List[dict]:
+    """扫描目录下所有文件的相对路径、sha256、大小。
+
+    Scan all files under src_dir and return list of {path, sha256, size}.
+    """
+    files = []
+    for entry in sorted(src_dir.rglob("*")):
+        if entry.is_file():
+            rel = entry.relative_to(src_dir).as_posix()
+            files.append({
+                "path": rel,
+                "sha256": _compute_file_sha256(entry),
+                "size": entry.stat().st_size,
+            })
+    return files
+
+
+def _read_deploy_manifest() -> dict:
+    """读取部署清单文件，不存在则返回空结构。
+
+    Read deploy-manifest.json, return empty structure if missing.
+    """
+    manifest_path = _get_manifest_path()
+    if not manifest_path.exists():
+        return {"version": _MANIFEST_VERSION, "deployments": []}
     try:
-        result = subprocess.run(
-            ["cmd", "/c", "mklink", "/J", dst, src],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0 and os.path.isdir(dst):
-            return True, ""
-        err = result.stderr.strip() or result.stdout.strip() or f"返回码 {result.returncode}"
-        return False, err
-    except subprocess.TimeoutExpired:
-        return False, "junction 创建超时"
-    except FileNotFoundError:
-        return False, "cmd.exe 不可用"
-    except Exception as e:
-        return False, str(e)
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"部署清单损坏，重建空清单: {e}")
+        return {"version": _MANIFEST_VERSION, "deployments": []}
 
 
-def _try_symlink_dir(src: str, dst: str) -> Tuple[bool, str]:
-    """尝试创建目录 symlink。
+def _write_deploy_manifest(manifest: dict) -> None:
+    """原子写入部署清单文件。
 
-    Returns:
-        (success, error_message)
+    Write deploy-manifest.json atomically (tmp + rename).
     """
-    try:
-        os.symlink(src, dst, target_is_directory=True)
-        return True, ""
-    except OSError as e:
-        return False, f"symlink 创建失败: {e}"
-    except NotImplementedError:
-        return False, "当前平台不支持 symlink"
+    manifest_path = _get_manifest_path()
+    os.makedirs(manifest_path.parent, exist_ok=True)
+
+    tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, manifest_path)
 
 
-def _link_or_copy_dir(src: str, dst: str) -> Tuple[Optional[str], str]:
+def _record_deployment(
+    deployment_id: str,
+    source: str,
+    target: str,
+    source_version: str,
+) -> None:
+    """安装后记录部署项到 manifest。
+
+    Record a deployment entry in deploy-manifest.json after install.
     """
-    [DEPRECATED] 创建目录引用（优先 junction/symlink，fallback 复制）。
+    src_dir = Path(source)
+    files = _scan_dir_files(src_dir)
 
-    .. deprecated:: 5.0.0
-        全面弃用 junction/symlink，统一使用 shutil.copytree()。
-        原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
-        跨卷 junction 导致路径逃逸被 trusted-root 安全检查拒绝。
-        此函数保留仅为向后兼容参考，不再有调用方。
+    manifest = _read_deploy_manifest()
 
-    Returns:
-        (method, error_message)
-        method: "junction" | "symlink" | "copy" | None（失败）
-        error_message: 失败时的详细错误信息
-    """
-    src = os.path.abspath(src)
-    dst = os.path.abspath(dst)
+    # 移除同 id 的旧记录
+    manifest["deployments"] = [
+        d for d in manifest.get("deployments", [])
+        if d.get("id") != deployment_id
+    ]
 
-    # 清理已有目标
-    if os.path.exists(dst) or _is_junction_or_symlink(dst):
-        _remove_link_or_dir(dst)
-
-    # 确保父目录存在
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-
-    # 优先 junction (Windows, 无权限要求)
-    ok, err = _try_junction(src, dst)
-    if ok:
-        return "junction", ""
-    junction_err = err
-
-    # 其次 symlink
-    ok, err = _try_symlink_dir(src, dst)
-    if ok:
-        return "symlink", ""
-    symlink_err = err
-
-    # fallback: 复制
-    try:
-        shutil.copytree(src, dst)
-        return "copy", ""
-    except Exception as e:
-        copy_err = str(e)
-
-    # 全部失败：汇总错误信息
-    detail = (
-        f"junction 失败: {junction_err}; "
-        f"symlink 失败: {symlink_err}; "
-        f"copy 失败: {copy_err}"
+    entry = {
+        "id": deployment_id,
+        "source": str(Path(source).resolve()),
+        "target": str(Path(target).resolve()),
+        "method": "copy",
+        "files": files,
+        "deployedAt": datetime.now(timezone.utc).isoformat(),
+        "sourceVersion": source_version,
+    }
+    manifest["deployments"].append(entry)
+    _write_deploy_manifest(manifest)
+    logger.info(
+        f"部署清单已更新: {deployment_id} → {target} "
+        f"({len(files)} 个文件, v{source_version})"
     )
-    logger.error(f"安装 Blender 插件失败: {detail}")
-    return None, detail
+
+
+def _remove_from_manifest(deployment_id: str) -> None:
+    """卸载后从 manifest 移除部署项。
+
+    Remove a deployment entry from manifest after uninstall.
+    """
+    manifest = _read_deploy_manifest()
+    before = len(manifest.get("deployments", []))
+    manifest["deployments"] = [
+        d for d in manifest.get("deployments", [])
+        if d.get("id") != deployment_id
+    ]
+    if len(manifest["deployments"]) < before:
+        _write_deploy_manifest(manifest)
+        logger.info(f"部署清单已移除: {deployment_id}")
+
+
+def _get_source_version(source_dir: Path) -> str:
+    """从源码目录获取版本号。
+
+    优先级：
+    1. Blender addon: 解析 __init__.py 中的 bl_info.version
+    2. Gateway plugin: 解析 package.json 中的 version
+    3. 兜底: "0.0.0"
+
+    Get version string from source directory.
+    """
+    # 尝试 Blender addon bl_info
+    init_py = source_dir / "__init__.py"
+    if init_py.exists():
+        try:
+            info = _parse_bl_info(init_py.read_text(encoding="utf-8"))
+            v = info.get("version")
+            if isinstance(v, (tuple, list)) and len(v) >= 2:
+                return ".".join(str(x) for x in v)
+        except Exception:
+            pass
+
+    # 尝试 package.json
+    pkg_json = source_dir / "package.json"
+    if pkg_json.exists():
+        try:
+            pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
+            if "version" in pkg:
+                return str(pkg["version"])
+        except Exception:
+            pass
+
+    return "0.0.0"
+
+
+def validate_all_deployments() -> List[dict]:
+    """全局校验所有部署项。
+
+    遍历 manifest 中每个 deployment，对比 target 文件的 sha256 与 manifest。
+    返回每个部署项的校验结果列表。
+
+    Validate all deployments against deploy-manifest.json.
+    Returns list of {id, status: "ok"|"outdated"|"missing"|"corrupted", ...}.
+
+    校验规则：
+      - 目录不存在 → missing
+      - 文件缺失或 sha256 不匹配 → corrupted
+      - sourceVersion 与当前源码版本不一致 → outdated
+      - 全部匹配 → ok
+    """
+    manifest = _read_deploy_manifest()
+    results: List[dict] = []
+
+    for dep in manifest.get("deployments", []):
+        dep_id = dep.get("id", "unknown")
+        target_dir = Path(dep.get("target", ""))
+        expected_files = dep.get("files", [])
+
+        # 检查目标目录是否存在
+        if not target_dir.exists():
+            results.append({
+                "id": dep_id,
+                "status": "missing",
+                "target": str(target_dir),
+                "sourceVersion": dep.get("sourceVersion"),
+                "deployedAt": dep.get("deployedAt"),
+                "details": "目标目录不存在",
+            })
+            continue
+
+        # 逐文件校验
+        mismatched: List[str] = []
+        missing_files: List[str] = []
+        for f_info in expected_files:
+            f_path = target_dir / f_info["path"]
+            if not f_path.exists():
+                missing_files.append(f_info["path"])
+                continue
+            actual_sha = _compute_file_sha256(f_path)
+            if actual_sha != f_info["sha256"]:
+                mismatched.append(f_info["path"])
+
+        if missing_files:
+            results.append({
+                "id": dep_id,
+                "status": "corrupted",
+                "target": str(target_dir),
+                "sourceVersion": dep.get("sourceVersion"),
+                "deployedAt": dep.get("deployedAt"),
+                "details": f"缺失 {len(missing_files)} 个文件: {', '.join(missing_files[:5])}",
+                "missing_files": missing_files,
+            })
+            continue
+
+        if mismatched:
+            results.append({
+                "id": dep_id,
+                "status": "corrupted",
+                "target": str(target_dir),
+                "sourceVersion": dep.get("sourceVersion"),
+                "deployedAt": dep.get("deployedAt"),
+                "details": f"{len(mismatched)} 个文件校验和不匹配: {', '.join(mismatched[:5])}",
+                "corrupted_files": mismatched,
+            })
+            continue
+
+        # 检查版本是否过时
+        source_path = dep.get("source", "")
+        if source_path and Path(source_path).exists():
+            current_version = _get_source_version(Path(source_path))
+            deployed_version = dep.get("sourceVersion", "0.0.0")
+            if current_version != deployed_version:
+                results.append({
+                    "id": dep_id,
+                    "status": "outdated",
+                    "target": str(target_dir),
+                    "sourceVersion": deployed_version,
+                    "currentVersion": current_version,
+                    "deployedAt": dep.get("deployedAt"),
+                    "details": f"已部署版本 {deployed_version}，当前源码版本 {current_version}",
+                })
+                continue
+
+        results.append({
+            "id": dep_id,
+            "status": "ok",
+            "target": str(target_dir),
+            "sourceVersion": dep.get("sourceVersion"),
+            "deployedAt": dep.get("deployedAt"),
+            "details": f"全部 {len(expected_files)} 个文件校验通过",
+        })
+
+    return results
 
 
 # ── Gateway MCP Bridge 插件部署 ──────────────────────────────────────────
@@ -708,6 +910,13 @@ def install_gateway_mcp_bridge() -> Dict:
         }
 
     logger.info(f"mcp-bridge 插件部署成功 ({method}): {target_dir}")
+
+    # 记录部署清单
+    source_version = _get_source_version(Path(src_dir))
+    try:
+        _record_deployment("gateway-mcp-bridge", src_dir, target_dir, source_version)
+    except Exception as e:
+        logger.warning(f"部署清单记录失败（不阻断安装）: {e}")
 
     # Patch openclaw.json：确保 plugins.entries.mcp-bridge 和 plugins.allow 已配置
     _patch_openclaw_config_for_mcp_bridge()
@@ -859,6 +1068,11 @@ def uninstall_gateway_mcp_bridge() -> Dict:
 
     try:
         _remove_link_or_dir(target_dir)
+        # 从部署清单移除
+        try:
+            _remove_from_manifest("gateway-mcp-bridge")
+        except Exception as e:
+            logger.warning(f"部署清单清理失败（不阻断卸载）: {e}")
         return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
     except Exception as e:
         return {"success": False, "target": target_dir, "error": str(e)}

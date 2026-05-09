@@ -2,7 +2,9 @@
 测试 dcc_installer — Blender 版本检测 + 安装/卸载 + 版本兼容检查
 """
 
+import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -135,10 +137,10 @@ class TestGetAddonInfo:
         assert info["blender_max"] == (5, 1, 9)
 
     def test_get_addon_dir_name(self, dcc_installer, temp_addon_src):
-        """插件目录名含版本号"""
+        """插件目录名固定为 artifex_nexus（不含版本号，避免 Python import 点号问题）"""
         dcc_installer.set_addon_src_dir(str(temp_addon_src / "v5.0.0"))
         name = dcc_installer._get_addon_dir_name()
-        assert name == "artifex_nexus_v5.0.0"
+        assert name == "artifex_nexus"
 
 
 class TestInstallUninstall:
@@ -159,15 +161,17 @@ class TestInstallUninstall:
         assert "低于" in result["error"]
 
     def test_install_force_incompatible(self, dcc_installer, temp_addon_src):
-        """force=True 跳过兼容检查"""
+        """force=True 跳过兼容检查，使用 copy 模式安装"""
         dcc_installer.set_addon_src_dir(str(temp_addon_src / "v5.0.0"))
         with tempfile.TemporaryDirectory() as tmp:
             target_dir = str(Path(tmp) / "target")
             with patch.object(dcc_installer, "get_dcc_addon_target_dir", return_value=target_dir):
-                with patch.object(dcc_installer, "_link_or_copy_dir", return_value=("copy", "")):
-                    result = dcc_installer.install_dcc_addon("blender", "4.2", force=True)
-                    assert result["success"] is True
-                    assert result["method"] == "copy"
+                with patch("shutil.copytree") as mock_copy:
+                    with patch.object(dcc_installer, "_record_deployment"):
+                        result = dcc_installer.install_dcc_addon("blender", "4.2", force=True)
+                        assert result["success"] is True
+                        assert result["method"] == "copy"
+                        mock_copy.assert_called_once()
 
     def test_uninstall_not_installed(self, dcc_installer):
         """卸载未安装的插件"""
@@ -183,7 +187,7 @@ class TestInstallUninstall:
 
 
 class TestJunctionSymlink:
-    """Junction/Symlink 工具测试"""
+    """Junction/Symlink 工具测试（仅保留清理逻辑的测试，创建逻辑已废弃）"""
 
     def test_is_junction_or_symlink_nonexistent(self, dcc_installer):
         """不存在的路径"""
@@ -194,19 +198,167 @@ class TestJunctionSymlink:
         # 不应抛出异常
         dcc_installer._remove_link_or_dir("/nonexistent/path")
 
-    def test_link_or_copy_dir_fallback(self, dcc_installer):
-        """junction/symlink 失败时 fallback 到复制"""
-        with tempfile.TemporaryDirectory() as src_tmp:
-            src = Path(src_tmp) / "src"
-            src.mkdir()
-            (src / "test.txt").write_text("hello")
 
-            with tempfile.TemporaryDirectory() as dst_tmp:
-                dst = str(Path(dst_tmp) / "dst")
-                # 强制 junction/symlink 失败
-                with patch.object(dcc_installer, "_try_junction", return_value=(False, "mock fail")):
-                    with patch.object(dcc_installer, "_try_symlink_dir", return_value=(False, "mock fail")):
-                        method, err = dcc_installer._link_or_copy_dir(str(src), dst)
-                        assert method == "copy"
-                        assert err == ""
-                        assert os.path.isdir(dst)
+class TestDeployManifest:
+    """部署清单（deploy-manifest.json）校验测试"""
+
+    def test_compute_file_sha256(self, dcc_installer, tmp_path):
+        """计算文件 SHA-256"""
+        f = tmp_path / "test.txt"
+        f.write_text("hello world", encoding="utf-8")
+        sha = dcc_installer._compute_file_sha256(f)
+        # "hello world" 的 SHA-256
+        import hashlib
+        expected = hashlib.sha256(b"hello world").hexdigest()
+        assert sha == expected
+        assert len(sha) == 64
+
+    def test_scan_dir_files(self, dcc_installer, tmp_path):
+        """扫描目录文件列表"""
+        (tmp_path / "a.py").write_text("print('a')", encoding="utf-8")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.json").write_text('{"x":1}', encoding="utf-8")
+        files = dcc_installer._scan_dir_files(tmp_path)
+        assert len(files) == 2
+        paths = {f["path"] for f in files}
+        assert paths == {"a.py", "sub/b.json"}
+        for f in files:
+            assert "sha256" in f
+            assert "size" in f
+            assert f["size"] > 0
+
+    def test_read_deploy_manifest_empty(self, dcc_installer, tmp_path):
+        """空清单文件"""
+        manifest_path = tmp_path / "state" / "deploy-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        with patch.object(dcc_installer, "_get_manifest_path", return_value=manifest_path):
+            manifest = dcc_installer._read_deploy_manifest()
+            assert manifest["version"] == 1
+            assert manifest["deployments"] == []
+
+    def test_record_and_validate(self, dcc_installer, tmp_path):
+        """记录部署 → 校验通过"""
+        # 准备源目录
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "__init__.py").write_text("bl_info = {'version': (5, 0, 0)}", encoding="utf-8")
+        (src / "module.py").write_text("x = 1", encoding="utf-8")
+
+        # 准备目标目录（模拟已安装）
+        dst = tmp_path / "dst"
+        shutil.copytree(str(src), str(dst))
+
+        # 准备 manifest 路径
+        manifest_path = tmp_path / "state" / "deploy-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+
+        with patch.object(dcc_installer, "_get_manifest_path", return_value=manifest_path):
+            # 记录部署
+            dcc_installer._record_deployment("test-addon", str(src), str(dst), "5.0.0")
+
+            # 校验应全部通过
+            results = dcc_installer.validate_all_deployments()
+            assert len(results) == 1
+            assert results[0]["status"] == "ok"
+            assert results[0]["id"] == "test-addon"
+
+    def test_validate_missing(self, dcc_installer, tmp_path):
+        """目标目录不存在 → missing"""
+        manifest_path = tmp_path / "state" / "deploy-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+
+        manifest = {
+            "version": 1,
+            "deployments": [{
+                "id": "ghost-addon",
+                "source": "/fake/src",
+                "target": str(tmp_path / "nonexistent"),
+                "method": "copy",
+                "files": [{"path": "x.py", "sha256": "aa" * 32, "size": 10}],
+                "deployedAt": "2026-01-01T00:00:00Z",
+                "sourceVersion": "5.0.0",
+            }],
+        }
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with patch.object(dcc_installer, "_get_manifest_path", return_value=manifest_path):
+            results = dcc_installer.validate_all_deployments()
+            assert len(results) == 1
+            assert results[0]["status"] == "missing"
+
+    def test_validate_corrupted(self, dcc_installer, tmp_path):
+        """文件校验和不匹配 → corrupted"""
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        (dst / "mod.py").write_text("modified content", encoding="utf-8")
+
+        manifest_path = tmp_path / "state" / "deploy-manifest.json"
+        import hashlib
+        wrong_sha = hashlib.sha256(b"original content").hexdigest()
+        manifest = {
+            "version": 1,
+            "deployments": [{
+                "id": "corrupted-addon",
+                "source": "/fake/src",
+                "target": str(dst),
+                "method": "copy",
+                "files": [{"path": "mod.py", "sha256": wrong_sha, "size": 16}],
+                "deployedAt": "2026-01-01T00:00:00Z",
+                "sourceVersion": "5.0.0",
+            }],
+        }
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with patch.object(dcc_installer, "_get_manifest_path", return_value=manifest_path):
+            results = dcc_installer.validate_all_deployments()
+            assert len(results) == 1
+            assert results[0]["status"] == "corrupted"
+
+    def test_remove_from_manifest(self, dcc_installer, tmp_path):
+        """从 manifest 移除部署项"""
+        manifest_path = tmp_path / "state" / "deploy-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+
+        manifest = {
+            "version": 1,
+            "deployments": [
+                {"id": "keep-me", "source": "/s1", "target": "/t1", "method": "copy",
+                 "files": [], "deployedAt": "", "sourceVersion": "1.0"},
+                {"id": "remove-me", "source": "/s2", "target": "/t2", "method": "copy",
+                 "files": [], "deployedAt": "", "sourceVersion": "1.0"},
+            ],
+        }
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with patch.object(dcc_installer, "_get_manifest_path", return_value=manifest_path):
+            dcc_installer._remove_from_manifest("remove-me")
+            updated = dcc_installer._read_deploy_manifest()
+            assert len(updated["deployments"]) == 1
+            assert updated["deployments"][0]["id"] == "keep-me"
+
+    def test_get_source_version_blender(self, dcc_installer, tmp_path):
+        """从 Blender addon 获取版本号"""
+        src = tmp_path / "addon"
+        src.mkdir()
+        (src / "__init__.py").write_text(
+            'bl_info = {"version": (5, 0, 1), "name": "Test"}', encoding="utf-8"
+        )
+        v = dcc_installer._get_source_version(src)
+        assert v == "5.0.1"
+
+    def test_get_source_version_package_json(self, dcc_installer, tmp_path):
+        """从 package.json 获取版本号（fallback）"""
+        src = tmp_path / "plugin"
+        src.mkdir()
+        (src / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
+        v = dcc_installer._get_source_version(src)
+        assert v == "1.2.3"
+
+    def test_get_source_version_fallback(self, dcc_installer, tmp_path):
+        """无版本文件时返回兜底值"""
+        src = tmp_path / "empty"
+        src.mkdir()
+        v = dcc_installer._get_source_version(src)
+        assert v == "0.0.0"
