@@ -80,6 +80,9 @@ pub fn run() {
             // STORY-0028 M2：Gateway MCP Bridge 插件
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,
+            // STORY-0029 M2：DCC 端口管理
+            commands::openclaw::openclaw_dcc_port_get,
+            commands::openclaw::openclaw_dcc_port_set,
             // STORY-0018 T3：Gateway 状态控制面板
             commands::openclaw_gateway::openclaw_gateway_status,
             commands::openclaw_gateway::openclaw_gateway_start,

@@ -56,7 +56,7 @@ tags: [epic, dcc, blender, mcp, M2]
 | S6 | [[../review/STORY-0026-dcc-installer-blender]] — Sidecar DCC 安装器 | Review | 1d | S3 |
 | S7 | [[../review/STORY-0027-installer-blender-real-logic]] — 安装向导 Blender 行接真实逻辑 | Review | 1d | S6 |
 | S8 | [[../review/STORY-0028-gateway-mcp-bridge]] — Gateway MCP Bridge 插件 | Review | 1d | S3 |
-| S9 | [[../ready/STORY-0029-dcc-port-settings]] — DCC 端口设置 | Ready | 0.5d | S8 |
+| S9 | [[../review/STORY-0029-dcc-port-settings]] — DCC 端口设置 | Review | 0.5d | S8 |
 | **合计** | | **S1–S8 Review，S9 Ready** | **7d** | EPIC-0002 estimate=2w，**剩余 3d buffer** |
 
 ## 进展日志

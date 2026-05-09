@@ -211,6 +211,137 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
         return {"success": False, "target": target_dir, "error": str(e)}
 
 
+# ── DCC 端口管理 ──────────────────────────────────────────────────────────
+
+# DCC 默认端口映射（key = dcc_id）
+_DCC_DEFAULT_PORTS: Dict[str, int] = {
+    "blender": 18083,
+    # "maya": 18084,
+    # "max": 18085,
+}
+
+
+def get_dcc_port(dcc: str) -> Dict:
+    """获取 DCC 的 MCP Server 端口配置。
+
+    从 openclaw.json 的 mcp-bridge 配置中读取。
+
+    Returns:
+        {"port": int, "url": str, "server_name": str}
+    """
+    server_name = f"{dcc}-editor" if dcc == "blender" else f"{dcc}-primary"
+    default_port = _DCC_DEFAULT_PORTS.get(dcc, 18083)
+
+    # 从 openclaw.json 读取当前配置
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".openclaw"),
+    )
+    config_path = os.path.join(openclaw_home, "openclaw.json")
+
+    port = default_port
+    url = f"ws://127.0.0.1:{default_port}"
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            servers = (
+                config.get("plugins", {})
+                .get("entries", {})
+                .get("mcp-bridge", {})
+                .get("config", {})
+                .get("servers", {})
+            )
+            server_def = servers.get(server_name, {})
+            if server_def.get("url"):
+                url = server_def["url"]
+                # 从 url 中提取端口
+                parts = url.rsplit(":", 1)
+                if len(parts) == 2:
+                    try:
+                        port = int(parts[1])
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+
+    return {"port": port, "url": url, "server_name": server_name}
+
+
+def set_dcc_port(dcc: str, port: int) -> Dict:
+    """设置 DCC 的 MCP Server 端口。
+
+    同步更新 openclaw.json 中 mcp-bridge 配置的 url。
+    如果 DCC 有多个插件版本，全部同步更新。
+
+    Returns:
+        {"success": bool, "port": int, "url": str, "error": str|None}
+    """
+    server_name = f"{dcc}-editor" if dcc == "blender" else f"{dcc}-primary"
+    new_url = f"ws://127.0.0.1:{port}"
+
+    openclaw_home = os.environ.get(
+        "OPENCLAW_HOME",
+        os.path.join(os.path.expanduser("~"), ".openclaw"),
+    )
+    config_path = os.path.join(openclaw_home, "openclaw.json")
+
+    if not os.path.exists(config_path):
+        return {
+            "success": False,
+            "port": port,
+            "url": new_url,
+            "error": f"openclaw.json 不存在: {config_path}",
+        }
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception as e:
+        return {"success": False, "port": port, "url": new_url, "error": f"读取配置失败: {e}"}
+
+    # 更新 mcp-bridge 配置
+    servers = (
+        config
+        .setdefault("plugins", {})
+        .setdefault("entries", {})
+        .setdefault("mcp-bridge", {"enabled": True})
+        .setdefault("config", {})
+        .setdefault("servers", {})
+    )
+
+    # 更新当前 server
+    if server_name not in servers:
+        servers[server_name] = {"type": "websocket", "enabled": True}
+    servers[server_name]["url"] = new_url
+
+    # 同步更新同一 DCC 的其他 server（多插件版本场景）
+    # 如 blender-editor-v2、blender-editor-v3 等
+    updated_servers = [server_name]
+    for key in list(servers.keys()):
+        if key.startswith(f"{dcc}-") and key != server_name:
+            servers[key]["url"] = new_url
+            updated_servers.append(key)
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        logger.info(
+            f"DCC 端口已更新: {dcc} → {port} "
+            f"(servers: {', '.join(updated_servers)})"
+        )
+        return {
+            "success": True,
+            "port": port,
+            "url": new_url,
+            "error": None,
+            "updated_servers": updated_servers,
+        }
+    except Exception as e:
+        return {"success": False, "port": port, "url": new_url, "error": f"写入配置失败: {e}"}
+
+
 def is_dcc_addon_installed(dcc: str, dcc_version: str) -> bool:
     """检查插件是否已安装（通用接口）。"""
     target_dir = get_dcc_addon_target_dir(dcc, dcc_version)

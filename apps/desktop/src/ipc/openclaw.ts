@@ -464,3 +464,36 @@ export async function uninstallBlenderAddon(
     version,
   });
 }
+
+// ---------------------------------------------------------------------------
+// STORY-0029 M2：DCC 端口管理 IPC
+// ---------------------------------------------------------------------------
+
+/** DCC 端口配置 */
+export interface DCCPortConfig {
+  port: number;
+  url: string;
+  server_name: string;
+}
+
+/** 端口设置结果 */
+export interface DCCPortSetResult {
+  success: boolean;
+  port: number;
+  url: string;
+  error: string | null;
+  updated_servers?: string[];
+}
+
+/** 获取 DCC MCP Server 端口配置 */
+export async function getDCCPort(dcc: string): Promise<DCCPortConfig> {
+  return invoke<DCCPortConfig>("openclaw_dcc_port_get", { dcc });
+}
+
+/** 设置 DCC MCP Server 端口 */
+export async function setDCCPort(
+  dcc: string,
+  port: number,
+): Promise<DCCPortSetResult> {
+  return invoke<DCCPortSetResult>("openclaw_dcc_port_set", { dcc, port });
+}

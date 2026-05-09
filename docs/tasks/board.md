@@ -20,7 +20,6 @@ tags:
 ## Ready
 
 - [ ] [[STORY-0025-e2e-smoke-test]]
-- [ ] [[STORY-0029-dcc-port-settings]]
 
 ## In Progress
 
@@ -28,6 +27,7 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0029-dcc-port-settings]]
 - [ ] [[STORY-0028-gateway-mcp-bridge]]
 - [ ] [[../backlog/EPIC-0002-m2-blender-mcp-e2e]]
 - [ ] [[STORY-0027-installer-blender-real-logic]]

@@ -832,6 +832,71 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
         }
 
 
+def _handle_openclaw_dcc_port_get(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.port.get RPC：获取 DCC MCP Server 端口配置。
+
+    参数：
+        dcc (str): DCC 标识，如 "blender"
+
+    返回：
+        {"port": int, "url": str, "server_name": str}
+    """
+    dcc = params.get("dcc", "")
+    if not dcc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: dcc"},
+        }
+
+    try:
+        result = _dcc_installer.get_dcc_port(dcc)
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_port_set(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.port.set RPC：设置 DCC MCP Server 端口。
+
+    参数：
+        dcc (str): DCC 标识
+        port (int): 新端口号
+
+    返回：
+        {"success": bool, "port": int, "url": str, "error": str|None}
+    """
+    dcc = params.get("dcc", "")
+    port = params.get("port", 0)
+
+    if not dcc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: dcc"},
+        }
+    if not isinstance(port, int) or port < 1024 or port > 65535:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": f"无效端口: {port}（范围 1024-65535）"},
+        }
+
+    try:
+        result = _dcc_installer.set_dcc_port(dcc, port)
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -866,6 +931,9 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
+    # STORY-0029 M2：DCC 端口管理
+    "openclaw.dcc.port.get": _handle_openclaw_dcc_port_get,
+    "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,

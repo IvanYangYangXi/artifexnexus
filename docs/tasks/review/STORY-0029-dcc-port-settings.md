@@ -2,7 +2,7 @@
 id: STORY-0029
 kind: story
 title: DCC 端口设置 — 父行设置按钮弹出端口配置
-status: ready
+status: review
 priority: P2
 owner: "@ivan"
 assignee: pair

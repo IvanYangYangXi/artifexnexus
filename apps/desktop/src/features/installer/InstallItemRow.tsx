@@ -207,9 +207,44 @@ function InstallItemRow({ item }: InstallItemRowProps) {
       setSettingsOpen(true);
       return;
     }
+
+    // DCC 行：弹出端口配置对话框（STORY-0029）
+    const dccActions = getDCCActions(item.id);
+    if (dccActions) {
+      void (async () => {
+        try {
+          const { getDCCPort, setDCCPort } = await import("../../ipc/openclaw");
+          const config = await getDCCPort(item.id);
+          const newPortStr = window.prompt(
+            `${item.name} MCP Server 端口：`,
+            String(config.port),
+          );
+          if (newPortStr === null) return;
+
+          const newPort = parseInt(newPortStr, 10);
+          if (isNaN(newPort) || newPort < 1024 || newPort > 65535) {
+            window.alert("端口号无效，范围 1024-65535");
+            return;
+          }
+
+          const result = await setDCCPort(item.id, newPort);
+          if (result.success) {
+            const servers = result.updated_servers?.join(", ") || config.server_name;
+            addLog(item.id, "info", `端口已更新: ${newPort}（同步: ${servers}）`);
+          } else {
+            addLog(item.id, "error", `端口设置失败: ${result.error}`);
+          }
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          addLog(item.id, "error", `端口设置异常: ${errMsg}`);
+        }
+      })();
+      return;
+    }
+
     // 其它行 M2+ 接真实逻辑
     console.log(`[installer] settings: ${item.id}`);
-  }, [item.id]);
+  }, [item.id, addLog]);
 
   /** 根据 DCC 类型和版本号自动计算安装路径 */
   const calcInstallPath = useCallback((dccId: string, version: string): string => {
