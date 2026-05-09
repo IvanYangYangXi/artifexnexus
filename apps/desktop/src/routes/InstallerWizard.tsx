@@ -271,33 +271,10 @@ function InstallerWizard() {
     logs: [],
   });
 
-  // 页面初始化时查询 OpenClaw 真实状态
+  // 页面初始化时自动执行一次全局检测
   useEffect(() => {
-    void (async () => {
-      try {
-        const status = await getOpenClawStatus();
-        let newState: InstallItem["state"];
-        if (status.gateway_running) {
-          newState = "installed";
-        } else if (status.cli_installed) {
-          newState = status.version_mismatch ? "update-available" : "installed";
-        } else {
-          newState = "not-installed";
-        }
-        dispatch({
-          type: "UPDATE_ITEM",
-          id: "openclaw",
-          patch: { state: newState },
-        });
-      } catch {
-        dispatch({
-          type: "UPDATE_ITEM",
-          id: "openclaw",
-          patch: { state: "not-installed" },
-        });
-      }
-    })();
-  }, []); // 仅在挂载时执行一次
+    handleGlobalDetect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGlobalDetect = () => {
     // OpenClaw：真实状态查询
