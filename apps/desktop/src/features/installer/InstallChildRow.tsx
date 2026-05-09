@@ -125,16 +125,34 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
     // DCC 子项：真实安装逻辑
     const dccActions = getDCCActions(parentId);
     if (dccActions) {
+      const isReinstall = child.state === "installed";
       dispatch({ type: "INSTALL_CHILD_START", parentId, childIndex });
       void (async () => {
         try {
-          // 先检查并安装 mcp-bridge 插件
+          // 重装时先卸载旧版本
+          if (isReinstall) {
+            addLog(parentId, "info", `[${child.label}] 重装：先卸载旧版本…`);
+            try {
+              const uninstallResult = await dccActions.uninstall(child.version);
+              if (uninstallResult.success) {
+                addLog(parentId, "info", `[${child.label}] 旧版本卸载成功`);
+              } else {
+                addLog(parentId, "warn", `[${child.label}] 旧版本卸载失败（继续安装）: ${uninstallResult.error}`);
+              }
+            } catch (e) {
+              addLog(parentId, "warn", `[${child.label}] 旧版本卸载异常（继续安装）: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+
+          // 检查并安装 mcp-bridge 插件
           const { invoke } = await import("@tauri-apps/api/core");
           addLog(parentId, "info", `[${child.label}] 检查 MCP Bridge 插件…`);
           const bridgeStatus = await invoke<{ installed: boolean }>(
             "openclaw_gateway_mcp_bridge_status",
           );
-          if (!bridgeStatus.installed) {
+          if (bridgeStatus.installed) {
+            addLog(parentId, "info", `[${child.label}] MCP Bridge 插件已安装`);
+          } else {
             addLog(parentId, "info", `[${child.label}] 正在部署 MCP Bridge 插件…`);
             const bridgeResult = await invoke<{
               success: boolean;
@@ -149,19 +167,19 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
             addLog(parentId, "info", `[${child.label}] MCP Bridge 部署成功 (${bridgeResult.method})`);
           }
 
-          addLog(parentId, "info", `[${child.label}] 正在安装插件到 ${child.version}…`);
+          addLog(parentId, "info", `[${child.label}] 正在安装插件到 ${child.version}（目标: ${child.installPath || "自动计算"}）…`);
           const result = await dccActions.install(child.version);
           if (result.success) {
-            addLog(parentId, "info", `[${child.label}] 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
+            addLog(parentId, "info", `[${child.label}] ✅ 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
             dispatch({ type: "INSTALL_CHILD_DONE", parentId, childIndex });
           } else {
             const errMsg = result.error || "未知错误";
-            addLog(parentId, "error", `[${child.label}] 安装失败: ${errMsg}`);
+            addLog(parentId, "error", `[${child.label}] ❌ 安装失败: ${errMsg}`);
             dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
           }
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
-          addLog(parentId, "error", `[${child.label}] 安装异常: ${errMsg}`);
+          addLog(parentId, "error", `[${child.label}] ❌ 安装异常: ${errMsg}`);
           dispatch({ type: "INSTALL_CHILD_FAIL", parentId, childIndex });
         }
       })();

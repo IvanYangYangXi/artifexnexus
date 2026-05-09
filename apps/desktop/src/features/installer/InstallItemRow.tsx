@@ -426,10 +426,13 @@ function InstallItemRow({ item }: InstallItemRowProps) {
         // 先检查并安装 mcp-bridge 插件
         try {
           const { invoke } = await import("@tauri-apps/api/core");
+          addLog(item.id, "info", "检查 MCP Bridge 插件…");
           const bridgeStatus = await invoke<{ installed: boolean }>(
             "openclaw_gateway_mcp_bridge_status",
           );
-          if (!bridgeStatus.installed) {
+          if (bridgeStatus.installed) {
+            addLog(item.id, "info", "MCP Bridge 插件已安装");
+          } else {
             addLog(item.id, "info", "正在部署 Gateway MCP Bridge 插件…");
             const bridgeResult = await invoke<{
               success: boolean;
@@ -447,8 +450,6 @@ function InstallItemRow({ item }: InstallItemRowProps) {
               });
               return;
             }
-          } else {
-            addLog(item.id, "info", "MCP Bridge 插件已安装");
           }
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
@@ -464,32 +465,41 @@ function InstallItemRow({ item }: InstallItemRowProps) {
           return;
         }
 
+        addLog(item.id, "info", `开始安装 ${item.name} 插件（共 ${children.length} 个版本）…`);
+
         let allSuccess = true;
+        let installedCount = 0;
         for (const child of children) {
-          if (child.state === "installed") continue;
+          if (child.state === "installed") {
+            addLog(item.id, "info", `${item.name} ${child.version} 已安装，跳过`);
+            installedCount++;
+            continue;
+          }
 
           addLog(item.id, "info", `正在安装到 ${item.name} ${child.version}（目标: ${child.installPath || "自动计算"}）…`);
           try {
             const result = await dccActions.install(child.version);
             if (result.success) {
-              addLog(item.id, "info", `${item.name} ${child.version} 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
+              addLog(item.id, "info", `✅ ${item.name} ${child.version} 安装成功 (方式: ${result.method}, 目标: ${result.target})`);
               dispatch({
                 type: "UPDATE_CHILD",
                 parentId: item.id,
                 childIndex: children.indexOf(child),
                 patch: { state: "installed" },
               });
+              installedCount++;
             } else {
-              addLog(item.id, "error", `${item.name} ${child.version} 安装失败: ${result.error}`);
+              addLog(item.id, "error", `❌ ${item.name} ${child.version} 安装失败: ${result.error}`);
               allSuccess = false;
             }
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
-            addLog(item.id, "error", `${item.name} ${child.version} 安装异常: ${errMsg}`);
+            addLog(item.id, "error", `❌ ${item.name} ${child.version} 安装异常: ${errMsg}`);
             allSuccess = false;
           }
         }
 
+        addLog(item.id, "info", `安装完成: ${installedCount}/${children.length} 个版本成功`);
         dispatch({
           type: allSuccess ? "INSTALL_DONE" : "INSTALL_FAIL",
           id: item.id,
