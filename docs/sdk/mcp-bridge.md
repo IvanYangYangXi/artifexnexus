@@ -36,7 +36,7 @@ result = install_gateway_mcp_bridge()
 ```
 
 自动完成：
-1. junction/symlink `gateway-plugin/` → `OPENCLAW_HOME/plugins/mcp-bridge/`
+1. junction/symlink `gateway-plugin/` → `OPENCLAW_HOME/extensions/mcp-bridge/`
 2. patch `openclaw.json`：`plugins.allow += "mcp-bridge"` + `plugins.entries.mcp-bridge`
 
 ## 配置格式

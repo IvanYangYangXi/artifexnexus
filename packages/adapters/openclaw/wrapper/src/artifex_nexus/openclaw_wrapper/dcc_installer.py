@@ -614,12 +614,12 @@ def _get_gateway_plugin_src_dir() -> Path:
 
 
 def _get_openclaw_plugins_dir() -> Path:
-    """获取 OpenClaw plugins 目录"""
+    """获取 OpenClaw extensions 目录（OpenClaw 插件扫描此目录）"""
     openclaw_home = os.environ.get(
         "OPENCLAW_HOME",
         os.path.join(os.path.expanduser("~"), ".openclaw"),
     )
-    return Path(openclaw_home) / "plugins"
+    return Path(openclaw_home) / "extensions"
 
 
 def install_gateway_mcp_bridge() -> Dict:
