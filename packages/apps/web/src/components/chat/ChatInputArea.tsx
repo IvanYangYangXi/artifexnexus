@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
 import { PreviewFileContext } from "../shell/AppShell";
+import { AtMentionDialog, type MentionItem } from "./AtMentionDialog";
 
 interface SessionFile {
   name: string;
@@ -84,6 +85,7 @@ export function ChatInputArea({
   const [sendKey, setSendKey] = React.useState<SendKey>("enter");
   const [pinnedTools, setPinnedTools] = React.useState<string[]>([]);
   const [showSendMenu, setShowSendMenu] = React.useState(false);
+  const [mentionOpen, setMentionOpen] = React.useState(false);
   const [quickPrompts, setQuickPrompts] = React.useState<QuickPrompt[]>([]);
   const [promptDialogOpen, setPromptDialogOpen] = React.useState(false);
   const [promptLabel, setPromptLabel] = React.useState("");
@@ -246,10 +248,7 @@ export function ChatInputArea({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={() => {
-            const toolName = prompt("输入 Tool 名称（mock）:");
-            if (toolName) setPinnedTools((prev) => [...prev, toolName]);
-          }}
+          onClick={() => setMentionOpen(true)}
         >
           <AtSign className="h-3.5 w-3.5" />
         </Button>
@@ -385,6 +384,19 @@ export function ChatInputArea({
           </div>
         </div>
       </div>
+
+      {/* @提及选择器 */}
+      <AtMentionDialog
+        open={mentionOpen}
+        onClose={() => setMentionOpen(false)}
+        onSelect={(item) => {
+          const label = item.type === "tool" ? `@${item.name}` : `@${item.name}`;
+          setPinnedTools((prev) => {
+            if (prev.includes(label)) return prev;
+            return [...prev, label];
+          });
+        }}
+      />
 
       {/* 快捷输入 添加/编辑 对话框 */}
       {promptDialogOpen && (
