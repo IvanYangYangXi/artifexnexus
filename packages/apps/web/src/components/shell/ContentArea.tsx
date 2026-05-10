@@ -13,6 +13,7 @@ import { MessageSquare, Puzzle, Settings, Terminal } from "lucide-react";
 
 import type { ModuleId } from "./Sidebar";
 import { ChatView } from "../chat/ChatView";
+import { SkillsPage } from "../skills/SkillsPage";
 
 const MODULE_META: Record<
   ModuleId,
@@ -48,6 +49,11 @@ export function ContentArea({ module }: ContentAreaProps) {
   // Chat 模块渲染真实 ChatView
   if (module === "chat") {
     return <ChatView />;
+  }
+
+  // 技能模块
+  if (module === "skills") {
+    return <SkillsPage />;
   }
 
   // 其他模块保持占位
