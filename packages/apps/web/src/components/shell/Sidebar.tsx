@@ -233,24 +233,31 @@ export function Sidebar({
 
         {/* B2 折叠按钮 */}
         <div className="border-t border-border/60 px-1.5 py-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className={cn("h-8 w-full justify-center")}
-                onClick={onToggleCollapsed}
-                aria-label={collapsed ? "展开侧边栏" : "折叠侧边栏"}
-              >
-                {collapsed ? (
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-full"
+                  onClick={onToggleCollapsed}
+                  aria-label="展开侧边栏"
+                >
                   <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronLeft className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">展开</TooltipContent>}
-          </Tooltip>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">展开</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="ghost"
+              className="h-8 w-full justify-start gap-2 px-2 text-xs"
+              onClick={onToggleCollapsed}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span>折叠</span>
+            </Button>
+          )}
         </div>
 
         {/* B3 用户区 */}
