@@ -113,20 +113,16 @@ export function ToolList() {
                         status={{ label: STATUS_LABELS[tool.status], color: STATUS_COLORS[tool.status] }}
                         description={tool.description}
                         meta={<>
-                          <span className={SOURCE_COLORS[tool.source]}>{SOURCE_LABELS[tool.source]}</span>
-                          <span>·</span><span>{tool.version}</span>
+                          <span>{tool.version}</span>
                           <span>·</span><span>{tool.author}</span>
                           <span>·</span><span>{tool.modifiedDate}</span>
-                          {tool.triggerCount > 0 && <><span>·</span><span>⚡{tool.triggerCount}触发 · {tool.triggerTypes.join("/")}</span></>}
+                          {tool.triggerCount > 0 && <><span>·</span><span>⚡{tool.triggerTypes.join("/")}</span></>}
                         </>}
                         actions={<>
                           <Button variant="outline" size="sm" className="h-7 text-xs">详情</Button>
                           {tool.status === "not_installed" && <Button size="sm" className="h-7 text-xs">安装</Button>}
                           {tool.status === "installed" && <>
                             <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => runTool(tool.name)}><Play className="h-3 w-3" />运行</Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(tool.id)}>
-                              <Star className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
-                            </Button>
                           </>}
                           {tool.status === "update_available" && <>
                             <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => runTool(tool.name)}><Play className="h-3 w-3" />运行</Button>
@@ -136,6 +132,9 @@ export function ToolList() {
                             <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>
                             <Button variant="outline" size="sm" className="h-7 text-xs text-destructive">删除</Button>
                           </>}
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(tool.id)}>
+                            <Star className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
+                          </Button>
                         </>}
                       />
                     ))}

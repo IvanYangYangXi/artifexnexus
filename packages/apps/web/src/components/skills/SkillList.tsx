@@ -102,8 +102,7 @@ export function SkillList() {
               status={{ label: STATUS_LABELS[skill.status], color: STATUS_COLORS[skill.status] }}
               description={skill.description}
               meta={<>
-                <span className={SOURCE_COLORS[skill.source]}>{SOURCE_LABELS[skill.source]}</span>
-                <span>·</span><span>{skill.version}</span>
+                <span>{skill.version}</span>
                 <span>·</span><span>{skill.author}</span>
                 <span>·</span><span>{skill.modifiedDate}</span>
               </>}
