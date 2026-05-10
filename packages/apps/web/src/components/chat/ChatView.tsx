@@ -19,12 +19,13 @@ export function ChatView() {
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [pendingQueue, setPendingQueue] = React.useState<string[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const handleSendRef = React.useRef<(text: string) => void>(() => {});
 
   // 监听 Tool 运行事件
   React.useEffect(() => {
     const handler = (e: Event) => {
       const { toolName } = (e as CustomEvent).detail;
-      handleSend(`请帮我运行工具 "${toolName}"`);
+      handleSendRef.current(`请帮我运行工具 "${toolName}"`);
     };
     window.addEventListener("artifex:runTool", handler);
     return () => window.removeEventListener("artifex:runTool", handler);
@@ -104,6 +105,9 @@ export function ChatView() {
   const handleStop = () => {
     setIsStreaming(false);
   };
+
+  // 同步 ref
+  handleSendRef.current = handleSend;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
