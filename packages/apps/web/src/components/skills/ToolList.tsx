@@ -24,13 +24,7 @@ import {
 } from "../../lib/skillsMock";
 
 const DCC_ICONS: Record<DCC, string> = {
-  blender: "🎨",
-  maya: "🏗️",
-  max: "📐",
-  unreal: "🎮",
-  houdini: "🌊",
-  comfyui: "🧩",
-  general: "🔧",
+  blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G",
 };
 
 const STATUS_COLORS: Record<SkillStatus, string> = {
@@ -173,7 +167,7 @@ export function ToolList() {
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   )}
                   <span>
-                    {skill ? DCC_ICONS[skill.targetDCCs[0]] : "🔧"} {skillName}
+                    <DCCIconSmall dcc={skill?.targetDCCs[0] || "general"} /> {skillName}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     ({skillTools.length} tools)
@@ -192,7 +186,7 @@ export function ToolList() {
                       <ItemCard
                         key={tool.id}
                         viewMode={viewMode}
-                        icon={skill ? DCC_ICONS[skill.targetDCCs[0]] : "🔧"}
+                        icon={<DCCIcon dcc={skill?.targetDCCs[0] || "general"} />}
                         title={tool.name}
                         titleBadge={{
                           label: IMPL_LABELS[tool.implType],
@@ -208,8 +202,6 @@ export function ToolList() {
                         description={tool.description}
                         meta={
                           <>
-                            <span className={SOURCE_COLORS[tool.source]}>{SOURCE_LABELS[tool.source]}</span>
-                            <span>·</span>
                             <span>{tool.version}</span>
                             <span>·</span>
                             <span>{tool.author}</span>
@@ -269,5 +261,43 @@ export function ToolList() {
         </div>
       </ScrollFade>
     </div>
+  );
+}
+
+/** DCC 字母图标（大） */
+function DCCIcon({ dcc }: { dcc: DCC }) {
+  const colors: Record<DCC, string> = {
+    blender: "bg-orange-500/20 text-orange-400",
+    maya: "bg-cyan-500/20 text-cyan-400",
+    max: "bg-yellow-500/20 text-yellow-400",
+    unreal: "bg-sky-500/20 text-sky-400",
+    houdini: "bg-amber-500/20 text-amber-400",
+    comfyui: "bg-purple-500/20 text-purple-400",
+    general: "bg-muted text-muted-foreground",
+  };
+  const icons: Record<DCC, string> = { blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G" };
+  return (
+    <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[dcc] || colors.general}`}>
+      {icons[dcc]}
+    </span>
+  );
+}
+
+/** DCC 字母图标（小，用于分组头） */
+function DCCIconSmall({ dcc }: { dcc: DCC }) {
+  const colors: Record<DCC, string> = {
+    blender: "bg-orange-500/20 text-orange-400",
+    maya: "bg-cyan-500/20 text-cyan-400",
+    max: "bg-yellow-500/20 text-yellow-400",
+    unreal: "bg-sky-500/20 text-sky-400",
+    houdini: "bg-amber-500/20 text-amber-400",
+    comfyui: "bg-purple-500/20 text-purple-400",
+    general: "bg-muted text-muted-foreground",
+  };
+  const icons: Record<DCC, string> = { blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G" };
+  return (
+    <span className={`inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold ${colors[dcc] || colors.general}`}>
+      {icons[dcc]}
+    </span>
   );
 }

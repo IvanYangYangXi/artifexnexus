@@ -21,13 +21,13 @@ import {
 } from "../../lib/skillsMock";
 
 const DCC_ICONS: Record<DCC, string> = {
-  blender: "🎨",
-  maya: "🏗️",
-  max: "📐",
-  unreal: "🎮",
-  houdini: "🌊",
-  comfyui: "🧩",
-  general: "🔧",
+  blender: "B",
+  maya: "M",
+  max: "3",
+  unreal: "U",
+  houdini: "H",
+  comfyui: "C",
+  general: "G",
 };
 
 const STATUS_COLORS: Record<SkillStatus, string> = {
@@ -158,7 +158,7 @@ export function SkillList() {
             <ItemCard
               key={skill.id}
               viewMode={viewMode}
-              icon={DCC_ICONS[skill.targetDCCs[0]]}
+              icon={<DCCIcon dcc={skill.targetDCCs[0]} />}
               title={skill.name}
               titleBadge={
                 skill.targetDCCs.length > 0
@@ -176,8 +176,6 @@ export function SkillList() {
               description={skill.description}
               meta={
                 <>
-                  <span className={SOURCE_COLORS[skill.source]}>{SOURCE_LABELS[skill.source]}</span>
-                  <span>·</span>
                   <span>{skill.version}</span>
                   <span>·</span>
                   <span>{skill.author}</span>
@@ -261,4 +259,25 @@ export function SkillList() {
 
 function cn(...args: (string | false | undefined | null)[]): string {
   return args.filter(Boolean).join(" ");
+}
+
+/** DCC 字母图标 */
+function DCCIcon({ dcc }: { dcc: DCC }) {
+  const colors: Record<DCC, string> = {
+    blender: "bg-orange-500/20 text-orange-400",
+    maya: "bg-cyan-500/20 text-cyan-400",
+    max: "bg-yellow-500/20 text-yellow-400",
+    unreal: "bg-sky-500/20 text-sky-400",
+    houdini: "bg-amber-500/20 text-amber-400",
+    comfyui: "bg-purple-500/20 text-purple-400",
+    general: "bg-muted text-muted-foreground",
+  };
+  return (
+    <span className={cn(
+      "inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold",
+      colors[dcc] || colors.general,
+    )}>
+      {DCC_ICONS[dcc]}
+    </span>
+  );
 }

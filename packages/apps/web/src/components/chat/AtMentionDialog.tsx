@@ -20,7 +20,7 @@ import {
 } from "../../lib/skillsMock";
 
 const DCC_ICONS: Record<DCC, string> = {
-  blender: "🎨", maya: "🏗️", max: "📐", unreal: "🎮", houdini: "🌊", comfyui: "🧩", general: "🔧",
+  blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G",
 };
 
 export interface MentionItem {
