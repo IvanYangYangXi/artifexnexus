@@ -71,7 +71,7 @@ export function QuickLinkDialog({
   const isValid = name.trim().length > 0 && target.trim().length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => { console.log("[QuickLinkDialog] onOpenChange", v); if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle>{existing ? "编辑连接" : "添加连接"}</DialogTitle>
