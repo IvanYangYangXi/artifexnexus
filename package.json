@@ -32,6 +32,7 @@
   "workspaces": [
     "packages/platform/contracts/typescript",
     "packages/adapters/openclaw/gateway-plugin",
+    "packages/ui",
     "packages/apps/web",
     "apps/desktop"
   ]

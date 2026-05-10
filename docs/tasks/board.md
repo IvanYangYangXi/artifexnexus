@@ -10,7 +10,6 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
-- [ ] [[STORY-0031-m3-ui-tokens-components]]
 - [ ] [[STORY-0032-m3-ui-global-layout]]
 - [ ] [[STORY-0033-m3-ui-b-sidebar]]
 - [ ] [[STORY-0034-m3-ui-chat-module]]
@@ -33,6 +32,8 @@ tags:
 
 
 ## In Progress
+
+- [ ] [[STORY-0031-m3-ui-tokens-components]]
 
 
 

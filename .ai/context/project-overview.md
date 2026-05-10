@@ -36,6 +36,9 @@ packages/
 │   ├── contracts/           # 契约：JSON Schema + pydantic + Python ABC + TS types
 │   └── cli/                 # `artifex` 命令
 │
+├── ui/                      # @artifex-nexus/ui — 统一设计系统（M3 起）
+│                            # tokens + Tailwind v4 + shadcn/ui 风格组件（源码包）
+│
 ├── adapters/                # AI 平台适配
 │   └── openclaw/
 │       ├── uplink/          # Python，DCC 内运行

@@ -1,0 +1,11 @@
+/* Demo 预览入口样式。直接 import 组件库全局 CSS（已含 @import "tailwindcss"）。 */
+@import "../../src/globals.css";
+
+/* Tailwind v4 内容扫描：显式声明源路径，覆盖组件库源码 + demo 自身 */
+@source "../../src/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx,html}";
+
+/* 仅 demo 用的小样式 —— 让 gallery 页面在深色背景下更易阅读 */
+.demo-section {
+  scroll-margin-top: 1rem;
+}

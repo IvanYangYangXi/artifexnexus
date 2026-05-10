@@ -1,0 +1,18 @@
+/*
+ * Artifex Nexus Web — 全局样式
+ *
+ * 转发 @artifex-nexus/ui 的 globals.css（含 Tailwind v4 主题 + 设计 token + 字体声明），
+ * 并追加 Tailwind v4 `@source` 指令，让 Tailwind 同时扫描：
+ *   1) 当前 web 应用源码（src/**）
+ *   2) @artifex-nexus/ui 源码（确保所有 utility class 不会被 tree-shake 掉）
+ */
+
+@import "@artifex-nexus/ui/globals.css";
+
+@source "../../../**/*.{ts,tsx}";
+@source "../../../node_modules/@artifex-nexus/ui/src/**/*.{ts,tsx}";
+
+html,
+body {
+  height: 100%;
+}

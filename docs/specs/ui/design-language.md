@@ -1,6 +1,7 @@
 ---
 tags: [spec, ui, design-language, M3]
 created: 2026-05-09
+updated: 2026-05-10
 status: draft
 ---
 
@@ -21,34 +22,64 @@ status: draft
 | 圆角 | 基于 `--radius` 变量，组件级梯度 |
 | 组件库 | shadcn/ui → `packages/ui`（`@artifex-nexus/ui`） |
 | 分发 | Tailwind preset（`packages/ui/tailwind.preset.ts`） |
+| 灰阶哲学 | **VS Code 风格中性灰 4 层**（19/24/31/37），保留品牌蓝为唯一彩色强调 |
 
 ## 2. 色彩 Token 表
 
-### 2.1 语义色彩（深色主题 `.dark`）
+### 2.1 灰阶层级（深色主题，2026-05-10 加入）
+
+参考 VS Code 暗色主题，采用 4 层中性灰阶分隔不同区域，避免大块同色造成视觉扁平：
+
+| 层级 | HSL | 近似 RGB | 主要用途 | 关联 token |
+|---|---|---|---|---|
+| L1 最暗 | `0 0% 7.5%` | rgb(19, 19, 19) | A 区顶栏 | `--titlebar` |
+| L2 主体 | `0 0% 9.4%` | rgb(24, 24, 24) | 页面背景 / B 区导航 | `--background` / `--sidebar` |
+| L3 卡片 | `0 0% 12.2%` | rgb(31, 31, 31) | 卡片 / 弹层 / 输入框 | `--card` / `--popover` / `--input` |
+| L4 次级 | `0 0% 14.5%` | rgb(37, 37, 37) | D 区资源管理器 / 列表分组 | `--panel` / `--muted` |
+
+**原则**：
+- 同一层级内不再叠加 shadow（深色下阴影几乎不可见），靠 `border-border` 与灰阶差形成层次。
+- 品牌强调色（`--primary` 蓝）是**唯一**彩色高亮，用于焦点环 / 主按钮 / 链接 / 激活态。
+- 状态色（绿/黄/红/蓝信息）见 §2.4。
+
+### 2.2 语义色彩（深色主题 `.dark` / 默认 `:root`）
 
 | Token | HSL 值 | 用途 |
 |---|---|---|
-| `--background` | 222.2 84% 4.9% | 页面/面板背景 |
-| `--foreground` | 210 40% 98% | 主要文字 |
+| `--background` | 0 0% 9.4% | 页面/面板背景（L2） |
+| `--foreground` | 0 0% 96% | 主要文字 |
 | `--primary` | 217.2 91.2% 59.8% | 品牌强调（按钮/链接/焦点） |
 | `--primary-foreground` | 222.2 47.4% 11.2% | 品牌色上文字 |
-| `--secondary` | 217.2 32.6% 17.5% | 次要操作背景 |
-| `--secondary-foreground` | 210 40% 98% | 次要操作文字 |
-| `--muted` | 217.2 32.6% 17.5% | 弱化元素背景 |
-| `--muted-foreground` | 215 20.2% 65.1% | 弱化文字/占位符 |
-| `--accent` | 217.2 32.6% 17.5% | hover/焦点高亮 |
-| `--accent-foreground` | 210 40% 98% | 高亮上文字 |
+| `--secondary` | 0 0% 16% | 次要操作背景（按钮态） |
+| `--secondary-foreground` | 0 0% 96% | 次要操作文字 |
+| `--muted` | 0 0% 14.5% | 弱化元素背景（L4） |
+| `--muted-foreground` | 0 0% 60% | 弱化文字/占位符 |
+| `--accent` | 0 0% 18% | hover/焦点高亮 |
+| `--accent-foreground` | 0 0% 96% | 高亮上文字 |
 | `--destructive` | 0 62.8% 30.6% | 危险操作 |
-| `--destructive-foreground` | 210 40% 98% | 危险操作文字 |
-| `--border` | 217.2 32.6% 17.5% | 边框 |
-| `--input` | 217.2 32.6% 17.5% | 输入框边框 |
-| `--ring` | 224.3 76.3% 48% | 焦点环 |
-| `--card` | 222.2 84% 4.9% | 卡片背景 |
-| `--card-foreground` | 210 40% 98% | 卡片文字 |
-| `--popover` | 222.2 84% 4.9% | 弹出层背景 |
-| `--popover-foreground` | 210 40% 98% | 弹出层文字 |
+| `--destructive-foreground` | 0 0% 96% | 危险操作文字 |
+| `--border` | 0 0% 18% | 边框（与 accent 同灰，确保可视） |
+| `--input` | 0 0% 12.2% | 输入框底色（L3） |
+| `--ring` | 217.2 91.2% 59.8% | 焦点环（同 primary） |
+| `--card` | 0 0% 12.2% | 卡片背景（L3） |
+| `--card-foreground` | 0 0% 96% | 卡片文字 |
+| `--popover` | 0 0% 12.2% | 弹出层背景（L3） |
+| `--popover-foreground` | 0 0% 96% | 弹出层文字 |
 
-### 2.2 语义色彩（浅色主题 `.light`）
+### 2.3 区域专用 Token（深色主题，新增）
+
+| Token | HSL 值 | 用途 |
+|---|---|---|
+| `--titlebar` | 0 0% 7.5% | A 区顶栏（L1，最暗） |
+| `--titlebar-foreground` | 0 0% 88% | 顶栏文字（略减对比，不喧宾夺主） |
+| `--sidebar` | 0 0% 9.4% | B 区左侧导航（L2，与背景齐） |
+| `--sidebar-foreground` | 0 0% 88% | 导航文字 |
+| `--panel` | 0 0% 14.5% | D 区右侧面板 / 资源管理器（L4） |
+| `--panel-foreground` | 0 0% 92% | 面板文字 |
+
+Tailwind 用法：`bg-titlebar` / `bg-sidebar` / `bg-panel` / `text-panel-foreground` 等（v4 `@theme inline` 自动派生）。
+
+### 2.4 语义色彩（浅色主题 `.light`）
 
 | Token | HSL 值 |
 |---|---|
@@ -71,8 +102,14 @@ status: draft
 | `--card-foreground` | 222.2 84% 4.9% |
 | `--popover` | 0 0% 100% |
 | `--popover-foreground` | 222.2 84% 4.9% |
+| `--titlebar` | 210 40% 98% |
+| `--titlebar-foreground` | 222.2 84% 4.9% |
+| `--sidebar` | 210 40% 99% |
+| `--sidebar-foreground` | 222.2 84% 4.9% |
+| `--panel` | 210 40% 96.1% |
+| `--panel-foreground` | 222.2 84% 4.9% |
 
-### 2.3 状态色（共用，不随主题切换）
+### 2.5 状态色（共用，不随主题切换）
 
 | 用途 | Tailwind class | 近似 Hex |
 |---|---|---|
@@ -93,6 +130,51 @@ status: draft
 **行高**：默认 1.5（正文），紧凑型 1.25（表格/列表）。
 
 **字重**：`font-normal`(400) / `font-medium`(500) / `font-semibold`(600) / `font-bold`(700)。
+
+**信息层级 utility**：
+
+| 类 | 用途 | 字号 / 字距 |
+|---|---|---|
+| `text-eyebrow` | 标签字（区分语义段，"OPENCLAW GATEWAY" / "TOOL CALLS"） | 10px uppercase tracking-0.18em |
+
+## 3.5 玻璃面策略（风格 E · 2026-05-10 决议）
+
+> **决议**：灰阶 token 不动 + 玻璃只用于卡片 / 弹层（共存方案 1）
+
+### 何时用玻璃面（强约束）
+
+**应该用 `glass-surface` / `<Card variant="glass">` / 玻璃化弹层**：
+- `<Card>`：内容卡片、状态卡片、统计块等
+- `<Dialog>` / `<Popover>` / `<Sheet>`：所有弹层（已默认玻璃化）
+- `<ToolCallGroup>`：工具调用气泡（chat 内）
+- 任何"飘起来"、需要"前台浮起"姿态的元素
+
+**禁止用玻璃面**：
+- 全屏主框架背景（用 `bg-background` L2）
+- A 顶栏（用 `bg-titlebar` L1）
+- B 左侧导航（用 `bg-sidebar` L2）
+- D 区面板根容器（用 `bg-panel` L4）
+- 列表项行（用透明 + hover `bg-white/[0.04]`）
+
+### 实现 utility
+
+| 类 | 等价于 |
+|---|---|
+| `glass-surface` | rounded-16 + border-white/[0.08] + bg-white/[0.04] + backdrop-blur-xl + 顶部 inset 高光 + 浮起阴影 |
+| `glass-surface-inner` | rounded-12 + border-white/[0.06] + bg-white/[0.025] + backdrop-blur-md + 顶部 inset 高光（用于嵌套场景） |
+| `glass-hover` | hover 时边框提亮 + 背景升一档 |
+
+### 多层叠加规则
+
+- 玻璃面**不能嵌套超过 2 层**（避免"灰糊"）
+- 嵌套时外层用 `glass-surface`，内层用 `glass-surface-inner`
+- 内层不再加单独阴影
+
+### 性能注意
+
+- `backdrop-blur` 在弱机器（集成显卡）会有 5-10% 帧率开销
+- 不要在长列表行（如 100+ Skill 卡片墙）每行都用玻璃；用 `bg-card` 实色即可
+- D 区分组面板（`<CollapsiblePanel>`）的 header 不用玻璃
 
 ## 4. 间距系统
 

@@ -1,0 +1,290 @@
+/*
+ * @artifex-nexus/ui — globals.css
+ *
+ * Artifex Nexus 统一设计令牌（CSS 变量）+ Tailwind v4 主题映射 + 字体声明。
+ * 消费者只需：
+ *   1) 在入口文件 `import "@artifex-nexus/ui/globals.css";`
+ *   2) 在 Tailwind v4 的 content 扫描里包含 `@artifex-nexus/ui` 源码
+ *
+ * 深色主题为主（默认），`.light` 显式切换至浅色。
+ * Token 定义对齐 docs/specs/ui/design-language.md。
+ */
+
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+/* ─────────────────────────── Fonts (self-hosted) ──────────────────────────
+ * Inter（UI 正文）与 JetBrains Mono（代码/日志）。
+ *
+ * 当前策略（STORY-0031 遗留）：先用 `local()` 命中系统已装字体，
+ * woff2 文件入库后再恢复 `url("./fonts/...")` 行作为后备。
+ * 系统未装时，CSS 自然 fallback 到 --font-sans / --font-mono 的栈。
+ *
+ * 后续工单：补 woff2 自托管文件，恢复 url() 行；这样离线 DCC 也能用。
+ */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src:
+    local("Inter Variable"),
+    local("Inter");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src:
+    local("JetBrains Mono"),
+    local("JetBrainsMono-Regular");
+}
+
+/* ───────────────────────── Design Tokens (HSL vars) ──────────────────────
+ * 深色主题为默认值放在 :root，`.light` 做浅色覆盖。
+ * HSL 值格式为 "H S% L%"（无 hsl() 包裹），消费者以 hsl(var(--x)) 使用。
+ *
+ * VS Code 风格中性灰阶（深色主题，对齐 design-language §2）：
+ *   L1 最暗（顶栏）       0 0% 7.5%   ≈ rgb(19, 19, 19)
+ *   L2 主体（背景/导航）   0 0% 9.4%   ≈ rgb(24, 24, 24)
+ *   L3 卡片/弹层/输入框    0 0% 12.2%  ≈ rgb(31, 31, 31)
+ *   L4 次级面板（资源管理） 0 0% 14.5%  ≈ rgb(37, 37, 37)
+ * 品牌强调（--primary）保持原蓝色不变。
+ */
+:root {
+  /* 深色主题（默认） — 中性灰阶 */
+  --background: 0 0% 9.4%;            /* L2 主体页面 */
+  --foreground: 0 0% 96%;
+
+  /* 品牌蓝（2026-05-10 调校 v2）：
+   *   - 提升明度 59.8% → 65% 让蓝更"亮"，去除沉闷感
+   *   - 降低饱和度 91% → 78% 让蓝更"高级"（偏天青/钢蓝感），不刺眼
+   *   - 配 white(98%) 文字而非深蓝文字 → 默认按钮可读
+   */
+  --primary: 213 78% 65%;
+  --primary-foreground: 0 0% 98%;
+
+  /* 次操作系列（提对比度，让 hover/active 看得见变化）：
+   *   secondary  20% L  按钮静态
+   *   accent     24% L  hover 高亮（与 secondary 拉开 4%）
+   *   muted      14% L  弱化背景（Skeleton 用，配下面 muted-foreground 才能看出动画）
+   *   muted-fg   28% L  Skeleton 闪烁的"亮"端，与 muted(14%) 形成 14% 反差
+   */
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 0 0% 14.5%;                /* L4 弱化背景 */
+  --muted-foreground: 0 0% 64%;       /* 弱化文字（保持高可读） */
+  --accent: 0 0% 24%;                 /* hover/激活高亮，与 secondary 拉开 4% */
+  --accent-foreground: 0 0% 98%;
+
+  /* 危险操作（2026-05-10 调校）：
+   *   原 30% L 太暗，与文字对比不够
+   *   提到 50% L + 配白文字（98%）→ 明确可读
+   */
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 0 0% 22%;                 /* 提亮边框，让卡片轮廓清晰 */
+  --input: 0 0% 12.2%;                /* L3 输入框底色 */
+  --ring: 213 78% 65%;                /* 焦点环 = primary（同步调亮） */
+  --card: 0 0% 12.2%;                 /* L3 卡片/会话气泡 */
+  --card-foreground: 0 0% 96%;
+  --popover: 0 0% 12.2%;              /* L3 弹层 */
+  --popover-foreground: 0 0% 96%;
+
+  /* 新增：区域专用层级（M3 起） */
+  --titlebar: 0 0% 7.5%;              /* L1 A 区顶栏（最暗） */
+  --titlebar-foreground: 0 0% 88%;
+  --sidebar: 0 0% 9.4%;               /* L2 B 区左侧导航（与主体齐） */
+  --sidebar-foreground: 0 0% 88%;
+  --panel: 0 0% 14.5%;                /* L4 D 区资源管理 / 次级容器 */
+  --panel-foreground: 0 0% 92%;
+
+  /* 状态色（2026-05-10 加入，供工具调用卡片等使用） */
+  --success: 142 65% 45%;             /* 成功绿（明度足够，文字白可读） */
+  --success-foreground: 0 0% 98%;
+  --warning: 38 92% 56%;              /* 警告橙黄 */
+  --warning-foreground: 0 0% 12%;
+  --info: 200 90% 60%;                /* 信息蓝（与 primary 略区分） */
+  --info-foreground: 0 0% 98%;
+
+  /* 圆角基值 */
+  --radius: 0.5rem;
+}
+
+.light {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --primary: 213 78% 55%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 213 78% 55%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+
+  /* 浅色：region tokens 统一为白/极浅灰阶（轻量分层） */
+  --titlebar: 210 40% 98%;
+  --titlebar-foreground: 222.2 84% 4.9%;
+  --sidebar: 210 40% 99%;
+  --sidebar-foreground: 222.2 84% 4.9%;
+  --panel: 210 40% 96.1%;
+  --panel-foreground: 222.2 84% 4.9%;
+
+  /* 状态色（浅色） */
+  --success: 142 60% 38%;
+  --success-foreground: 0 0% 98%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 12%;
+  --info: 200 90% 50%;
+  --info-foreground: 0 0% 98%;
+}
+
+/* ───────────────────────── Tailwind v4 @theme 映射 ──────────────────────
+ * 将 CSS 变量桥接为 Tailwind 语义类：
+ *   bg-background / text-foreground / border-border / ring-ring / …
+ * 通过 @theme inline 避免 v4 为变量生成多余的 util。
+ */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  /* 区域专用层级 */
+  --color-titlebar: hsl(var(--titlebar));
+  --color-titlebar-foreground: hsl(var(--titlebar-foreground));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-panel: hsl(var(--panel));
+  --color-panel-foreground: hsl(var(--panel-foreground));
+
+  /* 状态色 */
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* 自定义动画 */
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+}
+
+/* Tailwind v4 默认将 border 色设为 currentColor；恢复旧行为用 border 变量 */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ─────────────────────── Style E utility（A+D 整合）──────────────────────
+ * 反复使用的"玻璃面 / 内层玻璃面 / 标签字"原子，避免每个页面都拼 5-6 个 className。
+ * 取自 STORY-0031 风格探索页 E 的最终方案，详见 docs/specs/ui/design-language.md §3。
+ */
+@utility glass-surface {
+  /* 玻璃面 — 用于卡片 / Dialog / Popover / Sheet 的"前台浮起"姿态 */
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background-color: rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow:
+    0 8px 32px -12px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+}
+
+@utility glass-surface-inner {
+  /* 内层玻璃面 — 嵌套在 glass-surface 内，blur 较弱 */
+  border-radius: 12px;
+  border: 1px solid rgb(255 255 255 / 0.06);
+  background-color: rgb(255 255 255 / 0.025);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.04);
+}
+
+@utility glass-hover {
+  /* hover 反馈：边框提亮 + 背景升一档 */
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+}
+.glass-hover:hover {
+  border-color: rgb(255 255 255 / 0.14);
+  background-color: rgb(255 255 255 / 0.06);
+}
+
+@utility text-eyebrow {
+  /* 标签字（D 的层级哲学）— 10px uppercase + 0.18em 字距 + muted */
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: hsl(var(--muted-foreground));
+}
+
+/* shimmer 动画在 @theme 中已注册（变量 --animate-shimmer），
+   组件 Skeleton 会直接消费。 */
