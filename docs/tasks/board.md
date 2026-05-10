@@ -10,8 +10,6 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
-- [ ] [[STORY-0032-m3-ui-global-layout]]
-- [ ] [[STORY-0033-m3-ui-b-sidebar]]
 - [ ] [[STORY-0034-m3-ui-chat-module]]
 - [ ] [[STORY-0035-m3-ui-skills-tools]]
 - [ ] [[STORY-0036-m3-ui-system-module]]
@@ -33,8 +31,6 @@ tags:
 
 ## In Progress
 
-- [ ] [[STORY-0031-m3-ui-tokens-components]]
-
 
 
 ## Review
@@ -43,14 +39,9 @@ tags:
 
 ## Done
 
-- [ ] [[STORY-0025-e2e-smoke-test]]
-- [ ] [[STORY-0008-thin-wrapper-installer]]
-- [ ] [[STORY-0009-openclaw-bootstrap-config]]
-- [ ] [[STORY-0010-openclaw-runtime-spawn]]
-- [ ] [[STORY-0011-openclaw-health-check]]
-- [ ] [[STORY-0012-openclaw-port-conflict]]
-- [ ] [[STORY-0013-openclaw-status-ui]]
-- [ ] [[STORY-0014-openclaw-upgrade-scaffold]]
+- [x] [[STORY-0033-m3-ui-b-sidebar]]
+- [x] [[STORY-0032-m3-ui-global-layout]]
+- [x] [[STORY-0031-m3-ui-tokens-components]]
 - [x] [[EPIC-0002-m2-blender-mcp-e2e]]
 - [x] [[STORY-0030-deploy-validation-on-detect]]
 - [x] [[STORY-0029-dcc-port-settings]]
@@ -83,9 +74,6 @@ tags:
 
 
 
-
 %% kanban:settings
-```
 {"kanban-plugin":"board","full-list-lane-width":true,"inline-metadata-position":"body","metadata-keys":[{"metadataKey":"title","label":"","shouldHideLabel":true,"containsMarkdown":true},{"metadataKey":"kind","label":"类型","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"milestone","label":"里程碑","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"status","label":"状态","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"priority","label":"优先级","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"owner","label":"所有者","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"estimate","label":"估算","shouldHideLabel":false,"containsMarkdown":true},{"metadataKey":"updated","label":"","shouldHideLabel":false,"containsMarkdown":true}],"show-checkboxes":false,"hide-card-count":false,"move-tags":false,"show-relative-date":false,"link-date-to-daily-note":false}
-```
 %%
