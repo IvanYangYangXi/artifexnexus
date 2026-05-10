@@ -63,7 +63,12 @@ export function ScrollFade({ children, className, fadeFrom = "from-background" }
             fadeFrom,
           )}
           style={{
-            background: "linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background)/0.6) 30%, transparent 100%)",
+            background:
+              "linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background)/0.6) 30%, transparent 100%)",
+            maskImage:
+              "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
           }}
         />
       )}
