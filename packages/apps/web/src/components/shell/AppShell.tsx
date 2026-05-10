@@ -140,7 +140,7 @@ export function AppShell() {
         )}
 
         {/* C + D 区 — 用 ResizablePanelGroup，D 隐藏时只剩 C */}
-        <div className="h-full min-w-0 flex-1">
+        <div className="h-full min-w-0 flex-1" suppressHydrationWarning>
           {panelOpen ? (
             <ResizablePanelGroup
               direction="horizontal"
