@@ -12,6 +12,9 @@ import {
   Clock,
   FileText,
   FolderTree,
+  Pin,
+  PinOff,
+  Play,
   Puzzle,
   RefreshCw,
   Wrench,
@@ -23,7 +26,7 @@ import {
   CollapsiblePanelGroup,
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { PreviewFileContext } from "./AppShell";
+import { PreviewFileContext, PinnedSkillsContext, RunToolContext } from "./AppShell";
 
 const RECENT_ITEMS = [
   { kind: "skill" as const, name: "blender-modeling" },
@@ -48,6 +51,8 @@ const TOOL_GROUPS = [
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
+  const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
+  const { runTool } = React.useContext(RunToolContext);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
       <CollapsiblePanelGroup autoSaveId="artifex.shell.dpanel">
@@ -104,12 +109,25 @@ export function RightPanel() {
                   className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
                 >
                   <span
-                    className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
                   />
                   <span className="truncate">{s.name}</span>
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  <span className="font-mono text-[10px] text-muted-foreground">
                     {s.version}
                   </span>
+                  <div className="flex-1" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() => togglePin(s.name)}
+                  >
+                    {pinnedSkills.includes(s.name) ? (
+                      <PinOff className="h-3 w-3 text-amber-400" />
+                    ) : (
+                      <Pin className="h-3 w-3" />
+                    )}
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -142,6 +160,15 @@ export function RightPanel() {
                       >
                         <Wrench className="h-3 w-3 text-muted-foreground" />
                         <span className="truncate">{t}</span>
+                        <div className="flex-1" />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => runTool(t)}
+                        >
+                          <Play className="h-3 w-3" />
+                        </Button>
                       </li>
                     ))}
                   </ul>
