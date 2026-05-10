@@ -225,24 +225,34 @@ export function ToolList() {
                             <Button variant="outline" size="sm" className="h-7 text-xs">
                               详情
                             </Button>
-                            <Button size="sm" className="h-7 gap-1 text-xs">
-                              <Play className="h-3 w-3" />
-                              运行
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => toggleFavorite(tool.id)}
-                            >
-                              <Star
-                                className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`}
-                              />
-                            </Button>
+                            {tool.status === "not_installed" && (
+                              <Button size="sm" className="h-7 text-xs">安装</Button>
+                            )}
+                            {tool.status === "installed" && (
+                              <>
+                                <Button size="sm" className="h-7 gap-1 text-xs">
+                                  <Play className="h-3 w-3" />运行
+                                </Button>
+                                <Button
+                                  variant="ghost" size="icon" className="h-7 w-7"
+                                  onClick={() => toggleFavorite(tool.id)}
+                                >
+                                  <Star className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
+                                </Button>
+                              </>
+                            )}
+                            {tool.status === "update_available" && (
+                              <>
+                                <Button size="sm" className="h-7 gap-1 text-xs">
+                                  <Play className="h-3 w-3" />运行
+                                </Button>
+                                <Button size="sm" className="h-7 text-xs">更新</Button>
+                              </>
+                            )}
                             {tool.source === "user" && (
                               <>
                                 <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>
-                                <Button variant="outline" size="sm" className="h-7 text-xs text-destructive">删除</Button>
+                                <Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive">删除</Button>
                               </>
                             )}
                           </>

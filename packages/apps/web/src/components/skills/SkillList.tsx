@@ -196,32 +196,29 @@ export function SkillList() {
                     <>
                       <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
                       <Button variant="outline" size="sm" className="h-7 text-xs">禁用</Button>
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7"
+                        onClick={() => togglePin(skill.id)}
+                      >
+                        {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                      </Button>
                     </>
                   )}
                   {skill.status === "update_available" && (
-                    <Button size="sm" className="h-7 text-xs">更新</Button>
+                    <>
+                      <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
+                      <Button size="sm" className="h-7 text-xs">更新</Button>
+                    </>
                   )}
                   {skill.status === "disabled" && (
-                    <Button variant="outline" size="sm" className="h-7 text-xs">启用</Button>
-                  )}
-                  {(skill.status === "installed" || skill.status === "disabled") && (
-                    <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
+                    <>
+                      <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
+                      <Button size="sm" className="h-7 text-xs">启用</Button>
+                    </>
                   )}
                   {skill.source === "user" && (
                     <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => togglePin(skill.id)}
-                  >
-                    {skill.pinned ? (
-                      <PinOff className="h-3.5 w-3.5 text-amber-400" />
-                    ) : (
-                      <Pin className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
                 </>
               }
             />
