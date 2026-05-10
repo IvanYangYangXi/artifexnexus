@@ -135,6 +135,7 @@ export function ToolList() {
                           {tool.source === "user" && (
                             <Button variant="outline" size="sm" className="h-7 text-xs text-destructive">删除</Button>
                           )}
+                          <div className="flex-1" />
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(tool.id)}>
                             <Star className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
                           </Button>
