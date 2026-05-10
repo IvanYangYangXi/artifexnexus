@@ -74,13 +74,16 @@ function ItemCardView({
         {description}
       </p>
 
+      {/* 占位 flex-1，把 S-g 和 S-c 推到底部 */}
+      <div className="flex-1" />
+
       {/* 第三行: S-g 元信息 */}
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
         {meta}
       </div>
 
-      {/* 第四行: S-c 操作按钮 — 靠底部 */}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5">
+      {/* 第四行: S-c 操作按钮 */}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5">
         {actions}
       </div>
     </div>
