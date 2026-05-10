@@ -85,23 +85,17 @@ function handleQuickLinkClick(link: QuickLink) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tauri = (window as any).__TAURI__;
   if (tauri?.invoke) {
-    tauri.invoke("shell_open", { path: link.target }).catch(() => {
-      // Tauri 调用失败，fallback 到 file:// 协议
-      openLocalPath(link.target);
+    tauri.invoke("plugin:shell|open", { path: link.target }).catch((e: unknown) => {
+      alert(`无法打开: ${link.target}\n${e}`);
     });
   } else {
-    // 浏览器环境兜底
-    openLocalPath(link.target);
+    // 浏览器环境：复制路径到剪贴板并提示
+    navigator.clipboard.writeText(link.target).then(() => {
+      alert(`路径已复制到剪贴板:\n${link.target}\n\n（在 Tauri 桌面应用中可直接打开）`);
+    }).catch(() => {
+      alert(`路径:\n${link.target}\n\n（在 Tauri 桌面应用中可直接打开）`);
+    });
   }
-}
-
-/** 浏览器环境用 file:// 协议打开本地路径 */
-function openLocalPath(target: string) {
-  const normalized = target.replace(/\\/g, "/");
-  const fileUrl = normalized.startsWith("//")
-    ? `file:${normalized}`
-    : `file:///${normalized.replace(/^[A-Za-z]:/, "")}`;
-  window.open(fileUrl, "_blank");
 }
 
 interface SidebarProps {
