@@ -15,9 +15,11 @@ interface ScrollFadeProps {
   className?: string;
   /** 光晕背景色（默认 background） */
   fadeFrom?: string;
+  /** 光晕高度（默认 h-6 = 24px） */
+  fadeHeight?: string;
 }
 
-export function ScrollFade({ children, className, fadeFrom = "from-background" }: ScrollFadeProps) {
+export function ScrollFade({ children, className, fadeFrom = "from-background", fadeHeight = "h-6" }: ScrollFadeProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [showFade, setShowFade] = React.useState(false);
 
@@ -59,7 +61,8 @@ export function ScrollFade({ children, className, fadeFrom = "from-background" }
       {showFade && (
         <div
           className={cn(
-            "pointer-events-none absolute bottom-0 left-0 right-0 h-6",
+            "pointer-events-none absolute bottom-0 left-0 right-0",
+            fadeHeight,
             fadeFrom,
           )}
           style={{

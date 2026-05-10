@@ -64,7 +64,7 @@ export function RightPanel() {
             </Button>
           }
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel">
+          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <ul className="space-y-px py-1 text-xs">
               {RECENT_ITEMS.map((it, i) => (
                 <li
@@ -94,7 +94,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel">
+          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <ul className="space-y-px py-1 text-xs">
               {SKILLS.map((s) => (
                 <li
@@ -125,7 +125,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel">
+          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <div className="py-1 text-xs">
               {TOOL_GROUPS.map((g) => (
                 <div key={g.skill} className="mb-1">
@@ -159,7 +159,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel">
+          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <div className="px-2 py-2 text-xs text-muted-foreground">
               <p>占位 · STORY-0038 接入真实文件树</p>
             </div>
@@ -176,7 +176,7 @@ export function RightPanel() {
           minSize={8}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel">
+          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
               <FileText className="h-4 w-4" />
               <p>在资源管理器或会话文件中选择文件以预览</p>
