@@ -2,7 +2,7 @@
 id: STORY-0035
 kind: story
 title: M3-UI-05 · 技能模�?UI（Skill/Tool 卡片 + 列表 + 筛选）
-status: done
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

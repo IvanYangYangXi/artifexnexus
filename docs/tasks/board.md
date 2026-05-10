@@ -30,14 +30,13 @@ tags:
 
 ## Review
 
-
+- [ ] [[STORY-0038-m3-ui-desktop-embed]]
+- [ ] [[STORY-0037-m3-ui-settings-right-panel]]
+- [ ] [[STORY-0036-m3-ui-system-module]]
+- [ ] [[STORY-0035-m3-ui-skills-tools]]
 
 ## Done
 
-- [x] [[STORY-0038-m3-ui-desktop-embed]]
-- [x] [[STORY-0037-m3-ui-settings-right-panel]]
-- [x] [[STORY-0036-m3-ui-system-module]]
-- [x] [[STORY-0035-m3-ui-skills-tools]]
 - [x] [[STORY-0034-m3-ui-chat-module]]
 - [x] [[STORY-0033-m3-ui-b-sidebar]]
 - [x] [[STORY-0032-m3-ui-global-layout]]

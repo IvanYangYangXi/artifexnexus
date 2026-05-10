@@ -2,7 +2,7 @@
 id: STORY-0037
 kind: story
 title: M3-UI-07 · 设置模块 UI + D 区域右侧面板
-status: done
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair
