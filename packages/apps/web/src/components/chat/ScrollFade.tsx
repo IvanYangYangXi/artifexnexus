@@ -60,7 +60,7 @@ export function ScrollFade({ children, className, fadeFrom = "from-background" }
         <div
           className={cn(
             "pointer-events-none absolute bottom-0 left-0 right-0 h-6",
-            "bg-gradient-to-t via-background/50 to-transparent",
+            "bg-gradient-to-t from-background via-background/60 to-transparent",
             fadeFrom,
           )}
         />
