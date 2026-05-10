@@ -115,20 +115,20 @@ cube.data.materials.append(mat)`,
 
 ## 文本格式
 
-这是**加粗文字**，这是*斜体文字*，这是~~删除线~~。
+这是**加粗文字**，这是*斜体文字*，这是~~删除线~~，这是\`行内代码\`。
 
-## 链接
+## 链接与图片
 
 访问 [Artifex Nexus 文档](https://github.com) 了解更多。
 
 ## 表格
 
-| DCC | 版本 | 状态 |
-|-----|------|------|
-| Blender | 5.1 | ✅ 已连接 |
-| Maya | 2026 | 🔜 即将支持 |
-| Unreal | 5.5 | 🔜 即将支持 |
-| 3ds Max | 2026 | 🔜 即将支持 |
+| DCC | 版本 | 状态 | 备注 |
+|-----|------|------|------|
+| Blender | 5.1 | ✅ 已连接 | 支持建模/材质 |
+| Maya | 2026 | 🔜 即将支持 | M7 阶段 |
+| Unreal | 5.5 | 🔜 即将支持 | M7 阶段 |
+| 3ds Max | 2026 | 🔜 即将支持 | M7 阶段 |
 
 ## 代码块
 
@@ -148,6 +148,16 @@ sphere = create_sphere(radius=2.0)
 print(f"创建球体: {sphere.name}")
 \`\`\`
 
+\`\`\`json
+{
+  "name": "RedCube",
+  "material": {
+    "type": "Principled BSDF",
+    "color": [1, 0, 0, 1]
+  }
+}
+\`\`\`
+
 ## 分割线
 
 ---
@@ -164,7 +174,26 @@ print(f"创建球体: {sphere.name}")
 - 🏗️ Maya 动画
 - 🎮 Unreal 蓝图
 
-> 这是引用块，用于突出重要信息。
+### 嵌套列表
+- 建模工具
+  - Blender
+  - Maya
+- 引擎
+  - Unreal Engine 5
+  - Unity
+
+## 引用块
+
+> **提示**：这是引用块，用于突出重要信息。
+> 
+> 可以包含多行内容，支持 **Markdown** 格式。
+
+## 任务列表
+
+- [x] 安装 Blender 插件
+- [x] 配置 MCP Server
+- [ ] 测试工具调用
+- [ ] 部署到生产环境
 
 以上就是 Markdown 渲染的全部效果展示。`,
     timestamp: "2026-05-10T10:02:03Z",

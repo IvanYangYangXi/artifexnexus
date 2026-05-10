@@ -95,21 +95,6 @@ export function ChatView() {
     setIsStreaming(false);
   };
 
-  const handleResume = () => {
-    setIsStreaming(true);
-    // Mock 恢复
-    setTimeout(() => {
-      const aiMsg: MockMessage = {
-        id: `msg-${Date.now()}`,
-        role: "assistant",
-        content: "已恢复生成。（mock）",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      setIsStreaming(false);
-    }, 800);
-  };
-
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* C1 控制栏 */}
@@ -125,7 +110,6 @@ export function ChatView() {
       <ChatInputArea
         onSend={handleSend}
         onStop={handleStop}
-        onResume={handleResume}
         isStreaming={isStreaming}
         pendingCount={pendingQueue.length}
         pendingMessages={pendingQueue}

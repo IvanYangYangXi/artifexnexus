@@ -12,16 +12,15 @@
 import * as React from "react";
 import {
   AtSign,
+  ChevronDown,
+  Clock,
   FilePlus,
   Paperclip,
   Plus,
   Send,
   Slash,
   Square,
-  Play,
-  ChevronDown,
   X,
-  Clock,
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
 
@@ -33,7 +32,6 @@ interface SessionFile {
 interface ChatInputAreaProps {
   onSend: (text: string) => void;
   onStop: () => void;
-  onResume: () => void;
   isStreaming: boolean;
   pendingCount: number;
   pendingMessages: string[];
@@ -45,7 +43,6 @@ type SendKey = "enter" | "ctrl-enter";
 export function ChatInputArea({
   onSend,
   onStop,
-  onResume,
   isStreaming,
   pendingCount,
   pendingMessages,
@@ -189,30 +186,20 @@ export function ChatInputArea({
               ? "输入消息... (Enter 发送, Shift+Enter 换行)"
               : "输入消息... (Ctrl+Enter 发送, Enter 换行)"
           }
-          className="min-h-[80px] max-h-[200px] flex-1 resize-none"
+          className="min-h-[80px] max-h-[200px] flex-1 resize-none border-white/[0.12] bg-muted/30 focus-visible:border-primary/40 focus-visible:bg-background"
         />
 
-        {/* C3c 发送区 — 停止/恢复常驻 + 发送 + 切换 */}
-        <div className="flex flex-col items-center gap-1">
-          {/* 停止按钮 — 常驻，生成中高亮 */}
+        {/* C3c 发送区 */}
+        <div className="flex items-center gap-1.5">
+          {/* 停止按钮 — 常驻 */}
           <Button
             size="icon"
             variant={isStreaming ? "destructive" : "ghost"}
-            className="h-8 w-8"
+            className="h-9 w-9"
             onClick={onStop}
             disabled={!isStreaming}
           >
-            <Square className={cn("h-3.5 w-3.5", isStreaming && "fill-current")} />
-          </Button>
-
-          {/* 恢复按钮 — 常驻 */}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-8"
-            onClick={onResume}
-          >
-            <Play className="h-3 w-3" />
+            <Square className={cn("h-4 w-4", isStreaming && "fill-current")} />
           </Button>
 
           {/* 发送按钮 */}
@@ -230,10 +217,10 @@ export function ChatInputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-9"
+              className="h-9 w-7"
               onClick={() => setShowSendMenu(!showSendMenu)}
             >
-              <ChevronDown className="h-3 w-3" />
+              <ChevronDown className="h-3.5 w-3.5" />
             </Button>
             {showSendMenu && (
               <div className="absolute bottom-full right-0 mb-1 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">

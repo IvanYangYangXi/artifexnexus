@@ -334,23 +334,15 @@ status: draft
 
 | 按钮 | 状态 | 说明 |
 |------|------|------|
-| **发送** | 默认 | Enter 发送消息 |
-| **停止** | 生成中 | 停止当前 AI 生成（原 ■ 停止按钮） |
-| **恢复** | 暂停后 | 恢复暂停的生成（新增） |
-| **发送方式切换 [▼]** | 始终 | 下拉切换发送模式 |
+| **停止** | 常驻 | 生成中高亮红色，空闲时灰显 |
+| **发送** | 默认 | Enter 或 Ctrl+Enter 发送消息 |
+| **发送方式切换 [▼]** | 始终 | 下拉切换 Enter 发送 / Ctrl+Enter 发送 |
 
-**发送方式切换**：
-
-| 模式 | 说明 |
-|------|------|
-| 立即发送（默认） | Enter 直接发送 |
-| 队列发送 | 生成中时按发送 → 消息进入队列，当前生成完成后自动发送队列中的下一条 |
-
-**队列行为**：
-- AI 正在生成回复时，用户按发送 → 消息不立即发送，进入待发送队列
-- 队列消息在 C3b 上方以轻量标签显示："队列 (2)"
+**队列行为**（自动）：
+- AI 正在生成回复时，用户按发送 → 消息自动进入队列
+- 队列消息在 C3 上方以信息队列区显示
 - 当前回复完成后，自动发送队列中的第一条消息
-- 用户可手动清空队列
+- 恢复功能为自动：停止后用户再次发送即自动恢复
 
 ### 对话状态机
 
@@ -358,14 +350,12 @@ status: draft
 stateDiagram-v2
     [*] --> Idle: 初始化
     Idle --> Composing: 用户开始输入
-    Composing --> Sending: Enter 发送
+    Composing --> Sending: Enter/Ctrl+Enter 发送
     Sending --> Streaming: 首 token 到达
     Streaming --> ToolExecuting: AI 调用工具
     ToolExecuting --> Streaming: 工具完成
     Streaming --> Idle: 响应完成
-    Streaming --> Paused: 用户停止
-    Paused --> Streaming: 用户恢复
-    Paused --> Idle: 放弃
+    Streaming --> Idle: 用户停止
     Sending --> Error: 网络/Gateway 失败
     Error --> Idle: 重试/确认
     Sending --> Queued: 生成中用户再次发送
@@ -376,8 +366,7 @@ stateDiagram-v2
 
 | 状态 | 说明 |
 |------|------|
-| Paused | 用户点击停止后进入暂停态，可恢复或放弃 |
-| Queued | 生成中用户按发送，消息进入队列等待 |
+| Queued | 生成中用户按发送，消息自动进入队列等待 |
 
 ---
 
