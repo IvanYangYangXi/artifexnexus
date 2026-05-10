@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
+import { PreviewFileContext } from "../shell/AppShell";
 
 interface SessionFile {
   name: string;
@@ -89,6 +90,7 @@ export function ChatInputArea({
   const [promptText, setPromptText] = React.useState("");
   const [editingPromptId, setEditingPromptId] = React.useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const { setPreviewFile } = React.useContext(PreviewFileContext);
 
   React.useEffect(() => {
     setQuickPrompts(loadPrompts());
@@ -190,19 +192,27 @@ export function ChatInputArea({
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground">会话文件:</span>
           {sessionFiles.map((f) => (
-            <span
+            <button
               key={f.name}
               className={cn(
-                "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]",
+                "inline-flex cursor-pointer items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors hover:brightness-110",
                 f.action === "新建" && "border-emerald-500/30 text-emerald-400",
                 f.action === "修改" && "border-amber-500/30 text-amber-400",
                 f.action === "删除" && "border-red-500/30 text-red-400",
               )}
+              onClick={() => {
+                // 点击联动 D5 预览
+                setPreviewFile({
+                  name: f.name,
+                  content: getMockFileContent(f.name),
+                  language: getFileLanguage(f.name),
+                });
+              }}
             >
               <FilePlus className="h-2.5 w-2.5" />
               {f.name}
               <span className="text-muted-foreground">({f.action})</span>
-            </span>
+            </button>
           ))}
         </div>
       )}
@@ -421,4 +431,45 @@ export function ChatInputArea({
       )}
     </div>
   );
+}
+
+/** Mock 文件内容 */
+function getMockFileContent(name: string): string {
+  if (name.endsWith(".blend")) return "[二进制文件 — Blender 场景数据]";
+  if (name === "RedMaterial") {
+    return `# RedMaterial — Blender 材质节点
+
+import bpy
+
+mat = bpy.data.materials.new(name="RedMaterial")
+mat.use_nodes = True
+nodes = mat.node_tree.nodes
+links = mat.node_tree.links
+
+# 清空默认节点
+nodes.clear()
+
+# 创建 Principled BSDF
+bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+bsdf.inputs[0].default_value = (1, 0, 0, 1)  # 红色
+bsdf.location = (0, 300)
+
+# 创建输出节点
+output = nodes.new(type="ShaderNodeOutputMaterial")
+output.location = (300, 300)
+
+# 连接
+links.new(bsdf.outputs[0], output.inputs[0])
+
+print("红色材质创建完成")`;
+  }
+  return `# ${name}\n\n[文件内容占位 — STORY-0038 接入真实文件系统]`;
+}
+
+function getFileLanguage(name: string): string | undefined {
+  if (name.endsWith(".py")) return "python";
+  if (name.endsWith(".json")) return "json";
+  if (name.endsWith(".ts") || name.endsWith(".tsx")) return "typescript";
+  if (name.endsWith(".md")) return "markdown";
+  return undefined;
 }

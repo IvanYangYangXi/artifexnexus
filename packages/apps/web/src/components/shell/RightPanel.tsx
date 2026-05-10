@@ -23,6 +23,7 @@ import {
   CollapsiblePanelGroup,
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
+import { PreviewFileContext } from "./AppShell";
 
 const RECENT_ITEMS = [
   { kind: "skill" as const, name: "blender-modeling" },
@@ -46,6 +47,7 @@ const TOOL_GROUPS = [
 ];
 
 export function RightPanel() {
+  const { previewFile } = React.useContext(PreviewFileContext);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
       <CollapsiblePanelGroup autoSaveId="artifex.shell.dpanel">
@@ -170,17 +172,28 @@ export function RightPanel() {
         <CollapsiblePanel
           id="preview"
           order={5}
-          title="文件预览"
+          title={previewFile ? `预览: ${previewFile.name}` : "文件预览"}
           icon={<FileText className="h-3 w-3" />}
-          defaultSize={10}
+          defaultSize={previewFile ? 30 : 10}
           minSize={8}
-          defaultOpen={false}
+          defaultOpen={!!previewFile}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
-              <FileText className="h-4 w-4" />
-              <p>在资源管理器或会话文件中选择文件以预览</p>
-            </div>
+            {previewFile ? (
+              <div className="px-3 py-2">
+                <div className="mb-1 text-[10px] text-muted-foreground">
+                  {previewFile.name}
+                </div>
+                <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
+                  {previewFile.content}
+                </pre>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
+                <FileText className="h-4 w-4" />
+                <p>在资源管理器或会话文件中选择文件以预览</p>
+              </div>
+            )}
           </ScrollFade>
         </CollapsiblePanel>
       </CollapsiblePanelGroup>

@@ -29,6 +29,21 @@ import {
   ResizablePanelGroup,
 } from "@artifex-nexus/ui";
 
+export interface PreviewFile {
+  name: string;
+  content: string;
+  language?: string;
+}
+
+// 预览文件 context
+export const PreviewFileContext = React.createContext<{
+  previewFile: PreviewFile | null;
+  setPreviewFile: (f: PreviewFile | null) => void;
+}>({
+  previewFile: null,
+  setPreviewFile: () => {},
+});
+
 const STORAGE_KEYS = {
   sidebarCollapsed: "artifex.shell.sidebarCollapsed",
   panelOpen: "artifex.shell.panelOpen",
@@ -107,10 +122,14 @@ export function AppShell() {
   // D 区 imperative ref（顶栏按钮调用 expand/collapse）
   const dPanelRef = React.useRef<ImperativePanelHandle>(null);
 
+  // 预览文件状态（C3-文件区 ↔ D5 联动）
+  const [previewFile, setPreviewFile] = React.useState<PreviewFile | null>(null);
+
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded;
   const showSidebar = !bp.isMobile;
 
   return (
+    <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
@@ -169,5 +188,6 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    </PreviewFileContext.Provider>
   );
 }
