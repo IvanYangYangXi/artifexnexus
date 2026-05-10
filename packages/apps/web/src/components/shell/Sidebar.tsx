@@ -75,19 +75,21 @@ const MODULES: ModuleEntry[] = [
 ];
 
 /** 点击自定义连接的处理 */
-function handleQuickLinkClick(link: QuickLink) {
+async function handleQuickLinkClick(link: QuickLink) {
   if (link.type === "url") {
     window.open(link.target, "_blank");
     return;
   }
 
-  // 文件夹/文件：通过 Tauri shell_open 打开
+  // 文件夹/文件：通过 Tauri invoke → sidecar shell.open_path RPC
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tauri = (window as any).__TAURI__;
   if (tauri?.invoke) {
-    tauri.invoke("plugin:shell|open", { path: link.target }).catch((e: unknown) => {
+    try {
+      await tauri.invoke("shell_open_path", { path: link.target });
+    } catch (e: unknown) {
       alert(`无法打开: ${link.target}\n${e}`);
-    });
+    }
   } else {
     // 浏览器环境：复制路径到剪贴板并提示
     navigator.clipboard.writeText(link.target).then(() => {

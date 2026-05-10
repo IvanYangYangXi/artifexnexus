@@ -406,3 +406,20 @@ pub async fn openclaw_deploy_validate(
 
     manager.call("openclaw.deploy.validate", json!({}))
 }
+
+/// 在操作系统中打开文件/目录/URL。
+///
+/// STORY-0033 M3：B 区域自定义连接点击打开。
+#[tauri::command]
+pub async fn shell_open_path(
+    sidecar: State<'_, SidecarState>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("shell.open_path", json!({"path": path}))
+}

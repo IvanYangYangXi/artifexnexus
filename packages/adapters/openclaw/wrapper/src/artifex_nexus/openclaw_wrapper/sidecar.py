@@ -947,6 +947,49 @@ def _handle_openclaw_deploy_validate(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_shell_open_path(req_id: Any, params: dict) -> dict:
+    """shell.open_path RPC：在操作系统中打开文件/目录/URL。
+
+    参数：
+        path (str): 要打开的文件路径、目录路径或 URL
+
+    返回：
+        {"success": bool, "error": str|None}
+    """
+    path = params.get("path", "")
+    if not path:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: path"},
+        }
+
+    try:
+        import os as _os
+        import platform as _platform
+        import subprocess as _subprocess
+
+        system = _platform.system()
+        if system == "Windows":
+            _os.startfile(path)
+        elif system == "Darwin":
+            _subprocess.run(["open", path], check=True)
+        else:
+            _subprocess.run(["xdg-open", path], check=True)
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": True, "error": None},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": str(e)},
+        }
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
@@ -986,6 +1029,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
     # STORY-0029 T2：全局部署校验
     "openclaw.deploy.validate": _handle_openclaw_deploy_validate,
+    # STORY-0033 M3：Shell 打开路径（文件夹/文件/URL）
+    "shell.open_path": _handle_shell_open_path,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
     "openclaw.gateway.status": _sidecar_gateway.handle_gateway_status,
     "openclaw.gateway.start": _sidecar_gateway.handle_gateway_start,
