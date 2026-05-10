@@ -99,6 +99,17 @@ export function ChatInputArea({
     setQuickPrompts(loadPrompts());
   }, []);
 
+  // 监听预输入事件（Tool 运行 → 预填输入框）
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const { text } = (e as CustomEvent).detail;
+      setText(text);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener("artifex:prefillInput", handler);
+    return () => window.removeEventListener("artifex:prefillInput", handler);
+  }, []);
+
   const persistPrompts = (prompts: QuickPrompt[]) => {
     setQuickPrompts(prompts);
     savePrompts(prompts);

@@ -21,14 +21,24 @@ export function ChatView() {
   const [pendingQueue, setPendingQueue] = React.useState<string[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
+  const pendingHandledRef = React.useRef(false);
 
-  // 处理 pending tool 预输入
+  // 处理 pending tool 预输入（预填到输入框，不自动发送）
   React.useEffect(() => {
-    if (pendingToolName) {
-      handleSend(`请帮我运行工具 "${pendingToolName}"`);
+    if (pendingToolName && !pendingHandledRef.current) {
+      pendingHandledRef.current = true;
+      // 通过 window 事件传递给 ChatInputArea
+      window.dispatchEvent(new CustomEvent("artifex:prefillInput", {
+        detail: { text: `请帮我运行工具 "${pendingToolName}"` },
+      }));
       clearPendingTool();
     }
-  }, [pendingToolName]);
+  }, [pendingToolName, clearPendingTool]);
+
+  // 模块切换回来时重置标记
+  React.useEffect(() => {
+    pendingHandledRef.current = false;
+  });
 
   // 自动滚动到底
   React.useEffect(() => {
