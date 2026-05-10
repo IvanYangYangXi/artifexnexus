@@ -60,21 +60,16 @@ function MessageBubble({ message }: { message: MockMessage }) {
   return (
     <div className={cn("my-3 flex gap-3", isUser && "flex-row-reverse")}>
       {/* 头像 */}
-      {isUser ? (
-        <Avatar className="h-7 w-7 shrink-0" ring="primary">
-          <AvatarFallback className="bg-primary/15 text-primary text-[10px]">
-            <User className="h-3.5 w-3.5" />
-          </AvatarFallback>
-        </Avatar>
-      ) : (
-        <div className="rounded-full p-[1.5px] ring-1 ring-primary/50">
-          <Avatar className="h-7 w-7 ring-2 ring-card">
-            <AvatarFallback className="bg-primary/15 text-primary text-[10px]">
-              <Bot className="h-3.5 w-3.5" />
-            </AvatarFallback>
-          </Avatar>
-        </div>
-      )}
+      <Avatar className="h-7 w-7 shrink-0" ring={isUser ? "primary" : undefined}>
+        <AvatarFallback
+          className={cn(
+            "text-[10px]",
+            isUser ? "bg-primary/15 text-primary" : "bg-primary/15 text-primary",
+          )}
+        >
+          {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+        </AvatarFallback>
+      </Avatar>
 
       {/* 气泡内容 */}
       <div className={cn("max-w-[75%]", isUser && "items-end")}>
