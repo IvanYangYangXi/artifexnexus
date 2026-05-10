@@ -46,29 +46,31 @@ interface ContentAreaProps {
 }
 
 export function ContentArea({ module }: ContentAreaProps) {
-  // Chat 模块渲染真实 ChatView
-  if (module === "chat") {
-    return <ChatView />;
-  }
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <div className={module === "chat" ? "contents" : "hidden"}>
+        <ChatView />
+      </div>
+      <div className={module === "skills" ? "contents" : "hidden"}>
+        <SkillsPage />
+      </div>
+      <div className={module !== "chat" && module !== "skills" ? "contents" : "hidden"}>
+        <PlaceholderPage module={module} />
+      </div>
+    </div>
+  );
+}
 
-  // 技能模块
-  if (module === "skills") {
-    return <SkillsPage />;
-  }
-
-  // 其他模块保持占位
+function PlaceholderPage({ module }: { module: ModuleId }) {
   const meta = MODULE_META[module];
   const Icon = meta.icon;
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+    <>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3 text-xs">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="font-medium">{meta.title}</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">
-          后续 STORY 接入
-        </span>
+        <span className="ml-auto text-[10px] text-muted-foreground">后续 STORY 接入</span>
       </div>
-
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="max-w-md text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-card">
@@ -78,6 +80,6 @@ export function ContentArea({ module }: ContentAreaProps) {
           <p className="mt-2 text-sm text-muted-foreground">{meta.subtitle}</p>
         </div>
       </div>
-    </div>
+    </>
   );
 }
