@@ -105,22 +105,69 @@ cube.data.materials.append(mat)`,
   {
     id: "msg-4",
     role: "user",
-    content: "能把立方体放大两倍吗？",
-    timestamp: "2026-05-10T10:01:00Z",
+    content: "请展示一下 Markdown 渲染效果，包括标题、表格、代码块、链接等",
+    timestamp: "2026-05-10T10:02:00Z",
   },
   {
     id: "msg-5",
     role: "assistant",
-    content: `当然可以。让我把 RedCube 的尺寸放大两倍。
+    content: `# Markdown 渲染效果展示
+
+## 文本格式
+
+这是**加粗文字**，这是*斜体文字*，这是~~删除线~~。
+
+## 链接
+
+访问 [Artifex Nexus 文档](https://github.com) 了解更多。
+
+## 表格
+
+| DCC | 版本 | 状态 |
+|-----|------|------|
+| Blender | 5.1 | ✅ 已连接 |
+| Maya | 2026 | 🔜 即将支持 |
+| Unreal | 5.5 | 🔜 即将支持 |
+| 3ds Max | 2026 | 🔜 即将支持 |
+
+## 代码块
 
 \`\`\`python
 import bpy
-cube = bpy.data.objects["RedCube"]
-cube.scale = (4, 4, 4)
+
+def create_sphere(radius=1.0, location=(0, 0, 0)):
+    """在 Blender 中创建一个球体"""
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        radius=radius,
+        location=location
+    )
+    return bpy.context.active_object
+
+# 创建球体
+sphere = create_sphere(radius=2.0)
+print(f"创建球体: {sphere.name}")
 \`\`\`
 
-已完成！立方体现在是原来的两倍大小。`,
-    timestamp: "2026-05-10T10:01:03Z",
+## 分割线
+
+---
+
+## 列表
+
+### 有序列表
+1. 第一步：安装 Blender 插件
+2. 第二步：启动 Gateway
+3. 第三步：开始对话
+
+### 无序列表
+- 🎨 Blender 建模
+- 🏗️ Maya 动画
+- 🎮 Unreal 蓝图
+
+> 这是引用块，用于突出重要信息。
+
+以上就是 Markdown 渲染的全部效果展示。`,
+    timestamp: "2026-05-10T10:02:03Z",
   },
 ];
 

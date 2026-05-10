@@ -4,11 +4,7 @@
  * RightPanel — D 区右侧面板（D1-D5）
  *
  * 对齐 docs/specs/ui/web-chat-structure.md §8
- *   D1 最近使用 / D2 Skill 列表 / D3 Tool 列表 / D4 资源管理器 / D5 文件预览
- *
- * 实现：基于 @artifex-nexus/ui 的 CollapsiblePanelGroup（VS Code 风纵向折叠）。
- * STORY-0032 范围：5 个面板的占位结构，内部用 list 占位。
- * 后续 STORY 接入：D2/D3 → STORY-0036/0037 真实数据；D4/D5 → STORY-0038 资源管理器。
+ * 所有面板内容区使用 ScrollArea 组件
  */
 
 import * as React from "react";
@@ -25,6 +21,7 @@ import {
   Button,
   CollapsiblePanel,
   CollapsiblePanelGroup,
+  ScrollArea,
 } from "@artifex-nexus/ui";
 
 const RECENT_ITEMS = [
@@ -72,21 +69,23 @@ export function RightPanel() {
             </Button>
           }
         >
-          <ul className="space-y-px py-1 text-xs">
-            {RECENT_ITEMS.map((it, i) => (
-              <li
-                key={i}
-                className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
-              >
-                {it.kind === "skill" ? (
-                  <Puzzle className="h-3 w-3 text-muted-foreground" />
-                ) : (
-                  <Wrench className="h-3 w-3 text-muted-foreground" />
-                )}
-                <span className="truncate">{it.name}</span>
-              </li>
-            ))}
-          </ul>
+          <ScrollArea className="h-full">
+            <ul className="space-y-px py-1 text-xs">
+              {RECENT_ITEMS.map((it, i) => (
+                <li
+                  key={i}
+                  className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
+                >
+                  {it.kind === "skill" ? (
+                    <Puzzle className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Wrench className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{it.name}</span>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
         </CollapsiblePanel>
 
         {/* D2 Skill 列表 */}
@@ -100,22 +99,24 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ul className="space-y-px py-1 text-xs">
-            {SKILLS.map((s) => (
-              <li
-                key={s.name}
-                className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
-                />
-                <span className="truncate">{s.name}</span>
-                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                  {s.version}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <ScrollArea className="h-full">
+            <ul className="space-y-px py-1 text-xs">
+              {SKILLS.map((s) => (
+                <li
+                  key={s.name}
+                  className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
+                  />
+                  <span className="truncate">{s.name}</span>
+                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                    {s.version}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
         </CollapsiblePanel>
 
         {/* D3 Tool 列表 */}
@@ -129,26 +130,28 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <div className="py-1 text-xs">
-            {TOOL_GROUPS.map((g) => (
-              <div key={g.skill} className="mb-1">
-                <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  {g.skill}
+          <ScrollArea className="h-full">
+            <div className="py-1 text-xs">
+              {TOOL_GROUPS.map((g) => (
+                <div key={g.skill} className="mb-1">
+                  <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {g.skill}
+                  </div>
+                  <ul className="space-y-px">
+                    {g.tools.map((t) => (
+                      <li
+                        key={t}
+                        className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
+                      >
+                        <Wrench className="h-3 w-3 text-muted-foreground" />
+                        <span className="truncate">{t}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="space-y-px">
-                  {g.tools.map((t) => (
-                    <li
-                      key={t}
-                      className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
-                    >
-                      <Wrench className="h-3 w-3 text-muted-foreground" />
-                      <span className="truncate">{t}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </ScrollArea>
         </CollapsiblePanel>
 
         {/* D4 资源管理器 */}
@@ -161,9 +164,11 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <div className="px-2 py-2 text-xs text-muted-foreground">
-            <p>占位 · STORY-0038 接入真实文件树</p>
-          </div>
+          <ScrollArea className="h-full">
+            <div className="px-2 py-2 text-xs text-muted-foreground">
+              <p>占位 · STORY-0038 接入真实文件树</p>
+            </div>
+          </ScrollArea>
         </CollapsiblePanel>
 
         {/* D5 文件预览 */}
@@ -176,10 +181,12 @@ export function RightPanel() {
           minSize={8}
           defaultOpen={false}
         >
-          <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
-            <FileText className="h-4 w-4" />
-            <p>在资源管理器或会话文件中选择文件以预览</p>
-          </div>
+          <ScrollArea className="h-full">
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
+              <FileText className="h-4 w-4" />
+              <p>在资源管理器或会话文件中选择文件以预览</p>
+            </div>
+          </ScrollArea>
         </CollapsiblePanel>
       </CollapsiblePanelGroup>
     </div>

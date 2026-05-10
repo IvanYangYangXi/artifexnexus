@@ -128,6 +128,7 @@ export function ChatView() {
         onResume={handleResume}
         isStreaming={isStreaming}
         pendingCount={pendingQueue.length}
+        pendingMessages={pendingQueue}
         sessionFiles={MOCK_SESSION_FILES}
       />
     </div>

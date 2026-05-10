@@ -3,8 +3,10 @@
 /**
  * ChatInputArea — C3 输入区
  *
- * C3-文件区 + C3-钉选区 + C3a 快捷操作栏 + C3b 输入框 + C3c 发送区
- * 发送/停止/恢复按钮 + 发送方式切换（立即/队列）
+ * C3-队列区 + C3-文件区 + C3-钉选区 + C3a 快捷操作栏 + C3b 输入框 + C3c 发送区
+ * 发送方式：Enter 发送 / Ctrl+Enter 发送（通过下拉切换）
+ * 队列：AI 生成中自动转为队列，生成完成后自动发送
+ * 停止/恢复按钮常驻
  */
 
 import * as React from "react";
@@ -19,6 +21,7 @@ import {
   Play,
   ChevronDown,
   X,
+  Clock,
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
 
@@ -33,10 +36,11 @@ interface ChatInputAreaProps {
   onResume: () => void;
   isStreaming: boolean;
   pendingCount: number;
+  pendingMessages: string[];
   sessionFiles: SessionFile[];
 }
 
-type SendMode = "immediate" | "queue";
+type SendKey = "enter" | "ctrl-enter";
 
 export function ChatInputArea({
   onSend,
@@ -44,10 +48,11 @@ export function ChatInputArea({
   onResume,
   isStreaming,
   pendingCount,
+  pendingMessages,
   sessionFiles,
 }: ChatInputAreaProps) {
   const [text, setText] = React.useState("");
-  const [sendMode, setSendMode] = React.useState<SendMode>("immediate");
+  const [sendKey, setSendKey] = React.useState<SendKey>("enter");
   const [pinnedTools, setPinnedTools] = React.useState<string[]>([]);
   const [showSendMenu, setShowSendMenu] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -60,7 +65,10 @@ export function ChatInputArea({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (sendKey === "enter" && e.key === "Enter" && !e.shiftKey && !e.ctrlKey) {
+      e.preventDefault();
+      handleSend();
+    } else if (sendKey === "ctrl-enter" && e.key === "Enter" && e.ctrlKey) {
       e.preventDefault();
       handleSend();
     }
@@ -77,6 +85,30 @@ export function ChatInputArea({
 
   return (
     <div className="shrink-0 border-t border-border bg-background px-4 pb-3 pt-2">
+      {/* 信息队列区 — AI 生成中时显示 */}
+      {pendingCount > 0 && (
+        <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-1.5">
+          <div className="flex items-center gap-2 text-xs">
+            <Clock className="h-3 w-3 text-amber-400" />
+            <span className="text-amber-300">
+              队列中 ({pendingCount}) — 当前生成完成后自动发送
+            </span>
+          </div>
+          {pendingMessages.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {pendingMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className="truncate pl-5 text-[10px] text-muted-foreground"
+                >
+                  {msg}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* C3-文件区：会话文件 */}
       {sessionFiles.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -152,44 +184,46 @@ export function ChatInputArea({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息... (Shift+Enter 换行)"
+          placeholder={
+            sendKey === "enter"
+              ? "输入消息... (Enter 发送, Shift+Enter 换行)"
+              : "输入消息... (Ctrl+Enter 发送, Enter 换行)"
+          }
           className="min-h-[80px] max-h-[200px] flex-1 resize-none"
         />
 
-        {/* C3c 发送区 */}
+        {/* C3c 发送区 — 停止/恢复常驻 + 发送 + 切换 */}
         <div className="flex flex-col items-center gap-1">
-          {isStreaming ? (
-            <>
-              {/* 停止按钮 */}
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-9 w-9"
-                onClick={onStop}
-              >
-                <Square className="h-4 w-4 fill-current" />
-              </Button>
-              {/* 恢复按钮 */}
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-7 w-9"
-                onClick={onResume}
-              >
-                <Play className="h-3 w-3 fill-current" />
-              </Button>
-            </>
-          ) : (
-            /* 发送按钮 */
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={handleSend}
-              disabled={!text.trim()}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          )}
+          {/* 停止按钮 — 常驻，生成中高亮 */}
+          <Button
+            size="icon"
+            variant={isStreaming ? "destructive" : "ghost"}
+            className="h-8 w-8"
+            onClick={onStop}
+            disabled={!isStreaming}
+          >
+            <Square className={cn("h-3.5 w-3.5", isStreaming && "fill-current")} />
+          </Button>
+
+          {/* 恢复按钮 — 常驻 */}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-8"
+            onClick={onResume}
+          >
+            <Play className="h-3 w-3" />
+          </Button>
+
+          {/* 发送按钮 */}
+          <Button
+            size="icon"
+            className="h-9 w-9"
+            onClick={handleSend}
+            disabled={!text.trim()}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
 
           {/* 发送方式切换 */}
           <div className="relative">
@@ -202,47 +236,40 @@ export function ChatInputArea({
               <ChevronDown className="h-3 w-3" />
             </Button>
             {showSendMenu && (
-              <div className="absolute bottom-full right-0 mb-1 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+              <div className="absolute bottom-full right-0 mb-1 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">
                 <button
                   className={cn(
                     "flex w-full items-center rounded px-2 py-1 text-xs",
-                    sendMode === "immediate"
+                    sendKey === "enter"
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50",
                   )}
                   onClick={() => {
-                    setSendMode("immediate");
+                    setSendKey("enter");
                     setShowSendMenu(false);
                   }}
                 >
-                  立即发送
+                  Enter 发送
                 </button>
                 <button
                   className={cn(
                     "flex w-full items-center rounded px-2 py-1 text-xs",
-                    sendMode === "queue"
+                    sendKey === "ctrl-enter"
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50",
                   )}
                   onClick={() => {
-                    setSendMode("queue");
+                    setSendKey("ctrl-enter");
                     setShowSendMenu(false);
                   }}
                 >
-                  队列发送
+                  Ctrl+Enter 发送
                 </button>
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {/* 队列提示 */}
-      {pendingCount > 0 && (
-        <div className="mt-1 text-[10px] text-muted-foreground">
-          队列 ({pendingCount}) — 当前生成完成后自动发送
-        </div>
-      )}
     </div>
   );
 }
