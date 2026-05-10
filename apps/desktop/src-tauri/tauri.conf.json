@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.artifex-nexus.desktop",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "frontendDist": "../../../packages/apps/web/out",
+    "devUrl": "http://localhost:18790",
+    "beforeDevCommand": "pnpm --filter @artifex-nexus/web dev",
+    "beforeBuildCommand": "pnpm --filter @artifex-nexus/web build"
   },
   "app": {
     "windows": [
