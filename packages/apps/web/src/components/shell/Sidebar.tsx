@@ -203,21 +203,27 @@ export function Sidebar({
           ))}
 
           {/* 添加按钮 */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className={cn(
-                  "flex h-8 w-full items-center rounded-md text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                  collapsed ? "justify-center" : "gap-2 px-2",
-                )}
-                onClick={handleAdd}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {!collapsed && <span>添加</span>}
-              </button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">添加快捷链接</TooltipContent>}
-          </Tooltip>
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="flex h-8 w-full items-center justify-center rounded-md text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                  onClick={handleAdd}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">添加快捷链接</TooltipContent>
+            </Tooltip>
+          ) : (
+            <button
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              onClick={handleAdd}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>添加</span>
+            </button>
+          )}
         </div>
 
         {/* B2 折叠按钮 */}
