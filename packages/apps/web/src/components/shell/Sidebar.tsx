@@ -118,7 +118,6 @@ export function Sidebar({
 
   // 添加
   const handleAdd = () => {
-    console.log("[Sidebar] handleAdd called");
     setEditingLink(undefined);
     setDialogOpen(true);
   };

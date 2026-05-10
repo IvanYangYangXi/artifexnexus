@@ -46,13 +46,15 @@ export function QuickLinkDialog({
   const [name, setName] = React.useState(existing?.name ?? "");
   const [target, setTarget] = React.useState(existing?.target ?? "");
 
-  // 重置表单
+  // 重置表单（仅在 open 从 false→true 时）
+  const prevOpen = React.useRef(open);
   React.useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
       setType(existing?.type ?? "url");
       setName(existing?.name ?? "");
       setTarget(existing?.target ?? "");
     }
+    prevOpen.current = open;
   }, [open, existing]);
 
   const handleSave = () => {
@@ -71,7 +73,7 @@ export function QuickLinkDialog({
   const isValid = name.trim().length > 0 && target.trim().length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { console.log("[QuickLinkDialog] onOpenChange", v); if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle>{existing ? "编辑连接" : "添加连接"}</DialogTitle>
