@@ -167,6 +167,31 @@ export function ChatInputArea({
         <Button variant="ghost" size="icon" className="h-7 w-7">
           <Slash className="h-3.5 w-3.5" />
         </Button>
+        {/* 快捷输入 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => setText("请帮我优化这段代码：")}
+        >
+          优化代码
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => setText("请解释以下概念：")}
+        >
+          解释概念
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => setText("请帮我调试这个错误：")}
+        >
+          调试错误
+        </Button>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
           <Plus className="h-3 w-3" />

@@ -31,15 +31,48 @@ interface ChatMessageListProps {
 }
 
 export function ChatMessageList({ messages, messagesEndRef }: ChatMessageListProps) {
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const [showBottomFade, setShowBottomFade] = React.useState(false);
+
+  // 检测是否需要底部光晕
+  const checkOverflow = React.useCallback(() => {
+    const el = scrollContainerRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    if (el) {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+      setShowBottomFade(!atBottom && el.scrollHeight > el.clientHeight + 20);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const el = scrollContainerRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    if (el) {
+      el.addEventListener("scroll", checkOverflow);
+      // 初始检测
+      setTimeout(checkOverflow, 100);
+      return () => el.removeEventListener("scroll", checkOverflow);
+    }
+  }, [checkOverflow]);
+
+  // 消息变化时重新检测
+  React.useEffect(() => {
+    setTimeout(checkOverflow, 50);
+  }, [messages, checkOverflow]);
+
   return (
-    <ScrollArea className="flex-1">
-      <div className="px-4 py-3">
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-    </ScrollArea>
+    <div className="relative flex-1" ref={scrollContainerRef}>
+      <ScrollArea className="h-full">
+        <div className="px-4 py-3">
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
+      {/* 底部过渡光晕 */}
+      {showBottomFade && (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background via-background/80 to-transparent" />
+      )}
+    </div>
   );
 }
 
