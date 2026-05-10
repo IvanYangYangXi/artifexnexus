@@ -14,8 +14,26 @@ import { cn } from "../lib/cn";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
-const DialogPortal = DialogPrimitive.Portal;
 const DialogClose = DialogPrimitive.Close;
+
+/**
+ * DialogPortal —— 始终挂到 document.body
+ *
+ * 不显式指定 container 时，Radix 默认也会挂到 body，但在某些 SSR / Suspense /
+ * StrictMode + 容器查询场景下 portal anchor 会"漂移"，导致 fixed 定位的
+ * Content 被某个有 transform/filter/contain 的祖先变成包含块，肉眼"看不到"。
+ * 显式锚到 body 可彻底规避。
+ */
+const DialogPortal = ({
+  container,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Portal>) => {
+  const [bodyEl, setBodyEl] = React.useState<HTMLElement | null>(null);
+  React.useEffect(() => {
+    if (typeof document !== "undefined") setBodyEl(document.body);
+  }, []);
+  return <DialogPrimitive.Portal container={container ?? bodyEl ?? undefined} {...props} />;
+};
 
 const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
@@ -44,14 +62,15 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         // 玻璃面（风格 E）：blur + 半透明 card 底 + 顶部 inset 高光 + 浮起阴影
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 p-6 duration-200",
+        // 居中策略：fixed inset-0 + m-auto + h-fit/w-full —— 不用 translate 居中，
+        // 因为 tailwindcss-animate 的 zoom/slide 在 keyframes 中会重写 transform 属性，
+        // 与 -translate-x/y[-50%] 冲突会导致 dialog 飘到视口左上角"看不见"。
+        "fixed inset-0 z-50 m-auto grid h-fit w-[calc(100%-2rem)] max-w-lg gap-4 p-6 duration-200",
         "rounded-[16px] border border-white/[0.08] bg-card/80 backdrop-blur-xl",
         "shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
-        "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
         className,
       )}
       {...props}

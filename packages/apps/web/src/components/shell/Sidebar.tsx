@@ -76,14 +76,32 @@ const MODULES: ModuleEntry[] = [
 
 /** 点击自定义连接的处理 */
 function handleQuickLinkClick(link: QuickLink) {
-  // 在 Tauri 环境中通过 Rust 命令执行；浏览器环境用 window.open / 占位
   if (link.type === "url") {
     window.open(link.target, "_blank");
-  } else {
-    // 文件/目录/脚本：通过 Tauri shell open 或占位提示
-    // TODO: STORY-0038 接入 Tauri invoke("shell_open", { path })
-    console.log(`[QuickLink] open ${link.type}: ${link.target}`);
+    return;
   }
+
+  // 文件夹/文件：通过 Tauri shell_open 打开
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tauri = (window as any).__TAURI__;
+  if (tauri?.invoke) {
+    tauri.invoke("shell_open", { path: link.target }).catch(() => {
+      // Tauri 调用失败，fallback 到 file:// 协议
+      openLocalPath(link.target);
+    });
+  } else {
+    // 浏览器环境兜底
+    openLocalPath(link.target);
+  }
+}
+
+/** 浏览器环境用 file:// 协议打开本地路径 */
+function openLocalPath(target: string) {
+  const normalized = target.replace(/\\/g, "/");
+  const fileUrl = normalized.startsWith("//")
+    ? `file:${normalized}`
+    : `file:///${normalized.replace(/^[A-Za-z]:/, "")}`;
+  window.open(fileUrl, "_blank");
 }
 
 interface SidebarProps {
@@ -117,10 +135,10 @@ export function Sidebar({
   };
 
   // 添加
-  const handleAdd = () => {
+  const handleAdd = React.useCallback(() => {
     setEditingLink(undefined);
     setDialogOpen(true);
-  };
+  }, []);
 
   // 编辑
   const handleEdit = (link: QuickLink) => {
@@ -204,6 +222,7 @@ export function Sidebar({
 
           {/* 添加按钮 */}
           <button
+            type="button"
             className={cn(
               "flex h-8 w-full items-center rounded-md text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
               collapsed ? "justify-center" : "gap-2 px-2",

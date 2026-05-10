@@ -175,9 +175,11 @@ def install_maya_addon(version: str) -> Dict: ...
 | Obsidian `[[wiki-link]]` 跳不到 `.ai/` 里的文件 | Vault 根指向了 `docs/` 而不是仓库根 | Vault 改为仓库根，Excluded files 排除 `node_modules/.git/dist/target` |
 | Kanban 卡片信息太少 | 未开 Linked Page Metadata | Kanban board settings → Linked Page Metadata → 加 `status/priority/owner/estimate` |
 | Agent 自作主张合并 done | 忽略了 done 仅由人类触发 | 在对话中重申："done 不能自己标" |
+| Web 工程 Dialog/Popover/Sheet 看不见 / 动画失效 / dev 崩溃 | Tailwind v4 + pnpm workspace symlink + tailwindcss-animate 缺失 等 | 严格按 `[[web-frontend-setup]]` §4 接入清单走完 |
 
 ## 相关
 
 - `[[sdd-workflow]]`
 - `[[task-management]]`
+- `[[web-frontend-setup]]` — Web 工程接入 `@artifex-nexus/ui` 必读
 - `[[../../.ai/rules/30-agent-behavior]]`

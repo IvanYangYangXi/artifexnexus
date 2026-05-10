@@ -96,8 +96,17 @@ export function QuickLinkDialog({
               <SelectContent>
                 {(Object.entries(QUICK_LINK_TYPE_META) as [QuickLinkType, typeof QUICK_LINK_TYPE_META["url"]][]).map(
                   ([key, meta]) => (
-                    <SelectItem key={key} value={key}>
+                    <SelectItem
+                      key={key}
+                      value={key}
+                      disabled={meta.disabled}
+                    >
                       {meta.icon} {meta.label}
+                      {meta.disabled && (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          ({meta.disabledReason})
+                        </span>
+                      )}
                     </SelectItem>
                   ),
                 )}

@@ -19,12 +19,18 @@ export interface QuickLink {
 
 export const QUICK_LINK_TYPE_META: Record<
   QuickLinkType,
-  { label: string; icon: string; placeholder: string }
+  { label: string; icon: string; placeholder: string; disabled?: boolean; disabledReason?: string }
 > = {
   url: { label: "网页链接", icon: "🔗", placeholder: "https://..." },
   folder: { label: "文件目录", icon: "📁", placeholder: "C:\\Users\\..." },
   file: { label: "文件", icon: "📄", placeholder: "C:\\path\\to\\file.ext" },
-  script: { label: "脚本", icon: "▶", placeholder: "python script.py" },
+  script: {
+    label: "脚本",
+    icon: "▶",
+    placeholder: "python script.py",
+    disabled: true,
+    disabledReason: "Tool 系统接入后启用",
+  },
 };
 
 const STORAGE_KEY = "artifex.shell.quickLinks";

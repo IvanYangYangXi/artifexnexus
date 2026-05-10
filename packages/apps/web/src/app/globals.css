@@ -4,13 +4,16 @@
  * 转发 @artifex-nexus/ui 的 globals.css（含 Tailwind v4 主题 + 设计 token + 字体声明），
  * 并追加 Tailwind v4 `@source` 指令，让 Tailwind 同时扫描：
  *   1) 当前 web 应用源码（src/**）
- *   2) @artifex-nexus/ui 源码（确保所有 utility class 不会被 tree-shake 掉）
+ *   2) @artifex-nexus/ui 源码（必须用相对路径直接指向真实目录，
+ *      不能走 node_modules 软链 —— Tailwind v4 默认不跟随 symlink，
+ *      会漏掉 ui 包里所有 dialog/popover/sheet 等组件用到的 utility，
+ *      导致 dialog 显示为 position:static 看不见）。
  */
 
 @import "@artifex-nexus/ui/globals.css";
 
-@source "../../../**/*.{ts,tsx}";
-@source "../../../node_modules/@artifex-nexus/ui/src/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+@source "../../../../ui/src/**/*.{ts,tsx}";
 
 html,
 body {

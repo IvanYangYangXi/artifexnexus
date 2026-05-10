@@ -11,6 +11,12 @@ status: draft
 > 设计令牌见 [[design-language]]。
 > **2026-05-10 STORY-0031 完成**：P0 + P1 + P2 共 26 个组件全部交付（含 web-chat-structure 全部依赖）。
 
+> ⚠ **接入本组件库到新前端工程必读** → [[../../development/web-frontend-setup]]
+> Tailwind v4 + pnpm workspace 有一个隐蔽坑：`@source` 必须用相对路径直指
+> `packages/ui/src` 真实目录，不能走 `node_modules` 的 pnpm symlink，
+> 否则 Dialog/Popover/Sheet 等浮层组件**全部不可见**且无任何报错。
+> 第一次接入请严格按 setup 文档检查清单走完。
+
 ## 1. 技术约定
 
 | 维度 | 规范 |
