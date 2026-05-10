@@ -16,10 +16,12 @@ import {
   Clock,
   FilePlus,
   Paperclip,
+  Pencil,
   Plus,
   Send,
   Slash,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
@@ -40,6 +42,35 @@ interface ChatInputAreaProps {
 
 type SendKey = "enter" | "ctrl-enter";
 
+interface QuickPrompt {
+  id: string;
+  label: string;
+  text: string;
+}
+
+const DEFAULT_PROMPTS: QuickPrompt[] = [
+  { id: "1", label: "优化代码", text: "请帮我优化这段代码：" },
+  { id: "2", label: "解释概念", text: "请解释以下概念：" },
+  { id: "3", label: "调试错误", text: "请帮我调试这个错误：" },
+];
+
+const PROMPTS_STORAGE_KEY = "artifex.chat.quickPrompts";
+
+function loadPrompts(): QuickPrompt[] {
+  if (typeof window === "undefined") return DEFAULT_PROMPTS;
+  try {
+    const raw = localStorage.getItem(PROMPTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : DEFAULT_PROMPTS;
+  } catch {
+    return DEFAULT_PROMPTS;
+  }
+}
+
+function savePrompts(prompts: QuickPrompt[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PROMPTS_STORAGE_KEY, JSON.stringify(prompts));
+}
+
 export function ChatInputArea({
   onSend,
   onStop,
@@ -52,7 +83,43 @@ export function ChatInputArea({
   const [sendKey, setSendKey] = React.useState<SendKey>("enter");
   const [pinnedTools, setPinnedTools] = React.useState<string[]>([]);
   const [showSendMenu, setShowSendMenu] = React.useState(false);
+  const [quickPrompts, setQuickPrompts] = React.useState<QuickPrompt[]>([]);
+  const [editingPrompt, setEditingPrompt] = React.useState<QuickPrompt | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    setQuickPrompts(loadPrompts());
+  }, []);
+
+  const persistPrompts = (prompts: QuickPrompt[]) => {
+    setQuickPrompts(prompts);
+    savePrompts(prompts);
+  };
+
+  const handleAddPrompt = () => {
+    const label = prompt("快捷输入名称:");
+    if (!label?.trim()) return;
+    const text = prompt("快捷输入内容:");
+    if (!text?.trim()) return;
+    const id = `qp_${Date.now()}`;
+    persistPrompts([...quickPrompts, { id, label: label.trim(), text: text.trim() }]);
+  };
+
+  const handleEditPrompt = (p: QuickPrompt) => {
+    const label = prompt("名称:", p.label);
+    if (label === null) return;
+    const text = prompt("内容:", p.text);
+    if (text === null) return;
+    persistPrompts(
+      quickPrompts.map((q) =>
+        q.id === p.id ? { ...q, label: label.trim() || q.label, text: text.trim() || q.text } : q,
+      ),
+    );
+  };
+
+  const handleDeletePrompt = (id: string) => {
+    persistPrompts(quickPrompts.filter((q) => q.id !== id));
+  };
 
   const handleSend = () => {
     if (!text.trim()) return;
@@ -168,29 +235,43 @@ export function ChatInputArea({
           <Slash className="h-3.5 w-3.5" />
         </Button>
         {/* 快捷输入 */}
+        {quickPrompts.map((p) => (
+          <div key={p.id} className="group relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 pr-6 text-xs"
+              onClick={() => setText(p.text)}
+            >
+              {p.label}
+            </Button>
+            <div className="absolute right-0 top-0 hidden h-full items-center gap-0.5 pr-0.5 group-hover:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5"
+                onClick={() => handleEditPrompt(p)}
+              >
+                <Pencil className="h-2.5 w-2.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                onClick={() => handleDeletePrompt(p.id)}
+              >
+                <Trash2 className="h-2.5 w-2.5" />
+              </Button>
+            </div>
+          </div>
+        ))}
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 gap-1 text-xs"
-          onClick={() => setText("请帮我优化这段代码：")}
+          size="icon"
+          className="h-7 w-7"
+          onClick={handleAddPrompt}
         >
-          优化代码
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 text-xs"
-          onClick={() => setText("请解释以下概念：")}
-        >
-          解释概念
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 text-xs"
-          onClick={() => setText("请帮我调试这个错误：")}
-        >
-          调试错误
+          <Plus className="h-3.5 w-3.5" />
         </Button>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">

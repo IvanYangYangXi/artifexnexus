@@ -4,7 +4,7 @@
  * RightPanel — D 区右侧面板（D1-D5）
  *
  * 对齐 docs/specs/ui/web-chat-structure.md §8
- * 所有面板内容区使用 ScrollArea 组件
+ * 所有面板内容区使用 ScrollFade 组件（滚动 + 底部过渡光晕）
  */
 
 import * as React from "react";
@@ -21,8 +21,8 @@ import {
   Button,
   CollapsiblePanel,
   CollapsiblePanelGroup,
-  ScrollArea,
 } from "@artifex-nexus/ui";
+import { ScrollFade } from "../chat/ScrollFade";
 
 const RECENT_ITEMS = [
   { kind: "skill" as const, name: "blender-modeling" },
@@ -59,17 +59,12 @@ export function RightPanel() {
           defaultSize={20}
           minSize={10}
           actions={
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-5 w-5"
-              aria-label="刷新"
-            >
+            <Button size="icon" variant="ghost" className="h-5 w-5" aria-label="刷新">
               <RefreshCw className="h-3 w-3" />
             </Button>
           }
         >
-          <ScrollArea className="h-full">
+          <ScrollFade className="h-full">
             <ul className="space-y-px py-1 text-xs">
               {RECENT_ITEMS.map((it, i) => (
                 <li
@@ -85,7 +80,7 @@ export function RightPanel() {
                 </li>
               ))}
             </ul>
-          </ScrollArea>
+          </ScrollFade>
         </CollapsiblePanel>
 
         {/* D2 Skill 列表 */}
@@ -99,7 +94,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollArea className="h-full">
+          <ScrollFade className="h-full">
             <ul className="space-y-px py-1 text-xs">
               {SKILLS.map((s) => (
                 <li
@@ -116,7 +111,7 @@ export function RightPanel() {
                 </li>
               ))}
             </ul>
-          </ScrollArea>
+          </ScrollFade>
         </CollapsiblePanel>
 
         {/* D3 Tool 列表 */}
@@ -130,7 +125,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollArea className="h-full">
+          <ScrollFade className="h-full">
             <div className="py-1 text-xs">
               {TOOL_GROUPS.map((g) => (
                 <div key={g.skill} className="mb-1">
@@ -151,7 +146,7 @@ export function RightPanel() {
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </ScrollFade>
         </CollapsiblePanel>
 
         {/* D4 资源管理器 */}
@@ -164,11 +159,11 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollArea className="h-full">
+          <ScrollFade className="h-full">
             <div className="px-2 py-2 text-xs text-muted-foreground">
               <p>占位 · STORY-0038 接入真实文件树</p>
             </div>
-          </ScrollArea>
+          </ScrollFade>
         </CollapsiblePanel>
 
         {/* D5 文件预览 */}
@@ -181,12 +176,12 @@ export function RightPanel() {
           minSize={8}
           defaultOpen={false}
         >
-          <ScrollArea className="h-full">
+          <ScrollFade className="h-full">
             <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
               <FileText className="h-4 w-4" />
               <p>在资源管理器或会话文件中选择文件以预览</p>
             </div>
-          </ScrollArea>
+          </ScrollFade>
         </CollapsiblePanel>
       </CollapsiblePanelGroup>
     </div>
