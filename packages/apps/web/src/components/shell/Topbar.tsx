@@ -28,7 +28,7 @@ export function Topbar({
   panelOpen,
 }: TopbarProps) {
   return (
-    <header className="flex h-10 items-center gap-2 border-b border-border bg-titlebar px-3 text-titlebar-foreground">
+    <header className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-white/[0.02] px-3 backdrop-blur-xl text-titlebar-foreground">
       {/* A1 菜单区 */}
       <div className="flex shrink-0 items-center gap-2">
         {sidebarHidden && (

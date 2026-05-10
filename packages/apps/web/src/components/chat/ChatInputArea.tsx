@@ -325,7 +325,7 @@ export function ChatInputArea({
               ? "输入消息... (Enter 发送, Shift+Enter 换行)"
               : "输入消息... (Ctrl+Enter 发送, Enter 换行)"
           }
-          className="min-h-[80px] max-h-[200px] flex-1 resize-none border-white/[0.12] bg-muted/30 focus-visible:border-primary/40 focus-visible:bg-background"
+          className="min-h-[80px] max-h-[200px] flex-1 resize-none border-white/[0.08] bg-white/[0.03] backdrop-blur-md focus-visible:border-primary/40 focus-visible:bg-white/[0.05]"
         />
 
         {/* C3c 发送区 */}
@@ -344,7 +344,7 @@ export function ChatInputArea({
           {/* 发送按钮 */}
           <Button
             size="icon"
-            className="h-9 w-9"
+            className="h-9 w-9 rounded-full"
             onClick={handleSend}
             disabled={!text.trim()}
           >

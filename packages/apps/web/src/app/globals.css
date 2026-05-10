@@ -20,6 +20,15 @@ body {
   height: 100%;
 }
 
+/* StyleE 全局背景：径向渐变微光 */
+body {
+  background:
+    radial-gradient(at top left, rgba(70, 120, 200, 0.08), transparent 55%),
+    radial-gradient(at bottom right, rgba(60, 100, 180, 0.06), transparent 55%);
+  background-color: hsl(var(--background));
+  background-attachment: fixed;
+}
+
 /* ── 自定义滚动条（风格 E 玻璃感） ── */
 * {
   scrollbar-width: thin;

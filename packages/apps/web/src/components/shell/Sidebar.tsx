@@ -176,7 +176,7 @@ export function Sidebar({
     <TooltipProvider delayDuration={200}>
       <aside
         className={cn(
-          "flex h-full flex-col border-r border-border bg-sidebar text-sidebar-foreground",
+          "flex h-full flex-col border-r border-white/[0.06] bg-white/[0.02] backdrop-blur-xl text-sidebar-foreground",
         )}
       >
         {/* B1 模块列表 */}

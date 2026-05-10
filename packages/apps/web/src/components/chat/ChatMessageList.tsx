@@ -60,27 +60,32 @@ function MessageBubble({ message }: { message: MockMessage }) {
   return (
     <div className={cn("my-3 flex gap-3", isUser && "flex-row-reverse")}>
       {/* 头像 */}
-      <Avatar className="h-7 w-7 shrink-0" ring={isUser ? "primary" : undefined}>
-        <AvatarFallback
-          className={cn(
-            "text-[10px]",
-            isUser ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
-          )}
-        >
-          {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-        </AvatarFallback>
-      </Avatar>
+      {isUser ? (
+        <Avatar className="h-7 w-7 shrink-0" ring="primary">
+          <AvatarFallback className="bg-primary/15 text-primary text-[10px]">
+            <User className="h-3.5 w-3.5" />
+          </AvatarFallback>
+        </Avatar>
+      ) : (
+        <div className="rounded-full p-[1.5px] ring-1 ring-primary/50">
+          <Avatar className="h-7 w-7 ring-2 ring-card">
+            <AvatarFallback className="bg-primary/15 text-primary text-[10px]">
+              <Bot className="h-3.5 w-3.5" />
+            </AvatarFallback>
+          </Avatar>
+        </div>
+      )}
 
       {/* 气泡内容 */}
       <div className={cn("max-w-[75%]", isUser && "items-end")}>
         {/* 消息文本 */}
         <div
           className={cn(
-            "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+            "rounded-[14px] px-4 py-2.5 text-sm leading-relaxed",
             isUser
-              ? "bg-primary text-primary-foreground"
-              : "bg-card border border-border",
-            isStreaming && "border-sky-400/30 shadow-[0_0_12px_-2px_hsl(var(--primary)/0.3)]",
+              ? "border border-primary/25 bg-primary/[0.10] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] backdrop-blur-md"
+              : "border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_4px_16px_-8px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.04)]",
+            isStreaming && "border-sky-400/30 shadow-[0_0_12px_-2px_hsl(var(--primary)/0.3))]",
           )}
         >
           {isUser ? (
