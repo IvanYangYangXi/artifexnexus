@@ -88,7 +88,7 @@ function ItemCardView({
 }
 
 // ─── 列表视图 ──────────────────────────────────────────────────────────────
-// 布局: S-g 第一行 → S-d 描述与 S-c 按钮同行
+// 布局: S-g 第一行 → S-a/S-b/S-e/S-f 第二行 → S-d 描述与 S-c 按钮同行第三行
 
 function ItemListRow({
   icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect,
@@ -103,8 +103,8 @@ function ItemListRow({
         {meta}
       </div>
 
-      {/* 第二行: □ + S-a + S-b + S-e + S-f + S-c */}
-      <div className="flex items-center gap-2 px-3 pb-1">
+      {/* 第二行: □ + S-a + S-b + S-e + S-f */}
+      <div className="flex items-center gap-2 px-3 py-0.5">
         {onSelect && (
           <input type="checkbox" checked={selected} onChange={onSelect}
             className="h-3.5 w-3.5 rounded border-border" />
@@ -120,13 +120,12 @@ function ItemListRow({
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>
           {status.label}
         </span>
-        <div className="flex-1" />
-        <div className="flex shrink-0 items-center gap-1">{actions}</div>
       </div>
 
-      {/* 第三行: S-d 描述 (1行) */}
-      <div className="px-3 pb-2">
-        <p className="truncate text-[11px] text-muted-foreground">{description}</p>
+      {/* 第三行: S-d 描述 (1行) + S-c 按钮 */}
+      <div className="flex items-center gap-2 px-3 pb-2">
+        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{description}</p>
+        <div className="flex shrink-0 items-center gap-1">{actions}</div>
       </div>
     </div>
   );

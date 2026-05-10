@@ -176,9 +176,11 @@ export function SkillList() {
               description={skill.description}
               meta={
                 <>
-                  <span>{skill.author}</span>
+                  <span className={SOURCE_COLORS[skill.source]}>{SOURCE_LABELS[skill.source]}</span>
                   <span>·</span>
                   <span>{skill.version}</span>
+                  <span>·</span>
+                  <span>{skill.author}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(skill.updatedAt)}</span>
                   <RatingMeta rating={skill.rating} downloads={skill.downloads} />

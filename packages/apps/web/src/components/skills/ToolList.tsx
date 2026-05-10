@@ -208,14 +208,16 @@ export function ToolList() {
                         description={tool.description}
                         meta={
                           <>
-                            <span>{tool.author}</span>
+                            <span className={SOURCE_COLORS[tool.source]}>{SOURCE_LABELS[tool.source]}</span>
                             <span>·</span>
                             <span>{tool.version}</span>
+                            <span>·</span>
+                            <span>{tool.author}</span>
                             <RatingMeta rating={tool.rating} downloads={tool.downloads} />
                             {tool.triggerCount > 0 && (
                               <>
                                 <span>·</span>
-                                <span>⚡{tool.triggerCount}触发</span>
+                                <span>⚡{tool.triggerCount}触发 · {tool.triggerTypes.join("/")}</span>
                               </>
                             )}
                           </>
