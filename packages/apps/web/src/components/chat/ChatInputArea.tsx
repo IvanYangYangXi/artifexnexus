@@ -84,7 +84,10 @@ export function ChatInputArea({
   const [pinnedTools, setPinnedTools] = React.useState<string[]>([]);
   const [showSendMenu, setShowSendMenu] = React.useState(false);
   const [quickPrompts, setQuickPrompts] = React.useState<QuickPrompt[]>([]);
-  const [editingPrompt, setEditingPrompt] = React.useState<QuickPrompt | null>(null);
+  const [promptDialogOpen, setPromptDialogOpen] = React.useState(false);
+  const [promptLabel, setPromptLabel] = React.useState("");
+  const [promptText, setPromptText] = React.useState("");
+  const [editingPromptId, setEditingPromptId] = React.useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   React.useEffect(() => {
@@ -96,25 +99,34 @@ export function ChatInputArea({
     savePrompts(prompts);
   };
 
-  const handleAddPrompt = () => {
-    const label = prompt("快捷输入名称:");
-    if (!label?.trim()) return;
-    const text = prompt("快捷输入内容:");
-    if (!text?.trim()) return;
-    const id = `qp_${Date.now()}`;
-    persistPrompts([...quickPrompts, { id, label: label.trim(), text: text.trim() }]);
+  const openAddPrompt = () => {
+    setEditingPromptId(null);
+    setPromptLabel("");
+    setPromptText("");
+    setPromptDialogOpen(true);
   };
 
-  const handleEditPrompt = (p: QuickPrompt) => {
-    const label = prompt("名称:", p.label);
-    if (label === null) return;
-    const text = prompt("内容:", p.text);
-    if (text === null) return;
-    persistPrompts(
-      quickPrompts.map((q) =>
-        q.id === p.id ? { ...q, label: label.trim() || q.label, text: text.trim() || q.text } : q,
-      ),
-    );
+  const openEditPrompt = (p: QuickPrompt) => {
+    setEditingPromptId(p.id);
+    setPromptLabel(p.label);
+    setPromptText(p.text);
+    setPromptDialogOpen(true);
+  };
+
+  const handleSavePrompt = () => {
+    const label = promptLabel.trim();
+    const text = promptText.trim();
+    if (!label || !text) return;
+    if (editingPromptId) {
+      persistPrompts(
+        quickPrompts.map((q) =>
+          q.id === editingPromptId ? { ...q, label, text } : q,
+        ),
+      );
+    } else {
+      persistPrompts([...quickPrompts, { id: `qp_${Date.now()}`, label, text }]);
+    }
+    setPromptDialogOpen(false);
   };
 
   const handleDeletePrompt = (id: string) => {
@@ -250,7 +262,7 @@ export function ChatInputArea({
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5"
-                onClick={() => handleEditPrompt(p)}
+                onClick={() => openEditPrompt(p)}
               >
                 <Pencil className="h-2.5 w-2.5" />
               </Button>
@@ -269,7 +281,7 @@ export function ChatInputArea({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={handleAddPrompt}
+          onClick={openAddPrompt}
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -363,6 +375,50 @@ export function ChatInputArea({
           </div>
         </div>
       </div>
+
+      {/* 快捷输入 添加/编辑 对话框 */}
+      {promptDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[360px] rounded-xl border border-border bg-card p-5 shadow-2xl">
+            <h3 className="mb-3 text-sm font-semibold">
+              {editingPromptId ? "编辑快捷输入" : "添加快捷输入"}
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">名称</label>
+                <input
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
+                  value={promptLabel}
+                  onChange={(e) => setPromptLabel(e.target.value)}
+                  placeholder="如：优化代码"
+                  onKeyDown={(e) => e.key === "Enter" && handleSavePrompt()}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">内容</label>
+                <textarea
+                  className="h-20 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  placeholder="如：请帮我优化这段代码："
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSavePrompt();
+                  }}
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPromptDialogOpen(false)}>
+                取消
+              </Button>
+              <Button size="sm" onClick={handleSavePrompt} disabled={!promptLabel.trim() || !promptText.trim()}>
+                保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

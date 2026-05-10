@@ -36,12 +36,12 @@ export function ScrollFade({ children, className }: ScrollFadeProps) {
   }, [check]);
 
   return (
-    <div className={cn("relative", className)}>
-      <div ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden">
+    <div className={cn("relative flex min-h-0 flex-col", className)}>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         {children}
       </div>
       {showFade && (
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-panel via-panel/70 to-transparent" />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-background via-background/70 to-transparent" />
       )}
     </div>
   );
