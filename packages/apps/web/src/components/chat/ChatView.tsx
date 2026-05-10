@@ -13,23 +13,22 @@ import { ChatMessageList } from "./ChatMessageList";
 import { ChatInputArea } from "./ChatInputArea";
 import type { MockMessage } from "../../lib/chatMock";
 import { MOCK_MESSAGES, MOCK_SESSION_FILES } from "../../lib/chatMock";
+import { RunToolContext } from "../shell/AppShell";
 
 export function ChatView() {
   const [messages, setMessages] = React.useState<MockMessage[]>(MOCK_MESSAGES);
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [pendingQueue, setPendingQueue] = React.useState<string[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  const handleSendRef = React.useRef<(text: string) => void>(() => {});
+  const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
 
-  // 监听 Tool 运行事件
+  // 处理 pending tool 预输入
   React.useEffect(() => {
-    const handler = (e: Event) => {
-      const { toolName } = (e as CustomEvent).detail;
-      handleSendRef.current(`请帮我运行工具 "${toolName}"`);
-    };
-    window.addEventListener("artifex:runTool", handler);
-    return () => window.removeEventListener("artifex:runTool", handler);
-  }, []);
+    if (pendingToolName) {
+      handleSend(`请帮我运行工具 "${pendingToolName}"`);
+      clearPendingTool();
+    }
+  }, [pendingToolName]);
 
   // 自动滚动到底
   React.useEffect(() => {
@@ -105,9 +104,6 @@ export function ChatView() {
   const handleStop = () => {
     setIsStreaming(false);
   };
-
-  // 同步 ref
-  handleSendRef.current = handleSend;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">

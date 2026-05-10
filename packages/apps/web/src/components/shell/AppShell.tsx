@@ -56,8 +56,12 @@ export const PinnedSkillsContext = React.createContext<{
 // Tool 运行 → Chat 预输入 context
 export const RunToolContext = React.createContext<{
   runTool: (toolName: string) => void;
+  pendingToolName: string | null;
+  clearPendingTool: () => void;
 }>({
   runTool: () => {},
+  pendingToolName: null,
+  clearPendingTool: () => {},
 });
 
 const STORAGE_KEYS = {
@@ -150,10 +154,13 @@ export function AppShell() {
   }, []);
 
   // Tool 运行 → 切换到 Chat 并预输入
+  const [pendingToolName, setPendingToolName] = React.useState<string | null>(null);
   const runTool = React.useCallback((toolName: string) => {
+    setPendingToolName(toolName);
     setCurrentModule("chat");
-    // 通过 window 事件传递给 ChatView
-    window.dispatchEvent(new CustomEvent("artifex:runTool", { detail: { toolName } }));
+  }, []);
+  const clearPendingTool = React.useCallback(() => {
+    setPendingToolName(null);
   }, []);
 
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded;
@@ -162,7 +169,7 @@ export function AppShell() {
   return (
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
-    <RunToolContext.Provider value={{ runTool }}>
+    <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
