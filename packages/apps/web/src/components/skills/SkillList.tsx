@@ -119,10 +119,16 @@ export function SkillList() {
                 {skill.status === "update_available" && <>
                   <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
                   <Button size="sm" className="h-7 text-xs">更新</Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePin(skill.name)}>
+                    {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                  </Button>
                 </>}
                 {skill.status === "disabled" && <>
                   <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
-                  <Button size="sm" className="h-7 text-xs">启用</Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs">启用</Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePin(skill.name)}>
+                    {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                  </Button>
                 </>}
                 {skill.source === "user" && <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>}
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(skill.id)}>

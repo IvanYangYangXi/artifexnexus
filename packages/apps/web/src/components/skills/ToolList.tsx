@@ -120,18 +120,21 @@ export function ToolList() {
                         </>}
                         actions={<>
                           <Button variant="outline" size="sm" className="h-7 text-xs">详情</Button>
-                          {tool.status === "not_installed" && <Button size="sm" className="h-7 text-xs">安装</Button>}
-                          {tool.status === "installed" && <>
+                          {tool.status === "not_installed" && tool.source !== "user" && (
+                            <Button size="sm" className="h-7 text-xs">安装</Button>
+                          )}
+                          {(tool.status === "installed" || tool.status === "update_available") && (
                             <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => runTool(tool.name)}><Play className="h-3 w-3" />运行</Button>
-                          </>}
-                          {tool.status === "update_available" && <>
-                            <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => runTool(tool.name)}><Play className="h-3 w-3" />运行</Button>
+                          )}
+                          {tool.status === "update_available" && (
                             <Button size="sm" className="h-7 text-xs">更新</Button>
-                          </>}
-                          {tool.source === "user" && <>
+                          )}
+                          {tool.source === "user" && (
                             <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>
+                          )}
+                          {tool.source === "user" && (
                             <Button variant="outline" size="sm" className="h-7 text-xs text-destructive">删除</Button>
-                          </>}
+                          )}
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(tool.id)}>
                             <Star className={`h-3.5 w-3.5 ${tool.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
                           </Button>
