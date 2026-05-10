@@ -391,11 +391,7 @@ export function ChatInputArea({
         open={mentionOpen}
         onClose={() => setMentionOpen(false)}
         onSelect={(item) => {
-          const label = item.type === "tool" ? `@${item.name}` : `@${item.name}`;
-          setPinnedTools((prev) => {
-            if (prev.includes(label)) return prev;
-            return [...prev, label];
-          });
+          togglePin(item.name);
         }}
       />
 

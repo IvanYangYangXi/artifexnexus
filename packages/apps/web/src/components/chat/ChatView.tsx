@@ -20,6 +20,16 @@ export function ChatView() {
   const [pendingQueue, setPendingQueue] = React.useState<string[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
+  // 监听 Tool 运行事件
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const { toolName } = (e as CustomEvent).detail;
+      handleSend(`请帮我运行工具 "${toolName}"`);
+    };
+    window.addEventListener("artifex:runTool", handler);
+    return () => window.removeEventListener("artifex:runTool", handler);
+  }, []);
+
   // 自动滚动到底
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

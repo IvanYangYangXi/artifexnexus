@@ -88,7 +88,7 @@ function ItemCardView({
 }
 
 // ─── 列表视图 ──────────────────────────────────────────────────────────────
-// 布局: □+S-a+S-b+S-e+S-f 第一行 → S-g 第二行 → S-d+S-c 第三行
+// 布局: □+S-a+S-b+S-e+S-f + S-g 第一行 → S-d+S-c 第二行
 
 function ItemListRow({
   icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect,
@@ -98,7 +98,7 @@ function ItemListRow({
       "border-b border-border/40 transition-colors hover:bg-accent/20",
       selected && "bg-primary/[0.04]",
     )}>
-      {/* 第一行: □ + S-a + S-b + S-e + S-f */}
+      {/* 第一行: □ + S-a + S-b + S-e + S-f + S-g */}
       <div className="flex items-center gap-2 px-3 pt-2">
         {onSelect && (
           <input type="checkbox" checked={selected} onChange={onSelect}
@@ -111,18 +111,16 @@ function ItemListRow({
         {titleBadge && (
           <Badge variant="secondary" className="text-[9px]">{titleBadge.label}</Badge>
         )}
-        <span className={cn("text-[10px]", source.color)}>{source.label}</span>
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>
           {status.label}
         </span>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+          {meta}
+        </div>
       </div>
 
-      {/* 第二行: S-g 元信息 */}
-      <div className="flex items-center gap-2 px-3 py-0.5 text-[10px] text-muted-foreground">
-        {meta}
-      </div>
-
-      {/* 第三行: S-d 描述 (1行) + S-c 按钮 */}
+      {/* 第二行: S-d 描述 (1行) + S-c 按钮 */}
       <div className="flex items-center gap-2 px-3 pb-2">
         <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{description}</p>
         <div className="flex shrink-0 items-center gap-1">{actions}</div>
@@ -133,32 +131,6 @@ function ItemListRow({
 
 // ─── 辅助 ──────────────────────────────────────────────────────────────────
 
-export function formatRelativeTime(iso: string): string {
-  const now = Date.now();
-  const diff = now - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}天前`;
-  return `${Math.floor(days / 30)}月前`;
-}
-
-export function RatingMeta({ rating, downloads }: { rating: number; downloads: number }) {
-  return (
-    <>
-      {rating > 0 && (
-        <span className="inline-flex items-center gap-0.5">
-          <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />{rating}
-        </span>
-      )}
-      {downloads > 0 && (
-        <span className="inline-flex items-center gap-0.5">
-          <Download className="h-2.5 w-2.5" />
-          ↓{downloads >= 1000 ? `${(downloads / 1000).toFixed(1)}k` : downloads}
-        </span>
-      )}
-    </>
-  );
+export function formatDate(dateStr: string): string {
+  return dateStr; // 直接显示日期 YYYY-MM-DD
 }

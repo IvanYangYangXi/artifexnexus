@@ -53,6 +53,13 @@ export const PinnedSkillsContext = React.createContext<{
   togglePin: () => {},
 });
 
+// Tool 运行 → Chat 预输入 context
+export const RunToolContext = React.createContext<{
+  runTool: (toolName: string) => void;
+}>({
+  runTool: () => {},
+});
+
 const STORAGE_KEYS = {
   sidebarCollapsed: "artifex.shell.sidebarCollapsed",
   panelOpen: "artifex.shell.panelOpen",
@@ -142,12 +149,20 @@ export function AppShell() {
     );
   }, []);
 
+  // Tool 运行 → 切换到 Chat 并预输入
+  const runTool = React.useCallback((toolName: string) => {
+    setCurrentModule("chat");
+    // 通过 window 事件传递给 ChatView
+    window.dispatchEvent(new CustomEvent("artifex:runTool", { detail: { toolName } }));
+  }, []);
+
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded;
   const showSidebar = !bp.isMobile;
 
   return (
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
+    <RunToolContext.Provider value={{ runTool }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
@@ -206,6 +221,7 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    </RunToolContext.Provider>
     </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>
   );
