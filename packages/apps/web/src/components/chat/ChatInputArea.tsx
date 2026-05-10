@@ -252,12 +252,12 @@ export function ChatInputArea({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 pr-6 text-xs"
+              className="h-7 gap-1 text-xs group-hover:pr-12"
               onClick={() => setText(p.text)}
             >
               {p.label}
             </Button>
-            <div className="absolute right-0 top-0 hidden h-full items-center gap-0.5 pr-0.5 group-hover:flex">
+            <div className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity">
               <Button
                 variant="ghost"
                 size="icon"
