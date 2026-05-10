@@ -391,7 +391,12 @@ export function ChatInputArea({
         open={mentionOpen}
         onClose={() => setMentionOpen(false)}
         onSelect={(item) => {
-          togglePin(item.name);
+          if (item.type === "skill") {
+            togglePin(item.name);
+          } else {
+            // Tool: 预输入提示词到 Chat 输入框
+            setText(`请帮我运行工具 "${item.name}"`);
+          }
         }}
       />
 
