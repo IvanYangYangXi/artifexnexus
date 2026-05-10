@@ -40,7 +40,7 @@ function ItemCardView({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card p-4 transition-colors",
+        "flex flex-col rounded-xl border bg-card p-4 transition-colors",
         selected ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-white/[0.12]",
       )}
     >
@@ -79,8 +79,8 @@ function ItemCardView({
         {meta}
       </div>
 
-      {/* 第四行: S-c 操作按钮 */}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5">
+      {/* 第四行: S-c 操作按钮 — 靠底部 */}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5">
         {actions}
       </div>
     </div>
