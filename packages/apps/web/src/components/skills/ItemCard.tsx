@@ -114,8 +114,7 @@ function ItemListRow({
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>
           {status.label}
         </span>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 truncate text-[10px] text-muted-foreground">
           {meta}
         </div>
       </div>
