@@ -8,6 +8,8 @@ export interface MockMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
+  /** 流式生成中 */
+  isStreaming?: boolean;
   /** 工具调用（仅 assistant 消息） */
   toolCalls?: MockToolCall[];
 }

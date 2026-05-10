@@ -4,6 +4,7 @@
  * ChatInputArea — C3 输入区
  *
  * C3-文件区 + C3-钉选区 + C3a 快捷操作栏 + C3b 输入框 + C3c 发送区
+ * 发送/停止/恢复按钮 + 发送方式切换（立即/队列）
  */
 
 import * as React from "react";
@@ -35,6 +36,8 @@ interface ChatInputAreaProps {
   sessionFiles: SessionFile[];
 }
 
+type SendMode = "immediate" | "queue";
+
 export function ChatInputArea({
   onSend,
   onStop,
@@ -44,8 +47,9 @@ export function ChatInputArea({
   sessionFiles,
 }: ChatInputAreaProps) {
   const [text, setText] = React.useState("");
-  const [sendMode, setSendMode] = React.useState<"immediate" | "queue">("immediate");
+  const [sendMode, setSendMode] = React.useState<SendMode>("immediate");
   const [pinnedTools, setPinnedTools] = React.useState<string[]>([]);
+  const [showSendMenu, setShowSendMenu] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
@@ -117,27 +121,25 @@ export function ChatInputArea({
 
       {/* C3a 快捷操作栏 */}
       <div className="mb-1.5 flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7" title="附件">
+        <Button variant="ghost" size="icon" className="h-7 w-7">
           <Paperclip className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          title="@提及"
           onClick={() => {
-            // Mock: 添加一个示例 tool
             const toolName = prompt("输入 Tool 名称（mock）:");
             if (toolName) setPinnedTools((prev) => [...prev, toolName]);
           }}
         >
           <AtSign className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7" title="命令">
+        <Button variant="ghost" size="icon" className="h-7 w-7">
           <Slash className="h-3.5 w-3.5" />
         </Button>
         <div className="flex-1" />
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" title="新对话">
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
           <Plus className="h-3 w-3" />
           新对话
         </Button>
@@ -152,54 +154,86 @@ export function ChatInputArea({
           onKeyDown={handleKeyDown}
           placeholder="输入消息... (Shift+Enter 换行)"
           className="min-h-[80px] max-h-[200px] flex-1 resize-none"
-          disabled={isStreaming && sendMode === "immediate"}
         />
 
-        <div className="flex flex-col gap-1">
-          {/* 发送/停止/恢复 */}
+        {/* C3c 发送区 */}
+        <div className="flex flex-col items-center gap-1">
           {isStreaming ? (
             <>
+              {/* 停止按钮 */}
               <Button
                 size="icon"
                 variant="destructive"
                 className="h-9 w-9"
                 onClick={onStop}
-                title="停止"
               >
-                <Square className="h-4 w-4" />
+                <Square className="h-4 w-4 fill-current" />
               </Button>
+              {/* 恢复按钮 */}
               <Button
                 size="icon"
                 variant="outline"
                 className="h-7 w-9"
                 onClick={onResume}
-                title="恢复"
               >
-                <Play className="h-3 w-3" />
+                <Play className="h-3 w-3 fill-current" />
               </Button>
             </>
           ) : (
+            /* 发送按钮 */
             <Button
               size="icon"
               className="h-9 w-9"
               onClick={handleSend}
               disabled={!text.trim()}
-              title="发送"
             >
               <Send className="h-4 w-4" />
             </Button>
           )}
 
           {/* 发送方式切换 */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-9"
-            onClick={() => setSendMode((m) => (m === "immediate" ? "queue" : "immediate"))}
-            title={sendMode === "immediate" ? "立即发送" : "队列发送"}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-9"
+              onClick={() => setShowSendMenu(!showSendMenu)}
+            >
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+            {showSendMenu && (
+              <div className="absolute bottom-full right-0 mb-1 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+                <button
+                  className={cn(
+                    "flex w-full items-center rounded px-2 py-1 text-xs",
+                    sendMode === "immediate"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50",
+                  )}
+                  onClick={() => {
+                    setSendMode("immediate");
+                    setShowSendMenu(false);
+                  }}
+                >
+                  立即发送
+                </button>
+                <button
+                  className={cn(
+                    "flex w-full items-center rounded px-2 py-1 text-xs",
+                    sendMode === "queue"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50",
+                  )}
+                  onClick={() => {
+                    setSendMode("queue");
+                    setShowSendMenu(false);
+                  }}
+                >
+                  队列发送
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

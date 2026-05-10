@@ -45,29 +45,50 @@ export function ChatView() {
     setMessages((prev) => [...prev, userMsg]);
     setIsStreaming(true);
 
-    // Mock AI 回复（1.5s 延迟模拟）
-    setTimeout(() => {
-      const aiMsg: MockMessage = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant",
-        content: `收到你的消息："${text}"\n\n这是一个 mock 回复。STORY-0039 将接入 OpenClaw API 实现真实对话。`,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      setIsStreaming(false);
+    // 先添加一个空的 streaming AI 消息
+    const streamingMsg: MockMessage = {
+      id: `msg-${Date.now() + 1}`,
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toISOString(),
+      isStreaming: true,
+    };
+    setMessages((prev) => [...prev, streamingMsg]);
 
-      // 处理队列
-      setPendingQueue((q) => {
-        if (q.length > 0) {
-          const next = q[0];
-          const rest = q.slice(1);
-          // 延迟发送队列中的下一条
-          setTimeout(() => handleSend(next), 100);
-          return rest;
-        }
-        return [];
-      });
-    }, 1500);
+    // Mock 流式逐字输出
+    const fullText = `收到你的消息："${text}"\n\n这是一个 mock 流式回复。STORY-0039 将接入 OpenClaw API 实现真实流式对话。`;
+    let charIndex = 0;
+    const interval = setInterval(() => {
+      charIndex += 1;
+      if (charIndex <= fullText.length) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingMsg.id
+              ? { ...m, content: fullText.slice(0, charIndex) }
+              : m,
+          ),
+        );
+      } else {
+        clearInterval(interval);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingMsg.id ? { ...m, isStreaming: false } : m,
+          ),
+        );
+        setIsStreaming(false);
+
+        // 处理队列
+        setPendingQueue((q) => {
+          if (q.length > 0) {
+            const next = q[0];
+            const rest = q.slice(1);
+            setTimeout(() => handleSend(next), 100);
+            return rest;
+          }
+          return [];
+        });
+      }
+    }, 30);
   };
 
   const handleStop = () => {

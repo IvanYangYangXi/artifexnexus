@@ -36,6 +36,18 @@
 - 一次提交只改一件事（Conventional Commits）。
 - 改代码前先读相邻文件，模仿现有约定。
 
+### 3.1 UI 组件使用规范（强制）
+
+**所有 UI 组件必须严格使用 `@artifex-nexus/ui` 中已定义的组件和样式**，禁止自由发挥：
+
+1. **优先查 `@artifex-nexus/ui`**：写任何 UI 前，先 `grep` / `read_file` 检查 `packages/ui/src/components/` 下是否已有对应组件。
+2. **严格遵循组件 API**：使用组件的 `variant` / `size` / `className` 等 props，不要用 Tailwind 覆盖组件已定义的视觉风格。
+3. **无对应组件时**：参考 `@artifex-nexus/ui` 的风格 E（玻璃感 + inset 高光 + blur + 投射光晕）手写，保持视觉一致。
+4. **spec 文档落后时**：以 `@artifex-nexus/ui` 源码为准，并同步更新 spec 文档。
+5. **滚动条**：必须使用 `ScrollArea` 组件，禁止浏览器默认滚动条。
+6. **按钮**：必须使用 `Button` 组件（`variant` + `size`），禁止裸 `<button>` 手写样式。
+7. **下拉选择**：必须使用 `Select` 组件，禁止裸 `<select>`。
+
 ## 4. 文档-代码交叉引用（强约束）
 
 - 新增/修改文档时，必须更新**所在目录 `README.md` 的索引**。

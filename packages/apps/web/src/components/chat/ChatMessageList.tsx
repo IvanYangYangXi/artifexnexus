@@ -4,7 +4,8 @@
  * ChatMessageList — C2 消息流
  *
  * 用户消息（右对齐蓝色气泡）/ AI 消息（左对齐含头像）/ 系统消息（居中灰字）
- * 支持 Markdown 渲染 + 工具执行卡片
+ * 支持 Markdown 渲染 + 工具执行卡片（使用 @artifex-nexus/ui ToolCallGroup）
+ * 区分流式（streaming）和最终（final）两个状态
  */
 
 import * as React from "react";
@@ -12,9 +13,17 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Bot, Copy, ThumbsDown, ThumbsUp, User, ChevronDown, ChevronRight } from "lucide-react";
-import { Avatar, AvatarFallback, Button, cn } from "@artifex-nexus/ui";
-import type { MockMessage, MockToolCall } from "../../lib/chatMock";
+import { Bot, Copy, ThumbsDown, ThumbsUp, User } from "lucide-react";
+import {
+  Avatar,
+  AvatarFallback,
+  Button,
+  ScrollArea,
+  ToolCallGroup,
+  type ToolCallData,
+  cn,
+} from "@artifex-nexus/ui";
+import type { MockMessage } from "../../lib/chatMock";
 
 interface ChatMessageListProps {
   messages: MockMessage[];
@@ -23,12 +32,14 @@ interface ChatMessageListProps {
 
 export function ChatMessageList({ messages, messagesEndRef }: ChatMessageListProps) {
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3">
-      {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
-      ))}
-      <div ref={messagesEndRef} />
-    </div>
+    <ScrollArea className="flex-1">
+      <div className="px-4 py-3">
+        {messages.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} />
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+    </ScrollArea>
   );
 }
 
@@ -44,6 +55,7 @@ function MessageBubble({ message }: { message: MockMessage }) {
   }
 
   const isUser = message.role === "user";
+  const isStreaming = message.isStreaming === true;
 
   return (
     <div className={cn("my-3 flex gap-3", isUser && "flex-row-reverse")}>
@@ -68,6 +80,7 @@ function MessageBubble({ message }: { message: MockMessage }) {
             isUser
               ? "bg-primary text-primary-foreground"
               : "bg-card border border-border",
+            isStreaming && "border-sky-400/30 shadow-[0_0_12px_-2px_hsl(var(--primary)/0.3)]",
           )}
         >
           {isUser ? (
@@ -75,26 +88,44 @@ function MessageBubble({ message }: { message: MockMessage }) {
           ) : (
             <MarkdownContent content={message.content} />
           )}
+          {/* 流式指示器 */}
+          {isStreaming && (
+            <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-primary" />
+          )}
         </div>
 
-        {/* 工具执行卡片 */}
+        {/* 工具执行卡片 — 使用 @artifex-nexus/ui ToolCallGroup */}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <ToolCallCards toolCalls={message.toolCalls} />
+          <div className="mt-2">
+            <ToolCallGroup
+              tools={message.toolCalls.map(
+                (tc): ToolCallData => ({
+                  id: tc.id,
+                  name: tc.name,
+                  status: tc.status === "completed" ? "done" : tc.status === "error" ? "error" : "running",
+                  durationMs: tc.duration ? parseFloat(tc.duration) * 1000 : undefined,
+                  args: tc.input ? { code: tc.input } : undefined,
+                  result: tc.output,
+                }),
+              )}
+              defaultOpen={message.toolCalls.length < 3}
+            />
+          </div>
         )}
 
-        {/* 操作栏（仅 AI 消息） */}
-        {!isUser && (
-          <div className="mt-1 flex items-center gap-1 px-1">
-            <Button variant="ghost" size="icon" className="h-6 w-6" title="复制">
+        {/* 操作栏（仅 AI 消息，非流式） */}
+        {!isUser && !isStreaming && (
+          <div className="mt-1 flex items-center gap-0.5 px-1">
+            <Button variant="ghost" size="icon" className="h-6 w-6">
               <Copy className="h-3 w-3" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6" title="重新生成">
+            <Button variant="ghost" size="icon" className="h-6 w-6">
               <RefreshIcon className="h-3 w-3" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6" title="点赞">
+            <Button variant="ghost" size="icon" className="h-6 w-6">
               <ThumbsUp className="h-3 w-3" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6" title="点踩">
+            <Button variant="ghost" size="icon" className="h-6 w-6">
               <ThumbsDown className="h-3 w-3" />
             </Button>
           </div>
@@ -111,6 +142,68 @@ function MarkdownContent({ content }: { content: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        // 标题
+        h1({ children }) {
+          return <h1 className="mb-2 mt-3 text-lg font-bold first:mt-0">{children}</h1>;
+        },
+        h2({ children }) {
+          return <h2 className="mb-1.5 mt-2.5 text-base font-semibold first:mt-0">{children}</h2>;
+        },
+        h3({ children }) {
+          return <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>;
+        },
+        // 加粗
+        strong({ children }) {
+          return <strong className="font-semibold text-foreground">{children}</strong>;
+        },
+        // 链接
+        a({ href, children }) {
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-2"
+            >
+              {children}
+            </a>
+          );
+        },
+        // 表格
+        table({ children }) {
+          return (
+            <div className="my-2 overflow-x-auto">
+              <table className="min-w-full border-collapse border border-border text-xs">
+                {children}
+              </table>
+            </div>
+          );
+        },
+        thead({ children }) {
+          return <thead className="bg-muted/50">{children}</thead>;
+        },
+        th({ children }) {
+          return (
+            <th className="border border-border px-2 py-1 text-left font-medium">
+              {children}
+            </th>
+          );
+        },
+        td({ children }) {
+          return <td className="border border-border px-2 py-1">{children}</td>;
+        },
+        // 分割线
+        hr() {
+          return <hr className="my-3 border-border" />;
+        },
+        // 列表
+        ul({ children }) {
+          return <ul className="my-1.5 list-disc space-y-0.5 pl-5">{children}</ul>;
+        },
+        ol({ children }) {
+          return <ol className="my-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>;
+        },
+        // 代码块
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || "");
           const codeStr = String(children).replace(/\n$/, "");
@@ -133,11 +226,7 @@ function MarkdownContent({ content }: { content: string }) {
                   style={oneDark}
                   language={match[1]}
                   PreTag="div"
-                  customStyle={{
-                    margin: 0,
-                    borderRadius: 0,
-                    fontSize: "12px",
-                  }}
+                  customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
                 >
                   {codeStr}
                 </SyntaxHighlighter>
@@ -151,119 +240,14 @@ function MarkdownContent({ content }: { content: string }) {
             </code>
           );
         },
-        // 链接在新窗口打开
-        a({ href, children }) {
-          return (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline underline-offset-2"
-            >
-              {children}
-            </a>
-          );
+        // 段落
+        p({ children }) {
+          return <p className="my-1 first:mt-0 last:mb-0">{children}</p>;
         },
       }}
     >
       {content}
     </ReactMarkdown>
-  );
-}
-
-// ─── 工具执行卡片 ──────────────────────────────────────────────────────────
-
-function ToolCallCards({ toolCalls }: { toolCalls: MockToolCall[] }) {
-  const [collapsed, setCollapsed] = React.useState(toolCalls.length >= 3);
-
-  if (collapsed) {
-    return (
-      <div className="mt-2">
-        <button
-          className="flex w-full items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground hover:bg-accent/50"
-          onClick={() => setCollapsed(false)}
-        >
-          <ChevronRight className="h-3 w-3" />
-          <span>🔧 工具调用 ({toolCalls.length})</span>
-          <span className="flex-1" />
-          <span className="text-[10px]">
-            {toolCalls.filter((t) => t.status === "completed").length}/{toolCalls.length} 完成
-          </span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-2 space-y-1.5">
-      <div className="flex items-center gap-2 px-1">
-        <button
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-          onClick={() => setCollapsed(true)}
-        >
-          <ChevronDown className="h-3 w-3" />
-          折叠工具调用
-        </button>
-      </div>
-      {toolCalls.map((tc) => (
-        <ToolCallCard key={tc.id} toolCall={tc} />
-      ))}
-    </div>
-  );
-}
-
-function ToolCallCard({ toolCall }: { toolCall: MockToolCall }) {
-  const [expanded, setExpanded] = React.useState(false);
-
-  const statusIcon = {
-    pending: "⏳",
-    running: "⏳",
-    completed: "✅",
-    error: "❌",
-  }[toolCall.status];
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card/50">
-      {/* 头部 */}
-      <button
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent/30"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span>{statusIcon}</span>
-        <span className="font-mono text-[11px]">{toolCall.name}</span>
-        {toolCall.duration && (
-          <span className="text-[10px] text-muted-foreground">({toolCall.duration})</span>
-        )}
-        <span className="flex-1" />
-        {expanded ? (
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-        )}
-      </button>
-
-      {/* 展开内容 */}
-      {expanded && (
-        <div className="border-t border-border px-3 py-2 text-xs">
-          {toolCall.input && (
-            <div className="mb-2">
-              <div className="mb-1 text-[10px] text-muted-foreground">输入</div>
-              <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[11px]">
-                {toolCall.input}
-              </pre>
-            </div>
-          )}
-          {toolCall.output && (
-            <div>
-              <div className="mb-1 text-[10px] text-muted-foreground">输出</div>
-              <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[11px]">
-                {toolCall.output}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
