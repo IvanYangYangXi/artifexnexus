@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
-import { PreviewFileContext } from "../shell/AppShell";
+import { PreviewFileContext, PinnedSkillsContext } from "../shell/AppShell";
 import { AtMentionDialog, type MentionItem } from "./AtMentionDialog";
 
 interface SessionFile {
@@ -93,6 +93,7 @@ export function ChatInputArea({
   const [editingPromptId, setEditingPromptId] = React.useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const { setPreviewFile } = React.useContext(PreviewFileContext);
+  const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
 
   React.useEffect(() => {
     setQuickPrompts(loadPrompts());
@@ -219,17 +220,17 @@ export function ChatInputArea({
         </div>
       )}
 
-      {/* C3-钉选区：@提及标签 */}
-      {pinnedTools.length > 0 && (
+      {/* C3-钉选区：钉选的 Skill */}
+      {pinnedSkills.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {pinnedTools.map((tool) => (
+          {pinnedSkills.map((name) => (
             <span
-              key={tool}
+              key={name}
               className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
             >
-              @{tool}
+              @{name}
               <button
-                onClick={() => setPinnedTools((prev) => prev.filter((t) => t !== tool))}
+                onClick={() => togglePin(name)}
                 className="ml-0.5 hover:text-foreground"
               >
                 <X className="h-2.5 w-2.5" />

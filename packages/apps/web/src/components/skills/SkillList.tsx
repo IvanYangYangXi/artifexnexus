@@ -9,6 +9,7 @@ import { Search, LayoutGrid, List, Plus, Pin, PinOff } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@artifex-nexus/ui";
 import { ItemCard, formatRelativeTime, RatingMeta } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
+import { PinnedSkillsContext } from "../shell/AppShell";
 import {
   MOCK_SKILLS,
   type MockSkill,
@@ -52,6 +53,7 @@ export function SkillList() {
   const [viewMode, setViewMode] = React.useState<"card" | "list">("card");
   const [skills, setSkills] = React.useState(MOCK_SKILLS);
   const [detailSkill, setDetailSkill] = React.useState<MockSkill | null>(null);
+  const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
 
   // 筛选
   const filtered = skills
@@ -69,10 +71,9 @@ export function SkillList() {
       return 0;
     });
 
-  const togglePin = (id: string) => {
-    setSkills((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, pinned: !s.pinned } : s)),
-    );
+  const togglePinLocal = (id: string) => {
+    const skill = skills.find((s) => s.id === id);
+    if (skill) togglePin(skill.name);
   };
 
   return (
@@ -198,9 +199,9 @@ export function SkillList() {
                       <Button variant="outline" size="sm" className="h-7 text-xs">禁用</Button>
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7"
-                        onClick={() => togglePin(skill.id)}
+                        onClick={() => togglePinLocal(skill.id)}
                       >
-                        {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                        {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
                       </Button>
                     </>
                   )}

@@ -44,6 +44,15 @@ export const PreviewFileContext = React.createContext<{
   setPreviewFile: () => {},
 });
 
+// 钉选 Skill context（C3-钉选区 ↔ 技能模块联动）
+export const PinnedSkillsContext = React.createContext<{
+  pinnedSkills: string[];
+  togglePin: (name: string) => void;
+}>({
+  pinnedSkills: [],
+  togglePin: () => {},
+});
+
 const STORAGE_KEYS = {
   sidebarCollapsed: "artifex.shell.sidebarCollapsed",
   panelOpen: "artifex.shell.panelOpen",
@@ -125,11 +134,20 @@ export function AppShell() {
   // 预览文件状态（C3-文件区 ↔ D5 联动）
   const [previewFile, setPreviewFile] = React.useState<PreviewFile | null>(null);
 
+  // 钉选 Skill 状态
+  const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
+  const togglePin = React.useCallback((name: string) => {
+    setPinnedSkills((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    );
+  }, []);
+
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded;
   const showSidebar = !bp.isMobile;
 
   return (
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
+    <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
@@ -188,6 +206,7 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>
   );
 }
