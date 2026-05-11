@@ -9,10 +9,92 @@
 
 import * as React from "react";
 import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, Button } from "@artifex-nexus/ui";
+import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../../ipc/openclaw";
+
+// ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
+
+interface DialogField { key: string; label: string; defaultValue?: string; placeholder?: string; }
+interface DialogState {
+  open: boolean;
+  title: string;
+  description?: string;
+  fields: DialogField[];
+  confirmLabel?: string;
+  resolve: ((result: Record<string, string> | null) => void) | null;
+}
+
+function useAppDialog() {
+  const [state, setState] = React.useState<DialogState>({ open: false, title: "", fields: [], resolve: null });
+
+  const showConfirm = React.useCallback((title: string, description?: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setState({ open: true, title, description, fields: [], confirmLabel: "确认", resolve: (r) => resolve(r !== null) });
+    });
+  }, []);
+
+  const showForm = React.useCallback((title: string, fields: DialogField[], opts?: { description?: string; confirmLabel?: string }): Promise<Record<string, string> | null> => {
+    return new Promise((resolve) => {
+      setState({ open: true, title, description: opts?.description, fields, confirmLabel: opts?.confirmLabel || "确定", resolve: (r) => resolve(r) });
+    });
+  }, []);
+
+  const handleClose = React.useCallback(() => {
+    state.resolve?.(null);
+    setState((s) => ({ ...s, open: false, resolve: null }));
+  }, [state.resolve]);
+
+  const DialogUI = React.useCallback(() => {
+    const [values, setValues] = React.useState<Record<string, string>>({});
+    React.useEffect(() => {
+      if (state.open) {
+        const init: Record<string, string> = {};
+        state.fields.forEach((f) => { init[f.key] = f.defaultValue || ""; });
+        setValues(init);
+      }
+    }, [state.open, state.fields]);
+
+    const handleConfirm = () => {
+      state.resolve?.(state.fields.length > 0 ? values : {});
+      setState((s) => ({ ...s, open: false, resolve: null }));
+    };
+
+    return (
+      <Dialog open={state.open} onOpenChange={(open) => { if (!open) handleClose(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{state.title}</DialogTitle>
+            {state.description && <DialogDescription className="text-xs">{state.description}</DialogDescription>}
+          </DialogHeader>
+          {state.fields.length > 0 && (
+            <div className="space-y-3 py-2">
+              {state.fields.map((f) => (
+                <div key={f.key}>
+                  <label className="text-[11px] text-muted-foreground">{f.label}</label>
+                  <Input
+                    className="mt-1 h-8 text-xs"
+                    placeholder={f.placeholder}
+                    value={values[f.key] || ""}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="rounded-full text-xs" onClick={handleClose}>取消</Button>
+            <Button size="sm" className="rounded-full text-xs" onClick={handleConfirm}>{state.confirmLabel || "确定"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }, [state, handleClose]);
+
+  return { showConfirm, showForm, DialogUI };
+}
 
 // ─── 类型 ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +147,7 @@ function InstallerTab() {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [openclawStatus, setOpenclawStatus] = React.useState<OpenClawStatus | null>(null);
+  const { showConfirm, showForm, DialogUI } = useAppDialog();
 
   const addLog = (itemId: string, level: LogEntry["level"], message: string) => {
     setLogs((prev) => [...prev.slice(-199), { time: new Date().toLocaleTimeString("zh-CN", { hour12: false }), itemId, level, message }]);
@@ -130,7 +213,7 @@ function InstallerTab() {
     const item = items.find((it) => it.id === id);
     // 重装确认弹窗
     if (item?.state === "installed") {
-      const ok = window.confirm(`确认重装 ${item.name}？\n重装会重新下载/部署组件，当前配置将保留。`);
+      const ok = await showConfirm(`确认重装 ${item.name}？`, "重装会重新下载/部署组件，当前配置将保留。");
       if (!ok) return;
     }
     const ipc = await getIpc();
@@ -173,19 +256,16 @@ function InstallerTab() {
     setTimeout(() => { setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); addLog(id, "info", `${id} 安装完成`); }, 1500);
   };
 
-  const handleAddChild = (parentId: string) => {
+  const handleAddChild = async (parentId: string) => {
     const item = items.find((it) => it.id === parentId);
     const dccName = item?.name || parentId;
-    // 单弹窗：版本号 + 安装路径一起填
-    const input = window.prompt(
-      `添加 ${dccName} 版本\n\n格式: 版本号 | 安装路径（可选）\n示例: 5.1 | C:\\path\\to\\addons`,
-      ""
-    );
-    if (!input?.trim()) return;
-    const parts = input.split("|").map(s => s.trim());
-    const version = parts[0];
-    if (!version) return;
-    let installPath = parts[1] || "";
+    const result = await showForm(`添加 ${dccName} 版本`, [
+      { key: "version", label: "版本号", placeholder: "如 5.1" },
+      { key: "installPath", label: "安装路径（可选）", placeholder: "留空则自动计算" },
+    ]);
+    if (!result || !result.version?.trim()) return;
+    const version = result.version.trim();
+    let installPath = result.installPath?.trim() || "";
     if (!installPath) {
       if (parentId === "blender") installPath = `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
       else if (parentId === "maya") installPath = `~/Documents/maya/${version}/scripts/`;
@@ -195,11 +275,12 @@ function InstallerTab() {
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
   };
 
-  const handleDeleteChild = (parentId: string, childIndex: number) => {
+  const handleDeleteChild = async (parentId: string, childIndex: number) => {
     const item = items.find((it) => it.id === parentId);
     const child = item?.children?.[childIndex];
     const label = child?.label || `子项 ${childIndex + 1}`;
-    if (!window.confirm(`确认删除「${label}」？\n已安装的插件将被卸载。`)) return;
+    const ok = await showConfirm(`确认删除「${label}」？`, child?.state === "installed" ? "已安装的插件将被卸载。" : undefined);
+    if (!ok) return;
     // 如果已安装则先尝试卸载
     if (child?.state === "installed") {
       void (async () => {
@@ -215,8 +296,8 @@ function InstallerTab() {
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: (it.children || []).filter((_, i) => i !== childIndex) } : it));
   };
 
-  // 子项设置（编辑版本号和安装路径）— 单弹窗多字段
-  const handleChildSettings = (parentId: string, childIndex: number) => {
+  // 子项设置（编辑版本号和安装路径）— 自定义弹窗
+  const handleChildSettings = async (parentId: string, childIndex: number) => {
     const item = items.find((it) => it.id === parentId);
     const child = item?.children?.[childIndex];
     if (!child) return;
@@ -227,15 +308,13 @@ function InstallerTab() {
       else if (parentId === "maya") defaultPath = `~/Documents/maya/${child.version}/scripts/`;
       else if (parentId === "max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${child.version}/ENU/scripts/`;
     }
-    // 单弹窗：版本号 + 安装路径一起填
-    const input = window.prompt(
-      `编辑「${child.label}」设置\n\n格式: 版本号 | 安装路径\n（用 | 分隔，安装路径留空则自动计算）`,
-      `${child.version} | ${defaultPath || ""}`
-    );
-    if (input === null) return;
-    const parts = input.split("|").map(s => s.trim());
-    const newVersion = parts[0] || child.version;
-    const newInstallPath = parts[1] || "";
+    const result = await showForm(`编辑「${child.label}」`, [
+      { key: "version", label: "版本号", defaultValue: child.version, placeholder: "如 5.1" },
+      { key: "installPath", label: "安装路径", defaultValue: defaultPath || "", placeholder: "留空则自动计算" },
+    ]);
+    if (!result) return;
+    const newVersion = result.version?.trim() || child.version;
+    const newInstallPath = result.installPath?.trim() || "";
     // 重新计算默认路径
     let computedPath = newInstallPath;
     if (!computedPath && newVersion) {
@@ -257,7 +336,7 @@ function InstallerTab() {
     if (!child) return;
     const isReinstall = child.state === "installed";
     if (isReinstall) {
-      if (!window.confirm(`确认重装「${child.label}」？`)) return;
+      if (!(await showConfirm(`确认重装「${child.label}」？`, "将先卸载旧版本再重新安装。"))) return;
     }
     // 更新子项状态
     setItems((prev) => prev.map((it) => it.id === parentId ? {
@@ -300,6 +379,7 @@ function InstallerTab() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <DialogUI />
       <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 py-2">
         <Button size="sm" className="h-7 gap-1 text-[11px] rounded-full" onClick={handleGlobalDetect}><Play className="h-3 w-3" />全局检测</Button>
       </div>
