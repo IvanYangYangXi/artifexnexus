@@ -4,9 +4,19 @@
 // 从 apps/desktop/src/ipc/openclaw.ts 复制，仅修改 invoke 来源：
 // Desktop: import { invoke } from "@tauri-apps/api/core"
 // Web UI:  window.__TAURI__.invoke（Tauri webview 自动注入）
+// 惰性访问避免 Next.js SSR 时 window is not defined
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const invoke = (window as any).__TAURI__?.invoke as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+function getInvoke() {
+  if (typeof window === "undefined") return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (window as any).__TAURI__?.invoke as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+}
+
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const fn = getInvoke();
+  if (!fn) throw new Error(`[Tauri] 非 Tauri 环境，无法调用 ${cmd}`);
+  return fn(cmd, args ?? {});
+}
 
 /** openclaw.status 返回的聚合状态 */
 export interface OpenClawStatus {
