@@ -256,7 +256,8 @@ Write-Host "============================================================" -Foreg
 
 Write-Host ""
 Write-Host "虚拟机内操作指南：" -ForegroundColor Yellow
-Write-Host "  1. 打开文件资源管理器，导航到共享文件夹（通常 Z: 盘）"
+Write-Host "  1. 将安装包从宿主机拖放到虚拟机桌面（或剪贴板复制）"
+Write-Host "    路径: $exePath"
 Write-Host "  2. 双击 $($installer.Name) 开始安装"
 Write-Host "  3. 按 testing/install-checklist.md 逐项验证"
 Write-Host ""

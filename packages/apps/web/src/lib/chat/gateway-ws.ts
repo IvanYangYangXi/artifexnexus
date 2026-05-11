@@ -332,16 +332,28 @@ export class GatewayWebSocket {
   private _sendConnect(nonce: string): void {
     if (!this._ws) return;
 
+    // 生成设备 ID：优先用 localStorage 缓存的稳定 ID，首次生成 UUID
+    let deviceId = "";
+    try {
+      deviceId = localStorage.getItem("artifex.deviceId") ?? "";
+      if (!deviceId) {
+        deviceId = crypto.randomUUID?.() ?? `dev-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        localStorage.setItem("artifex.deviceId", deviceId);
+      }
+    } catch {
+      deviceId = `dev-${Date.now()}`;
+    }
+
     const reqId = `connect-${this._nextReqId()}`;
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "artifex-nexus",
+        id: deviceId,
         displayName: "Artifex Nexus",
         version: "0.1.0",
         platform: "win32",
-        mode: "gui",
+        mode: "operator",
       },
       caps: [],
       auth: { token: this._token },

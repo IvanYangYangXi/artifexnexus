@@ -79,17 +79,18 @@ $extpack = Get-ChildItem "$env:USERPROFILE\Downloads\Oracle_VM_VirtualBox_Extens
 
 保持默认 **NAT**，虚拟机可访问外网（需下载 WebView2 Runtime）。
 
-### 3.4 共享文件夹
+### 3.4 拖放传输文件（替代共享文件夹）
 
-虚拟机设置 → 共享文件夹 → 添加：
+> **注意**：共享文件夹功能依赖 Extension Pack。如公司域策略拦截 Extension Pack 安装，使用拖放方式传输安装包。
+
+虚拟机设置 → 常规 → 高级：
 
 | 设置项 | 值 |
 |--------|-----|
-| 文件夹路径 | `D:\MyProject_D\artifexnexus\apps\desktop\src-tauri\target\release\bundle\nsis` |
-| 文件夹名称 | `artifex_builds` |
-| 只读 | ✅ 勾选 |
-| 自动挂载 | ✅ 勾选 |
-| 挂载点 | `Z:` |
+| 共享剪贴板 | 双向 |
+| 拖放 | 双向 |
+
+每次测试时，宿主机 `pnpm tauri build` 构建完成后，直接将安装包 `.exe` 拖入虚拟机桌面即可。
 
 > 只读确保虚拟机内不会误修改构建产物。所有构建在宿主机执行。
 
@@ -179,10 +180,12 @@ dir apps\desktop\src-tauri\target\release\artifex-nexus-desktop.exe
 ### 虚拟机操作
 
 1. 还原到基准快照
-2. 打开 Z: 盘（共享文件夹）
-3. 双击 `Artifex Nexus_<version>_x64-setup.exe`
+2. 从宿主机**拖放** `Artifex Nexus_<version>_x64-setup.exe` 到虚拟机桌面（或通过剪贴板复制粘贴）
+3. 双击安装包
 4. 按 `install-checklist.md` 逐项验证
 5. 测试完毕，关闭虚拟机并还原快照
+
+> **备选**：如果 Extension Pack 可用，也可设置共享文件夹直接访问宿主机构建目录。
 
 或使用自动化脚本（宿主机）：
 
@@ -203,6 +206,20 @@ dir apps\desktop\src-tauri\target\release\artifex-nexus-desktop.exe
 ---
 
 ## 十、常见问题
+
+### Q: VBoxManage extpack install 报 VBOX_E_IPRT_ERROR / VERR_UNRESOLVED_ERROR
+
+错误信息：`Failed to launch the helper application 'VBoxExtPackHelperApp.exe'`
+
+**根因**：公司域策略（AppLocker 软件限制策略）拦截了 helper 程序。
+
+**解决方案**：
+1. ✅ 用 **GUI 安装**（推荐）：VirtualBox 主界面 → 文件 → 工具 → Extension Pack Manager → 安装
+2. 联系 IT 将 `C:\Program Files\Oracle\VirtualBox\VBoxExtPackHelperApp.exe` 加入 AppLocker 白名单
+3. 非域环境机器上此命令正常工作
+
+**验证**：`& 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe' list extpacks` 显示 `Extension Packs: 1`
+
 
 ### Q: 虚拟机内查不到 Z: 盘
 

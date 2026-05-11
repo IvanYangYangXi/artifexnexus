@@ -17,11 +17,8 @@ testing/
 
 ### 前提条件
 
-- 宿主机：Windows 10/11，已安装 [VirtualBox](https://www.virtualbox.org/)
-- 已创建测试用 Windows 虚拟机（详见 `vm-setup-guide.md`）
-- 虚拟机内已安装 Guest Additions + WebView2 Runtime
-- 已创建基准快照 `01-Base-CleanSystem`
-- 宿主机已配置 Rust + Node.js 构建环境
+- 宿主机：Windows 10/11，已安装 [VirtualBox](https://www.virtualbox.org/) + Guest Additions
+- Extension Pack 为可选（共享文件夹依赖它），拖放/剪贴板可替代传输文件
 
 ### 一键测试
 
