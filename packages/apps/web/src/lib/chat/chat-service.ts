@@ -343,34 +343,20 @@ export function useChatService(options: ChatServiceOptions) {
     let cancelled = false;
 
     /**
-     * 等待 Gateway HTTP 就绪后再建 WebSocket。
+     * 等待 Gateway 就绪后再建 WebSocket。
      *
-     * 问题：OpenClaw Gateway 启动需要 ~5-8s（sidecar spawn → HTTP → plugins）。
-     * 如果在 `gateway ready` 之前建 WebSocket，GW 返回
-     * `startup-sidecars-pending` → 1008 拒绝，日志刷 WARN。
-     *
-     * 方案：轮询 HTTP 200 → 拿到响应后再等 3s → 建 WS。
+     * 通过 Tauri IPC openclaw.status 轮询 gateway_running 和 port，
+     * 避免 HTTP fetch 在启动阶段刷多个连接。
      */
     const waitForGatewayReady = async (): Promise<boolean> => {
-      const maxWait = 30_000; // 最长等 30s
-      const startedAt = Date.now();
-      while (!cancelled && Date.now() - startedAt < maxWait) {
-        try {
-          const resp = await fetch(`http://127.0.0.1:${gatewayPort}/v1/models`, {
-            method: "GET",
-            signal: AbortSignal.timeout(2000),
-          });
-          if (resp.ok) {
-            // Gateway HTTP 就绪，额外等 3s 让 sidecars/plugins 完全初始化
-            await new Promise((r) => setTimeout(r, 3000));
-            return true;
-          }
-        } catch {
-          // 未就绪，继续轮询
-        }
-        await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const { getIpc } = await import("../ipc");
+        const ipc = await getIpc();
+        const status = await ipc.getOpenClawStatus();
+        return status.gateway_running && status.port === gatewayPort;
+      } catch {
+        return false;
       }
-      return false;
     };
 
     const doConnect = async () => {
