@@ -312,7 +312,7 @@ function GatewayTab() {
           return `${time} ${e.level || ""} ${e.text || ""}`;
         }));
       } catch {}
-    }, 3000);
+    }, 1500);
     return () => clearInterval(timer);
   }, [status?.state]);
 
