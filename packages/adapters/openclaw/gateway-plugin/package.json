@@ -8,5 +8,8 @@
     "extensions": [
       "./index.js"
     ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0"
   }
 }

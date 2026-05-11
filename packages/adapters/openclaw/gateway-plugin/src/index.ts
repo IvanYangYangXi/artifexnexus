@@ -358,8 +358,11 @@ export default function (api: PluginAPI) {
       (raw?.plugins?.entries?.["mcp-bridge"]?.config as Record<string, unknown>) || {};
     configSource = "file";
   } catch (e) {
-    pluginConfig =
-      (api.config?.plugins as Record<string, unknown>)?.["entries"]?.["mcp-bridge"]?.["config"] as Record<string, unknown> || {};
+    // 从 api.config 降级读取 — 需要逐层类型断言（strict 模式下索引不能用于 {}）
+    const plugins = api.config?.plugins as Record<string, unknown> | undefined;
+    const entries = (plugins ?? {})["entries"] as Record<string, Record<string, unknown>> | undefined;
+    const mcpBridge = entries?.["mcp-bridge"] as Record<string, unknown> | undefined;
+    pluginConfig = (mcpBridge?.["config"] as Record<string, unknown>) || {};
     configSource = "api.config";
     logger.warn(`[mcp-bridge] File read failed (${(e as Error).message}), using api.config`);
   }
