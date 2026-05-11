@@ -361,27 +361,21 @@ export class GatewayWebSocket {
   private _sendConnectInternal(nonce: string, reqId: string): void {
     if (!this._ws) return;
 
-    // 生成设备 ID：优先用 localStorage 缓存的稳定 ID，首次生成 UUID
-    let deviceId = "";
-    try {
-      deviceId = localStorage.getItem("artifex.deviceId") ?? "";
-      if (!deviceId) {
-        deviceId = crypto.randomUUID?.() ?? `dev-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-        localStorage.setItem("artifex.deviceId", deviceId);
-      }
-    } catch {
-      deviceId = `dev-${Date.now()}`;
-    }
+    // Gateway client 白名单（来自 OpenClaw client-info.ts）：
+    // client.id 枚举：webchat-ui | openclaw-control-ui | node-host | webchat | cli | ...
+    // client.mode 枚举：webchat | cli | ui | backend | node | probe | test
+    //
+    // Artifex Nexus 作为嵌入桌面的 Web 聊天界面，使用 webchat-ui / webchat
 
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: deviceId,
+        id: "webchat-ui",
         displayName: "Artifex Nexus",
         version: "0.1.0",
         platform: "win32",
-        mode: "operator",
+        mode: "webchat",
       },
       caps: [],
       auth: { token: this._token },
@@ -396,7 +390,7 @@ export class GatewayWebSocket {
       params,
     });
 
-    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=${deviceId}`);
+    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=webchat-ui`);
     this._ws.send(payload);
   }
 
