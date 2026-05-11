@@ -217,13 +217,15 @@ export function AppShell() {
   const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
   const [openclawInstalled, setOpenclawInstalled] = React.useState(true);
   const [showInstallDialog, setShowInstallDialog] = React.useState(false);
-  /** 启动 Gateway 时遇到"端口被外部进程占用"时的报错信息（STORY-0039） */
+  /** Gateway 启动中（sidecar spawn → gateway ready 期间） */
+  const [gatewayStarting, setGatewayStarting] = React.useState(true);
+  /** 启动 Gateway 时遇到"端口被外部进程占用"时的报错信息 */
   const [portBusyError, setPortBusyError] = React.useState<{
     port: number;
     occupants: Array<{ pid: number; name: string; cmdline: string }>;
   } | null>(null);
 
-  // 启动时自动检测：已安装 → 自动启动 Gateway；未安装 → 跳转系统面板 + 弹窗
+  // 启动时自动检测
   const startupCheckDone = React.useRef(false);
   React.useEffect(() => {
     if (startupCheckDone.current) return;
@@ -234,14 +236,12 @@ export function AppShell() {
         const ipc = await getIpc();
         const s = await ipc.getOpenClawStatus();
         if (s.cli_installed) {
-          // 已安装 → 自动启动 Gateway
           setOpenclawInstalled(true);
           if (!s.gateway_running) {
             try {
               await ipc.startGateway();
               setGatewayRunning(true);
             } catch (err) {
-              // STORY-0039：解析 sidecar -32020 port_busy 错误 → 弹窗提示用户
               const parsed = parsePortBusyError(err);
               if (parsed) {
                 setPortBusyError(parsed);
@@ -286,6 +286,9 @@ export function AppShell() {
         const ipc = await getIpc();
         const s = await ipc.getOpenClawStatus();
         setGatewayRunning(s.gateway_running);
+        if (s.gateway_running) {
+          setGatewayStarting(false);
+        }
         if (s.port) setGatewayPort(s.port);
         // Gateway 运行中 → 持续刷新连接凭据（端口探测迁移、token 轮换都能同步）
         if (s.gateway_running) {
@@ -343,6 +346,30 @@ export function AppShell() {
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
     <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
+      {/* Gateway 启动全屏遮罩 */}
+      {gatewayStarting && !openclawInstalled === false && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+            {/* 旋转加载动画 */}
+            <div className="relative h-14 w-14">
+              <div className="absolute inset-0 animate-spin rounded-full border-[3px] border-primary/20 border-t-primary" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-7 w-7 rounded-full bg-primary/10" />
+              </div>
+            </div>
+            <div className="text-center">
+              <p className="text-base font-medium text-foreground">Artifex Nexus 正在启动</p>
+              <p className="mt-1.5 text-xs text-muted-foreground">OpenClaw Gateway 初始化中，请稍候…</p>
+              <div className="mt-4 flex items-center gap-1.5">
+                <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:0ms]" />
+                <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:150ms]" />
+                <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:300ms]" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* A 顶栏 */}
       <Topbar
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
