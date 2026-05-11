@@ -5,8 +5,11 @@
  *
  * 布局：对话列表（最左）| 空白 | Agent / Model / Effort（靠右）
  *
- * 所有数据均来自真实 Gateway API，无占位 fallback。
- * Gateway 不可用时显示空状态或不可用提示。
+ * STORY-0039 v2：接入真实数据源
+ *   - 对话列表：chat-service sessions（localStorage 持久化）
+ *   - Agent 列表：settings reducer → dumpOpenClawConfig.agents.list
+ *   - 模型列表：settings reducer → dumpOpenClawConfig.models.providers[*].models[*]
+ *   - 思考强度：settings reducer → agents.defaults.thinkingDefault，分级与设置面板 Agent thinking 下拉一致
  */
 
 import * as React from "react";
@@ -20,57 +23,54 @@ import {
   Button,
   cn,
 } from "@artifex-nexus/ui";
-import { fetchGatewayModels, fetchGatewayAgents } from "../../lib/chat/gateway-api";
-import type { ModelOption, AgentOption, ChatSession } from "../../lib/chat/types";
+import { getIpc } from "../../lib/ipc";
+import type { ChatSession } from "../../lib/chat/types";
+import {
+  settingsReducer,
+  createInitialState,
+  type SettingsState,
+} from "../../features/settings/settings.reducer";
 
-// ─── Effort / 思考深度 ────────────────────────────────────────────────────
+// ─── 思考强度分级（对齐设置面板 Agent thinking 下拉） ───────────────────
 
-const EFFORTS = [
-  { id: "low", name: "思考: 低" },
-  { id: "medium", name: "思考: 中" },
-  { id: "high", name: "思考: 高" },
+const THINKING_OPTIONS = [
+  { id: "off", label: "思考: 关" },
+  { id: "minimal", label: "思考: 最低" },
+  { id: "low", label: "思考: 低" },
+  { id: "medium", label: "思考: 中" },
+  { id: "high", label: "思考: 高" },
+  { id: "xhigh", label: "思考: 很高" },
+  { id: "adaptive", label: "思考: 自适应" },
+  { id: "max", label: "思考: 最高" },
 ];
 
 const EFFORT_STORAGE_KEY = "artifex.chat.effort";
+const MODEL_STORAGE_KEY = "artifex.chat.model";
+const AGENT_STORAGE_KEY = "artifex.chat.agent";
 
-function loadEffort(): string {
+function loadStored(key: string, fallback: string): string {
   try {
-    return localStorage.getItem(EFFORT_STORAGE_KEY) ?? "medium";
+    return localStorage.getItem(key) ?? fallback;
   } catch {
-    return "medium";
+    return fallback;
   }
 }
 
-function saveEffort(id: string): void {
-  try {
-    localStorage.setItem(EFFORT_STORAGE_KEY, id);
-  } catch { /* ignore */ }
+function storeVal(key: string, val: string): void {
+  try { localStorage.setItem(key, val); } catch { /* ignore */ }
 }
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
 export interface ChatControlBarProps {
-  /** 会话列表（来自 chat-service，真实数据） */
   sessions: ChatSession[];
-  /** 当前活跃会话 ID */
   activeSessionId: string;
-  /** 切换会话 */
   onSwitchSession: (id: string) => void;
-  /** 新建会话 */
   onNewSession: () => void;
-  /** 删除会话 */
   onDeleteSession: (id: string) => void;
-  /** Gateway 端口 */
-  gatewayPort: number;
-  /** Gateway 是否运行中 */
   gatewayRunning: boolean;
-  /** Gateway auth token（mode=token 时必传，否则 REST API 401） */
-  gatewayToken?: string;
-  /** Agent 变更回调 */
   onAgentChange?: (agentId: string) => void;
-  /** Model 变更回调 */
   onModelChange?: (modelId: string) => void;
-  /** Effort 变更回调 */
   onEffortChange?: (effort: string) => void;
 }
 
@@ -82,81 +82,125 @@ export function ChatControlBar({
   onSwitchSession,
   onNewSession,
   onDeleteSession,
-  gatewayPort,
   gatewayRunning,
-  gatewayToken = "",
   onAgentChange,
   onModelChange,
   onEffortChange,
 }: ChatControlBarProps) {
-  const [models, setModels] = React.useState<ModelOption[]>([]);
-  const [agents, setAgents] = React.useState<AgentOption[]>([]);
-  const [model, setModel] = React.useState("");
-  const [agent, setAgent] = React.useState("");
-  const [effort, setEffort] = React.useState(loadEffort);
-  const [loading, setLoading] = React.useState(false);
+  // 从 openclaw.json 加载真实配置
+  const [settings, dispatch] = React.useReducer(settingsReducer, undefined, createInitialState);
+  const [loaded, setLoaded] = React.useState(false);
 
-  // 从 Gateway 拉取真实模型和 Agent 列表
+  // 当前选中值（localStorage 持久化用户偏好）
+  const [agent, setAgent] = React.useState(() => loadStored(AGENT_STORAGE_KEY, ""));
+  const [model, setModel] = React.useState(() => loadStored(MODEL_STORAGE_KEY, ""));
+  const [effort, setEffort] = React.useState(() => loadStored(EFFORT_STORAGE_KEY, "adaptive"));
+
+  // 加载配置
   React.useEffect(() => {
-    if (!gatewayRunning || !gatewayPort) {
-      // Gateway 不可用时清空列表
-      setModels([]);
-      setAgents([]);
-      setModel("");
-      setAgent("");
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
-
     const load = async () => {
       try {
-        const [modelList, agentList] = await Promise.all([
-          fetchGatewayModels(gatewayPort, gatewayToken),
-          fetchGatewayAgents(gatewayPort, gatewayToken),
-        ]);
-
+        const ipc = await getIpc();
+        const dump = await ipc.dumpOpenClawConfig();
         if (cancelled) return;
-
-        setModels(modelList);
-        setAgents(agentList);
-
-        // 选择第一个可用项（不保留无效选中值）
-        if (modelList.length > 0) {
-          setModel((prev) => modelList.find((m) => m.id === prev)?.id ?? modelList[0].id);
-        } else {
-          setModel("");
-        }
-        if (agentList.length > 0) {
-          setAgent((prev) => agentList.find((a) => a.id === prev)?.id ?? agentList[0].id);
-        } else {
-          setAgent("");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        dispatch({ type: "LOAD_SUCCESS", dump });
+        setLoaded(true);
+      } catch {
+        if (!cancelled) setLoaded(true); // 加载失败也视为完成，显示空状态
       }
     };
-
     load();
     return () => { cancelled = true; };
-  }, [gatewayRunning, gatewayPort, gatewayToken]);
+  }, []);
 
-  // ─── 变更回调 ─────────────────────────────────────────────────────────
+  // Gateway 启动后重新加载配置
+  React.useEffect(() => {
+    if (!gatewayRunning) return;
+    let cancelled = false;
+    const reload = async () => {
+      try {
+        const ipc = await getIpc();
+        const dump = await ipc.dumpOpenClawConfig();
+        if (cancelled) return;
+        dispatch({ type: "LOAD_SUCCESS", dump });
+      } catch { /* ignore */ }
+    };
+    reload();
+    return () => { cancelled = true; };
+  }, [gatewayRunning]);
+
+  // ─── 派生数据───────────────────────────────────────────────────────────
+
+  // Agent 列表：来自 agents.list
+  const agents = React.useMemo(() => {
+    const list = settings.agentPresets ?? [];
+    if (list.length === 0) return [];
+    return list.map((p) => ({ id: p.id, name: p.name ?? p.id }));
+  }, [settings.agentPresets]);
+
+  // 模型列表：来自 models.providers[*].models[*]
+  const models = React.useMemo(() => {
+    const providers = settings.providers ?? [];
+    const result: Array<{ id: string; name: string }> = [];
+    for (const p of providers) {
+      for (const m of p.models ?? []) {
+        if (m.id && !result.find((r) => r.id === m.id)) {
+          result.push({ id: m.id, name: m.id });
+        }
+      }
+    }
+    return result;
+  }, [settings.providers]);
+
+  // 默认 agent（agents.list 中 default:true 的项）
+  const defaultAgentId = React.useMemo(() => {
+    const list = settings.agentPresets ?? [];
+    return list.find((p) => p.default)?.id ?? list[0]?.id ?? "";
+  }, [settings.agentPresets]);
+
+  // 默认 thinking（agents.defaults.thinkingDefault）
+  const defaultThinking = React.useMemo(() => {
+    return settings.defaultAgent?.thinkingDefault ?? "adaptive";
+  }, [settings.defaultAgent]);
+
+  // 首次加载后自动选中默认值
+  React.useEffect(() => {
+    if (!loaded) return;
+    if (!agent && defaultAgentId) {
+      setAgent(defaultAgentId);
+      storeVal(AGENT_STORAGE_KEY, defaultAgentId);
+    }
+    if (!model && models.length > 0) {
+      setModel(models[0].id);
+      storeVal(MODEL_STORAGE_KEY, models[0].id);
+    }
+    if (!effort && defaultThinking) {
+      // 如果当前 effort 不在 THINKING_OPTIONS 中，使用 defaultThinking
+      if (!THINKING_OPTIONS.find((t) => t.id === effort)) {
+        setEffort(defaultThinking);
+        storeVal(EFFORT_STORAGE_KEY, defaultThinking);
+      }
+    }
+  }, [loaded, agent, model, effort, defaultAgentId, models, defaultThinking]);
+
+  // ─── 回调 ──────────────────────────────────────────────────────────────
 
   const handleAgentChange = (id: string) => {
     setAgent(id);
+    storeVal(AGENT_STORAGE_KEY, id);
     onAgentChange?.(id);
   };
 
   const handleModelChange = (id: string) => {
     setModel(id);
+    storeVal(MODEL_STORAGE_KEY, id);
     onModelChange?.(id);
   };
 
   const handleEffortChange = (id: string) => {
     setEffort(id);
-    saveEffort(id);
+    storeVal(EFFORT_STORAGE_KEY, id);
     onEffortChange?.(id);
   };
 
@@ -165,20 +209,17 @@ export function ChatControlBar({
     onDeleteSession(id);
   };
 
-  const handleConversationChange = (id: string) => {
-    if (id === "__new__") {
-      onNewSession();
-    } else {
-      onSwitchSession(id);
-    }
+  const handleConvChange = (id: string) => {
+    if (id === "__new__") onNewSession();
+    else onSwitchSession(id);
   };
 
-  // ─── 渲染 ─────────────────────────────────────────────────────────────
+  // ─── 渲染 ──────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3">
-      {/* C1c 对话列表 */}
-      <Select value={activeSessionId} onValueChange={handleConversationChange}>
+      {/* 对话列表 */}
+      <Select value={activeSessionId} onValueChange={handleConvChange}>
         <SelectTrigger className="h-7 w-[180px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
           <SelectValue />
         </SelectTrigger>
@@ -190,10 +231,7 @@ export function ChatControlBar({
                 variant="ghost"
                 size="icon"
                 className="ml-2 h-5 w-5 opacity-0 group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteConv(s.id);
-                }}
+                onClick={(e) => { e.stopPropagation(); handleDeleteConv(s.id); }}
               >
                 <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
               </Button>
@@ -201,8 +239,7 @@ export function ChatControlBar({
           ))}
           <div className="border-t border-border mt-1 pt-1">
             <SelectItem value="__new__">
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              新建对话
+              <Plus className="mr-1 h-3.5 w-3.5" />新建对话
             </SelectItem>
           </div>
         </SelectContent>
@@ -210,15 +247,13 @@ export function ChatControlBar({
 
       <div className="flex-1" />
 
-      {/* C1a Agent */}
+      {/* Agent */}
       <Select value={agent} onValueChange={handleAgentChange} disabled={agents.length === 0}>
-        <SelectTrigger
-          className={cn(
-            "h-7 w-[140px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50",
-            agents.length === 0 && "text-muted-foreground",
-          )}
-        >
-          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用 Agent" : "Gateway 未启动"} />
+        <SelectTrigger className={cn(
+          "h-7 w-[140px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50",
+          agents.length === 0 && "text-muted-foreground",
+        )}>
+          <SelectValue placeholder={agents.length === 0 ? "无可用 Agent" : undefined} />
         </SelectTrigger>
         {agents.length > 0 && (
           <SelectContent>
@@ -229,15 +264,13 @@ export function ChatControlBar({
         )}
       </Select>
 
-      {/* C1b Model */}
+      {/* Model */}
       <Select value={model} onValueChange={handleModelChange} disabled={models.length === 0}>
-        <SelectTrigger
-          className={cn(
-            "h-7 w-[150px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50",
-            models.length === 0 && "text-muted-foreground",
-          )}
-        >
-          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用模型" : "Gateway 未启动"} />
+        <SelectTrigger className={cn(
+          "h-7 w-[150px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50",
+          models.length === 0 && "text-muted-foreground",
+        )}>
+          <SelectValue placeholder={models.length === 0 ? "无可用模型" : undefined} />
         </SelectTrigger>
         {models.length > 0 && (
           <SelectContent>
@@ -248,14 +281,14 @@ export function ChatControlBar({
         )}
       </Select>
 
-      {/* Effort / 思考深度 */}
+      {/* Effort / 思考强度 */}
       <Select value={effort} onValueChange={handleEffortChange}>
-        <SelectTrigger className="h-7 w-[90px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
+        <SelectTrigger className="h-7 w-[100px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {EFFORTS.map((e) => (
-            <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+          {THINKING_OPTIONS.map((e) => (
+            <SelectItem key={e.id} value={e.id}>{e.label}</SelectItem>
           ))}
         </SelectContent>
       </Select>

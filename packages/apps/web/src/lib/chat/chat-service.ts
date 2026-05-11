@@ -261,10 +261,6 @@ export interface ChatServiceOptions {
 export function useChatService(options: ChatServiceOptions) {
   const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus" } = options;
 
-  // sessionKey 格式：agent:<agentId>:<sessionId>
-  const [sessionId] = React.useState(() => `session-${Date.now()}`);
-  const sessionKey = `agent:${agentId}:${sessionId}`;
-
   // Gateway WebSocket
   const wsRef = React.useRef<GatewayWebSocket | null>(null);
   const [wsState, setWsState] = React.useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -275,7 +271,7 @@ export function useChatService(options: ChatServiceOptions) {
     // 首次使用：无会话时创建默认会话
     if (sessions.length === 0) {
       const defaultSession: ChatSession = {
-        id: "default",
+        id: `session-${Date.now()}`,
         title: "新对话",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -285,10 +281,11 @@ export function useChatService(options: ChatServiceOptions) {
       persistSessions(sessions);
       persistActiveSession(defaultSession.id);
     }
+    // 恢复上次活跃的会话（重开 exe 自动接续）
     const activeId = getActiveSessionId(sessions);
-    const active = sessions.find((s) => s.id === activeId);
-    // 启动时清理卡死的 streaming 状态（场景：上次 Gateway 崩溃导致消息永远 isStreaming）
-    const messages = (active?.messages ?? []).map((m) =>
+    const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
+    // 启动时清理卡死的 streaming 状态
+    const messages = (active.messages ?? []).map((m) =>
       m.isStreaming ? { ...m, isStreaming: false } : m,
     );
     return {
@@ -298,10 +295,13 @@ export function useChatService(options: ChatServiceOptions) {
       pendingQueue: [],
       error: null,
       sessions,
-      activeSessionId: active?.id ?? sessions[0].id,
+      activeSessionId: active.id,
       cancelledMessageId: null,
     };
   });
+
+  // sessionKey 使用活跃会话 ID（重开 exe 保持一致）
+  const sessionKey = `agent:${agentId}:${state.activeSessionId}`;
 
   // 上次累积文本（用于计算增量）
   const lastTextRef = React.useRef("");

@@ -153,51 +153,54 @@ function CodeBlock({
   language: string;
   code: string;
 }) {
-  const lines = code.split("\n");
+  const trimmed = code.replace(/\n$/, "");
+  const lines = trimmed.split("\n");
   const shouldCollapse = lines.length > 5;
   const [expanded, setExpanded] = React.useState(!shouldCollapse);
   const displayCode = expanded || !shouldCollapse
-    ? code
-    : lines.slice(0, 5).join("\n");
+    ? trimmed
+    : lines.slice(0, 5).join("\n") + "\n";
 
   return (
     <div className="my-2 overflow-hidden rounded-md border border-border">
-      <div className="flex items-center justify-between bg-muted/50 px-3 py-1 text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <span>{language}</span>
+      <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="shrink-0 font-mono">{language}</span>
           {shouldCollapse && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="hover:text-foreground transition-colors"
+              className="hover:text-foreground transition-colors truncate"
             >
-              {expanded ? "收起" : `展开全部 (${lines.length} 行)`}
+              {expanded ? "收起" : `${lines.length} 行（点击展开）`}
             </button>
           )}
         </div>
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5"
-          onClick={() => navigator.clipboard.writeText(code)}
+          className="h-5 w-5 shrink-0"
+          onClick={() => navigator.clipboard.writeText(trimmed)}
           title="复制代码"
         >
           <Copy className="h-2.5 w-2.5" />
         </Button>
       </div>
-      <SyntaxHighlighter
-        style={oneDark}
-        language={language}
-        PreTag="div"
-        customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
-      >
-        {displayCode}
-      </SyntaxHighlighter>
+      <div className={cn(!expanded && shouldCollapse && "max-h-[140px] overflow-hidden")}>
+        <SyntaxHighlighter
+          style={oneDark}
+          language={language}
+          PreTag="div"
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
+        >
+          {displayCode}
+        </SyntaxHighlighter>
+      </div>
       {shouldCollapse && !expanded && (
         <div
-          className="cursor-pointer bg-muted/30 py-1 text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          className="cursor-pointer bg-muted/30 py-1.5 text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors border-t border-white/[0.04]"
           onClick={() => setExpanded(true)}
         >
-          ⋯ 展开全部 {lines.length} 行 ⋯
+          展开全部 {lines.length} 行
         </div>
       )}
     </div>
