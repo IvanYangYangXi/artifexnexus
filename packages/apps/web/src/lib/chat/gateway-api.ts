@@ -36,17 +36,24 @@ interface OpenAIModelsResponse {
  *
  * 调用 Gateway 的 GET /v1/models（OpenAI 兼容端点），
  * 返回所有已配置 provider 的模型。
+ *
+ * @param port Gateway 监听端口
+ * @param token Gateway auth token；`gateway.auth.mode === "token"` 时必传，
+ *   否则 Gateway 会返回 401。由 AppShell 从 sidecar auth_info RPC 获取。
  */
-export async function fetchGatewayModels(port: number): Promise<ModelOption[]> {
+export async function fetchGatewayModels(port: number, token = ""): Promise<ModelOption[]> {
   const url = `http://127.0.0.1:${port}/v1/models`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
   try {
+    const headers: Record<string, string> = { "Accept": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     const response = await fetch(url, {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers,
       signal: controller.signal,
     });
 
@@ -87,17 +94,22 @@ export async function fetchGatewayModels(port: number): Promise<ModelOption[]> {
  * 需通过 Tauri IPC 的 dumpOpenClawConfig() 获取（STORY-0040 实现）。
  *
  * 目前返回 Gateway 探测结果，无可用的返回空数组。
+ *
+ * @param port Gateway 监听端口
+ * @param token Gateway auth token（可选）
  */
-export async function fetchGatewayAgents(port: number): Promise<AgentOption[]> {
+export async function fetchGatewayAgents(port: number, token = ""): Promise<AgentOption[]> {
   // 尝试探测 Gateway 的 agent 相关端点
   const endpoints = ["/v1/agents", "/api/agents"];
   for (const ep of endpoints) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
+      const headers: Record<string, string> = { "Accept": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch(`http://127.0.0.1:${port}${ep}`, {
         method: "GET",
-        headers: { "Accept": "application/json" },
+        headers,
         signal: controller.signal,
       });
       clearTimeout(timeout);

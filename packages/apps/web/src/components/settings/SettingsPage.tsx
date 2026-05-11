@@ -37,7 +37,9 @@ export function SettingsPage() {
       // 如果用户输入了新 API Key，通过 setOpenClawAuthToken 写入
       const pk = (window as any).__pendingApiKey;
       if (pk?.token && pk.provider) {
-        await ipc.setOpenClawAuthToken({ token: pk.token, provider: pk.provider });
+        // profileId 必须传递，否则 sidecar 无法定位写入目标
+        const profileId = pk.profileId || `${pk.provider}-default`;
+        await ipc.setOpenClawAuthToken({ token: pk.token, provider: pk.provider, profileId });
         delete (window as any).__pendingApiKey;
       }
       setSaveMsg("已保存");

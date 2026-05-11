@@ -69,6 +69,26 @@ class GatewayProcess:
     """状态消息。"""
 
 
+class PortBusyError(RuntimeError):
+    """启动前检测到目标端口被非 OpenClaw 进程占用（STORY-0039）。
+
+    Raised when the target gateway port is held by a non-OpenClaw process
+    that we refuse to kill. Carries structured payload so the sidecar can
+    map it to a JSON-RPC error with ``data`` for the frontend dialog.
+    """
+
+    def __init__(self, port: int, occupants: list[dict]):
+        self.port = port
+        # occupants = [{"pid": 12345, "name": "python.exe", "cmdline": "..."}]
+        self.occupants = occupants
+        sample = occupants[0] if occupants else {"pid": -1, "name": "unknown"}
+        super().__init__(
+            f"端口 {port} 被非 OpenClaw 进程占用 "
+            f"(PID={sample.get('pid')}, name={sample.get('name')})；"
+            f"请手动停止该进程或改用其它端口，Artifex Nexus 不会自动杀它。"
+        )
+
+
 @dataclass
 class VersionInfo:
     """已安装版本信息。
@@ -279,7 +299,29 @@ def _ensure_control_ui_allowed_origins(
         f"http://localhost:{port}",
         "tauri://localhost",
         "https://tauri.localhost",
+        "http://tauri.localhost",
     ]
+
+    # STORY-0039：清理漂移过的旧 loopback 白名单条目。
+    # 历史原因：旧版 bootstrap_with_port_probe 在 19789 被占时迁到 19809/19829/…，
+    # 并把 http://127.0.0.1:<drift> / http://localhost:<drift> 塞进 allowedOrigins。
+    # 新版固定 19789 后，这些旧条目就是死代码；必须剥掉，否则永远留着。
+    # 判定规则（保守，避免误删用户面板里加的额外白名单）：
+    #   scheme=http + host∈{127.0.0.1, localhost} + 非当前 port + port 属于
+    #   pick_port 曾经可能选中的端口段。常量与 ports.py 对齐（此处内联避免
+    #   额外 import 造成循环依赖风险）。
+    _DRIFT_BASE = 19789
+    _DRIFT_STEP = 20
+    _DRIFT_MAX_TRIES = 5
+    _drift_candidates = {
+        _DRIFT_BASE + i * _DRIFT_STEP for i in range(_DRIFT_MAX_TRIES)
+    }
+    _drift_candidates.discard(port)  # 当前 port 白名单不能清
+    _stale_loopback_origins = {
+        f"http://127.0.0.1:{p}" for p in _drift_candidates
+    } | {
+        f"http://localhost:{p}" for p in _drift_candidates
+    }
 
     try:
         try:
@@ -303,18 +345,32 @@ def _ensure_control_ui_allowed_origins(
             if isinstance(dd, bool):
                 cur_disable_device = dd
 
-        # 三项都满足 → 跳过
-        origins_ok = all(o in cur_origins for o in required_origins)
+        # 判定：条目齐 + 无漂移残留 + 标志位合规 → 跳过
+        has_stale = any(o in _stale_loopback_origins for o in cur_origins)
+        origins_ok = (
+            all(o in cur_origins for o in required_origins) and not has_stale
+        )
         enabled_ok = cur_enabled is not False  # None 或 True 都算 OK（schema 默认 true）
         device_ok = cur_disable_device is True
         if origins_ok and enabled_ok and device_ok:
             return
 
-        # 取并集（保留用户附加项），写回
-        merged = list(cur_origins)
+        # 1. 先剔除漂移过的旧 loopback 条目（只删匹配已知漂移段的，
+        #    用户面板里加的外部 origin 不动）
+        cleaned = [o for o in cur_origins if o not in _stale_loopback_origins]
+
+        # 2. 再加上必需条目（并集），保留用户面板附加项
+        merged = list(cleaned)
         for o in required_origins:
             if o not in merged:
                 merged.append(o)
+
+        if has_stale:
+            dropped = [o for o in cur_origins if o in _stale_loopback_origins]
+            logger.info(
+                "controlUi 清理漂移白名单: %d 条 (%s)",
+                len(dropped), ", ".join(dropped),
+            )
 
         patch = {
             "gateway": {
@@ -447,6 +503,23 @@ def start_gateway(
     cleaned = _cleanup_orphan_gateways(port)
     if cleaned > 0:
         logger.info("启动前清理了 %d 个 openclaw 孤儿进程", cleaned)
+
+    # 2.7 启动前硬检查：若端口仍被 **非 OpenClaw 进程**占用 → 拒绝启动、上抛
+    #     PortBusyError，前端会弹窗让用户决定（STORY-0039 方案 A）。
+    #     我们宁可显式失败也不偷偷换端口——端口漂移比启动失败更难排查。
+    remaining = _list_pids_on_port(port)
+    if remaining:
+        occupants = [
+            _describe_pid(pid)
+            for pid in remaining
+            if not _is_openclaw_process(pid)
+        ]
+        if occupants:
+            msg = f"端口 {port} 被以下非 OpenClaw 进程占用，拒绝自动切换端口："
+            for o in occupants:
+                msg += f"\n  - PID={o['pid']} name={o['name']}"
+            _gateway_state.set_errored(msg)
+            raise PortBusyError(port, occupants)
 
     # 3. 构建命令
     #    用 "gateway run" 而不是 "gateway start"：
@@ -694,6 +767,48 @@ def _list_pids_on_port(port: int) -> list[int]:
         return []
 
     return sorted(pids)
+
+
+def _describe_pid(pid: int) -> dict:
+    """尽力描述 PID：返回 ``{"pid", "name", "cmdline"}``，任一字段取不到则 ``""``。
+
+    Best-effort process description used by :class:`PortBusyError` payload.
+    Keeps the runtime module self-contained (avoid pulling psutil dependency).
+    """
+    name = ""
+    cmdline = ""
+    try:
+        if _is_windows():
+            r = subprocess.run(
+                [
+                    "wmic", "process", "where", f"ProcessId={pid}",
+                    "get", "Name,CommandLine", "/format:list",
+                ],
+                capture_output=True, text=True, timeout=3,
+                creationflags=0x08000000,
+            )
+            for line in (r.stdout or "").splitlines():
+                line = line.strip()
+                if line.lower().startswith("name="):
+                    name = line.split("=", 1)[1].strip()
+                elif line.lower().startswith("commandline="):
+                    cmdline = line.split("=", 1)[1].strip()
+        else:
+            try:
+                with open(f"/proc/{pid}/comm", "r", encoding="utf-8") as f:
+                    name = f.read().strip()
+            except (FileNotFoundError, PermissionError):
+                pass
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmdline = f.read().replace(b"\x00", b" ").decode(
+                        "utf-8", errors="ignore"
+                    ).strip()
+            except (FileNotFoundError, PermissionError):
+                pass
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return {"pid": pid, "name": name, "cmdline": cmdline[:300]}
 
 
 def _is_openclaw_process(pid: int) -> bool:

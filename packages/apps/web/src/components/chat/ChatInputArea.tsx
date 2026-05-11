@@ -335,17 +335,16 @@ export function ChatInputArea({
 
         {/* C3c 发送区 */}
         <div className="flex items-center gap-1.5">
-          {/* 停止按钮 — 生成中显示 */}
-          {isStreaming && (
-            <Button
-              size="icon"
-              variant="destructive"
-              className="h-9 w-9"
-              onClick={onStop}
-            >
-              <Square className="h-4 w-4 fill-current" />
-            </Button>
-          )}
+          {/* 停止按钮 — 始终显示 */}
+          <Button
+            size="icon"
+            variant="destructive"
+            className="h-9 w-9"
+            onClick={onStop}
+            title="停止生成"
+          >
+            <Square className="h-4 w-4 fill-current" />
+          </Button>
 
           {/* 恢复按钮 — 已停止可恢复时显示 */}
           {!isStreaming && canResume && onResume && (
@@ -360,17 +359,15 @@ export function ChatInputArea({
             </Button>
           )}
 
-          {/* 发送按钮 — 非生成态显示 */}
-          {!isStreaming && (
-            <Button
-              size="icon"
-              className="h-9 w-9 rounded-full"
-              onClick={handleSend}
-              disabled={!text.trim()}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          )}
+          {/* 发送按钮 — 始终显示 */}
+          <Button
+            size="icon"
+            className="h-9 w-9 rounded-full"
+            onClick={handleSend}
+            disabled={!text.trim()}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
 
           {/* 发送方式切换 */}
           <div className="relative">

@@ -106,12 +106,19 @@ export class GatewayWebSocket {
     this._setState("connecting");
 
     return new Promise((resolve) => {
+      let connectResolved = false;
+      const safeConnectResolve = (val: boolean) => {
+        if (connectResolved) return;
+        connectResolved = true;
+        resolve(val);
+      };
+
       try {
         this._ws = new WebSocket(this._url);
         const handshakeTimeout = setTimeout(() => {
           this._ws?.close();
           this._setState("disconnected");
-          resolve(false);
+          safeConnectResolve(false);
         }, HANDSHAKE_TIMEOUT);
 
         this._ws.onopen = async () => {
@@ -123,16 +130,16 @@ export class GatewayWebSocket {
               this._setState("connected");
               this._reconnectAttempts = 0;
               this._startPing();
-              resolve(true);
+              safeConnectResolve(true);
             } else {
               this._ws?.close();
               this._setState("disconnected");
-              resolve(false);
+              safeConnectResolve(false);
             }
           } catch {
             this._ws?.close();
             this._setState("disconnected");
-            resolve(false);
+            safeConnectResolve(false);
           }
         };
 
@@ -141,9 +148,11 @@ export class GatewayWebSocket {
         };
 
         this._ws.onclose = (event: CloseEvent) => {
+          clearTimeout(handshakeTimeout);
           this._stopPing();
           this._rejectAllPending(new Error("WebSocket closed"));
           this._setState("disconnected");
+          safeConnectResolve(false);
           // 非主动关闭时自动重连
           if (event.code !== 1000 && !this._disposed) {
             this._scheduleReconnect();
@@ -156,7 +165,7 @@ export class GatewayWebSocket {
       } catch {
         this._setState("disconnected");
         this._scheduleReconnect();
-        resolve(false);
+        safeConnectResolve(false);
       }
     });
   }
@@ -292,6 +301,25 @@ export class GatewayWebSocket {
       let challengeReceived = false;
       let connectSent = false;
       let connectReqId = "";
+      let resolved = false;
+
+      // 安全 resolve 包装，避免多次 resolve
+      const safeResolve = (val: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val);
+      };
+
+      // 监听 WS 关闭——如果握手期间被服务端关闭，必须 resolve(false)
+      // 避免 Promise 永远 pending 导致 connect() 挂起
+      const origOnClose = this._ws.onclose;
+      this._ws.onclose = (ev: CloseEvent) => {
+        safeResolve(false);
+        // 恢复原 onclose（让外层 connect() 的 onclose 逻辑继续执行）
+        if (origOnClose) {
+          (origOnClose as (ev: CloseEvent) => void)(ev);
+        }
+      };
 
       const originalOnMessage = this._ws.onmessage;
       this._ws.onmessage = (event: MessageEvent) => {
@@ -299,7 +327,7 @@ export class GatewayWebSocket {
         if (Date.now() > deadline) {
           this._ws!.onmessage = originalOnMessage;
           console.warn("[gateway-ws] Handshake timed out");
-          resolve(false);
+          safeResolve(false);
           return;
         }
 
@@ -329,13 +357,13 @@ export class GatewayWebSocket {
               this._ws!.onmessage = originalOnMessage;
               // 响应匹配我们的 connect 请求 ID 且无错误 → 成功
               if (msg.id === connectReqId && !msg.error) {
-                resolve(true);
+                safeResolve(true);
               } else if (msg.error) {
                 console.warn(`[gateway-ws] Connect rejected: ${JSON.stringify(msg.error)}`);
-                resolve(false);
+                safeResolve(false);
               } else {
                 // 响应来了但 ID 不匹配或格式不同，仍视为成功（Gateway 已确认）
-                resolve(true);
+                safeResolve(true);
               }
               return;
             }
@@ -351,7 +379,7 @@ export class GatewayWebSocket {
         if (Date.now() > deadline) {
           this._ws!.onmessage = originalOnMessage;
           console.warn("[gateway-ws] Handshake timed out");
-          resolve(false);
+          safeResolve(false);
         }
       };
     });
@@ -420,12 +448,12 @@ export class GatewayWebSocket {
       // chat 事件
       if (msg.event === "chat") {
         const payload = msg.payload ?? {};
-        const event: GatewayChatEvent = {
+        const chatEvent: GatewayChatEvent = {
           state: payload.state ?? "delta",
           message: this._extractText(payload.message ?? ""),
           runId: payload.runId,
         };
-        this._messageHandlers.forEach((h) => h(event));
+        this._messageHandlers.forEach((h) => h(chatEvent));
       }
     } catch {
       // 忽略非 JSON 消息

@@ -45,6 +45,10 @@ struct JsonRpcError {
     code: i64,
     #[allow(dead_code)]
     message: String,
+    /// 可选 data 字段：结构化错误载荷（如 port_busy 的 occupants 列表）。
+    /// STORY-0039 起用于让前端区分"端口被外部占用"等特殊错误。
+    #[serde(default)]
+    data: Option<Value>,
 }
 
 /// Sidecar 客户端：持有子进程句柄、stdin writer、stdout reader。
@@ -183,6 +187,18 @@ impl SidecarClient {
             .map_err(|e| format!("解析 sidecar 响应失败: {e}"))?;
 
         if let Some(error) = response.error {
+            // STORY-0039：如果 sidecar 带 data（结构化错误），把 data 序列化成
+            // JSON 字符串前缀进错误 message，前端按 `__rpcdata__:` 切出来解析。
+            // 这样前端能识别 kind=port_busy 并弹专门的对话框，同时保持现有
+            // "Tauri invoke 返回 Err(String)" 的单通道契约，不破坏旧命令。
+            if let Some(data) = error.data {
+                let data_str = serde_json::to_string(&data)
+                    .unwrap_or_else(|_| "{}".to_string());
+                return Err(format!(
+                    "sidecar 错误: {} (code: {}) __rpcdata__:{}",
+                    error.message, error.code, data_str
+                ));
+            }
             return Err(format!("sidecar 错误: {} (code: {})", error.message, error.code));
         }
 

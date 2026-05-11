@@ -16,12 +16,14 @@ import { useChatService } from "../../lib/chat/chat-service";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
-  const { port, token, running: gatewayRunning } = React.useContext(GatewayContext);
+  const { port, token, running: gatewayRunning, authReady } = React.useContext(GatewayContext);
   const pendingHandledRef = React.useRef(false);
 
   // Chat 状态机
+  // 注意：authReady=false 时 gatewayPort 传 0，避免 useChatService 用默认 19789 空跑
+  // （port/token 必须等 sidecar 拉到真实值后再建 WS，否则必然 1008 或 connection refused）
   const chat = useChatService({
-    gatewayPort: port,
+    gatewayPort: authReady ? port : 0,
     gatewayToken: token,
   });
 
@@ -65,8 +67,9 @@ export function ChatView() {
         onSwitchSession={chat.switchSession}
         onNewSession={chat.createNewSession}
         onDeleteSession={chat.deleteSession}
-        gatewayPort={port}
-        gatewayRunning={gatewayRunning}
+        gatewayPort={authReady ? port : 0}
+        gatewayRunning={gatewayRunning && authReady}
+        gatewayToken={token}
       />
 
       {/* C2 消息流 */}

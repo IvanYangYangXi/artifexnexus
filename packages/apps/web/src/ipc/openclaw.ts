@@ -367,6 +367,30 @@ export async function openOpenClawWebUi(): Promise<WebOpenResult> {
 }
 
 // ---------------------------------------------------------------------------
+// STORY-0039 M3：Chat WS 连接凭据
+// ---------------------------------------------------------------------------
+
+/** openclaw.gateway.auth_info 返回 */
+export interface GatewayAuthInfo {
+  /** Gateway 实际监听端口（反映端口迁移后的真实值） */
+  port: number;
+  /** Gateway auth token；`auth_mode !== "token"` 或未配置时为空串 */
+  token: string;
+  /** "token" / "none" / "" 未配置 */
+  auth_mode: string;
+}
+
+/** 获取 Gateway WS 握手所需凭据（port + token）。
+ *
+ * STORY-0039：前端 ChatView 直连 Gateway WS 需要 `auth.token`，token 存在
+ * `~/.artifexnexus/.openclaw/openclaw.json` → `gateway.auth.token`。
+ * 本命令经 Tauri sidecar 从 openclaw.json 读取，仅在本机进程间流转。
+ */
+export async function getGatewayAuthInfo(): Promise<GatewayAuthInfo> {
+  return invoke<GatewayAuthInfo>("openclaw_gateway_auth_info");
+}
+
+// ---------------------------------------------------------------------------
 // STORY-0019：远端模型列表获取
 // ---------------------------------------------------------------------------
 

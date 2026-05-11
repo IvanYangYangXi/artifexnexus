@@ -76,10 +76,13 @@ export const GatewayContext = React.createContext<{
   port: number;
   token: string;
   running: boolean;
+  /** 凭据是否已从 sidecar 拉取到（port/token 就位前前端不应建 WS） */
+  authReady: boolean;
 }>({
   port: 19789,
   token: "",
   running: false,
+  authReady: false,
 });
 
 const STORAGE_KEYS = {
@@ -88,6 +91,36 @@ const STORAGE_KEYS = {
 } as const;
 
 const SIDEBAR_WIDTH = { expanded: 200, collapsed: 48 } as const;
+
+/**
+ * 解析 sidecar -32020 port_busy 错误。
+ *
+ * STORY-0039：Rust 端把 sidecar 带 data 的 JSON-RPC error 序列化进 `Err(String)`
+ * 的字符串末尾，格式为 `... __rpcdata__:{"kind":"port_busy","port":...,"occupants":[...]}`。
+ * 本函数把 data 切出来解析，非 port_busy 返回 null（调用方继续走通用错误处理）。
+ *
+ * 不用 JSON 传递整条 error 是为了保持 Tauri invoke 的 `Err(String)` 单通道契约，
+ * 避免把所有现有命令改成结构化 Err。
+ */
+function parsePortBusyError(err: unknown): {
+  port: number;
+  occupants: Array<{ pid: number; name: string; cmdline: string }>;
+} | null {
+  if (typeof err !== "string") return null;
+  const marker = "__rpcdata__:";
+  const idx = err.indexOf(marker);
+  if (idx < 0) return null;
+  try {
+    const data = JSON.parse(err.slice(idx + marker.length));
+    if (data?.kind !== "port_busy") return null;
+    return {
+      port: Number(data.port) || 0,
+      occupants: Array.isArray(data.occupants) ? data.occupants : [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** 响应式断点（与 web-chat-structure.md §1.2 对齐） */
 function useBreakpoint() {
@@ -179,9 +212,16 @@ export function AppShell() {
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
   const [gatewayRunning, setGatewayRunning] = React.useState(false);
   const [gatewayPort, setGatewayPort] = React.useState(19789);
+  const [gatewayToken, setGatewayToken] = React.useState<string>("");
+  const [gatewayAuthReady, setGatewayAuthReady] = React.useState(false);
   const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
   const [openclawInstalled, setOpenclawInstalled] = React.useState(true);
   const [showInstallDialog, setShowInstallDialog] = React.useState(false);
+  /** 启动 Gateway 时遇到"端口被外部进程占用"时的报错信息（STORY-0039） */
+  const [portBusyError, setPortBusyError] = React.useState<{
+    port: number;
+    occupants: Array<{ pid: number; name: string; cmdline: string }>;
+  } | null>(null);
 
   // 启动时自动检测：已安装 → 自动启动 Gateway；未安装 → 跳转系统面板 + 弹窗
   const startupCheckDone = React.useRef(false);
@@ -200,12 +240,29 @@ export function AppShell() {
             try {
               await ipc.startGateway();
               setGatewayRunning(true);
-            } catch {
-              // 启动失败，后续轮询会处理
+            } catch (err) {
+              // STORY-0039：解析 sidecar -32020 port_busy 错误 → 弹窗提示用户
+              const parsed = parsePortBusyError(err);
+              if (parsed) {
+                setPortBusyError(parsed);
+              }
+              // 其它错误：轮询会兜底处理
             }
           } else {
             setGatewayRunning(true);
           }
+          // Gateway 就绪后拉一次连接凭据（port + token），供 Chat WS 握手用
+          // 启动有个短暂窗口期（pid 锁 + 端口探测），延迟 400ms 再拉
+          setTimeout(async () => {
+            try {
+              const info = await ipc.getGatewayAuthInfo();
+              if (info.port > 0) setGatewayPort(info.port);
+              setGatewayToken(info.token || "");
+              setGatewayAuthReady(true);
+            } catch {
+              // auth_info 拉取失败，ChatView 会显示未连接
+            }
+          }, 400);
         } else {
           // 未安装 → 跳转系统面板 + 弹窗
           setOpenclawInstalled(false);
@@ -230,6 +287,17 @@ export function AppShell() {
         const s = await ipc.getOpenClawStatus();
         setGatewayRunning(s.gateway_running);
         if (s.port) setGatewayPort(s.port);
+        // Gateway 运行中 → 持续刷新连接凭据（端口探测迁移、token 轮换都能同步）
+        if (s.gateway_running) {
+          try {
+            const info = await ipc.getGatewayAuthInfo();
+            if (info.port > 0) setGatewayPort(info.port);
+            setGatewayToken(info.token || "");
+            setGatewayAuthReady(true);
+          } catch {
+            // 单次失败不重置 authReady，避免 ChatView 抖动
+          }
+        }
         const statuses: { name: string; connected: boolean }[] = [];
         try {
           await ipc.getDCCPort("blender");
@@ -273,7 +341,7 @@ export function AppShell() {
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
-    <GatewayContext.Provider value={{ port: gatewayPort, token: "", running: gatewayRunning }}>
+    <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
@@ -362,6 +430,56 @@ export function AppShell() {
               setCurrentModule("system");
             }}>
               前往安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* STORY-0039：Gateway 目标端口被非 OpenClaw 进程占用时的报错弹窗 */}
+      <Dialog open={portBusyError !== null} onOpenChange={(open) => !open && setPortBusyError(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>端口被其它程序占用，Gateway 无法启动</DialogTitle>
+            <DialogDescription>
+              Artifex Nexus 需要绑定端口 <span className="font-mono">{portBusyError?.port}</span>，
+              但它当前被以下非 OpenClaw 进程占用。为避免误杀你的其它程序，
+              Artifex Nexus 不会自动清理它，请手动停止后重试。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+            {portBusyError?.occupants.length ? (
+              <ul className="space-y-1 font-mono text-xs">
+                {portBusyError.occupants.map((o) => (
+                  <li key={o.pid}>
+                    PID=<span className="font-semibold">{o.pid}</span> · {o.name || "unknown"}
+                    {o.cmdline ? <div className="opacity-70 break-all">{o.cmdline}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="text-muted-foreground">未能获取占用进程详情（可能需要管理员权限）。</span>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPortBusyError(null)}>
+              知道了
+            </Button>
+            <Button
+              onClick={async () => {
+                // 用户手动停了占用进程后点"重试"
+                setPortBusyError(null);
+                try {
+                  const { getIpc } = await import("../../lib/ipc");
+                  const ipc = await getIpc();
+                  await ipc.startGateway();
+                  setGatewayRunning(true);
+                } catch (err) {
+                  const parsed = parsePortBusyError(err);
+                  if (parsed) setPortBusyError(parsed);
+                }
+              }}
+            >
+              重试启动
             </Button>
           </DialogFooter>
         </DialogContent>

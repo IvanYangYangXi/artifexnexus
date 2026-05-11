@@ -170,7 +170,9 @@ def _handle_openclaw_bootstrap(req_id: Any, params: dict) -> dict:
     preserve_options = params.get("preserve_options")
 
     try:
-        result, selected_port = _bootstrap.bootstrap_with_port_probe(
+        # STORY-0039：bootstrap 固定写 19789，不再自动迁移到 19809/19829。
+        # 端口占用由 runtime.start_gateway 处理：自家孤儿杀掉 / 外部占用显式报错。
+        result, selected_port = _bootstrap.bootstrap_fixed_port(
             Path(openclaw_home), version, preferred_port,
             preserve_options=preserve_options,
         )
@@ -215,6 +217,22 @@ def _handle_openclaw_start(req_id: Any, params: dict) -> dict:
                 "pid": result.pid,
                 "port": result.port,
                 "message": result.message,
+            },
+        }
+    except _runtime.PortBusyError as busy:
+        # STORY-0039：外部进程占用端口 → 结构化错误 -32020，让前端能弹
+        # "端口 19789 被 xxx (PID=123) 占用" 对话框；不自动迁移到 19809。
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": -32020,
+                "message": str(busy),
+                "data": {
+                    "kind": "port_busy",
+                    "port": busy.port,
+                    "occupants": busy.occupants,
+                },
             },
         }
     except Exception as e:
@@ -1107,6 +1125,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.gateway.restart": _sidecar_gateway.handle_gateway_restart,
     "openclaw.gateway.tail_log": _sidecar_gateway.handle_gateway_tail_log,
     "openclaw.web.open": _sidecar_gateway.handle_web_open,
+    # STORY-0039 M3：Chat WS 直连 — 前端需要 port + token 才能完成握手
+    "openclaw.gateway.auth_info": _sidecar_gateway.handle_gateway_auth_info,
 }
 
 
@@ -1191,6 +1211,15 @@ def main() -> None:
             signal.signal(signal.SIGBREAK, _signal_handler)
     except (ValueError, OSError):
         # 在某些环境（比如 PyInstaller 子线程）下注册可能失败，不阻塞启动
+        pass
+
+    # STORY-0039：启动期 port-drift 自愈
+    # 旧版 bootstrap_with_port_probe 可能把 gateway.port 迁到 19809/19829，
+    # 启动时检测到就改回 19789（+ run/ports.json 同步）。任何异常吞掉——
+    # 自愈失败不能阻塞 sidecar 主循环（前端还要靠它跑 openclaw.status）。
+    try:
+        _bootstrap.reset_config_port_if_drifted(_get_openclaw_home())
+    except Exception:
         pass
 
     for line in sys.stdin:

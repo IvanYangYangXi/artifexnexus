@@ -73,6 +73,20 @@ pub struct WebOpenResponse {
     pub error: Option<String>,
 }
 
+/// openclaw.gateway.auth_info 响应（STORY-0039 Chat WS 直连）
+///
+/// 前端 WebSocket 握手需要 port + token，本命令从 sidecar 读取并回传。
+/// token 仅在 Tauri 本地进程间流转，不上网络、不落盘。
+#[derive(Debug, Serialize, Clone)]
+pub struct GatewayAuthInfoResponse {
+    /// Gateway 实际监听端口（已反映端口迁移后的真实值）
+    pub port: u16,
+    /// Gateway auth token；`auth_mode != "token"` 或未配置时为空串
+    pub token: String,
+    /// "token" / "none" / "" 未配置
+    pub auth_mode: String,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -219,5 +233,31 @@ pub async fn openclaw_web_open(
             .to_string(),
         pid: result["pid"].as_u64().map(|p| p as u32),
         error: result["error"].as_str().map(|s| s.to_string()),
+    })
+}
+
+/// 获取 Gateway 连接凭据（port + token），供前端 WebSocket 握手使用。
+///
+/// 设计要点（STORY-0039）：
+/// - 前端直连 Gateway WS 时必须发送 `auth.token`；token 存在
+///   `openclaw.json → gateway.auth.token`，前端原本无法读取。
+/// - token 仅经 Tauri 本地进程（sidecar stdio → main → webview IPC），
+///   **绝不**上网络、**绝不**写任何可上传日志。
+/// - port 使用 `gateway_state` 登记的运行态实际端口，覆盖端口探测迁移
+///   后的新值（默认 19789 经常被占用后迁到 19809 / 19829 等）。
+#[tauri::command]
+pub async fn openclaw_gateway_auth_info(
+    sidecar: State<'_, SidecarState>,
+) -> Result<GatewayAuthInfoResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    let result = manager.call("openclaw.gateway.auth_info", json!({}))?;
+
+    Ok(GatewayAuthInfoResponse {
+        port: result["port"].as_u64().unwrap_or(19789) as u16,
+        token: result["token"].as_str().unwrap_or("").to_string(),
+        auth_mode: result["auth_mode"].as_str().unwrap_or("").to_string(),
     })
 }

@@ -125,6 +125,87 @@ def test_read_config_nonexistent(tmp_path):
     assert bootstrap.read_config(home) is None
 
 
+def test_read_config_tolerates_utf8_bom(tmp_path):
+    """openclaw.json 被 PowerShell 等工具加了 UTF-8 BOM 后仍能读取。
+
+    STORY-0039 bug 复现：BOM (EF BB BF) 开头的 openclaw.json 原本会让
+    ``json.loads`` 抛 ``JSONDecodeError``，导致 ``read_config`` 静默返回
+    ``None``，上层 ``get_gateway_token`` 拿不到 token，前端 WS 握手
+    ``token_missing`` 1008。
+    """
+    home = tmp_path / ".openclaw"
+    home.mkdir()
+    cfg_path = home / "openclaw.json"
+    payload = b'\xef\xbb\xbf{"gateway":{"port":19789,"auth":{"mode":"token","token":"secret-x"}}}'
+    cfg_path.write_bytes(payload)
+
+    config = bootstrap.read_config(home)
+    assert config is not None, "带 BOM 的配置必须能读回（符合 .ai/rules 铁律 §8）"
+    assert config["gateway"]["port"] == 19789
+    assert bootstrap.get_gateway_token(home) == "secret-x"
+
+
+def test_bootstrap_fixed_port_writes_19789_even_when_busy(tmp_path, monkeypatch):
+    """bootstrap_fixed_port 不再自动迁移到 19809，openclaw.json 永远写 19789。
+
+    STORY-0039 方案 A 验证：模拟 pick_port 会选 19809 的场景，新入口必须
+    依然写 19789 到 openclaw.json（配置稳定不漂移）。
+    """
+    from artifex_nexus.openclaw_wrapper import ports as _ports_mod
+
+    # 假装 pick_port 会迁移（即使上游端口探测会选 19809，也不能影响我们写值）
+    monkeypatch.setattr(_ports_mod, "pick_port", lambda preferred=19789, **_: 19809)
+
+    home = tmp_path / ".openclaw"
+    result, selected = bootstrap.bootstrap_fixed_port(home, "v2026.5.4", port=19789)
+
+    assert selected == 19789
+    assert result.success
+    config = bootstrap.read_config(home)
+    assert config is not None
+    assert config["gateway"]["port"] == 19789, "bootstrap_fixed_port 不应迁移端口"
+
+    # run/ports.json 也必须写 19789
+    ports_json = home.parent / "run" / "ports.json"
+    import json as _json
+    data = _json.loads(ports_json.read_text(encoding="utf-8"))
+    assert data["gateway_port"] == 19789
+
+
+def test_reset_config_port_if_drifted_heals_legacy_19809(tmp_path, monkeypatch):
+    """reset_config_port_if_drifted：检测到 19809 等漂移值 → 改回 19789。
+
+    模拟 CLI 不可用的场景（无 openclaw 可执行文件），只测试 ports.json 层的
+    修正和 config patch 调用路径；patch 本身由 config_io 单测覆盖。
+    """
+    home = tmp_path / ".openclaw"
+    home.mkdir()
+    # 人工写一个漂移的 config
+    cfg = {"gateway": {"port": 19809, "auth": {"mode": "token", "token": "t"}}}
+    (home / "openclaw.json").write_text(
+        '{"gateway":{"port":19809,"auth":{"mode":"token","token":"t"}}}',
+        encoding="utf-8",
+    )
+    # ports.json 也是漂移值
+    run_dir = home.parent / "run"
+    run_dir.mkdir()
+    (run_dir / "ports.json").write_text(
+        '{"gateway_port":19809,"control_port":19811,"cdp_range":"19820-19919"}',
+        encoding="utf-8",
+    )
+
+    # CLI 不可用 → 只修 ports.json
+    from artifex_nexus.openclaw_wrapper import _subprocess as _sp
+    monkeypatch.setattr(_sp, "find_openclaw_bin", lambda home: None)
+
+    old = bootstrap.reset_config_port_if_drifted(home)
+    assert old == 19809
+
+    import json as _json
+    data = _json.loads((run_dir / "ports.json").read_text(encoding="utf-8"))
+    assert data["gateway_port"] == 19789, "ports.json 必须修回 19789"
+
+
 def test_get_gateway_port(tmp_path):
     """get_gateway_port 测试。"""
     home = tmp_path / ".openclaw"

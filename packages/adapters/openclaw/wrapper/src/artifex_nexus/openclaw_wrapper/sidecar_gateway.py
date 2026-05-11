@@ -22,11 +22,13 @@ from typing import Any
 
 try:
     from . import _subprocess as _sp
+    from . import bootstrap as _bootstrap
     from . import gateway_log as _gateway_log
     from . import gateway_state as _gateway_state
     from . import runtime as _runtime
 except ImportError:  # 兼容直接以脚本方式执行
     import _subprocess as _sp  # type: ignore[no-redef]
+    import bootstrap as _bootstrap  # type: ignore[no-redef]
     import gateway_log as _gateway_log  # type: ignore[no-redef]
     import gateway_state as _gateway_state  # type: ignore[no-redef]
     import runtime as _runtime  # type: ignore[no-redef]
@@ -59,6 +61,85 @@ def _get_openclaw_home() -> Path:
 def _params_home(params: dict) -> Path:
     """从 params 提取 openclaw_home，缺省走默认。"""
     return Path(params.get("openclaw_home", str(_get_openclaw_home())))
+
+
+# ---------------------------------------------------------------------------
+# openclaw.gateway.auth_info
+# ---------------------------------------------------------------------------
+
+
+def handle_gateway_auth_info(req_id: Any, params: dict) -> dict:
+    """``openclaw.gateway.auth_info`` RPC：返回前端连接 Gateway 所需的 port + token。
+
+    Return gateway connection credentials (port + token) required by the
+    frontend WebSocket client handshake.
+
+    设计要点：
+    - **仅本机 loopback 返回明文 token**：sidecar 通过 stdio 只与本机 Tauri 主进程
+      通信，token 不会落盘到前端日志，也不会上网络。
+    - **token 来源**：:func:`bootstrap.get_gateway_token` 从
+      ``openclaw.json`` → ``gateway.auth.token`` 读取（主路径），老路径
+      ``gateway.token`` 兼容。
+    - **port 来源**：优先读 :class:`gateway_state` 中 running 态登记的 port，
+      缺省走 :func:`bootstrap.get_gateway_port`，再缺走 :data:`DEFAULT_PORT`。
+
+    Args (params):
+        openclaw_home (str, 可选): OPENCLAW_HOME 路径，缺省走默认路径。
+
+    Returns:
+        ``{ port, token, auth_mode }``
+
+        - ``port``: int — Gateway 实际监听端口（前端据此建 WS）
+        - ``token``: str — Gateway auth token；``auth.mode == "token"`` 且配置了时返回明文，
+          否则返回空串
+        - ``auth_mode``: str — ``"token"`` / ``"none"`` / ``""``（未配置）
+    """
+    try:
+        home = _params_home(params).expanduser().resolve()
+
+        # port 优先取运行态登记值（端口探测迁移后的真实 port）
+        info = _gateway_state.get_info()
+        port: int = info.port if isinstance(info.port, int) and info.port > 0 else 0
+        if port == 0:
+            try:
+                port = _bootstrap.get_gateway_port(home)
+            except Exception:
+                port = DEFAULT_PORT
+
+        # token：只有 gateway.auth.mode == "token" 才返回明文
+        token_val: str = ""
+        auth_mode: str = ""
+        try:
+            cfg = _bootstrap.read_config(home) or {}
+            auth = cfg.get("gateway", {}).get("auth", {}) if isinstance(cfg, dict) else {}
+            if isinstance(auth, dict):
+                mode = auth.get("mode")
+                if isinstance(mode, str):
+                    auth_mode = mode
+        except Exception:
+            pass
+
+        if auth_mode == "token":
+            tok = _bootstrap.get_gateway_token(home)
+            if isinstance(tok, str):
+                token_val = tok
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "port": port,
+                "token": token_val,
+                "auth_mode": auth_mode,
+            },
+        }
+    except Exception as e:
+        logger.exception("gateway.auth_info 失败")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +229,21 @@ def handle_gateway_start(req_id: Any, params: dict) -> dict:
                 "pid": result.pid,
                 "port": result.port,
                 "message": result.message,
+            },
+        }
+    except _runtime.PortBusyError as busy:
+        logger.warning("gateway.start 端口被外部进程占用: %s", busy)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": -32020,
+                "message": str(busy),
+                "data": {
+                    "kind": "port_busy",
+                    "port": busy.port,
+                    "occupants": busy.occupants,
+                },
             },
         }
     except Exception as e:

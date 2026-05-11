@@ -275,6 +275,79 @@ class TestWebOpen:
         assert result["success"] is False
         assert "no such file" in result["error"]
 
+
+# ---------------------------------------------------------------------------
+# openclaw.gateway.auth_info
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayAuthInfo:
+    """STORY-0039：前端 WS 握手凭据查询。
+
+    重点验证：
+    - token 模式：读 openclaw.json → gateway.auth.token + 运行态 port
+    - 非 token 模式：token 返回空串，port 仍返回
+    - 无配置：fallback 到 DEFAULT_PORT + token="" + auth_mode=""
+    - 运行态 port 覆盖 bootstrap.get_gateway_port（端口探测迁移场景）
+    """
+
+    def test_token_mode_returns_port_and_token(self):
+        gateway_state.set_running(pid=1, port=19809)
+        with patch.object(
+            sidecar_gateway._bootstrap,
+            "read_config",
+            return_value={"gateway": {"auth": {"mode": "token", "token": "sekret"}}},
+        ), patch.object(
+            sidecar_gateway._bootstrap, "get_gateway_token", return_value="sekret"
+        ):
+            resp = sidecar_gateway.handle_gateway_auth_info(req_id=1, params={})
+        result = resp["result"]
+        assert result["port"] == 19809  # 运行态 port 优先
+        assert result["token"] == "sekret"
+        assert result["auth_mode"] == "token"
+
+    def test_non_token_mode_returns_empty_token(self):
+        gateway_state.set_running(pid=1, port=19789)
+        with patch.object(
+            sidecar_gateway._bootstrap,
+            "read_config",
+            return_value={"gateway": {"auth": {"mode": "none"}}},
+        ):
+            resp = sidecar_gateway.handle_gateway_auth_info(req_id=2, params={})
+        result = resp["result"]
+        assert result["port"] == 19789
+        assert result["token"] == ""
+        assert result["auth_mode"] == "none"
+
+    def test_no_config_falls_back_to_defaults(self):
+        # 未运行 + 无 config → port 走 get_gateway_port fallback，token 空
+        with patch.object(
+            sidecar_gateway._bootstrap, "read_config", return_value=None
+        ), patch.object(
+            sidecar_gateway._bootstrap,
+            "get_gateway_port",
+            return_value=sidecar_gateway.DEFAULT_PORT,
+        ):
+            resp = sidecar_gateway.handle_gateway_auth_info(req_id=3, params={})
+        result = resp["result"]
+        assert result["port"] == sidecar_gateway.DEFAULT_PORT
+        assert result["token"] == ""
+        assert result["auth_mode"] == ""
+
+    def test_running_port_overrides_bootstrap_port(self):
+        """端口探测把 gateway 迁到 19829，auth_info 必须返回 19829 而不是 19789。"""
+        gateway_state.set_running(pid=2, port=19829)
+        with patch.object(
+            sidecar_gateway._bootstrap, "read_config", return_value={}
+        ), patch.object(
+            sidecar_gateway._bootstrap, "get_gateway_port", return_value=19789
+        ):
+            resp = sidecar_gateway.handle_gateway_auth_info(req_id=4, params={})
+        result = resp["result"]
+        assert result["port"] == 19829
+        assert result["token"] == ""
+        assert result["auth_mode"] == ""
+
     def test_unexpected_exception_returns_jsonrpc_error(self):
         """非 OSError/FileNotFoundError 的异常走 -32000 通道。"""
         with patch.object(

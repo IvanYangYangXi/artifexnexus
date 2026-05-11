@@ -280,9 +280,13 @@ export function useChatService(options: ChatServiceOptions) {
     }
     const activeId = getActiveSessionId(sessions);
     const active = sessions.find((s) => s.id === activeId);
+    // 启动时清理卡死的 streaming 状态（场景：上次 Gateway 崩溃导致消息永远 isStreaming）
+    const messages = (active?.messages ?? []).map((m) =>
+      m.isStreaming ? { ...m, isStreaming: false } : m,
+    );
     return {
       chatState: "idle" as ChatState,
-      messages: active?.messages ?? [],
+      messages,
       streamingMessageId: null,
       pendingQueue: [],
       error: null,
@@ -295,12 +299,42 @@ export function useChatService(options: ChatServiceOptions) {
   // 上次累积文本（用于计算增量）
   const lastTextRef = React.useRef("");
 
+  // 流式接收超时机制：无新内容到达 STREAM_IDLE_TIMEOUT 后自动停止
+  const STREAM_IDLE_TIMEOUT = 120_000; // 2 分钟无活动视为超时
+  const streamTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function resetStreamTimeout() {
+    if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+    streamTimeoutRef.current = setTimeout(() => {
+      console.warn("[chat-service] Stream idle timeout, finishing...");
+      dispatch({ type: "FINISH_STREAMING" });
+      lastTextRef.current = "";
+      streamTimeoutRef.current = null;
+    }, STREAM_IDLE_TIMEOUT);
+  }
+
+  function clearStreamTimeout() {
+    if (streamTimeoutRef.current) {
+      clearTimeout(streamTimeoutRef.current);
+      streamTimeoutRef.current = null;
+    }
+  }
+
   // ─── Gateway 连接管理 ─────────────────────────────────────────────────
 
   // 追踪上一次连接状态用于检测重连
   const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected">("disconnected");
 
   React.useEffect(() => {
+    // port=0 表示凭据尚未就绪（AppShell 还没从 sidecar 拉到 auth_info），
+    // 此时不建 WS，避免用默认端口空跑；等 port 更新到真实值再触发本 effect。
+    if (!gatewayPort || gatewayPort <= 0) {
+      setWsState("disconnected");
+      return;
+    }
+
+    let cancelled = false;
+
     const wsUrl = `ws://127.0.0.1:${gatewayPort}`;
     const ws = new GatewayWebSocket(wsUrl, gatewayToken);
     wsRef.current = ws;
@@ -309,6 +343,13 @@ export function useChatService(options: ChatServiceOptions) {
       const mapped = wsState === "connected" ? "connected"
         : wsState === "disconnected" ? "disconnected"
         : "connecting";
+
+      // WS 断连时重置状态机，避免卡在 streaming/sending 状态
+      // （场景：Gateway 崩溃或网络断开，流式消息永远不会收到结束信号）
+      if (mapped === "disconnected" && prevWsStateRef.current === "connected") {
+        clearStreamTimeout();
+        dispatch({ type: "RESET_STATE" });
+      }
 
       // 自动恢复：重连后检测是否有未完成的流式消息
       if (mapped === "connected" && prevWsStateRef.current !== "connected") {
@@ -329,10 +370,11 @@ export function useChatService(options: ChatServiceOptions) {
       handleGatewayEvent(event);
     });
 
-    // 自动连接
+    // 直接连接 WS（WS 自身有重连机制，不需要前置 HTTP 探测）
     ws.connect().catch(() => {});
 
     return () => {
+      cancelled = true;
       ws.disconnect();
       wsRef.current = null;
     };
@@ -343,6 +385,8 @@ export function useChatService(options: ChatServiceOptions) {
   function handleGatewayEvent(event: GatewayChatEvent) {
     switch (event.state) {
       case "delta": {
+        // 收到新内容，重置超时计时器
+        resetStreamTimeout();
         if (event.message) {
           // Gateway 发送累积文本，提取增量
           const lastText = lastTextRef.current;
@@ -358,6 +402,7 @@ export function useChatService(options: ChatServiceOptions) {
       }
 
       case "final": {
+        clearStreamTimeout();
         const finalText = event.message || lastTextRef.current;
         if (finalText && state.streamingMessageId) {
           // 确保最终文本完整
@@ -374,6 +419,7 @@ export function useChatService(options: ChatServiceOptions) {
 
       case "aborted":
       case "error": {
+        clearStreamTimeout();
         const partialText = event.message || lastTextRef.current;
         if (partialText && state.streamingMessageId) {
           lastTextRef.current = "";
@@ -415,6 +461,7 @@ export function useChatService(options: ChatServiceOptions) {
     const streamMsgId = genMsgId();
     dispatch({ type: "START_STREAMING", messageId: streamMsgId });
     lastTextRef.current = "";
+    resetStreamTimeout(); // 启动超时计时器
 
     const ok = await ws.sendChat({
       sessionKey,
@@ -429,6 +476,7 @@ export function useChatService(options: ChatServiceOptions) {
   // ─── 停止 ──────────────────────────────────────────────────────────────
 
   async function stop(): Promise<void> {
+    clearStreamTimeout();
     const ws = wsRef.current;
     if (ws && ws.state === "connected") {
       await ws.abortChat(sessionKey);

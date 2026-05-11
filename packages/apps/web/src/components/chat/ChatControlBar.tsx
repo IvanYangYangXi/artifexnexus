@@ -64,6 +64,8 @@ export interface ChatControlBarProps {
   gatewayPort: number;
   /** Gateway 是否运行中 */
   gatewayRunning: boolean;
+  /** Gateway auth token（mode=token 时必传，否则 REST API 401） */
+  gatewayToken?: string;
   /** Agent 变更回调 */
   onAgentChange?: (agentId: string) => void;
   /** Model 变更回调 */
@@ -82,6 +84,7 @@ export function ChatControlBar({
   onDeleteSession,
   gatewayPort,
   gatewayRunning,
+  gatewayToken = "",
   onAgentChange,
   onModelChange,
   onEffortChange,
@@ -110,8 +113,8 @@ export function ChatControlBar({
     const load = async () => {
       try {
         const [modelList, agentList] = await Promise.all([
-          fetchGatewayModels(gatewayPort),
-          fetchGatewayAgents(gatewayPort),
+          fetchGatewayModels(gatewayPort, gatewayToken),
+          fetchGatewayAgents(gatewayPort, gatewayToken),
         ]);
 
         if (cancelled) return;
@@ -137,7 +140,7 @@ export function ChatControlBar({
 
     load();
     return () => { cancelled = true; };
-  }, [gatewayRunning, gatewayPort]);
+  }, [gatewayRunning, gatewayPort, gatewayToken]);
 
   // ─── 变更回调 ─────────────────────────────────────────────────────────
 

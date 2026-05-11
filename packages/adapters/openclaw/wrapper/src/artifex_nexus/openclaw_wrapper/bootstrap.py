@@ -128,6 +128,7 @@ def _generate_default_config(
                     f"http://localhost:{port}",
                     "tauri://localhost",
                     "https://tauri.localhost",
+                    "http://tauri.localhost",
                 ],
                 # M1 本地 Tauri 部署属于 trusted local：禁用 Control UI 的
                 # device-identity pairing（默认会让 ws 握手返回 1008
@@ -280,6 +281,54 @@ def _apply_preserve_options(
     # 如果 _generate_default_config 里没有 gateway.auth，则由 bootstrap 后续步骤处理。
 
     return result
+
+
+def _migrate_auth_profiles_files(openclaw_home: Path, config: dict) -> None:
+    """重装时迁移 auth-profiles.json 到上游 CLI 期望的新路径。
+
+    Migrate auth-profiles.json from legacy ``state/agents/<id>/agent/``
+    to the new ``<OPENCLAW_HOME>/.openclaw/agents/<id>/agent/`` path
+    that OpenClaw v2026.5.4+ expects.
+
+    上游 v2026.5.4 把 agent 凭证存储从 ``OPENCLAW_HOME/state/agents/`` 迁移到了
+    ``OPENCLAW_HOME/.openclaw/agents/``。如果 preserve 恢复了 auth 配置但凭证文件
+    仍在旧路径，CLI 的 ``infer model run`` / Gateway 查 API key 时会报
+    "No API key found for provider X"。
+
+    本函数在 bootstrap 的 preserve 流程末尾调用，做 best-effort 迁移。
+
+    Args:
+        openclaw_home: OPENCLAW_HOME 路径。
+        config: 已合并的配置（用于提取 agent id 列表）。
+    """
+    agents_list = config.get("agents", {}).get("list", [])
+    if not agents_list:
+        return
+
+    for agent in agents_list:
+        agent_id = agent.get("id") if isinstance(agent, dict) else None
+        if not agent_id:
+            continue
+
+        # 旧路径：state/agents/<id>/agent/auth-profiles.json
+        old_path = openclaw_home / "state" / "agents" / agent_id / "agent" / "auth-profiles.json"
+        # 新路径：.openclaw/agents/<id>/agent/auth-profiles.json
+        new_path = openclaw_home / ".openclaw" / "agents" / agent_id / "agent" / "auth-profiles.json"
+
+        if old_path.exists() and not new_path.exists():
+            try:
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(str(old_path), str(new_path))
+                logger.info(
+                    "preserve: 迁移 auth-profiles.json → %s（agent=%s）",
+                    new_path, agent_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "preserve: 迁移 auth-profiles.json 失败（agent=%s）: %s",
+                    agent_id, exc,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +495,11 @@ def bootstrap(
         if old_config and preserve_options:
             config = _apply_preserve_options(config, old_config, preserve_options)
 
+        # 5b. 迁移 auth-profiles.json 凭证文件到新路径
+        # 上游 v2026.5.4+ 改用 .openclaw/agents/ 目录，旧文件在 state/agents/ 下
+        if preserve_options and preserve_options.get("preserveAuth"):
+            _migrate_auth_profiles_files(openclaw_home, config)
+
         # 6. 写入 openclaw.json
         config_path = openclaw_home / "openclaw.json"
         _write_config(config_path, config)
@@ -495,13 +549,25 @@ def read_config(openclaw_home: Path) -> Optional[dict]:
     """读取 openclaw.json 配置。
 
     Read openclaw.json configuration.
+
+    遵守 `.ai/rules/30-agent-behavior.md` §8：openclaw.json 按 UTF-8 读取，但
+    为向后兼容早期被 PowerShell 加了 UTF-8 BOM 的配置文件，进入 JSON 解析前
+    必须先显式剥 BOM（``EF BB BF`` / ``\\ufeff``）。``json.loads`` 对 BOM
+    会抛 ``JSONDecodeError``，此前本函数会静默返回 ``None``，导致上层
+    ``get_gateway_token`` 拿不到 token，前端 WS 握手 1008 ``token_missing``
+    （STORY-0039 bug）。
     """
     config_path = Path(openclaw_home).expanduser().resolve() / "openclaw.json"
     if not config_path.exists():
         return None
     try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        raw = config_path.read_bytes()
+        # 剥 UTF-8 BOM（如有）
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+        text = raw.decode("utf-8")
+        return json.loads(text)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         return None
 
 
@@ -559,20 +625,15 @@ def bootstrap_with_port_probe(
     preferred_port: int = _ports.DEFAULT_PORT,
     preserve_options: Optional[dict] = None,
 ) -> tuple[BootstrapResult, int]:
-    """bootstrap + 端口探测一体化。
+    """bootstrap + 端口探测一体化（已弃用，STORY-0039 起请用 :func:`bootstrap_fixed_port`）。
 
     Bootstrap with automatic port conflict resolution.
-    先读取 run/ports.json 上次成功端口，probe 是否空闲；
-    若空闲则复用，否则调用 pick_port 自动迁移。
 
-    Args:
-        openclaw_home: OPENCLAW_HOME 路径。
-        version: OpenClaw 版本号。
-        preferred_port: 首选端口，默认 19789。
-        preserve_options: 重装时保留选项（透传给 bootstrap()）。
-
-    Returns:
-        (BootstrapResult, selected_port): bootstrap 结果和最终选定端口。
+    .. deprecated:: STORY-0039
+        自动迁移 ``+20`` 步进会把 ``openclaw.json.gateway.port`` 写成 19809/19829…
+        导致 Control UI allowedOrigins、Gateway WS URL、run/ports.json 全部漂移，
+        调试难度剧增。新入口 :func:`bootstrap_fixed_port` 固定写 19789；端口被占
+        时由 :func:`runtime.start_gateway` 负责"自家孤儿杀掉，外部占用报错"语义。
     """
     openclaw_home = Path(openclaw_home).expanduser().resolve()
     run_dir = openclaw_home.parent / "run"
@@ -597,3 +658,138 @@ def bootstrap_with_port_probe(
     result = bootstrap(openclaw_home, version, selected_port, preserve_options=preserve_options)
 
     return result, selected_port
+
+
+def bootstrap_fixed_port(
+    openclaw_home: Path,
+    version: str = "v2026.5.4",
+    port: int = _ports.DEFAULT_PORT,
+    preserve_options: Optional[dict] = None,
+) -> tuple[BootstrapResult, int]:
+    """固定端口版 bootstrap（STORY-0039 起的默认入口）。
+
+    Fixed-port bootstrap: writes ``gateway.port = 19789`` unconditionally,
+    does not probe, does not migrate to 19809/19829.
+
+    设计要点（为什么不再自动迁移）：
+      - 之前 :func:`bootstrap_with_port_probe` 在 19789 被**任何**进程占用时
+        按 ``+20`` 步进迁到 19809，写入 ``openclaw.json`` + ``run/ports.json``。
+        后果：Control UI ``allowedOrigins``、Gateway WS URL、Tauri 前端 port
+        硬编码、``auth_info`` 结果全部漂移，每次端口状态变化都会产生多处
+        不一致的"幻影配置"，调试/重装链路极难维护。
+      - 新策略：**config 永远写 19789**；端口占用处理推给
+        :func:`runtime.start_gateway` ——自家孤儿自动杀、外部占用显式报错让
+        用户干预。这样 ``openclaw.json`` 是稳定的"意图配置"，运行期冲突
+        是"瞬时错误"，两者正交。
+
+    Args:
+        openclaw_home: OPENCLAW_HOME 路径。
+        version: OpenClaw 版本号。
+        port: 目标端口（默认 19789；测试/特殊部署可覆盖）。
+        preserve_options: 重装时保留选项（透传给 :func:`bootstrap`）。
+
+    Returns:
+        ``(BootstrapResult, port)``，第二个值恒等于入参 ``port``。
+    """
+    openclaw_home = Path(openclaw_home).expanduser().resolve()
+    run_dir = openclaw_home.parent / "run"
+    ports_json = run_dir / "ports.json"
+
+    # 写回 ports.json（保持与 bootstrap_with_port_probe 的 run dir 约定一致，
+    # 但值永远是 fixed port，不再产生 19809 这种漂移值）
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _ports.write_last_port(str(ports_json), port)
+
+    result = bootstrap(openclaw_home, version, port, preserve_options=preserve_options)
+    return result, port
+
+
+def reset_config_port_if_drifted(
+    openclaw_home: Path,
+    bin_path: Optional[Path] = None,
+    default_port: int = _ports.DEFAULT_PORT,
+) -> Optional[int]:
+    """一次性自愈：若 ``openclaw.json.gateway.port`` 不等于 ``default_port``，
+    改回 ``default_port``。同步修正 ``run/ports.json``。
+
+    One-shot self-heal: if ``openclaw.json.gateway.port`` drifted off
+    ``default_port`` (e.g. legacy ``bootstrap_with_port_probe`` left 19809),
+    patch it back and align ``run/ports.json``.
+
+    实现策略（为什么直写而非走 ``config patch``）：
+      - 上游 ``config patch --stdin`` 在实际合并时会把整个 ``gateway`` 对象
+        按 key 替换（而不是按 path merge），触发 ``size-drop`` 保护把写入
+        reject。对于"只想改一个端口数字"这个极小操作，风险明显小于 patch
+        带来的副作用链。
+      - **仅此一处例外** 直写 ``openclaw.json`` 文本；所有其它写操作仍然
+        必须走 ``config patch``（AGENTS §4）。
+      - 直写前先备份到 ``openclaw.json.bak.port-heal-<ts>``，失败可恢复。
+
+    Returns:
+        修正前的旧 port（发生漂移时）；无漂移返回 ``None``；修正失败返回
+        ``None`` 并记 warning（不阻塞 sidecar 启动）。
+    """
+    home = Path(openclaw_home).expanduser().resolve()
+    current = get_gateway_port(home)
+    if current == default_port:
+        return None
+
+    logger.warning(
+        "检测到 gateway.port 漂移 (%d → 目标 %d)，尝试自愈…", current, default_port
+    )
+
+    # 1. run/ports.json：我们自己管理，无 schema 约束，直接重写
+    run_dir = home.parent / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _ports.write_last_port(str(run_dir / "ports.json"), default_port)
+
+    # 2. openclaw.json：读完整 config → 改 gateway.port → 原子写回
+    config_path = home / "openclaw.json"
+    if not config_path.exists():
+        # 无 config 就没法自愈；下次 bootstrap_fixed_port 会覆盖
+        return current
+
+    try:
+        raw = config_path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):  # strip BOM（与 read_config 一致）
+            raw = raw[3:]
+        data = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        logger.warning("读 openclaw.json 失败，跳过 port 自愈: %s", exc)
+        return None
+
+    if not isinstance(data, dict) or not isinstance(data.get("gateway"), dict):
+        logger.warning("openclaw.json 结构异常，跳过 port 自愈")
+        return None
+
+    # 备份（时间戳后缀，保留历史状态可供追查）
+    try:
+        import time as _time
+        bak = config_path.with_suffix(
+            f".json.bak.port-heal-{int(_time.time())}"
+        )
+        bak.write_bytes(raw)
+    except OSError as exc:
+        logger.warning("备份 openclaw.json 失败（继续自愈）: %s", exc)
+
+    data["gateway"]["port"] = default_port
+
+    # 原子写（写临时文件 → rename），避免中途崩溃留下半截配置
+    tmp = config_path.with_suffix(".json.tmp.port-heal")
+    try:
+        tmp.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        tmp.replace(config_path)
+        logger.info("gateway.port 已从 %d 改回 %d（直写路径）", current, default_port)
+        return current
+    except OSError as exc:
+        logger.warning("写回 openclaw.json 失败（已忽略）: %s", exc)
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        return None
+

@@ -141,4 +141,159 @@ def test_get_status(tmp_path):
     assert status.cli_installed is False
     assert status.bootstrap_done is False
     assert status.gateway_running is False
-    assert status.port == 19789
+
+
+def test_port_busy_error_carries_occupants():
+    """STORY-0039：PortBusyError 携带结构化 occupants 列表供前端渲染。"""
+    err = runtime.PortBusyError(
+        19789,
+        occupants=[{"pid": 12345, "name": "python.exe", "cmdline": "python foo.py"}],
+    )
+    assert err.port == 19789
+    assert err.occupants[0]["pid"] == 12345
+    msg = str(err)
+    assert "19789" in msg
+    assert "12345" in msg
+    assert "python.exe" in msg
+
+
+def test_start_gateway_raises_port_busy_when_external_occupant(tmp_path, monkeypatch):
+    """STORY-0039：端口被非 OpenClaw 进程占用 → 抛 PortBusyError，不自动迁移。
+
+    模拟 ``_list_pids_on_port`` 返回一个 PID 且 ``_is_openclaw_process`` 判断为
+    外部进程，runtime.start_gateway 必须 raise ``PortBusyError`` 而不是 fallback。
+    """
+    home = tmp_path / ".openclaw"
+    home.mkdir()
+    (home / "cli").mkdir()
+
+    # find_openclaw_bin 返回一个假路径即可（不会真 spawn，测试在 cleanup 前就抛）
+    fake_bin = tmp_path / "fake-openclaw"
+    fake_bin.write_text("#!/bin/sh\necho fake\n")
+
+    monkeypatch.setattr(runtime, "_find_openclaw_bin", lambda _h: fake_bin)
+    monkeypatch.setattr(runtime, "_read_pid", lambda _h: None)
+    monkeypatch.setattr(runtime, "_ensure_control_ui_allowed_origins", lambda *a, **kw: None)
+    monkeypatch.setattr(runtime, "_cleanup_orphan_gateways", lambda _p: 0)
+    # 关键：端口仍被占用，且占用者不是 openclaw
+    monkeypatch.setattr(runtime, "_list_pids_on_port", lambda _p: [99999])
+    monkeypatch.setattr(runtime, "_is_openclaw_process", lambda _pid: False)
+    monkeypatch.setattr(
+        runtime,
+        "_describe_pid",
+        lambda pid: {"pid": pid, "name": "someapp.exe", "cmdline": "someapp --port 19789"},
+    )
+
+    with pytest.raises(runtime.PortBusyError) as exc_info:
+        runtime.start_gateway(home, 19789)
+
+    err = exc_info.value
+    assert err.port == 19789
+    assert err.occupants[0]["pid"] == 99999
+    assert err.occupants[0]["name"] == "someapp.exe"
+
+
+# ---------------------------------------------------------------------------
+# STORY-0039：controlUi.allowedOrigins 漂移清理
+# ---------------------------------------------------------------------------
+
+
+def _patch_config_io(monkeypatch, current_controlui, captured_patches):
+    """安装 config_io._run_config_get / _run_config_patch 的 mock。"""
+    import artifex_nexus.openclaw_wrapper.config_io as cfg_mod
+
+    def fake_get(_bin, _home, path):
+        assert path == "gateway.controlUi"
+        return current_controlui
+
+    def fake_patch(_bin, _home, patch, **_kw):
+        captured_patches.append(patch)
+        return True, None
+
+    monkeypatch.setattr(cfg_mod, "_run_config_get", fake_get)
+    monkeypatch.setattr(cfg_mod, "_run_config_patch", fake_patch)
+
+
+def test_ensure_control_ui_drops_stale_drift_loopback(tmp_path, monkeypatch):
+    """漂移过的 http://127.0.0.1:19809 等旧条目必须被清掉。
+
+    STORY-0039：历史 bootstrap_with_port_probe 把 19809 loopback 写进
+    allowedOrigins；固定 19789 后这些条目就是死代码。
+    """
+    current = {
+        "enabled": True,
+        "allowedOrigins": [
+            "http://127.0.0.1:19809",  # 应删
+            "http://localhost:19809",  # 应删
+            "http://127.0.0.1:19829",  # 应删（drift 段内）
+            "tauri://localhost",
+            "https://tauri.localhost",
+            "http://127.0.0.1:19789",
+            "http://localhost:19789",
+            "http://tauri.localhost",
+        ],
+        "dangerouslyDisableDeviceAuth": True,
+    }
+    captured: list[dict] = []
+    _patch_config_io(monkeypatch, current, captured)
+
+    runtime._ensure_control_ui_allowed_origins(
+        tmp_path / "fake-openclaw", tmp_path, 19789
+    )
+
+    assert len(captured) == 1, "必须触发一次 patch 写入"
+    merged = captured[0]["gateway"]["controlUi"]["allowedOrigins"]
+    assert "http://127.0.0.1:19809" not in merged
+    assert "http://localhost:19809" not in merged
+    assert "http://127.0.0.1:19829" not in merged
+    # 必需项保留
+    assert "http://127.0.0.1:19789" in merged
+    assert "tauri://localhost" in merged
+
+
+def test_ensure_control_ui_preserves_user_added_origins(tmp_path, monkeypatch):
+    """用户在面板里加的非漂移段 origin 不能被"清理"逻辑误伤。"""
+    current = {
+        "enabled": True,
+        "allowedOrigins": [
+            "http://127.0.0.1:19809",  # 漂移段，应删
+            "http://my-devbox:8080",   # 用户自加，必须保留
+            "https://internal.company.com",  # 用户自加，必须保留
+            "http://127.0.0.1:19789",
+        ],
+        "dangerouslyDisableDeviceAuth": True,
+    }
+    captured: list[dict] = []
+    _patch_config_io(monkeypatch, current, captured)
+
+    runtime._ensure_control_ui_allowed_origins(
+        tmp_path / "fake-openclaw", tmp_path, 19789
+    )
+
+    assert len(captured) == 1
+    merged = captured[0]["gateway"]["controlUi"]["allowedOrigins"]
+    assert "http://127.0.0.1:19809" not in merged
+    assert "http://my-devbox:8080" in merged, "用户自加项不能被清"
+    assert "https://internal.company.com" in merged, "用户自加项不能被清"
+
+
+def test_ensure_control_ui_noop_when_already_clean(tmp_path, monkeypatch):
+    """已经干净的 config 不应触发多余 patch（幂等）。"""
+    current = {
+        "enabled": True,
+        "allowedOrigins": [
+            "http://127.0.0.1:19789",
+            "http://localhost:19789",
+            "tauri://localhost",
+            "https://tauri.localhost",
+        ],
+        "dangerouslyDisableDeviceAuth": True,
+    }
+    captured: list[dict] = []
+    _patch_config_io(monkeypatch, current, captured)
+
+    runtime._ensure_control_ui_allowed_origins(
+        tmp_path / "fake-openclaw", tmp_path, 19789
+    )
+
+    assert captured == [], "无漂移 + 无缺失项时不应写 patch"
