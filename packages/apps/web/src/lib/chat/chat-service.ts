@@ -40,6 +40,7 @@ export type ChatAction =
   | { type: "ENQUEUE"; text: string }
   | { type: "DEQUEUE" }
   | { type: "SET_SESSION"; session: ChatSession }
+  | { type: "SET_SESSIONS"; sessions: ChatSession[] }
   | { type: "CLEAR_MESSAGES" }
   | { type: "RESET_STATE" };
 
@@ -206,6 +207,13 @@ export function chatReducer(
       };
     }
 
+    case "SET_SESSIONS": {
+      return {
+        ...state,
+        sessions: action.sessions,
+      };
+    }
+
     case "CLEAR_MESSAGES": {
       return {
         ...state,
@@ -256,7 +264,20 @@ export function useChatService(options: ChatServiceOptions) {
 
   // Reducer
   const [state, dispatch] = React.useReducer(chatReducer, null, () => {
-    const sessions = loadSessions();
+    let sessions = loadSessions();
+    // 首次使用：无会话时创建默认会话
+    if (sessions.length === 0) {
+      const defaultSession: ChatSession = {
+        id: "default",
+        title: "新对话",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messages: [],
+      };
+      sessions = [defaultSession];
+      persistSessions(sessions);
+      persistActiveSession(defaultSession.id);
+    }
     const activeId = getActiveSessionId(sessions);
     const active = sessions.find((s) => s.id === activeId);
     return {
@@ -266,7 +287,7 @@ export function useChatService(options: ChatServiceOptions) {
       pendingQueue: [],
       error: null,
       sessions,
-      activeSessionId: activeId,
+      activeSessionId: active?.id ?? sessions[0].id,
       cancelledMessageId: null,
     };
   });
@@ -462,6 +483,7 @@ export function useChatService(options: ChatServiceOptions) {
       messages: [],
     };
     const sessions = [newSession, ...state.sessions];
+    dispatch({ type: "SET_SESSIONS", sessions });
     dispatch({ type: "SET_SESSION", session: newSession });
     persistSessions(sessions);
     persistActiveSession(newSession.id);
@@ -474,6 +496,7 @@ export function useChatService(options: ChatServiceOptions) {
       return;
     }
     const nextId = sessionId === state.activeSessionId ? sessions[0].id : state.activeSessionId;
+    dispatch({ type: "SET_SESSIONS", sessions });
     persistSessions(sessions);
     persistActiveSession(nextId);
     const nextSession = sessions.find((s) => s.id === nextId);
@@ -484,8 +507,9 @@ export function useChatService(options: ChatServiceOptions) {
 
   function renameSession(sessionId: string, title: string): void {
     const sessions = state.sessions.map((s) =>
-      s.id === sessionId ? { ...s, title } : s,
+      s.id === sessionId ? { ...s, title, updatedAt: new Date().toISOString() } : s,
     );
+    dispatch({ type: "SET_SESSIONS", sessions });
     persistSessions(sessions);
   }
 

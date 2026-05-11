@@ -13,7 +13,6 @@ import { ChatMessageList } from "./ChatMessageList";
 import { ChatInputArea } from "./ChatInputArea";
 import { RunToolContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
-import { MOCK_SESSION_FILES } from "../../lib/chatMock";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
@@ -59,8 +58,16 @@ export function ChatView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      {/* C1 控制栏 */}
-      <ChatControlBar />
+      {/* C1 控制栏 — 真实会话/模型/Agent 数据 */}
+      <ChatControlBar
+        sessions={chat.sessions}
+        activeSessionId={chat.activeSessionId}
+        onSwitchSession={chat.switchSession}
+        onNewSession={chat.createNewSession}
+        onDeleteSession={chat.deleteSession}
+        gatewayPort={port}
+        gatewayRunning={gatewayRunning}
+      />
 
       {/* C2 消息流 */}
       <ChatMessageList
@@ -77,7 +84,7 @@ export function ChatView() {
         canResume={chat.cancelledMessageId !== null && !chat.isStreaming}
         pendingCount={chat.pendingQueue.length}
         pendingMessages={chat.pendingQueue}
-        sessionFiles={MOCK_SESSION_FILES}
+        sessionFiles={[]}
       />
     </div>
   );
