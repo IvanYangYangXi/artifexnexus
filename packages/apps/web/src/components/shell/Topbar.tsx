@@ -74,7 +74,7 @@ export function Topbar({
           {dccCount !== undefined && dccCount > 0 && <><span className="text-muted-foreground/50">·</span><span className="font-mono">{dccCount} DCC</span></>}
         </div>
 
-        {/* Gateway 启动按钮 */}
+        {/* Gateway 启动按钮（仅未运行时显示） */}
         {!gatewayRunning && onStartGateway && (
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onStartGateway}>
             <Play className="mr-1 h-3 w-3" />启动

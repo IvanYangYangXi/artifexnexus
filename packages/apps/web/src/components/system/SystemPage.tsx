@@ -46,13 +46,11 @@ export function SystemPage() {
           <TabsList className="h-7">
             <TabsTrigger value="installer" className="h-6 gap-1 text-xs"><Terminal className="h-3 w-3" />安装向导</TabsTrigger>
             <TabsTrigger value="gateway" className="h-6 gap-1 text-xs"><Server className="h-3 w-3" />Gateway</TabsTrigger>
-            <TabsTrigger value="status" className="h-6 gap-1 text-xs"><Activity className="h-3 w-3" />运行状态</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
       {tab === "installer" && <InstallerTab />}
       {tab === "gateway" && <GatewayTab />}
-      {tab === "status" && <StatusTab />}
     </div>
   );
 }
@@ -225,13 +223,65 @@ function InstallerTab() {
           ))}
         </div>
       </ScrollFade>
+      {/* 底部：运行状态 + 可调高度日志 */}
       <div className="shrink-0 border-t border-white/[0.06]">
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-muted-foreground"><span>日志</span><span className="flex-1" /><button onClick={() => setLogs([])}>清空</button></div>
-        <div className="max-h-[120px] overflow-y-auto border-t border-white/[0.04] px-3 py-1 text-[10px] font-mono">
+        {/* 运行状态摘要 */}
+        <StatusBar />
+        {/* 日志头部 */}
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-muted-foreground border-t border-white/[0.04]">
+          <span>日志</span><span className="flex-1" /><button onClick={() => setLogs([])}>清空</button>
+        </div>
+        {/* 可调高度日志区 */}
+        <div className="resize-y overflow-y-auto border-t border-white/[0.04] px-3 py-1 text-[10px] font-mono" style={{ minHeight: 80, maxHeight: 300, height: 120 }}>
           {logs.length === 0 && <span className="text-muted-foreground">暂无日志</span>}
           {logs.map((l, i) => <div key={i} className={l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-amber-400" : "text-muted-foreground"}>{l.time} {l.message}</div>)}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── 运行状态摘要栏 ─────────────────────────────────────────────────────────
+
+function StatusBar() {
+  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; running: boolean}[]>([]);
+  const [deploy, setDeploy] = React.useState<any>(null);
+
+  const refresh = async () => {
+    try {
+      const ipc = await getIpc();
+      // DCC 状态
+      const items: {name: string; port: number | null; running: boolean}[] = [];
+      try {
+        const p = await ipc.getDCCPort("blender");
+        items.push({ name: "Blender", port: p.port, running: false });
+        try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors" }); items[0].running = true; } catch {}
+      } catch { items.push({ name: "Blender", port: null, running: false }); }
+      setDccStatus(items);
+      // 部署校验
+      const v = await ipc.validateDeployments();
+      setDeploy(v);
+    } catch {}
+  };
+
+  React.useEffect(() => { refresh(); }, []);
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-[10px]">
+      <span className="text-muted-foreground">运行状态:</span>
+      {dccStatus.map((d) => (
+        <span key={d.name} className="flex items-center gap-1">
+          <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
+          {d.name} {d.running ? "已连接" : d.port ? "未启动" : "未配置"}
+        </span>
+      ))}
+      {deploy && (
+        <span className="text-muted-foreground">
+          · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.corrupted ?? 0}⚠️
+        </span>
+      )}
+      <div className="flex-1" />
+      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={refresh}>刷新</Button>
     </div>
   );
 }
@@ -263,8 +313,13 @@ function GatewayTab() {
     setBusy(true);
     try {
       const ipc = await getIpc();
-      if (status?.state === "running") await ipc.restartGateway();
-      else await ipc.startGateway();
+      if (status?.state === "running") {
+        await ipc.restartGateway();
+      } else {
+        await ipc.startGateway();
+      }
+      // 等待1秒后刷新状态
+      await new Promise((r) => setTimeout(r, 1500));
       await fetchStatus();
     } catch {} finally { setBusy(false); }
   };

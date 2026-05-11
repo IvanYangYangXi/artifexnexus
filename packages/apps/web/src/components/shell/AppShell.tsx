@@ -147,6 +147,27 @@ export function AppShell() {
 
   // 钉选 Skill 状态
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
+  const [gatewayRunning, setGatewayRunning] = React.useState(false);
+  const [dccCount, setDccCount] = React.useState(0);
+
+  // 轮询 Gateway 状态（10s）
+  React.useEffect(() => {
+    const poll = async () => {
+      try {
+        const { getIpc } = await import("../../lib/ipc");
+        const ipc = await getIpc();
+        const s = await ipc.getOpenClawStatus();
+        setGatewayRunning(s.gateway_running);
+        // DCC 数量
+        let count = 0;
+        try { await ipc.getDCCPort("blender"); count++; } catch {}
+        setDccCount(count);
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 10000);
+    return () => clearInterval(timer);
+  }, []);
   const togglePin = React.useCallback((name: string) => {
     setPinnedSkills((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
@@ -177,15 +198,8 @@ export function AppShell() {
         onTogglePanel={() => { setPanelOpen((v) => !v); }}
         sidebarHidden={!showSidebar}
         panelOpen={panelOpen}
-        gatewayRunning={false}
-        dccCount={0}
-        onStartGateway={async () => {
-          try {
-            const { getIpc } = await import("../../lib/ipc");
-            const ipc = await getIpc();
-            await ipc.startGateway();
-          } catch {}
-        }}
+        gatewayRunning={gatewayRunning}
+        dccCount={dccCount}
       />
 
       {/* B + C + D 区 */}
