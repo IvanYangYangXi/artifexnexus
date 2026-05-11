@@ -374,11 +374,11 @@ export class GatewayWebSocket {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "cli",
+        id: "openclaw-control-ui",
         displayName: "Artifex Nexus",
         version: "0.1.0",
         platform: "win32",
-        mode: "cli",
+        mode: "ui",
       },
       caps: [],
       auth: { token: this._token },
@@ -393,7 +393,7 @@ export class GatewayWebSocket {
       params,
     });
 
-    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=cli`);
+    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=openclaw-control-ui`);
     this._ws.send(payload);
   }
 
