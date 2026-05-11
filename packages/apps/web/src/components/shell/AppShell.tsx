@@ -148,7 +148,7 @@ export function AppShell() {
   // 钉选 Skill 状态
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
   const [gatewayRunning, setGatewayRunning] = React.useState(false);
-  const [dccCount, setDccCount] = React.useState(0);
+  const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
 
   // 轮询 Gateway 状态（10s）
   React.useEffect(() => {
@@ -158,10 +158,21 @@ export function AppShell() {
         const ipc = await getIpc();
         const s = await ipc.getOpenClawStatus();
         setGatewayRunning(s.gateway_running);
-        // DCC 数量
-        let count = 0;
-        try { await ipc.getDCCPort("blender"); count++; } catch {}
-        setDccCount(count);
+        // DCC MCP 连接状态
+        const statuses: { name: string; connected: boolean }[] = [];
+        try {
+          await ipc.getDCCPort("blender");
+          // 只有配置了端口的 DCC 才显示
+          let connected = false;
+          if (s.gateway_running) {
+            try {
+              const bs = await ipc.getMCPBridgeStatus();
+              connected = bs?.blenderConnected ?? false;
+            } catch {}
+          }
+          statuses.push({ name: "Blender", connected });
+        } catch {}
+        setDccStatus(statuses);
       } catch {}
     };
     poll();
@@ -199,7 +210,7 @@ export function AppShell() {
         sidebarHidden={!showSidebar}
         panelOpen={panelOpen}
         gatewayRunning={gatewayRunning}
-        dccCount={dccCount}
+        dccStatus={dccStatus}
         onStartGateway={async () => {
           try {
             const { getIpc } = await import("../../lib/ipc");
