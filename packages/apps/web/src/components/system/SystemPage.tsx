@@ -3,19 +3,25 @@
 /**
  * SystemPage — 系统模块（安装向导 + Gateway + 运行状态）
  *
- * 完全复刻 apps/desktop/src/routes/InstallerWizard.tsx 的功能
- * 在 Tauri 环境中通过 window.__TAURI__.invoke 调用真实 IPC
+ * 完全复刻 apps/desktop/src/routes/InstallerWizard.tsx
+ * IPC 通过 src/lib/tauriIpc.ts 桥接
  */
 
 import * as React from "react";
-import { Terminal, Server, Activity, Play, RotateCw, ExternalLink, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
+import {
+  getOpenClawStatus, installOpenClaw, bootstrapOpenClaw, startOpenClaw,
+  detectBlenderVersions, installBlenderAddon,
+  getGatewayStatus, startGateway, restartGateway,
+  validateDeployments,
+  type OpenClawStatus, type GatewayStatus, type DeployValidationResult,
+} from "../../ipc/openclaw";
 
-// ─── 类型（复刻 installer.types.ts） ────────────────────────────────────────
+// ─── 类型 ───────────────────────────────────────────────────────────────────
 
 type ItemState = "unavailable" | "pending" | "not-installed" | "installing" | "installed" | "update-available" | "failed";
-
 interface InstallChild { label: string; version: string; installPath: string; projectPath: string; scriptPath: string; state: ItemState; }
 interface InstallItem { id: string; name: string; iconKey: string; state: ItemState; expandable: boolean; comingSoon?: boolean; children?: InstallChild[]; errorMessage?: string; }
 interface LogEntry { time: string; itemId: string; level: "info" | "warn" | "error"; message: string; }
@@ -33,15 +39,6 @@ const FIXTURE_ITEMS: InstallItem[] = [
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
 const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal: "U", max: "3", maya: "M", comfyui: "C" };
-
-// ─── Tauri IPC 桥接 ─────────────────────────────────────────────────────────
-
-function getTauri() { return (window as any).__TAURI__; }
-async function tauriInvoke(cmd: string, args?: any) {
-  const t = getTauri();
-  if (t?.invoke) return t.invoke(cmd, args ?? {});
-  throw new Error("非 Tauri 环境");
-}
 
 // ─── 主组件 ────────────────────────────────────────────────────────────────
 
@@ -65,14 +62,13 @@ export function SystemPage() {
   );
 }
 
-// ─── 安装向导 Tab（完全复刻 InstallerWizard） ──────────────────────────────
+// ─── 安装向导 Tab ──────────────────────────────────────────────────────────
 
 function InstallerTab() {
   const [items, setItems] = React.useState<InstallItem[]>(FIXTURE_ITEMS);
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
-  const [gatewayRunning, setGatewayRunning] = React.useState(false);
-  const [webUiAvailable, setWebUiAvailable] = React.useState(false);
+  const [openclawStatus, setOpenclawStatus] = React.useState<OpenClawStatus | null>(null);
 
   const addLog = (itemId: string, level: LogEntry["level"], message: string) => {
     setLogs((prev) => [...prev.slice(-199), { time: new Date().toLocaleTimeString("zh-CN", { hour12: false }), itemId, level, message }]);
@@ -88,99 +84,96 @@ function InstallerTab() {
   // 页面初始化自动检测
   React.useEffect(() => { handleGlobalDetect(); }, []);
 
-  const handleGlobalDetect = () => {
-    // OpenClaw 真实状态
-    void (async () => {
+  const handleGlobalDetect = async () => {
+    // OpenClaw 状态
+    try {
+      const status = await getOpenClawStatus();
+      setOpenclawStatus(status);
+      let s: ItemState;
+      if (status.gateway_running) s = "installed";
+      else if (status.cli_installed) s = status.version_mismatch ? "update-available" : "installed";
+      else s = "not-installed";
+      setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: s } : it));
+      addLog("openclaw", "info", `OpenClaw 状态: ${s === "installed" ? "已安装" : s === "update-available" ? "可更新" : "未安装"}`);
+      // 部署校验
       try {
-        const status = await tauriInvoke("openclaw_status");
-        let s: ItemState;
-        if (status.gateway_running) s = "installed";
-        else if (status.cli_installed) s = status.version_mismatch ? "update-available" : "installed";
-        else s = "not-installed";
-        setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: s } : it));
-        setGatewayRunning(status.gateway_running);
-        setWebUiAvailable(status.web_ui_available);
-        addLog("openclaw", "info", `OpenClaw 状态: ${s === "installed" ? "已安装" : s === "update-available" ? "可更新" : "未安装"}`);
-        // 部署校验
-        try { const v = await tauriInvoke("openclaw_deploy_validate"); const sum = v.summary; if (sum.total === 0) addLog("openclaw", "info", "部署文件校验: 暂无部署记录"); else { const p: string[] = []; if (sum.ok > 0) p.push(`✅ ${sum.ok} 正常`); if (sum.outdated > 0) p.push(`🔄 ${sum.outdated} 可更新`); if (sum.corrupted > 0) p.push(`⚠️ ${sum.corrupted} 损坏`); if (sum.missing > 0) p.push(`❌ ${sum.missing} 缺失`); addLog("openclaw", "info", `部署文件校验: ${p.join(" · ")}`); } } catch {}
-      } catch { setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: "not-installed" } : it)); }
-    })();
-    // DCC 检测
-    for (const item of items) {
-      if (item.id === "blender") {
-        void (async () => {
-          try {
-            addLog(item.id, "info", `正在检测本机 ${item.name} 版本…`);
-            const result = await tauriInvoke("openclaw_dcc_blender_detect");
-            const children = result.versions.map((v: any) => ({ label: `${item.name} ${v.version}`, version: v.version, installPath: `%APPDATA%/Blender Foundation/Blender/${v.version}/scripts/addons`, projectPath: "", scriptPath: `artifex_nexus_v${result.addon_info.version}`, state: v.installed ? "installed" as const : "not-installed" as const }));
-            const hasInstalled = children.some((c: InstallChild) => c.state === "installed");
-            setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
-            addLog(item.id, "info", `检测到 ${result.versions.length} 个版本（已装: ${children.filter((c: InstallChild) => c.state === "installed").length}）`);
-          } catch { addLog(item.id, "warn", "检测失败（sidecar 不可用）"); }
-        })();
-      } else if (item.id !== "openclaw" && item.id !== "comfyui" && item.id !== "web-ui") {
-        setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, state: Math.random() > 0.3 ? "installed" : "not-installed" } : it));
-      }
+        const v = await validateDeployments();
+        const sum = v.summary;
+        if (sum.total === 0) addLog("openclaw", "info", "部署文件校验: 暂无部署记录");
+        else {
+          const p: string[] = [];
+          if (sum.ok > 0) p.push(`✅ ${sum.ok} 正常`);
+          if (sum.outdated > 0) p.push(`🔄 ${sum.outdated} 可更新`);
+          if (sum.corrupted > 0) p.push(`⚠️ ${sum.corrupted} 损坏`);
+          if (sum.missing > 0) p.push(`❌ ${sum.missing} 缺失`);
+          addLog("openclaw", "info", `部署文件校验: ${p.join(" · ")}`);
+        }
+      } catch { addLog("openclaw", "warn", "部署校验失败"); }
+    } catch {
+      setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: "not-installed" } : it));
+      addLog("openclaw", "warn", "OpenClaw 状态查询失败（sidecar 不可用）");
     }
+
+    // Blender 检测
+    try {
+      addLog("blender", "info", "正在检测本机 Blender 版本…");
+      const result = await detectBlenderVersions();
+      const children = result.versions.map((v) => ({
+        label: `Blender ${v.version}`, version: v.version,
+        installPath: `%APPDATA%/Blender Foundation/Blender/${v.version}/scripts/addons`,
+        projectPath: "", scriptPath: `artifex_nexus_v${result.addon_info.version}`,
+        state: (v.installed ? "installed" : "not-installed") as ItemState,
+      }));
+      const hasInstalled = children.some((c) => c.state === "installed");
+      setItems((prev) => prev.map((it) => it.id === "blender" ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
+      addLog("blender", "info", `检测到 ${result.versions.length} 个版本（已装: ${children.filter((c) => c.state === "installed").length}）`);
+    } catch { addLog("blender", "warn", "Blender 检测失败（sidecar 不可用）"); }
   };
 
-  const handleInstall = (id: string) => {
+  const handleInstall = async (id: string) => {
     if (id === "openclaw") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "开始安装 OpenClaw...");
-      void (async () => {
-        try {
-          const r = await tauriInvoke("openclaw_install", { version: "v2026.5.4" });
-          if (!r.success) { addLog(id, "error", r.error_message || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed", errorMessage: r.error_message } : it)); return; }
-          addLog(id, "info", "安装完成，初始化配置...");
-          const b = await tauriInvoke("openclaw_bootstrap", { version: "v2026.5.4" });
-          if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
-          addLog(id, "info", "启动 Gateway...");
-          const s = await tauriInvoke("openclaw_start", { port: b.port });
-          if (!s.success) { addLog(id, "error", s.message || "启动失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
-          addLog(id, "info", "Gateway 启动成功");
-          setItems((prev) => prev.map((it) => {
-            if (it.id === id) return { ...it, state: "installed" };
-            if (it.state === "pending") return { ...it, state: "not-installed" };
-            return it;
-          }));
-          setGatewayRunning(true);
-        } catch (e: any) { addLog(id, "error", e.message || String(e)); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed", errorMessage: e.message } : it)); }
-      })();
+      try {
+        const r = await installOpenClaw("v2026.5.4");
+        if (!r.success) { addLog(id, "error", r.error_message || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it)); return; }
+        addLog(id, "info", "安装完成，初始化配置...");
+        const b = await bootstrapOpenClaw("v2026.5.4");
+        if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
+        addLog(id, "info", "启动 Gateway...");
+        const s = await startOpenClaw(b.port);
+        if (!s.success) { addLog(id, "error", s.message || "启动失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
+        addLog(id, "info", "Gateway 启动成功");
+        setItems((prev) => prev.map((it) => {
+          if (it.id === id) return { ...it, state: "installed" };
+          if (it.state === "pending") return { ...it, state: "not-installed" };
+          return it;
+        }));
+      } catch (e: any) { addLog(id, "error", e.message || String(e)); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: e.message || undefined } : it)); }
       return;
     }
-    // DCC 安装
     if (id === "blender") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "正在安装 Blender 插件...");
-      void (async () => {
-        try {
-          // 先装 mcp-bridge
-          const bs = await tauriInvoke("openclaw_gateway_mcp_bridge_status");
-          if (!bs.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await tauriInvoke("openclaw_gateway_mcp_bridge_install"); }
-          const r = await tauriInvoke("openclaw_dcc_blender_install", { version: "5.1", force: false });
-          if (r.success) { addLog(id, "info", "Blender 插件安装完成"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); }
-          else { addLog(id, "error", r.error || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed", errorMessage: r.error } : it)); }
-        } catch (e: any) { addLog(id, "error", e.message); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); }
-      })();
+      try {
+        const bs = await (window as any).__TAURI__?.invoke("openclaw_gateway_mcp_bridge_status");
+        if (!bs?.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await (window as any).__TAURI__?.invoke("openclaw_gateway_mcp_bridge_install"); }
+        const r = await installBlenderAddon("5.1", false);
+        if (r.success) { addLog(id, "info", "Blender 插件安装完成"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); }
+        else { addLog(id, "error", r.error || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error || undefined } : it)); }
+      } catch (e: any) { addLog(id, "error", e.message); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); }
       return;
     }
-    // 其他 mock
+    // mock
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
     addLog(id, "info", `正在安装 ${id}...`);
     setTimeout(() => { setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); addLog(id, "info", `${id} 安装完成`); }, 1500);
   };
 
-  const handleDetect = (id: string) => { handleGlobalDetect(); };
-
-  const handleOpenWebUi = async () => {
-    try { const r = await tauriInvoke("openclaw_web_get_url"); if (r.available && r.url) window.open(r.url, "_blank"); else addLog("openclaw", "warn", r.reason || "Web UI 不可用"); } catch (e: any) { addLog("openclaw", "error", e.message); }
-  };
-
   const handleAddChild = (parentId: string) => {
     const version = window.prompt("版本号（如 5.1）：");
     if (!version?.trim()) return;
-    const label = `${parentId === "blender" ? "Blender" : parentId === "unreal" ? "Unreal" : parentId} ${version.trim()}`;
+    const label = `${parentId === "blender" ? "Blender" : parentId} ${version.trim()}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version: version.trim(), installPath: "", projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
   };
 
@@ -208,9 +201,9 @@ function InstallerTab() {
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATE_COLORS[item.state]}`}>{STATE_LABELS[item.state]}</span>
                 {item.state === "failed" && item.errorMessage && <span className="max-w-[120px] truncate text-[10px] text-red-400">{item.errorMessage}</span>}
                 <div className="flex gap-1">
-                  <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleDetect(item.id)}>检测</Button>
+                  <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={handleGlobalDetect}>检测</Button>
                   {item.id === "openclaw" && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full">设置</Button>}
-                  {item.id === "openclaw" && gatewayRunning && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={handleOpenWebUi}>🌐 Web UI</Button>}
+                  {item.id === "openclaw" && openclawStatus?.gateway_running && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => window.open(`http://127.0.0.1:${openclawStatus.port}`, "_blank")}>🌐 Web UI</Button>}
                   {item.state === "not-installed" && <Button size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)} disabled={isGated(item)}>安装</Button>}
                   {item.state === "installed" && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)}>重装</Button>}
                   {item.state === "failed" && <Button size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)}>重试</Button>}
@@ -250,32 +243,22 @@ function InstallerTab() {
 // ─── Gateway Tab ────────────────────────────────────────────────────────────
 
 function GatewayTab() {
-  const [state, setState] = React.useState<"running" | "stopped" | "errored">("stopped");
-  const [pid, setPid] = React.useState<number | null>(null);
-  const [port, setPort] = React.useState(19789);
-  const [startedAt, setStartedAt] = React.useState<string | null>(null);
+  const [status, setStatus] = React.useState<GatewayStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  React.useEffect(() => {
-    void (async () => {
-      try { const s = await tauriInvoke("openclaw_status"); setState(s.gateway_running ? "running" : "stopped"); setPid(s.pid); setPort(s.port); } catch {}
-    })();
-  }, []);
+  const fetchStatus = async () => { try { const s = await getGatewayStatus(); setStatus(s); } catch {} };
+  React.useEffect(() => { fetchStatus(); }, []);
 
   const handleStart = async () => {
     setBusy(true);
     try {
-      if (state === "running") await tauriInvoke("openclaw_gateway_restart");
-      else await tauriInvoke("openclaw_gateway_start");
-      const s = await tauriInvoke("openclaw_status");
-      setState(s.gateway_running ? "running" : "stopped");
-      setPid(s.pid);
-      setPort(s.port);
-      setStartedAt(new Date().toLocaleString("zh-CN"));
-    } catch { setState("errored"); }
-    setBusy(false);
+      if (status?.state === "running") await restartGateway();
+      else await startGateway();
+      await fetchStatus();
+    } catch {} finally { setBusy(false); }
   };
 
+  const state = status?.state ?? "stopped";
   const dotClass = state === "running" ? "bg-emerald-400" : state === "errored" ? "bg-red-400" : "bg-muted-foreground/40";
   const stateLabel = state === "running" ? "运行中" : state === "errored" ? "异常" : "未运行";
 
@@ -283,15 +266,15 @@ function GatewayTab() {
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55)]">
         <div className="flex items-center gap-3"><span className={`flex h-3 w-3 rounded-full ${dotClass}`} /><span className="text-sm font-medium">{stateLabel}</span></div>
-        <div className="mt-2 text-xs text-muted-foreground">PID: {pid ?? "—"} · 端口: {port} · 启动: {startedAt ?? "—"}</div>
+        <div className="mt-2 text-xs text-muted-foreground">PID: {status?.pid ?? "—"} · 端口: {status?.port ?? 19789} · 启动: {status?.started_at ? new Date(status.started_at * 1000).toLocaleString("zh-CN") : "—"}</div>
+        {state === "errored" && status?.last_error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{status.last_error}</div>}
         <div className="mt-3 flex gap-2">
           <button className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.5)]" onClick={handleStart} disabled={busy}>{state === "running" ? "↻ 重启 Gateway" : "▶ 启动 Gateway"}</button>
-          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md" disabled={state !== "running"} onClick={() => window.open(`http://127.0.0.1:${port}`, "_blank")}>🌐 OpenClaw Web UI</button>
+          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={() => window.open(`http://127.0.0.1:${status?.port ?? 19789}`, "_blank")}>🌐 OpenClaw Web UI</button>
         </div>
       </div>
       <div className="flex-1 rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>Gateway 日志</span><span className="flex-1" /></div>
-        <div className="mt-2 font-mono text-[10px] text-muted-foreground"><div>— 日志流 STORY-0040 接入 —</div></div>
+        <div className="text-xs text-muted-foreground">Gateway 日志 — STORY-0040 接入 tail_log</div>
       </div>
     </div>
   );
@@ -300,8 +283,9 @@ function GatewayTab() {
 // ─── 运行状态 Tab ───────────────────────────────────────────────────────────
 
 function StatusTab() {
-  const [deploySummary, setDeploySummary] = React.useState<any>(null);
-  React.useEffect(() => { void (async () => { try { const v = await tauriInvoke("openclaw_deploy_validate"); setDeploySummary(v); } catch {} })(); }, []);
+  const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
+  React.useEffect(() => { void (async () => { try { const v = await validateDeployments(); setDeploy(v); } catch {} })(); }, []);
+
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
@@ -319,7 +303,7 @@ function StatusTab() {
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
         <div className="text-sm font-medium">部署校验</div>
         <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-          {deploySummary ? deploySummary.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>加载中...</div>}
+          {deploy ? deploy.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>加载中...</div>}
         </div>
       </div>
     </div>
