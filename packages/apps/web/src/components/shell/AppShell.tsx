@@ -200,6 +200,14 @@ export function AppShell() {
         panelOpen={panelOpen}
         gatewayRunning={gatewayRunning}
         dccCount={dccCount}
+        onStartGateway={async () => {
+          try {
+            const { getIpc } = await import("../../lib/ipc");
+            const ipc = await getIpc();
+            await ipc.startGateway();
+            setGatewayRunning(true);
+          } catch {}
+        }}
       />
 
       {/* B + C + D 区 */}

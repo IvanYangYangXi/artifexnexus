@@ -302,8 +302,11 @@ function GatewayTab() {
     const timer = setInterval(async () => {
       try {
         const ipc = await getIpc();
-        const result = await ipc.tailGatewayLog({ lines: 50 });
-        if (result?.lines) setLogs(result.lines);
+        const result = await ipc.tailGatewayLog({ n: 50 });
+        if (result?.entries) setLogs(result.entries.map((e: any) => {
+          const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+          return `${time} ${e.level || ""} ${e.text || ""}`;
+        }));
       } catch {}
     }, 3000);
     return () => clearInterval(timer);
