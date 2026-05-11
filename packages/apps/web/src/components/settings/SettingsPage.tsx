@@ -97,12 +97,28 @@ export function SettingsPage() {
 
 function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: React.Dispatch<SettingsAction> }) {
   const [showAdd, setShowAdd] = React.useState(false);
-  const [showKey, setShowKey] = React.useState<Set<string>>(new Set());
+  const [fetchingModels, setFetchingModels] = React.useState(false);
+  const [remoteModelList, setRemoteModelList] = React.useState<string[] | null>(null);
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
 
-  const toggleKey = (id: string) => {
-    setShowKey((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const handleFetchModels = async () => {
+    if (!selected) return;
+    setFetchingModels(true);
+    try {
+      const ipc = await getIpc();
+      const models = await ipc.fetchRemoteModels({ providerId: selected.id });
+      if (models?.models && Array.isArray(models.models)) {
+        const ids = models.models.map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean);
+        setRemoteModelList(ids);
+      }
+    } catch {} finally { setFetchingModels(false); }
+  };
+
+  const handleAddModel = (modelId: string) => {
+    if (!selected) return;
+    dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId });
+    setRemoteModelList(null);
   };
 
   return (
@@ -180,41 +196,54 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
               <label className="text-[10px] text-muted-foreground">关联认证 Profile</label>
               <Input className="mt-0.5 h-8 text-xs" value={selected.authProfileId || ""} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { authProfileId: e.target.value || undefined } })} placeholder="可选" />
             </div>
-            {/* 模型列表 */}
+            {/* 模型列表 — 列表形式 */}
             <div>
               <div className="mb-1 flex items-center gap-2">
-                <label className="text-[10px] text-muted-foreground">模型列表</label>
-                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => {
-                  const modelId = prompt("模型 ID（如 gpt-4o）:");
-                  if (modelId?.trim()) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: modelId.trim() });
-                }}><Plus className="h-3 w-3" /></Button>
-                <Button variant="ghost" size="sm" className="h-5 text-[9px] rounded-full" onClick={async () => {
-                  try {
-                    const ipc = await getIpc();
-                    const models = await ipc.fetchRemoteModels({ providerId: selected.id });
-                    if (models?.models && Array.isArray(models.models)) {
-                      const ids = models.models.map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean);
-                      // 避免重复
-                      const existing = new Set(selected.models.map((m) => m.id));
-                      const newIds = ids.filter((id: string) => !existing.has(id));
-                      for (const id of newIds) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id });
-                    }
-                  } catch {}
-                }}>获取远程模型</Button>
+                <label className="text-[10px] text-muted-foreground">模型列表 ({selected.models.length})</label>
+                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleFetchModels} disabled={fetchingModels}>
+                  {fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                </Button>
+                <span className="text-[9px] text-muted-foreground">添加</span>
               </div>
-              <div className="flex flex-wrap gap-1">
+              {/* 远程模型选择器 */}
+              {remoteModelList && (
+                <div className="mb-2 rounded-lg border border-white/[0.08] bg-white/[0.03] p-2 max-h-[200px] overflow-y-auto">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">可用模型</span>
+                    <span className="flex-1" />
+                    <button className="text-[9px] text-muted-foreground hover:text-foreground" onClick={() => setRemoteModelList(null)}>关闭</button>
+                  </div>
+                  <div className="space-y-0.5">
+                    {remoteModelList.map((id) => {
+                      const exists = selected.models.some((m) => m.id === id);
+                      return (
+                        <button key={id} className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[10px] transition-colors ${exists ? "text-muted-foreground/40" : "hover:bg-white/[0.06]"}`}
+                          disabled={exists} onClick={() => handleAddModel(id)}>
+                          <span className="flex-1 font-mono">{id}</span>
+                          {exists ? <span className="text-[9px] text-muted-foreground">已添加</span> : <span className="text-[9px] text-primary">+ 添加</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* 模型列表 */}
+              <div className="space-y-px rounded-lg border border-white/[0.06]">
+                {selected.models.length === 0 && <div className="px-3 py-2 text-[10px] text-muted-foreground">暂无模型，点击 + 获取</div>}
                 {selected.models.map((m, i) => (
-                  <button key={i}
-                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] transition-colors ${m.isDefault ? "bg-primary/15 text-primary" : "bg-white/[0.06] hover:bg-white/[0.10]"}`}
-                    onClick={() => {
-                      // 设置/取消默认：把其他模型的 isDefault 取消
-                      const newModels = selected.models.map((model, idx) => ({ ...model, isDefault: idx === i ? !model.isDefault : false }));
-                      dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models: newModels } as any });
-                    }}
-                    title={m.isDefault ? "默认模型（点击取消）" : "点击设为默认"}>
-                    {m.id} {m.isDefault && "⭐"}
-                    <span className="text-muted-foreground hover:text-destructive ml-1" onClick={(e) => { e.stopPropagation(); dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i }); }}>×</span>
-                  </button>
+                  <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${m.isDefault ? "bg-primary/[0.08]" : "hover:bg-white/[0.02]"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${m.isDefault ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                    <span className="flex-1 font-mono">{m.id}</span>
+                    <button
+                      className={`text-[10px] transition-colors ${m.isDefault ? "text-primary" : "text-muted-foreground hover:text-primary"}`}
+                      onClick={() => {
+                        const newModels = selected.models.map((model, idx) => ({ ...model, isDefault: idx === i }));
+                        dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models: newModels } as any });
+                      }}>
+                      {m.isDefault ? "默认" : "设为默认"}
+                    </button>
+                    <button className="text-muted-foreground hover:text-destructive text-[10px]" onClick={() => dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i })}>删除</button>
+                  </div>
                 ))}
               </div>
             </div>
