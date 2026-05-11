@@ -94,7 +94,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           )}
         </div>
 
-        {/* 工具执行卡片 — 使用 @artifex-nexus/ui ToolCallGroup */}
+        {/* 工具执行卡片 — 超过3条自动折叠 */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="mt-2">
             <ToolCallGroup
@@ -108,7 +108,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                   result: tc.output,
                 }),
               )}
-              defaultOpen={message.toolCalls.length < 3}
+              defaultOpen={message.toolCalls.length <= 3}
             />
           </div>
         )}
@@ -116,7 +116,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {/* 操作栏（仅 AI 消息，非流式） */}
         {!isUser && !isStreaming && (
           <div className="mt-1 flex items-center gap-0.5 px-1">
-            <Button variant="ghost" size="icon" className="h-6 w-6">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => {
+                navigator.clipboard.writeText(message.content);
+              }}
+              title="复制对话文字"
+            >
               <Copy className="h-3 w-3" />
             </Button>
             <Button variant="ghost" size="icon" className="h-6 w-6">
@@ -136,6 +144,65 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 // ─── Markdown 渲染 ──────────────────────────────────────────────────────────
+
+/** 代码块组件：超过5行自动折叠 */
+function CodeBlock({
+  language,
+  code,
+}: {
+  language: string;
+  code: string;
+}) {
+  const lines = code.split("\n");
+  const shouldCollapse = lines.length > 5;
+  const [expanded, setExpanded] = React.useState(!shouldCollapse);
+  const displayCode = expanded || !shouldCollapse
+    ? code
+    : lines.slice(0, 5).join("\n");
+
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-border">
+      <div className="flex items-center justify-between bg-muted/50 px-3 py-1 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span>{language}</span>
+          {shouldCollapse && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="hover:text-foreground transition-colors"
+            >
+              {expanded ? "收起" : `展开全部 (${lines.length} 行)`}
+            </button>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5"
+          onClick={() => navigator.clipboard.writeText(code)}
+          title="复制代码"
+        >
+          <Copy className="h-2.5 w-2.5" />
+        </Button>
+      </div>
+      <SyntaxHighlighter
+        style={oneDark}
+        language={language}
+        PreTag="div"
+        customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
+      >
+        {displayCode}
+      </SyntaxHighlighter>
+      {shouldCollapse && !expanded && (
+        <div
+          className="cursor-pointer bg-muted/30 py-1 text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setExpanded(true)}
+        >
+          ⋯ 展开全部 {lines.length} 行 ⋯
+        </div>
+      )}
+    </div>
+  );
+}
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -203,35 +270,13 @@ function MarkdownContent({ content }: { content: string }) {
         ol({ children }) {
           return <ol className="my-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>;
         },
-        // 代码块
+        // 代码块（内联 + 块级）
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || "");
           const codeStr = String(children).replace(/\n$/, "");
 
           if (match) {
-            return (
-              <div className="my-2 overflow-hidden rounded-md border border-border">
-                <div className="flex items-center justify-between bg-muted/50 px-3 py-1 text-[10px] text-muted-foreground">
-                  <span>{match[1]}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() => navigator.clipboard.writeText(codeStr)}
-                  >
-                    <Copy className="h-2.5 w-2.5" />
-                  </Button>
-                </div>
-                <SyntaxHighlighter
-                  style={oneDark}
-                  language={match[1]}
-                  PreTag="div"
-                  customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
-                >
-                  {codeStr}
-                </SyntaxHighlighter>
-              </div>
-            );
+            return <CodeBlock language={match[1]} code={codeStr} />;
           }
 
           return (
