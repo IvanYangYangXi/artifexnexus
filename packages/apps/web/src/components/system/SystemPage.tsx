@@ -174,10 +174,25 @@ function InstallerTab() {
   };
 
   const handleAddChild = (parentId: string) => {
-    const version = window.prompt("版本号（如 5.1）：");
-    if (!version?.trim()) return;
-    const label = `${parentId === "blender" ? "Blender" : parentId} ${version.trim()}`;
-    setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version: version.trim(), installPath: "", projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
+    const item = items.find((it) => it.id === parentId);
+    const dccName = item?.name || parentId;
+    // 单弹窗：版本号 + 安装路径一起填
+    const input = window.prompt(
+      `添加 ${dccName} 版本\n\n格式: 版本号 | 安装路径（可选）\n示例: 5.1 | C:\\path\\to\\addons`,
+      ""
+    );
+    if (!input?.trim()) return;
+    const parts = input.split("|").map(s => s.trim());
+    const version = parts[0];
+    if (!version) return;
+    let installPath = parts[1] || "";
+    if (!installPath) {
+      if (parentId === "blender") installPath = `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
+      else if (parentId === "maya") installPath = `~/Documents/maya/${version}/scripts/`;
+      else if (parentId === "max") installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
+    }
+    const label = `${dccName} ${version}`;
+    setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
   };
 
   const handleDeleteChild = (parentId: string, childIndex: number) => {
@@ -200,25 +215,38 @@ function InstallerTab() {
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: (it.children || []).filter((_, i) => i !== childIndex) } : it));
   };
 
-  // 子项设置（编辑版本号和安装路径）
+  // 子项设置（编辑版本号和安装路径）— 单弹窗多字段
   const handleChildSettings = (parentId: string, childIndex: number) => {
     const item = items.find((it) => it.id === parentId);
     const child = item?.children?.[childIndex];
     if (!child) return;
-    const newVersion = window.prompt("版本号：", child.version);
-    if (newVersion === null) return;
+    // 计算默认路径
     let defaultPath = child.installPath;
-    if (!defaultPath && newVersion.trim()) {
-      if (parentId === "blender") defaultPath = `%APPDATA%/Blender Foundation/Blender/${newVersion.trim()}/scripts/addons/`;
-      else if (parentId === "maya") defaultPath = `~/Documents/maya/${newVersion.trim()}/scripts/`;
-      else if (parentId === "max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion.trim()}/ENU/scripts/`;
+    if (!defaultPath && child.version) {
+      if (parentId === "blender") defaultPath = `%APPDATA%/Blender Foundation/Blender/${child.version}/scripts/addons/`;
+      else if (parentId === "maya") defaultPath = `~/Documents/maya/${child.version}/scripts/`;
+      else if (parentId === "max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${child.version}/ENU/scripts/`;
     }
-    const newInstallPath = window.prompt("安装路径（可修改）：", defaultPath || "");
-    if (newInstallPath === null) return;
-    const newLabel = `${item?.name ?? parentId} ${newVersion.trim()}`;
+    // 单弹窗：版本号 + 安装路径一起填
+    const input = window.prompt(
+      `编辑「${child.label}」设置\n\n格式: 版本号 | 安装路径\n（用 | 分隔，安装路径留空则自动计算）`,
+      `${child.version} | ${defaultPath || ""}`
+    );
+    if (input === null) return;
+    const parts = input.split("|").map(s => s.trim());
+    const newVersion = parts[0] || child.version;
+    const newInstallPath = parts[1] || "";
+    // 重新计算默认路径
+    let computedPath = newInstallPath;
+    if (!computedPath && newVersion) {
+      if (parentId === "blender") computedPath = `%APPDATA%/Blender Foundation/Blender/${newVersion}/scripts/addons/`;
+      else if (parentId === "maya") computedPath = `~/Documents/maya/${newVersion}/scripts/`;
+      else if (parentId === "max") computedPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion}/ENU/scripts/`;
+    }
+    const newLabel = `${item?.name ?? parentId} ${newVersion}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? {
       ...it,
-      children: (it.children || []).map((c, i) => i === childIndex ? { ...c, label: newLabel, version: newVersion.trim(), installPath: newInstallPath.trim() || defaultPath || "" } : c),
+      children: (it.children || []).map((c, i) => i === childIndex ? { ...c, label: newLabel, version: newVersion, installPath: computedPath } : c),
     } : it));
   };
 
@@ -273,9 +301,7 @@ function InstallerTab() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 py-2">
-        <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleGlobalDetect}><Play className="h-3 w-3" />全局检测</Button>
-        <div className="flex-1" />
-        <Button variant="outline" size="sm" className="h-7 text-xs rounded-full">完成</Button>
+        <Button size="sm" className="h-7 gap-1 text-[11px] rounded-full" onClick={handleGlobalDetect}><Play className="h-3 w-3" />全局检测</Button>
       </div>
       <ScrollFade className="flex-1">
         <div className="p-3 space-y-1">
@@ -284,19 +310,19 @@ function InstallerTab() {
               <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/[0.04] border-b border-white/[0.04]">
                 {item.expandable && <button onClick={() => toggleExpand(item.id)} className="text-muted-foreground">{expanded.has(item.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}</button>}
                 {!item.expandable && <div className="w-3.5" />}
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-bold text-muted-foreground">{ICON_LABELS[item.iconKey]}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[11px] font-bold text-muted-foreground">{ICON_LABELS[item.iconKey]}</span>
                 <span className="flex-1 text-sm font-medium">{item.name}</span>
-                {item.comingSoon && <span className="text-[10px] text-muted-foreground">即将推出</span>}
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATE_COLORS[item.state]}`}>{STATE_LABELS[item.state]}</span>
-                {item.state === "failed" && item.errorMessage && <span className="max-w-[120px] truncate text-[10px] text-red-400">{item.errorMessage}</span>}
+                {item.comingSoon && <span className="text-[11px] text-muted-foreground">即将推出</span>}
+                <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${STATE_COLORS[item.state]}`}>{STATE_LABELS[item.state]}</span>
+                {item.state === "failed" && item.errorMessage && <span className="max-w-[120px] truncate text-[11px] text-red-400">{item.errorMessage}</span>}
                 <div className="flex gap-1">
-                  <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={handleGlobalDetect}>检测</Button>
-                  {item.id === "openclaw" && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full">设置</Button>}
-                  {item.id === "openclaw" && openclawStatus?.gateway_running && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => window.open(`http://127.0.0.1:${openclawStatus.port}`, "_blank")}>🌐 Web UI</Button>}
-                  {item.state === "not-installed" && <Button size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)} disabled={isGated(item)}>安装</Button>}
-                  {item.state === "installed" && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)}>重装</Button>}
-                  {item.state === "failed" && <Button size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleInstall(item.id)}>重试</Button>}
-                  {item.expandable && <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={() => handleAddChild(item.id)}><Plus className="h-3 w-3" /></Button>}
+                  <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={handleGlobalDetect}>检测</Button>
+                  {item.id === "openclaw" && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => { /* 跳转设置页：通过 URL hash 或全局事件 */ window.dispatchEvent(new CustomEvent("nav", { detail: "settings" })); }}>设置</Button>}
+                  {item.id === "openclaw" && openclawStatus?.gateway_running && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => window.open(`http://127.0.0.1:${openclawStatus.port}`, "_blank")}>🌐 Web UI</Button>}
+                  {item.state === "not-installed" && <Button size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)} disabled={isGated(item)}>安装</Button>}
+                  {item.state === "installed" && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)}>重装</Button>}
+                  {item.state === "failed" && <Button size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)}>重试</Button>}
+                  {item.expandable && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleAddChild(item.id)}><Plus className="h-3 w-3" /></Button>}
                 </div>
               </div>
               {item.expandable && expanded.has(item.id) && item.children && (
@@ -304,10 +330,10 @@ function InstallerTab() {
                   {item.children.map((child, i) => (
                     <div key={i} className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-white/[0.04]">
                       <span className="flex-1">{child.label}</span>
-                      <span className="text-[10px] text-muted-foreground">{child.version}</span>
-                      <span className={`rounded px-1 py-0 text-[9px] font-medium ${STATE_COLORS[child.state]}`}>{STATE_LABELS[child.state]}</span>
-                      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={() => handleChildSettings(item.id, i)}>设置</Button>
-                      <Button size="sm" className="h-5 text-[9px] rounded-full" disabled={child.state === "installing"} onClick={() => handleChildInstall(item.id, i)}>
+                      <span className="text-[11px] text-muted-foreground">{child.version}</span>
+                      <span className={`rounded px-1 py-0 text-[11px] font-medium ${STATE_COLORS[child.state]}`}>{STATE_LABELS[child.state]}</span>
+                      <Button variant="outline" size="sm" className="h-5 text-[11px] rounded-full" onClick={() => handleChildSettings(item.id, i)}>设置</Button>
+                      <Button size="sm" className="h-5 text-[11px] rounded-full" disabled={child.state === "installing"} onClick={() => handleChildInstall(item.id, i)}>
                         {child.state === "installed" ? "重装" : child.state === "installing" ? "安装中…" : child.state === "failed" ? "重试" : "安装"}
                       </Button>
                       <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleDeleteChild(item.id, i)}><Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" /></Button>
@@ -324,14 +350,11 @@ function InstallerTab() {
         {/* 运行状态摘要 */}
         <StatusBar />
         {/* 日志头部 */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-muted-foreground border-t border-white/[0.04]">
-          <span>日志</span><span className="flex-1" /><button onClick={() => setLogs([])}>清空</button>
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground border-t border-white/[0.04]">
+          <span>日志</span><span className="flex-1" /><button className="hover:text-foreground" onClick={() => setLogs([])}>清空</button>
         </div>
-        {/* 可调高度日志区 */}
-        <div className="resize-y overflow-y-auto border-t border-white/[0.04] px-3 py-1 text-[10px] font-mono" style={{ minHeight: 80, maxHeight: 300, height: 120 }}>
-          {logs.length === 0 && <span className="text-muted-foreground">暂无日志</span>}
-          {logs.map((l, i) => <div key={i} className={l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-amber-400" : "text-muted-foreground"}>{l.time} {l.message}</div>)}
-        </div>
+        {/* 可调高度日志区（自动滚底） */}
+        <InstallerLogView logs={logs} />
       </div>
     </div>
   );
@@ -394,7 +417,7 @@ function StatusBar() {
   React.useEffect(() => { refresh(); }, []);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-[10px]">
+    <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-[11px]">
       <span className="text-muted-foreground">运行状态:</span>
       {dccStatus.map((d) => (
         <span key={d.name} className="flex items-center gap-1">
@@ -410,7 +433,21 @@ function StatusBar() {
       )}
       <span className="text-muted-foreground">· Sidecar 端口 {sidecarPort ?? 19789}</span>
       <div className="flex-1" />
-      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={refresh}>刷新</Button>
+      <Button variant="outline" size="sm" className="h-5 text-[11px] rounded-full" onClick={refresh}>刷新</Button>
+    </div>
+  );
+}
+
+// ─── InstallerLogView：安装向导日志（自动滚底 + 可调高度） ──────────────────
+
+function InstallerLogView({ logs }: { logs: LogEntry[] }) {
+  const endRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
+  return (
+    <div className="resize-y overflow-y-auto border-t border-white/[0.04] px-3 py-1 text-[11px] font-mono" style={{ minHeight: 80, maxHeight: 300, height: 120 }}>
+      {logs.length === 0 && <span className="text-muted-foreground">暂无日志</span>}
+      {logs.map((l, i) => <div key={i} className={l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-amber-400" : "text-muted-foreground"}>{l.time} {l.message}</div>)}
+      <div ref={endRef} />
     </div>
   );
 }
@@ -445,7 +482,7 @@ function LogView({ logs }: { logs: string[] }) {
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto font-mono text-[10px] leading-[1.6]"
+      className="flex-1 overflow-y-auto font-mono text-[11px] leading-[1.6]"
       onScroll={handleScroll}
     >
       {visible.length === 0 ? (
@@ -460,7 +497,7 @@ function LogView({ logs }: { logs: string[] }) {
       <div ref={endRef} />
       {!autoScroll && visible.length > 0 && (
         <button
-          className="sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-primary/80 px-3 py-1 text-[9px] text-primary-foreground shadow-lg backdrop-blur-md"
+          className="sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-primary/80 px-3 py-1 text-[11px] text-primary-foreground shadow-lg backdrop-blur-md"
           onClick={() => { setAutoScroll(true); endRef.current?.scrollIntoView({ behavior: "smooth" }); }}
         >
           ↓ 跳至底部
@@ -602,7 +639,7 @@ function StatusTab() {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">DCC 连接</span>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={refreshDCC}>刷新</Button>
+          <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={refreshDCC}>刷新</Button>
         </div>
         <div className="mt-2 space-y-1.5 text-xs">
           {dccStatus.length === 0 && <div className="text-muted-foreground">点击刷新检测</div>}
@@ -621,7 +658,7 @@ function StatusTab() {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">部署校验</span>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={runDeployCheck} disabled={checking}>
+          <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={runDeployCheck} disabled={checking}>
             {checking ? "校验中..." : "校验"}
           </Button>
         </div>

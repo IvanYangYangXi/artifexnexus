@@ -62,7 +62,7 @@ export function SettingsPage() {
           </TabsList>
         </Tabs>
         <div className="flex-1" />
-        {saveMsg && <span className={`text-[10px] ${saveMsg==="已保存"?"text-emerald-400":"text-red-400"}`}>{saveMsg}</span>}
+        {saveMsg && <span className={`text-[11px] ${saveMsg==="已保存"?"text-emerald-400":"text-red-400"}`}>{saveMsg}</span>}
         <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleSave} disabled={!state.dirty || saving}><Save className="h-3 w-3" />{saving?"保存中…":"保存"}</Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
@@ -79,7 +79,7 @@ function ModelRow({ model, index, selected, dispatch }: { model: any; index: num
       <input className="h-6 flex-1 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/30"
         value={model.id}
         onChange={(e) => dispatch({ type: "UPDATE_MODEL", providerId: selected.id, index, patch: { id: e.target.value } })} />
-      <label className="flex items-center gap-1 text-[10px] cursor-pointer shrink-0">
+      <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
         <input type="checkbox" className="rounded" checked={!!model.isDefault}
           onChange={(e) => {
             const c = e.target.checked;
@@ -87,7 +87,7 @@ function ModelRow({ model, index, selected, dispatch }: { model: any; index: num
             dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models } as any });
           }} />默认
       </label>
-      <button className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+      <button className="shrink-0 text-[11px] text-muted-foreground hover:text-destructive"
         onClick={() => dispatch({ type: "DELETE_MODEL", providerId: selected.id, index })}>×</button>
     </div>
   );
@@ -135,33 +135,33 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   return (
     <div className="flex gap-4" style={{ minHeight: 300 }}>
       <div className={`w-48 shrink-0 ${GLASS} p-2 space-y-0.5`}>
-        <div className="mb-1 flex items-center gap-1 px-1"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Provider</span><div className="flex-1" /><Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setShowAdd(!showAdd)}><Plus className="h-3 w-3" /></Button></div>
-        {showAdd && <div className="mb-1 rounded-lg border border-white/[0.10] bg-white/[0.06] p-1.5"><div className="text-[10px] text-muted-foreground mb-1">选择模板</div><div className="max-h-[200px] space-y-0.5 overflow-y-auto">{PROVIDER_TEMPLATES.map(tpl=>(<button key={tpl.key} className="block w-full rounded px-2 py-1 text-left text-[10px] hover:bg-white/[0.08]" onClick={()=>{dispatch({type:"ADD_PROVIDER_FROM_TEMPLATE",templateKey:tpl.key,alsoAuth:true});setShowAdd(false);}}>{tpl.label}{tpl.note&&<span className="text-muted-foreground/60"> · {tpl.note}</span>}</button>))}</div></div>}
+        <div className="mb-1 flex items-center gap-1 px-1"><span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Provider</span><div className="flex-1" /><Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setShowAdd(!showAdd)}><Plus className="h-3 w-3" /></Button></div>
+        {showAdd && <div className="mb-1 rounded-lg border border-white/[0.10] bg-white/[0.06] p-1.5"><div className="text-[11px] text-muted-foreground mb-1">选择模板</div><div className="max-h-[200px] space-y-0.5 overflow-y-auto">{PROVIDER_TEMPLATES.map(tpl=>(<button key={tpl.key} className="block w-full rounded px-2 py-1 text-left text-[11px] hover:bg-white/[0.08]" onClick={()=>{dispatch({type:"ADD_PROVIDER_FROM_TEMPLATE",templateKey:tpl.key,alsoAuth:true});setShowAdd(false);}}>{tpl.label}{tpl.note&&<span className="text-muted-foreground/60"> · {tpl.note}</span>}</button>))}</div></div>}
         {state.providers.map(p=>(<button key={p.id} className={`block w-full rounded px-2 py-1.5 text-left text-xs transition-colors ${state.selectedProviderId===p.id?"bg-white/[0.10] font-medium":"hover:bg-white/[0.04] text-muted-foreground"}`} onClick={()=>dispatch({type:"SELECT_PROVIDER",id:p.id})}>{p.displayName||p.id}</button>))}
       </div>
       <div className={`flex-1 ${GLASS} p-4`}>
         {!selected ? <p className="text-xs text-muted-foreground">选择一个 Provider</p> : <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">ID</label><Input className="mt-1 h-8 text-xs" value={selected.id} disabled /></div>
-            <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">显示名</label><Input className="mt-1 h-8 text-xs" value={selected.displayName} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{displayName:e.target.value}})} /></div>
+            <div><label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">ID</label><Input className="mt-1 h-8 text-xs" value={selected.id} disabled /></div>
+            <div><label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">显示名</label><Input className="mt-1 h-8 text-xs" value={selected.displayName} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{displayName:e.target.value}})} /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">协议</label><select className={SEL} value={selected.protocol} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{protocol:e.target.value as any}})}>{["openai","openai-compatible","anthropic","google","azure-openai"].map(v=><option key={v} value={v}>{v}</option>)}</select></div>
-            <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Base URL</label><Input className="mt-1 h-8 text-xs" value={selected.baseUrl} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{baseUrl:e.target.value}})} /></div>
+            <div><label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">协议</label><select className={SEL} value={selected.protocol} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{protocol:e.target.value as any}})}>{["openai","openai-compatible","anthropic","google","azure-openai"].map(v=><option key={v} value={v}>{v}</option>)}</select></div>
+            <div><label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Base URL</label><Input className="mt-1 h-8 text-xs" value={selected.baseUrl} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{baseUrl:e.target.value}})} /></div>
           </div>
           {/* Bug #1 修复：API Key 显示/隐藏/覆盖 */}
-          <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">API Key</label>
+          <div><label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">API Key</label>
             <div className="mt-1 flex items-center gap-2">
               {isTokenMasked && !overrideApiKey ? (
                 <>
                   <Input className="h-8 flex-1 text-xs font-mono text-muted-foreground" value="••••••••（已保存）" readOnly />
-                  <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={()=>setOverrideApiKey(true)}>覆盖</Button>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] rounded-full shrink-0" onClick={()=>setOverrideApiKey(true)}>覆盖</Button>
                 </>
               ) : (isTokenMasked && overrideApiKey) || (!isTokenMasked && !hasRealToken) ? (
                 <>
                   <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
                   <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
-                  {overrideApiKey && <Button variant="ghost" size="sm" className="h-7 text-[10px] shrink-0" onClick={()=>{setOverrideApiKey(false);setNewApiKey("");}}>取消</Button>}
+                  {overrideApiKey && <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={()=>{setOverrideApiKey(false);setNewApiKey("");}}>取消</Button>}
                 </>
               ) : hasRealToken ? (<>
                 <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={authProfile?.apiKey||""} readOnly />
@@ -170,26 +170,26 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                 <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
               )}
             </div>
-            {!hasAuthProfile && <div className="mt-1 text-[10px] text-amber-400">此 Provider 尚未关联凭据，请先通过模板创建或手动添加</div>}
+            {!hasAuthProfile && <div className="mt-1 text-[11px] text-amber-400">此 Provider 尚未关联凭据，请先通过模板创建或手动添加</div>}
           </div>
           {/* 模型列表 */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">模型 ({selected.models.length})</label>
+            <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">模型 ({selected.models.length})</label>
             <div className="mt-1 space-y-px rounded-lg border border-white/[0.06]">
-              {!selected.models.length && <div className="px-3 py-2 text-[10px] text-muted-foreground">暂无模型</div>}
+              {!selected.models.length && <div className="px-3 py-2 text-[11px] text-muted-foreground">暂无模型</div>}
               {selected.models.map((m, i) => (
                 <ModelRow key={i} model={m} index={i} selected={selected} dispatch={dispatch} />
               ))}
             </div>
             <div className="mt-2 flex gap-2">
               <input className="h-7 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30" placeholder="model-id" value={newModelId} onChange={e=>setNewModelId(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAddModel()} />
-              <Button size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={handleAddModel}>添加</Button>
-              <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={handleFetchModels} disabled={fetchingModels}>{fetchingModels?"获取中…":"获取模型列表"}</Button>
+              <Button size="sm" className="h-7 text-[11px] rounded-full shrink-0" onClick={handleAddModel}>添加</Button>
+              <Button variant="outline" size="sm" className="h-7 text-[11px] rounded-full shrink-0" onClick={handleFetchModels} disabled={fetchingModels}>{fetchingModels?"获取中…":"获取模型列表"}</Button>
             </div>
-            {fetchError&&<div className="mt-1 text-[10px] text-red-400">{fetchError}</div>}
-            {remoteModels&&remoteModels.length>0&&<div className="mt-2 rounded-lg border border-white/[0.10] bg-white/[0.04] p-2 max-h-[200px] overflow-y-auto"><div className="mb-1 flex items-center gap-2"><span className="text-[10px] text-muted-foreground">远端模型（{remoteModels.length}个）</span><div className="flex-1"/><button className="text-[9px] rounded-full bg-primary px-2 py-0.5 text-primary-foreground" onClick={()=>handleImportModels(remoteModels.map((m:any)=>m.id))}>全部导入</button><button className="text-[9px] text-muted-foreground hover:text-foreground ml-1" onClick={()=>setRemoteModels(null)}>关闭</button></div>{remoteModels.map((m:any)=>(<div key={m.id} className="flex items-center justify-between border-b border-white/[0.04] py-0.5 text-xs"><span>{m.name||m.id}{m.ownedBy&&<span className="text-muted-foreground ml-1">({m.ownedBy})</span>}</span><button className="text-[10px] text-primary hover:underline" onClick={()=>handleImportModels([m.id])}>导入</button></div>))}</div>}
+            {fetchError&&<div className="mt-1 text-[11px] text-red-400">{fetchError}</div>}
+            {remoteModels&&remoteModels.length>0&&<div className="mt-2 rounded-lg border border-white/[0.10] bg-white/[0.04] p-2 max-h-[200px] overflow-y-auto"><div className="mb-1 flex items-center gap-2"><span className="text-[11px] text-muted-foreground">远端模型（{remoteModels.length}个）</span><div className="flex-1"/><button className="text-[11px] rounded-full bg-primary px-2 py-0.5 text-primary-foreground" onClick={()=>handleImportModels(remoteModels.map((m:any)=>m.id))}>全部导入</button><button className="text-[11px] text-muted-foreground hover:text-foreground ml-1" onClick={()=>setRemoteModels(null)}>关闭</button></div>{remoteModels.map((m:any)=>(<div key={m.id} className="flex items-center justify-between border-b border-white/[0.04] py-0.5 text-xs"><span>{m.name||m.id}{m.ownedBy&&<span className="text-muted-foreground ml-1">({m.ownedBy})</span>}</span><button className="text-[11px] text-primary hover:underline" onClick={()=>handleImportModels([m.id])}>导入</button></div>))}</div>}
           </div>
-          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full text-destructive" onClick={()=>dispatch({type:"DELETE_PROVIDER",id:selected.id})}><Trash2 className="mr-1 h-3 w-3"/>删除</Button>
+          <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full text-destructive" onClick={()=>dispatch({type:"DELETE_PROVIDER",id:selected.id})}><Trash2 className="mr-1 h-3 w-3"/>删除</Button>
         </div>}
       </div>
     </div>
@@ -226,55 +226,55 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
       {agentPresets.length > 0 ? (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">已注册 Agent（{agentPresets.length}）</span>
+            <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">已注册 Agent（{agentPresets.length}）</span>
             <div className="flex-1" />
-            <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={handleReset}>重置为默认</Button>
-            {resetMsg&&<span className="text-[10px] text-muted-foreground">{resetMsg}</span>}
+            <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={handleReset}>重置为默认</Button>
+            {resetMsg&&<span className="text-[11px] text-muted-foreground">{resetMsg}</span>}
           </div>
-          <div className="text-[10px] text-muted-foreground/70 leading-relaxed">
+          <div className="text-[11px] text-muted-foreground/70 leading-relaxed">
             数据来源: openclaw.json → agents.list。Skills 是 OpenClaw 的 Skill 系统（非 MCP tool），"run_python" 是 Artifex Nexus 通过 MCP Bridge 暴露的 DCC 执行能力。
           </div>
           {agentPresets.map((preset: any) => (
             <div key={preset.id} className={`${GLASS} p-4 space-y-3`}>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">{preset.name || preset.id}</span>
-                {preset.isDefault && <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[9px] text-emerald-400">默认</span>}
+                {preset.isDefault && <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[11px] text-emerald-400">默认</span>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-muted-foreground">名称</label>
+                  <label className="text-[11px] text-muted-foreground">名称</label>
                   <Input className="mt-1 h-8 text-xs" value={preset.name||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{name:e.target.value}})} />
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground">ID（只读）</label>
+                  <label className="text-[11px] text-muted-foreground">ID（只读）</label>
                   <Input className="mt-1 h-8 text-xs text-muted-foreground" value={preset.id} disabled />
                 </div>
               </div>
               {/* 模型选择（从 agents.list 暂不支持 per-agent model，但预留位置） */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-muted-foreground">Thinking</label>
+                  <label className="text-[11px] text-muted-foreground">Thinking</label>
                   <select className={SEL} value={preset.thinkingDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{thinkingDefault:e.target.value}})}>
                     <option value="">未设置（继承 defaults）</option>
                     {THINKING_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground">Reasoning</label>
+                  <label className="text-[11px] text-muted-foreground">Reasoning</label>
                   <select className={SEL} value={preset.reasoningDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{reasoningDefault:e.target.value}})}>
                     <option value="">未设置（继承 defaults）</option>
                     {REASONING_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground">Verbose</label>
+                  <label className="text-[11px] text-muted-foreground">Verbose</label>
                   <select className={SEL} value={preset.verboseDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{verboseDefault:e.target.value}})}>
                     <option value="">未设置（继承 defaults）</option>
                     {VERBOSE_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground">Tool Progress Detail</label>
+                  <label className="text-[11px] text-muted-foreground">Tool Progress Detail</label>
                   <select className={SEL} value={preset.toolProgressDetail||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{toolProgressDetail:e.target.value}})}>
                     <option value="">未设置</option>
                     {TOOL_DETAIL_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
@@ -283,11 +283,11 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
               </div>
               <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
                 {preset.skills?.length > 0 && <span>Skills: <code className="text-foreground/80">{preset.skills.join(", ")}</code></span>}
-                {preset.workspace && <span>Workspace: <code className="text-foreground/60 text-[10px]">{preset.workspace}</code></span>}
+                {preset.workspace && <span>Workspace: <code className="text-foreground/60 text-[11px]">{preset.workspace}</code></span>}
               </div>
               {/* 人格信息（systemPromptOverride）— 可编辑 */}
               <div>
-                <label className="text-[10px] text-muted-foreground">系统提示词（人格信息） · {(preset.systemPromptOverride||"").length} 字符</label>
+                <label className="text-[11px] text-muted-foreground">系统提示词（人格信息） · {(preset.systemPromptOverride||"").length} 字符</label>
                 <textarea
                   className="mt-1 h-40 w-full resize-y rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2 text-[11px] leading-relaxed text-foreground backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30 font-mono"
                   value={preset.systemPromptOverride||""}
@@ -302,7 +302,7 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
         <div className={`${GLASS} p-6 text-center`}>
           <p className="text-xs text-muted-foreground mb-3">暂无已注册的 Agent 预设</p>
           <Button variant="outline" size="sm" className="h-7 text-xs rounded-full" onClick={handleReset}>安装默认预设</Button>
-          {resetMsg&&<p className="mt-2 text-[10px] text-muted-foreground">{resetMsg}</p>}
+          {resetMsg&&<p className="mt-2 text-[11px] text-muted-foreground">{resetMsg}</p>}
         </div>
       )}
     </div>
