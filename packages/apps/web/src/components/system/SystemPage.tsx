@@ -127,6 +127,12 @@ function InstallerTab() {
   };
 
   const handleInstall = async (id: string) => {
+    const item = items.find((it) => it.id === id);
+    // 重装确认弹窗
+    if (item?.state === "installed") {
+      const ok = window.confirm(`确认重装 ${item.name}？\n重装会重新下载/部署组件，当前配置将保留。`);
+      if (!ok) return;
+    }
     const ipc = await getIpc();
     if (id === "openclaw") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
@@ -175,7 +181,93 @@ function InstallerTab() {
   };
 
   const handleDeleteChild = (parentId: string, childIndex: number) => {
+    const item = items.find((it) => it.id === parentId);
+    const child = item?.children?.[childIndex];
+    const label = child?.label || `子项 ${childIndex + 1}`;
+    if (!window.confirm(`确认删除「${label}」？\n已安装的插件将被卸载。`)) return;
+    // 如果已安装则先尝试卸载
+    if (child?.state === "installed") {
+      void (async () => {
+        try {
+          const ipc = await getIpc();
+          addLog(parentId, "info", `[${label}] 正在卸载...`);
+          const r = await ipc.uninstallBlenderAddon(child.version);
+          if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
+          else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+        } catch (e: any) { addLog(parentId, "warn", `[${label}] 卸载异常: ${e.message}`); }
+      })();
+    }
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: (it.children || []).filter((_, i) => i !== childIndex) } : it));
+  };
+
+  // 子项设置（编辑版本号和安装路径）
+  const handleChildSettings = (parentId: string, childIndex: number) => {
+    const item = items.find((it) => it.id === parentId);
+    const child = item?.children?.[childIndex];
+    if (!child) return;
+    const newVersion = window.prompt("版本号：", child.version);
+    if (newVersion === null) return;
+    let defaultPath = child.installPath;
+    if (!defaultPath && newVersion.trim()) {
+      if (parentId === "blender") defaultPath = `%APPDATA%/Blender Foundation/Blender/${newVersion.trim()}/scripts/addons/`;
+      else if (parentId === "maya") defaultPath = `~/Documents/maya/${newVersion.trim()}/scripts/`;
+      else if (parentId === "max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion.trim()}/ENU/scripts/`;
+    }
+    const newInstallPath = window.prompt("安装路径（可修改）：", defaultPath || "");
+    if (newInstallPath === null) return;
+    const newLabel = `${item?.name ?? parentId} ${newVersion.trim()}`;
+    setItems((prev) => prev.map((it) => it.id === parentId ? {
+      ...it,
+      children: (it.children || []).map((c, i) => i === childIndex ? { ...c, label: newLabel, version: newVersion.trim(), installPath: newInstallPath.trim() || defaultPath || "" } : c),
+    } : it));
+  };
+
+  // 子项安装/重装
+  const handleChildInstall = async (parentId: string, childIndex: number) => {
+    const item = items.find((it) => it.id === parentId);
+    const child = item?.children?.[childIndex];
+    if (!child) return;
+    const isReinstall = child.state === "installed";
+    if (isReinstall) {
+      if (!window.confirm(`确认重装「${child.label}」？`)) return;
+    }
+    // 更新子项状态
+    setItems((prev) => prev.map((it) => it.id === parentId ? {
+      ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installing" as const } : c),
+    } : it));
+    addLog(parentId, "info", `[${child.label}] ${isReinstall ? "重装" : "安装"}中...`);
+    try {
+      const ipc = await getIpc();
+      // 重装时先卸载
+      if (isReinstall) {
+        addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
+        try { await ipc.uninstallBlenderAddon(child.version); } catch {}
+      }
+      // 检查并安装 mcp-bridge
+      const bs = await ipc.getMCPBridgeStatus();
+      if (!bs?.installed) {
+        addLog(parentId, "info", `[${child.label}] 部署 MCP Bridge 插件...`);
+        await ipc.invoke("openclaw_gateway_mcp_bridge_install");
+      }
+      // 安装
+      const r = await ipc.installBlenderAddon(child.version, false);
+      if (r.success) {
+        addLog(parentId, "info", `[${child.label}] ✅ 安装成功`);
+        setItems((prev) => prev.map((it) => it.id === parentId ? {
+          ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
+        } : it));
+      } else {
+        addLog(parentId, "error", `[${child.label}] ❌ 安装失败: ${r.error}`);
+        setItems((prev) => prev.map((it) => it.id === parentId ? {
+          ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "failed" as const } : c),
+        } : it));
+      }
+    } catch (e: any) {
+      addLog(parentId, "error", `[${child.label}] ❌ 异常: ${e.message}`);
+      setItems((prev) => prev.map((it) => it.id === parentId ? {
+        ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "failed" as const } : c),
+      } : it));
+    }
   };
 
   return (
@@ -214,9 +306,10 @@ function InstallerTab() {
                       <span className="flex-1">{child.label}</span>
                       <span className="text-[10px] text-muted-foreground">{child.version}</span>
                       <span className={`rounded px-1 py-0 text-[9px] font-medium ${STATE_COLORS[child.state]}`}>{STATE_LABELS[child.state]}</span>
-                      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full">检测</Button>
-                      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full">设置</Button>
-                      <Button size="sm" className="h-5 text-[9px] rounded-full">安装</Button>
+                      <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={() => handleChildSettings(item.id, i)}>设置</Button>
+                      <Button size="sm" className="h-5 text-[9px] rounded-full" disabled={child.state === "installing"} onClick={() => handleChildInstall(item.id, i)}>
+                        {child.state === "installed" ? "重装" : child.state === "installing" ? "安装中…" : child.state === "failed" ? "重试" : "安装"}
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleDeleteChild(item.id, i)}><Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" /></Button>
                     </div>
                   ))}
