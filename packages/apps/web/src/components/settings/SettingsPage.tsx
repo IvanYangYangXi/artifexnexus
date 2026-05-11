@@ -104,11 +104,13 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
   const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
-  const maskedKey = authProfile?.apiKey ? "•".repeat(24) : "";
-  const hasRealKey = authProfile?.apiKey && !/^\*+$/.test(authProfile.apiKey) && authProfile.apiKey.length >= 8;
+  // API Key 被 mask_secrets 脱敏，dump 返回 *** 串。如果 authProfile 存在且 token 非空（含***脱敏），显示脱敏提示
+  const hasAuthProfile = !!authProfile;
+  const isTokenMasked = authProfile?.apiKey && /^\*+$/.test(authProfile.apiKey || "");
+  const hasRealToken = authProfile?.apiKey && !/^\*+$/.test(authProfile.apiKey || "") && authProfile.apiKey.length >= 8;
 
   const handleAddModel = () => { const id = newModelId.trim(); if (!id || !selected) return; dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id }); setNewModelId(""); };
-  const handleFetchModels = async () => { if (!selected) return; if (!selected.baseUrl) { setFetchError("请先填写 baseUrl"); return; } if (!hasRealKey) { setFetchError("请先保存 API Key（凭据未找到或为脱敏占位）"); return; } setFetchingModels(true); setFetchError(null); setRemoteModels(null); try { const ipc = await getIpc(); const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token: authProfile!.apiKey }); if (r.success && r.models?.length) setRemoteModels(r.models); else setFetchError(r.error || "未获取到模型"); } catch (e: any) { setFetchError(e.message); } setFetchingModels(false); };
+  const handleFetchModels = async () => { if (!selected) return; if (!selected.baseUrl) { setFetchError("请先填写 baseUrl"); return; } if (!hasRealToken) { setFetchError("请先保存 API Key（凭据脱敏或未找到）"); return; } setFetchingModels(true); setFetchError(null); setRemoteModels(null); try { const ipc = await getIpc(); const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token: authProfile!.apiKey }); if (r.success && r.models?.length) setRemoteModels(r.models); else setFetchError(r.error || "未获取到模型"); } catch (e: any) { setFetchError(e.message); } setFetchingModels(false); };
   const handleImportModels = (ids: string[]) => { if (!selected || !ids.length) return; dispatch({ type: "IMPORT_REMOTE_MODELS", providerId: selected.id, modelIds: ids }); setRemoteModels(null); };
 
   return (
@@ -131,13 +133,14 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
           {/* API Key */}
           <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">API Key</label>
             <div className="mt-1 flex items-center gap-2">
-              {maskedKey ? <>
-                <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={showApiKey?(authProfile?.apiKey||""):maskedKey} readOnly={!showApiKey} />
+              {isTokenMasked ? (
+                <Input className="h-8 flex-1 text-xs font-mono text-muted-foreground" value="已保存（脱敏，不可查看）" readOnly />
+              ) : hasRealToken ? (<>
+                <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={authProfile?.apiKey||""} readOnly={!showApiKey} />
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
-              </> : <>
-                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入 API Key" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id};}} />
-                <span className="text-[10px] text-muted-foreground shrink-0">保存时写入</span>
-              </>}
+              </>) : (
+                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id};}} />
+              )}
             </div>
           </div>
           {/* 模型列表 */}
