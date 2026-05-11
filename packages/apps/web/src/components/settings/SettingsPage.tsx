@@ -101,6 +101,8 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const [fetchError, setFetchError] = React.useState<string | null>(null);
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [newApiKey, setNewApiKey] = React.useState("");
+  // Bug #1: 添加"覆盖模式"状态——当用户想要更换已保存的 API Key 时
+  const [overrideApiKey, setOverrideApiKey] = React.useState(false);
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
   const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
@@ -110,7 +112,24 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const hasRealToken = authProfile?.apiKey && !/^\*+$/.test(authProfile.apiKey || "") && authProfile.apiKey.length >= 8;
 
   const handleAddModel = () => { const id = newModelId.trim(); if (!id || !selected) return; dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id }); setNewModelId(""); };
-  const handleFetchModels = async () => { if (!selected) return; if (!selected.baseUrl) { setFetchError("请先填写 baseUrl"); return; } if (!hasRealToken) { setFetchError("请先保存 API Key（凭据脱敏或未找到）"); return; } setFetchingModels(true); setFetchError(null); setRemoteModels(null); try { const ipc = await getIpc(); const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token: authProfile!.apiKey }); if (r.success && r.models?.length) setRemoteModels(r.models); else setFetchError(r.error || "未获取到模型"); } catch (e: any) { setFetchError(e.message); } setFetchingModels(false); };
+
+  // Bug #2 修复: 获取模型列表时传递 providerId，让 sidecar 自动读取已存储的 token
+  const handleFetchModels = async () => {
+    if (!selected) return;
+    if (!selected.baseUrl) { setFetchError("请先填写 baseUrl"); return; }
+    // 如果没有关联的 auth profile 且没有输入新 key，才报错
+    if (!hasAuthProfile && !newApiKey) { setFetchError("请先关联凭据或输入 API Key"); return; }
+    setFetchingModels(true); setFetchError(null); setRemoteModels(null);
+    try {
+      const ipc = await getIpc();
+      // Bug #2: 传 providerId 让 sidecar 在 token 为空/脱敏时自动从 auth-profiles.json 读取
+      const token = hasRealToken ? authProfile!.apiKey : (newApiKey || "");
+      const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token, providerId: selected.id });
+      if (r.success && r.models?.length) setRemoteModels(r.models);
+      else setFetchError(r.error || "未获取到模型");
+    } catch (e: any) { setFetchError(e.message); }
+    setFetchingModels(false);
+  };
   const handleImportModels = (ids: string[]) => { if (!selected || !ids.length) return; dispatch({ type: "IMPORT_REMOTE_MODELS", providerId: selected.id, modelIds: ids }); setRemoteModels(null); };
 
   return (
@@ -130,18 +149,28 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
             <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">协议</label><select className={SEL} value={selected.protocol} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{protocol:e.target.value as any}})}>{["openai","openai-compatible","anthropic","google","azure-openai"].map(v=><option key={v} value={v}>{v}</option>)}</select></div>
             <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Base URL</label><Input className="mt-1 h-8 text-xs" value={selected.baseUrl} onChange={e=>dispatch({type:"UPDATE_PROVIDER",id:selected.id,patch:{baseUrl:e.target.value}})} /></div>
           </div>
-          {/* API Key */}
+          {/* Bug #1 修复：API Key 显示/隐藏/覆盖 */}
           <div><label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">API Key</label>
             <div className="mt-1 flex items-center gap-2">
-              {isTokenMasked ? (
-                <Input className="h-8 flex-1 text-xs font-mono text-muted-foreground" value="已保存（脱敏，不可查看）" readOnly />
+              {isTokenMasked && !overrideApiKey ? (
+                <>
+                  <Input className="h-8 flex-1 text-xs font-mono text-muted-foreground" value="••••••••（已保存）" readOnly />
+                  <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={()=>setOverrideApiKey(true)}>覆盖</Button>
+                </>
+              ) : (isTokenMasked && overrideApiKey) || (!isTokenMasked && !hasRealToken) ? (
+                <>
+                  <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
+                  {overrideApiKey && <Button variant="ghost" size="sm" className="h-7 text-[10px] shrink-0" onClick={()=>{setOverrideApiKey(false);setNewApiKey("");}}>取消</Button>}
+                </>
               ) : hasRealToken ? (<>
-                <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={authProfile?.apiKey||""} readOnly={!showApiKey} />
+                <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={authProfile?.apiKey||""} readOnly />
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
               </>) : (
-                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id};}} />
+                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
               )}
             </div>
+            {!hasAuthProfile && <div className="mt-1 text-[10px] text-amber-400">此 Provider 尚未关联凭据，请先通过模板创建或手动添加</div>}
           </div>
           {/* 模型列表 */}
           <div>
@@ -168,37 +197,114 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
 }
 
 function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: React.Dispatch<SettingsAction> }) {
-  const agent = state.defaultAgent;
   const [resetMsg, setResetMsg] = React.useState<string|null>(null);
   const handleReset = async () => { try { const ipc = await getIpc(); const r = await ipc.resetOpenClawAgentPreset(true); setResetMsg(r.success?"已重置":r.error||"失败"); const dump = await ipc.dumpOpenClawConfig(); dispatch({type:"LOAD_SUCCESS",dump}); } catch(e:any) { setResetMsg(e.message); } };
 
+  // 模型下拉选项，从 providers 中的 models 生成
+  const modelOptions = React.useMemo(() => {
+    const out: { value: string; label: string }[] = [];
+    for (const p of state.providers) {
+      for (const m of p.models) {
+        if (m.id) { const value = `${p.id}/${m.id}`; out.push({ value, label: value }); }
+      }
+    }
+    return out;
+  }, [state.providers]);
+
+  // 与 openClaw 完全一致的枚举值
+  const THINKING_OPTIONS = ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"];
+  const REASONING_OPTIONS = ["off", "on", "stream"];
+  const VERBOSE_OPTIONS = ["off", "on", "full"];
+  const TOOL_DETAIL_OPTIONS = ["explain", "raw"];
+
+  // agent 预设列表
+  const agentPresets = (state as any).agentPresets as any[] || [];
+
   return (
-    <div className={`max-w-lg ${GLASS} p-4 space-y-4`}>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Agent 默认设置（agents.defaults）</div>
-      <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 text-xs text-muted-foreground">
-        配置来源: openclaw.json → agents.defaults。安装时自动写入 Artifex Nexus 预设。
-      </div>
-      {/* 人格信息 */}
-      {agent.systemPromptOverride && (
-        <div>
-          <label className="text-[10px] text-muted-foreground">系统提示词 (systemPromptOverride)</label>
-          <textarea className="mt-1 h-24 w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30"
-            value={agent.systemPromptOverride}
-            onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { systemPromptOverride: e.target.value } })} />
+    <div className="max-w-2xl space-y-4">
+      {/* Agent 预设列表 — 可编辑 */}
+      {agentPresets.length > 0 ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">已注册 Agent（{agentPresets.length}）</span>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={handleReset}>重置为默认</Button>
+            {resetMsg&&<span className="text-[10px] text-muted-foreground">{resetMsg}</span>}
+          </div>
+          <div className="text-[10px] text-muted-foreground/70 leading-relaxed">
+            数据来源: openclaw.json → agents.list。Skills 是 OpenClaw 的 Skill 系统（非 MCP tool），"run_python" 是 Artifex Nexus 通过 MCP Bridge 暴露的 DCC 执行能力。
+          </div>
+          {agentPresets.map((preset: any) => (
+            <div key={preset.id} className={`${GLASS} p-4 space-y-3`}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground">{preset.name || preset.id}</span>
+                {preset.isDefault && <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[9px] text-emerald-400">默认</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-muted-foreground">名称</label>
+                  <Input className="mt-1 h-8 text-xs" value={preset.name||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{name:e.target.value}})} />
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground">ID（只读）</label>
+                  <Input className="mt-1 h-8 text-xs text-muted-foreground" value={preset.id} disabled />
+                </div>
+              </div>
+              {/* 模型选择（从 agents.list 暂不支持 per-agent model，但预留位置） */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Thinking</label>
+                  <select className={SEL} value={preset.thinkingDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{thinkingDefault:e.target.value}})}>
+                    <option value="">未设置（继承 defaults）</option>
+                    {THINKING_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Reasoning</label>
+                  <select className={SEL} value={preset.reasoningDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{reasoningDefault:e.target.value}})}>
+                    <option value="">未设置（继承 defaults）</option>
+                    {REASONING_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Verbose</label>
+                  <select className={SEL} value={preset.verboseDefault||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{verboseDefault:e.target.value}})}>
+                    <option value="">未设置（继承 defaults）</option>
+                    {VERBOSE_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Tool Progress Detail</label>
+                  <select className={SEL} value={preset.toolProgressDetail||""} onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{toolProgressDetail:e.target.value}})}>
+                    <option value="">未设置</option>
+                    {TOOL_DETAIL_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+                {preset.skills?.length > 0 && <span>Skills: <code className="text-foreground/80">{preset.skills.join(", ")}</code></span>}
+                {preset.workspace && <span>Workspace: <code className="text-foreground/60 text-[10px]">{preset.workspace}</code></span>}
+              </div>
+              {/* 人格信息（systemPromptOverride）— 可编辑 */}
+              <div>
+                <label className="text-[10px] text-muted-foreground">系统提示词（人格信息） · {(preset.systemPromptOverride||"").length} 字符</label>
+                <textarea
+                  className="mt-1 h-40 w-full resize-y rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2 text-[11px] leading-relaxed text-foreground backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30 font-mono"
+                  value={preset.systemPromptOverride||""}
+                  placeholder="输入 agent 的系统提示词..."
+                  onChange={e=>dispatch({type:"UPDATE_AGENT_PRESET",agentId:preset.id,patch:{systemPromptOverride:e.target.value}})}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={`${GLASS} p-6 text-center`}>
+          <p className="text-xs text-muted-foreground mb-3">暂无已注册的 Agent 预设</p>
+          <Button variant="outline" size="sm" className="h-7 text-xs rounded-full" onClick={handleReset}>安装默认预设</Button>
+          {resetMsg&&<p className="mt-2 text-[10px] text-muted-foreground">{resetMsg}</p>}
         </div>
       )}
-      {!agent.systemPromptOverride && (
-        <div className="rounded-lg border border-dashed border-white/[0.08] p-3 text-xs text-muted-foreground">
-          未检测到 systemPromptOverride（人格信息）。请通过安装向导安装 Artifex Nexus Agent 预设。
-        </div>
-      )}
-      <div><label className="text-[10px] text-muted-foreground">默认模型 (model)</label><Input className="mt-1 h-8 text-xs" value={agent.defaultModel} placeholder="如: openai/gpt-4o" onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{defaultModel:e.target.value}})} /></div>
-      <div><label className="text-[10px] text-muted-foreground">图像模型 (imageModel)</label><Input className="mt-1 h-8 text-xs" value={agent.imageModel} placeholder="如: openai/dall-e-3" onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{imageModel:e.target.value}})} /></div>
-      <div className="grid grid-cols-2 gap-4">
-        <div><label className="text-[10px] text-muted-foreground">Thinking (thinkingDefault)</label><select className={SEL} value={agent.thinkingDefault||"adaptive"} onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{thinkingDefault:e.target.value}})}><option value="adaptive">adaptive（自适应）</option><option value="on">on（开启）</option><option value="off">off（关闭）</option></select></div>
-        <div><label className="text-[10px] text-muted-foreground">Reasoning (reasoningDefault)</label><select className={SEL} value={agent.reasoningDefault||"on"} onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{reasoningDefault:e.target.value}})}><option value="on">on（开启）</option><option value="off">off（关闭）</option></select></div>
-      </div>
-      <div className="flex gap-2"><Button variant="outline" size="sm" className="h-7 text-xs rounded-full" onClick={handleReset}>重置为默认</Button>{resetMsg&&<span className="text-[10px] text-muted-foreground self-center">{resetMsg}</span>}</div>
     </div>
   );
 }

@@ -93,6 +93,8 @@ class ConfigDump:
     """``auth.order`` 节点（dict of provider_id → [profile_id, ...]）。"""
     agent_defaults: dict
     """``agents.defaults`` 节点（含 model / imageModel 等）。"""
+    agent_list: list = field(default_factory=list)
+    """``agents.list`` 节点（agent 预设数组，含 id / name / thinkingDefault 等）。"""
     extras: dict = field(default_factory=dict)
     """wrapper 自维护的字段（``providerExtras`` / ``authExtras`` / ``modelExtras``）。"""
 
@@ -102,6 +104,7 @@ class ConfigDump:
             "authProfiles": self.auth_profiles,
             "authOrder": self.auth_order,
             "agentDefaults": self.agent_defaults,
+            "agentList": self.agent_list,
             "extras": self.extras,
         }
 
@@ -386,6 +389,35 @@ ConfigPatchFn = Callable[[Path, Path, dict], tuple]
 # ---------------------------------------------------------------------------
 
 
+def _merge_stored_tokens(openclaw_home: Path, auth_profiles: dict) -> None:
+    """合并 auth-profiles.json 中的 token 到 auth_profiles dict 中。
+
+    上游 v2026.5.4 把凭证存到 state/agents/*/agent/auth-profiles.json，
+    openclaw.json 的 auth.profiles 只有元数据。本函数在 dump 前合并 token 字段，
+    使前端能看到"已保存（脱敏）"状态。
+
+    注意：token 会在后续 mask_secrets() 中被脱敏，这里只做合并，不做脱敏。
+    """
+    if not isinstance(auth_profiles, dict):
+        return
+    import glob
+    pattern = str(openclaw_home / "state" / "agents" / "*" / "agent" / "auth-profiles.json")
+    for filepath in glob.glob(pattern):
+        try:
+            data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+            stored_profiles = data.get("profiles", {})
+            for profile_id, stored in stored_profiles.items():
+                if not isinstance(stored, dict):
+                    continue
+                token_val = stored.get("token", "")
+                if token_val and profile_id in auth_profiles:
+                    # 合并 token 到对应的 auth profile 中
+                    if isinstance(auth_profiles[profile_id], dict):
+                        auth_profiles[profile_id]["token"] = token_val
+        except (OSError, json.JSONDecodeError, KeyError):
+            continue
+
+
 def dump_config(
     openclaw_bin: Path,
     openclaw_home: Path,
@@ -424,6 +456,7 @@ def dump_config(
         auth_profiles = root.get("auth", {}).get("profiles", {})
         auth_order = root.get("auth", {}).get("order", {})
         agent_defaults = root.get("agents", {}).get("defaults", {})
+        agent_list = root.get("agents", {}).get("list", [])
     else:
         # fallback：4 次 CLI spawn（慢但可靠）
         getter: ConfigGetFn = config_get_fn or _run_config_get
@@ -431,6 +464,13 @@ def dump_config(
         auth_profiles = getter(openclaw_bin, home, "auth.profiles") or {}
         auth_order = getter(openclaw_bin, home, "auth.order") or {}
         agent_defaults = getter(openclaw_bin, home, "agents.defaults") or {}
+        agent_list = getter(openclaw_bin, home, "agents.list") or []
+
+    # Bug #1 修复：合并 auth-profiles.json 中的 token 到 auth_profiles
+    # 上游 v2026.5.4 把凭证单独存到 state/agents/*/agent/auth-profiles.json，
+    # openclaw.json 中的 auth.profiles 只有元数据（mode/provider），没有 token。
+    # 需要合并 token 字段（脱敏后），让前端能看到"已保存"状态。
+    _merge_stored_tokens(home, auth_profiles)
 
     extras = read_extras(home)
 
@@ -439,6 +479,7 @@ def dump_config(
         auth_profiles=mask_secrets(auth_profiles if isinstance(auth_profiles, dict) else {}),
         auth_order=auth_order if isinstance(auth_order, dict) else {},
         agent_defaults=agent_defaults if isinstance(agent_defaults, dict) else {},
+        agent_list=agent_list if isinstance(agent_list, list) else [],
         extras=extras,
     )
 

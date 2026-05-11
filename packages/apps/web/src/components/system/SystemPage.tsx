@@ -153,7 +153,7 @@ function InstallerTab() {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "正在安装 Blender 插件...");
       try {
-        const bs = await ipc.invoke("openclaw_gateway_mcp_bridge_status");
+        const bs = await ipc.getMCPBridgeStatus();
         if (!bs?.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await ipc.invoke("openclaw_gateway_mcp_bridge_install"); }
         const r = await ipc.installBlenderAddon("5.1", false);
         if (r.success) { addLog(id, "info", "Blender 插件安装完成"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); }
@@ -247,20 +247,51 @@ function InstallerTab() {
 // ─── 运行状态摘要栏 ─────────────────────────────────────────────────────────
 
 function StatusBar() {
-  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; running: boolean}[]>([]);
+  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[]>([]);
   const [deploy, setDeploy] = React.useState<any>(null);
+  const [sidecarPort, setSidecarPort] = React.useState<number | null>(null);
 
   const refresh = async () => {
     try {
       const ipc = await getIpc();
       // DCC 状态
-      const items: {name: string; port: number | null; running: boolean}[] = [];
+      const items: {name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[] = [];
       try {
         const p = await ipc.getDCCPort("blender");
-        items.push({ name: "Blender", port: p.port, running: false });
-        try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors" }); items[0].running = true; } catch {}
-      } catch { items.push({ name: "Blender", port: null, running: false }); }
+        let mcpListening = false;
+        let gatewayConnected = false;
+
+        // Bug #6 修复：先检查 Gateway 是否在运行
+        let gatewayRunning = false;
+        try {
+          const ocStatus = await ipc.getOpenClawStatus();
+          gatewayRunning = ocStatus.gateway_running;
+        } catch {}
+
+        if (gatewayRunning) {
+          // Gateway 运行中：通过 mcp bridge status 检测真实连通性
+          try {
+            const bs = await ipc.getMCPBridgeStatus();
+            if (bs && bs.blenderConnected) {
+              gatewayConnected = true;
+              mcpListening = true;
+            } else {
+              // Gateway 运行但 bridge 没连上 → 检测 MCP Server 是否在监听
+              try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+            }
+          } catch {
+            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+          }
+        } else {
+          // Gateway 未运行：只探测 MCP Server 端口是否在监听
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        }
+
+        items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
+      } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
       setDccStatus(items);
+      // Sidecar 端口
+      try { const st = await ipc.getStatus(); setSidecarPort(st.port ?? 19789); } catch { setSidecarPort(19789); }
       // 部署校验
       const v = await ipc.validateDeployments();
       setDeploy(v);
@@ -274,8 +305,9 @@ function StatusBar() {
       <span className="text-muted-foreground">运行状态:</span>
       {dccStatus.map((d) => (
         <span key={d.name} className="flex items-center gap-1">
-          <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
-          {d.name} {d.port ? `端口 ${d.port}` : "未配置"} {d.running ? "· 已连接" : d.port ? "· MCP Server 已启动 · 等待 Gateway" : ""}
+          <span className={`h-1.5 w-1.5 rounded-full ${d.gatewayConnected ? "bg-emerald-400" : d.mcpListening ? "bg-amber-400" : d.port ? "bg-muted-foreground/40" : "bg-muted-foreground/40"}`} />
+          {d.name} {d.port ? `端口 ${d.port}` : "未配置"}
+          {d.gatewayConnected ? " · Gateway 已连接" : d.mcpListening ? " · MCP Server 监听中 · Gateway 未连接" : d.port ? " · 未启动" : ""}
         </span>
       ))}
       {deploy && (
@@ -283,9 +315,64 @@ function StatusBar() {
           · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.outdated ?? 0}🔄 {deploy.summary?.corrupted ?? 0}⚠️ {deploy.summary?.missing ?? 0}❌
         </span>
       )}
-      <span className="text-muted-foreground">· Sidecar 端口 19789</span>
+      <span className="text-muted-foreground">· Sidecar 端口 {sidecarPort ?? 19789}</span>
       <div className="flex-1" />
       <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={refresh}>刷新</Button>
+    </div>
+  );
+}
+
+// ─── LogView：日志渲染组件（自动滚底 + 限制条数保性能） ─────────────────────
+
+const MAX_LOG_LINES = 200;
+
+function LogView({ logs }: { logs: string[] }) {
+  const endRef = React.useRef<HTMLDivElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = React.useState(true);
+
+  // 自动滚动到底部
+  React.useEffect(() => {
+    if (autoScroll && endRef.current) {
+      endRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, autoScroll]);
+
+  // 检测用户是否手动滚动了（距底部 > 50px 时暂停自动滚动）
+  const handleScroll = React.useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    setAutoScroll(atBottom);
+  }, []);
+
+  // 只渲染最后 MAX_LOG_LINES 行（性能保护）
+  const visible = logs.length > MAX_LOG_LINES ? logs.slice(-MAX_LOG_LINES) : logs;
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto font-mono text-[10px] leading-[1.6]"
+      onScroll={handleScroll}
+    >
+      {visible.length === 0 ? (
+        <span className="text-muted-foreground">Gateway 未运行，暂无日志</span>
+      ) : (
+        visible.map((l, i) => (
+          <div key={i} className={`whitespace-pre-wrap break-all ${l.includes("ERROR") || l.includes("error") ? "text-red-400" : l.includes("WARN") || l.includes("warn") ? "text-amber-400" : "text-muted-foreground"}`}>
+            {l}
+          </div>
+        ))
+      )}
+      <div ref={endRef} />
+      {!autoScroll && visible.length > 0 && (
+        <button
+          className="sticky bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-primary/80 px-3 py-1 text-[9px] text-primary-foreground shadow-lg backdrop-blur-md"
+          onClick={() => { setAutoScroll(true); endRef.current?.scrollIntoView({ behavior: "smooth" }); }}
+        >
+          ↓ 跳至底部
+        </button>
+      )}
     </div>
   );
 }
@@ -307,10 +394,17 @@ function GatewayTab() {
       try {
         const ipc = await getIpc();
         const result = await ipc.tailGatewayLog({ n: 50 });
-        if (result?.entries) setLogs(result.entries.map((e: any) => {
-          const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
-          return `${time} ${e.level || ""} ${e.text || ""}`;
-        }));
+        if (result?.entries) {
+          const newLines = result.entries.map((e: any) => {
+            const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+            return `${time} ${e.level || ""} ${e.text || ""}`;
+          });
+          // 性能保护：只保留最新 500 条
+          setLogs(prev => {
+            const merged = [...prev, ...newLines];
+            return merged.length > 500 ? merged.slice(-500) : merged;
+          });
+        }
       } catch {}
     }, 1500);
     return () => clearInterval(timer);
@@ -346,8 +440,8 @@ function GatewayTab() {
           <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={async () => { const ipc = await getIpc(); try { await ipc.openOpenClawWebUi(); } catch {} }}>🌐 OpenClaw Web UI</button>
         </div>
       </div>
-      <div className={GLASS + " flex-1 overflow-y-auto p-4 font-mono text-[10px]"}>
-        {logs.length === 0 ? <span className="text-muted-foreground">Gateway 未运行，暂无日志</span> : logs.map((l, i) => <div key={i} className="text-muted-foreground">{l}</div>)}
+      <div className={GLASS + " flex-1 flex flex-col overflow-hidden p-4"}>
+        <LogView logs={logs} />
       </div>
     </div>
   );
@@ -358,7 +452,7 @@ function GatewayTab() {
 function StatusTab() {
   const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
   const [checking, setChecking] = React.useState(false);
-  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; running: boolean}[]>([]);
+  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[]>([]);
 
   const runDeployCheck = async () => {
     setChecking(true);
@@ -368,16 +462,37 @@ function StatusTab() {
   const refreshDCC = async () => {
     try {
       const ipc = await getIpc();
-      const items: {name: string; port: number | null; running: boolean}[] = [];
+      const items: {name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[] = [];
+      // 先检查 Gateway 是否在运行
+      let gatewayRunning = false;
+      try {
+        const ocStatus = await ipc.getOpenClawStatus();
+        gatewayRunning = ocStatus.gateway_running;
+      } catch {}
       // Blender
       try {
         const p = await ipc.getDCCPort("blender");
-        // 通过检查 mcp-bridge 插件状态来判断 MCP Server 是否连接
-        // 注意：不能用 fetch no-cors（总是返回成功）
-        items.push({ name: "Blender", port: p.port, running: false });
-        // 尝试 WebSocket 连接检测（通过 sidecar 的 gateway status 中是否有 blender-editor）
-        // 简化：如果端口已配置，标记为"待连接"
-      } catch { items.push({ name: "Blender", port: null, running: false }); }
+        let mcpListening = false;
+        let gatewayConnected = false;
+        if (gatewayRunning) {
+          // Bug #6：Gateway 运行中时才检测 bridge 真实连通性
+          try {
+            const bs = await ipc.getMCPBridgeStatus();
+            if (bs && bs.blenderConnected) {
+              gatewayConnected = true;
+              mcpListening = true;
+            } else {
+              try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+            }
+          } catch {
+            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+          }
+        } else {
+          // Gateway 未运行：只探测端口
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        }
+        items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
+      } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
       setDccStatus(items);
     } catch {}
   };
@@ -400,10 +515,10 @@ function StatusTab() {
           {dccStatus.length === 0 && <div className="text-muted-foreground">点击刷新检测</div>}
           {dccStatus.map((d) => (
             <div key={d.name} className="flex items-center gap-2">
-              <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${d.gatewayConnected ? "bg-emerald-400" : d.mcpListening ? "bg-amber-400" : d.port ? "bg-muted-foreground/40" : "bg-muted-foreground/40"}`} />
               <span>{d.name}</span>
               <span className="text-muted-foreground">
-                {d.running ? `MCP Server 运行中 · ws://127.0.0.1:${d.port}` : d.port ? `端口已配置(${d.port}) · MCP Server 未启动` : "未配置"}
+                {d.gatewayConnected ? `Gateway 已连接 · ws://127.0.0.1:${d.port}` : d.mcpListening ? `MCP Server 监听中(${d.port}) · Gateway 未连接` : d.port ? `端口已配置(${d.port}) · MCP Server 未启动` : "未配置"}
               </span>
             </div>
           ))}

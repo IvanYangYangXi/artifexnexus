@@ -217,6 +217,27 @@ function InstallItemRow({ item }: InstallItemRowProps) {
             `检测到 ${result.versions.length} 个 ${item.name} 版本（已装插件: ${installedCount}）`,
           );
 
+          // Bug #6：Blender 行额外检测 MCP 连通性
+          if (item.id === "blender" && hasInstalled) {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const bridgeStatus = await invoke<{
+                installed: boolean;
+                blenderConnected: boolean;
+                blenderAddress: string;
+                blenderError: string | null;
+              }>("openclaw_gateway_mcp_bridge_status");
+              if (bridgeStatus.blenderConnected) {
+                addLog(item.id, "info", `✅ Blender MCP 连接正常 (${bridgeStatus.blenderAddress})`);
+              } else {
+                const reason = bridgeStatus.blenderError || "Blender 未启动或插件未启用";
+                addLog(item.id, "warn", `⚠ Blender MCP 未连接: ${reason}`);
+              }
+            } catch (e) {
+              addLog(item.id, "warn", `MCP 连通性检测失败: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+
           // STORY-0030：追加部署文件校验
           try {
             const validation = await validateDeployments();

@@ -304,3 +304,33 @@ def call_blender_run_python(code: str, get_context: bool = False,
         arguments["code"] = code
 
     return client.call_tool("run_python", arguments, timeout=timeout)
+
+
+def check_blender_mcp_connection(timeout: float = 3.0) -> Dict[str, Any]:
+    """检测 Blender MCP Server 连通性（轻量级 ping）。
+
+    Check Blender MCP Server connectivity by attempting a WebSocket connection.
+    不会调用任何工具，仅检测 WebSocket 是否可达。
+
+    Returns:
+        {"connected": bool, "address": str, "error": str | None}
+    """
+    client = MCPBridgeClient.get_instance()
+    address = client.server_address
+
+    # 先断开旧连接，确保是新鲜的检测
+    if client.is_connected:
+        return {"connected": True, "address": address, "error": None}
+
+    # 尝试连接（timeout 较短，仅探测）
+    success = client.connect(timeout=timeout)
+    if success:
+        # 连接成功后断开（检测不应保持连接）
+        client.disconnect()
+        return {"connected": True, "address": address, "error": None}
+    else:
+        return {
+            "connected": False,
+            "address": address,
+            "error": f"无法连接到 Blender MCP Server ({address})。请确认 Blender 已启动且 Artifex Nexus 插件已启用。",
+        }

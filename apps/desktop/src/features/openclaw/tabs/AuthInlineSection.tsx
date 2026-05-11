@@ -127,6 +127,9 @@ interface InlineAuthFormProps {
 }
 
 function InlineAuthForm({ profile, ownCount, dispatch, advancedMode = false }: InlineAuthFormProps) {
+  // Bug #1：添加 API Key 明文/密文切换
+  const [showApiKey, setShowApiKey] = useState(false);
+
   const handleDelete = () => {
     if (ownCount === 1) {
       const ok = window.confirm(zh.inlineAuthLastWarn);
@@ -162,34 +165,46 @@ function InlineAuthForm({ profile, ownCount, dispatch, advancedMode = false }: I
 
       <div className={styles.formRow}>
         <label className={styles.formLabel}>{zh.fieldApiKey}</label>
-        <input
-          className={styles.formInput}
-          type="password"
-          autoComplete="off"
-          value={profile.apiKey}
-          placeholder={
-            isMaskedApiKey(profile.apiKey)
-              ? zh.apiKeyMaskedHint
-              : zh.apiKeyPlaceholder
-          }
-          onFocus={(e) => {
-            if (isMaskedApiKey(profile.apiKey)) {
+        <div style={{ display: "flex", gap: 4, flex: 1 }}>
+          <input
+            className={styles.formInput}
+            type={showApiKey ? "text" : "password"}
+            autoComplete="off"
+            value={profile.apiKey}
+            placeholder={
+              isMaskedApiKey(profile.apiKey)
+                ? zh.apiKeyMaskedHint
+                : zh.apiKeyPlaceholder
+            }
+            onFocus={(e) => {
+              if (isMaskedApiKey(profile.apiKey)) {
+                dispatch({
+                  type: "UPDATE_AUTH_PROFILE",
+                  id: profile.id,
+                  patch: { apiKey: "" },
+                });
+                e.currentTarget.value = "";
+              }
+            }}
+            onChange={(e) =>
               dispatch({
                 type: "UPDATE_AUTH_PROFILE",
                 id: profile.id,
-                patch: { apiKey: "" },
-              });
-              e.currentTarget.value = "";
+                patch: { apiKey: e.target.value },
+              })
             }
-          }}
-          onChange={(e) =>
-            dispatch({
-              type: "UPDATE_AUTH_PROFILE",
-              id: profile.id,
-              patch: { apiKey: e.target.value },
-            })
-          }
-        />
+            style={{ flex: 1 }}
+          />
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={() => setShowApiKey((v) => !v)}
+            title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+            style={{ minWidth: 32, padding: "0 6px", fontSize: 14 }}
+          >
+            {showApiKey ? "🙈" : "👁"}
+          </button>
+        </div>
       </div>
 
       {advancedMode && (

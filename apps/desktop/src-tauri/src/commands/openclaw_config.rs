@@ -21,6 +21,8 @@ pub struct OpenClawConfigDumpResponse {
     pub auth_order: Value,
     #[serde(rename = "agentDefaults")]
     pub agent_defaults: Value,
+    #[serde(rename = "agentList")]
+    pub agent_list: Value,
     pub extras: Value,
 }
 
@@ -73,6 +75,7 @@ pub async fn openclaw_config_dump(
         auth_profiles: result.get("authProfiles").cloned().unwrap_or_else(|| json!({})),
         auth_order: result.get("authOrder").cloned().unwrap_or_else(|| json!({})),
         agent_defaults: result.get("agentDefaults").cloned().unwrap_or_else(|| json!({})),
+        agent_list: result.get("agentList").cloned().unwrap_or_else(|| json!([])),
         extras: result.get("extras").cloned().unwrap_or_else(|| json!({})),
     })
 }
@@ -193,21 +196,28 @@ pub struct FetchRemoteModelsResponse {
 /// STORY-0019：前端"获取模型列表"按钮的后端。透传到 sidecar 的
 /// `openclaw.models.fetch_remote`，由 wrapper 直接 HTTP GET `{baseUrl}/models`。
 /// 对于不支持该端点的 provider（如返回 404/403），graceful 返回错误信息。
+///
+/// Bug #2 修复：新增 `provider_id` 参数。当 token 为空或脱敏占位时，
+/// sidecar 会自动从 auth-profiles.json 中读取已保存的真实 token。
 #[tauri::command]
 pub async fn openclaw_models_fetch_remote(
     sidecar: State<'_, SidecarState>,
     base_url: String,
     token: String,
+    provider_id: Option<String>,
 ) -> Result<FetchRemoteModelsResponse, String> {
     let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
     if !manager.is_running() {
         manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
     }
 
-    let params = json!({
+    let mut params = json!({
         "baseUrl": base_url,
         "token": token,
     });
+    if let Some(pid) = provider_id {
+        params["providerId"] = json!(pid);
+    }
     let result = manager.call("openclaw.models.fetch_remote", params)?;
 
     let models_raw = result["models"].as_array();

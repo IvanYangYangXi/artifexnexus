@@ -390,15 +390,20 @@ export interface FetchRemoteModelsResult {
  * 对于不支持该端点的 provider（如网易 CodeMaker，返回 404），
  * 会 graceful 返回 `{success: false, error: "..."}` 而不是 throw。
  *
+ * Bug #2 修复：新增 providerId 参数。当 token 为空或脱敏占位时，
+ * sidecar 会自动从 auth-profiles.json 中读取已保存的真实 token。
+ *
  * 调用前提：provider 的 baseUrl 和 token 已保存（需要先保存一次）。
  */
 export async function fetchRemoteModels(args: {
   baseUrl: string;
   token: string;
+  providerId?: string;
 }): Promise<FetchRemoteModelsResult> {
   return invoke<FetchRemoteModelsResult>("openclaw_models_fetch_remote", {
     baseUrl: args.baseUrl,
     token: args.token,
+    providerId: args.providerId ?? null,
   });
 }
 
@@ -533,3 +538,36 @@ export interface DeployValidationResult {
 export async function validateDeployments(): Promise<DeployValidationResult> {
   return invoke<DeployValidationResult>("openclaw_deploy_validate");
 }
+
+// ── Sidecar 状态 ───────────────────────────────────────────────────────────
+
+/** sidecar 运行状态（对齐 apps/desktop/src/ipc/status.ts） */
+export interface StatusResponse {
+  sidecar_running: boolean;
+  port: number;
+  openclaw_home: string;
+}
+
+/** 查询 sidecar 运行状态 */
+export async function getStatus(): Promise<StatusResponse> {
+  return invoke<StatusResponse>("sidecar_status");
+}
+
+// ── MCP Bridge 状态 ────────────────────────────────────────────────────────
+
+/** MCP Bridge 状态（含 Blender 连通性） */
+export interface MCPBridgeStatus {
+  installed: boolean;
+  blenderConnected: boolean;
+  blenderAddress: string;
+  blenderError: string | null;
+}
+
+/** 查询 MCP Bridge 插件部署及 Blender 连通性状态 */
+export async function getMCPBridgeStatus(): Promise<MCPBridgeStatus> {
+  return invoke<MCPBridgeStatus>("openclaw_gateway_mcp_bridge_status");
+}
+
+// ── 通用 invoke（仅新 UI 用于少数未封装的命令） ────────────────────────────
+
+export { invoke };

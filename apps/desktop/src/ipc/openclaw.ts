@@ -59,6 +59,8 @@ export interface OpenClawConfigDump {
   authOrder: Record<string, string[]>;
   /** agents.defaults 节点（含 model / imageModel / thinkingDefault 等） */
   agentDefaults: Record<string, unknown>;
+  /** agents.list 节点（agent 预设数组，含 id / name / thinkingDefault 等） */
+  agentList: Record<string, unknown>[];
   /** wrapper extras：providerExtras / authExtras / modelExtras */
   extras: Record<string, unknown>;
 }
@@ -386,15 +388,20 @@ export interface FetchRemoteModelsResult {
  * 对于不支持该端点的 provider（如网易 CodeMaker，返回 404），
  * 会 graceful 返回 `{success: false, error: "..."}` 而不是 throw。
  *
+ * Bug #2 修复：新增 providerId 参数。当 token 为空或脱敏占位时，
+ * sidecar 会自动从 auth-profiles.json 中读取已保存的真实 token。
+ *
  * 调用前提：provider 的 baseUrl 和 token 已保存（需要先保存一次）。
  */
 export async function fetchRemoteModels(args: {
   baseUrl: string;
   token: string;
+  providerId?: string;
 }): Promise<FetchRemoteModelsResult> {
   return invoke<FetchRemoteModelsResult>("openclaw_models_fetch_remote", {
     baseUrl: args.baseUrl,
     token: args.token,
+    providerId: args.providerId ?? null,
   });
 }
 

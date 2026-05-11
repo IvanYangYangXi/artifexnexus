@@ -5,6 +5,7 @@
 import type {
   AuthMode,
   AuthProfileForm,
+  AgentPresetForm,
   DefaultAgentForm,
   ModelEntry,
   Protocol,
@@ -37,6 +38,8 @@ export interface SettingsState {
   authProfiles: AuthProfileForm[];
   /** Default agent 单一表单 */
   defaultAgent: DefaultAgentForm;
+  /** Agent 预设列表（来自 agents.list，如 artifex-nexus） */
+  agentPresets: AgentPresetForm[];
 
   /** 当前选中的 provider id（providers tab 用） */
   selectedProviderId: string | null;
@@ -111,6 +114,7 @@ export function createInitialState(): SettingsState {
     providers: [],
     authProfiles: [],
     defaultAgent: { ...INITIAL_DEFAULT_AGENT },
+    agentPresets: [],
     selectedProviderId: null,
     selectedAuthId: null,
     dirty: false,
@@ -162,6 +166,7 @@ export function dumpToState(dump: OpenClawConfigDump): {
   providers: ProviderForm[];
   authProfiles: AuthProfileForm[];
   defaultAgent: DefaultAgentForm;
+  agentPresets: AgentPresetForm[];
 } {
   const providerExtras = asObject(asObject(dump.extras).providerExtras);
   const authExtras = asObject(asObject(dump.extras).authExtras);
@@ -246,7 +251,23 @@ export function dumpToState(dump: OpenClawConfigDump): {
     reasoningDefault: asString(ad.reasoningDefault, "on"),
   };
 
-  return { providers, authProfiles, defaultAgent };
+  // Bug #5：解析 agents.list 中的预设 agent
+  const agentPresets: AgentPresetForm[] = asArray(dump.agentList ?? []).map((raw) => {
+    const obj = asObject(raw);
+    return {
+      id: asString(obj.id),
+      name: asString(obj.name),
+      isDefault: obj.default === true,
+      reasoningDefault: asString(obj.reasoningDefault),
+      thinkingDefault: asString(obj.thinkingDefault),
+      verboseDefault: asString(obj.verboseDefault),
+      toolProgressDetail: asString(obj.toolProgressDetail),
+      workspace: asString(obj.workspace),
+      skills: asArray(obj.skills).map((s) => asString(s)),
+    };
+  });
+
+  return { providers, authProfiles, defaultAgent, agentPresets };
 }
 
 // ---------------------------------------------------------------------------
@@ -510,13 +531,14 @@ export function settingsReducer(
       return { ...createInitialState(), load: { kind: "loading" } };
 
     case "LOAD_SUCCESS": {
-      const { providers, authProfiles, defaultAgent } = dumpToState(action.dump);
+      const { providers, authProfiles, defaultAgent, agentPresets } = dumpToState(action.dump);
       return {
         ...createInitialState(),
         load: { kind: "ready" },
         providers,
         authProfiles,
         defaultAgent,
+        agentPresets,
         selectedProviderId: providers[0]?.id ?? null,
         selectedAuthId: authProfiles[0]?.id ?? null,
       };

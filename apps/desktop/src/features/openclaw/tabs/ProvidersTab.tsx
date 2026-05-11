@@ -92,7 +92,7 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
 
   const handleFetchModels = useCallback(() => {
     if (!selected) return;
-    // 需要 baseUrl + 关联的 auth profile 里的 apiKey
+    // 需要 baseUrl
     if (!selected.baseUrl) {
       setFetchError("请先填写 baseUrl");
       return;
@@ -101,9 +101,12 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
     const profile = state.authProfiles.find(
       (a) => a.id === selected.authProfileId,
     );
-    const token = profile?.apiKey;
-    if (!token || /^\*+$/.test(token)) {
-      setFetchError("请先保存 API Key（凭据未找到或为脱敏占位）");
+    const token = profile?.apiKey || "";
+    // Bug #2 修复：即使 token 为空或脱敏占位，也可以尝试获取模型列表，
+    // sidecar 会自动从 auth-profiles.json 中读取已保存的真实 token。
+    // 仅当完全没有凭据时才报错（无 auth profile 关联且无 token）
+    if (!profile && !token) {
+      setFetchError("请先关联凭据（创建 Auth Profile 并输入 API Key）");
       return;
     }
 
@@ -115,6 +118,7 @@ export default function ProvidersTab({ state, dispatch, advancedMode = false }: 
         const r = await fetchRemoteModels({
           baseUrl: selected.baseUrl,
           token,
+          providerId: selected.id,
         });
         if (r.success && r.models && r.models.length > 0) {
           setRemoteModels(r.models);

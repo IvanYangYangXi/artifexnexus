@@ -22,7 +22,7 @@ import json
 import signal
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # 支持直接执行和包内导入两种方式
 try:
@@ -604,6 +604,7 @@ def _handle_openclaw_models_fetch_remote(req_id: Any, params: dict) -> dict:
     参数：
         baseUrl (str, 必填): provider 的 baseUrl（如 https://api.deepseek.com/v1）
         token (str, 必填): API key / bearer token
+        providerId (str, 可选): 若传入且 token 为空，自动从 auth-profiles.json 读取
         timeout (float, 可选): HTTP 超时秒数，默认 10
 
     返回：
@@ -611,7 +612,15 @@ def _handle_openclaw_models_fetch_remote(req_id: Any, params: dict) -> dict:
     """
     base_url = params.get("baseUrl", "")
     token = params.get("token", "")
+    provider_id = params.get("providerId", "")
     timeout = float(params.get("timeout", _config_io.FETCH_MODELS_TIMEOUT))
+
+    # Bug #2 修复：如果前端传来的 token 为空或者是脱敏占位，
+    # 尝试从 auth-profiles.json 中读取已保存的真实 token
+    if (not token or _config_io.is_masked_value(token)) and provider_id:
+        resolved_token = _resolve_stored_token(provider_id)
+        if resolved_token:
+            token = resolved_token
 
     try:
         result = _config_io.fetch_remote_models(
@@ -628,6 +637,31 @@ def _handle_openclaw_models_fetch_remote(req_id: Any, params: dict) -> dict:
             "id": req_id,
             "error": {"code": -32000, "message": str(e)},
         }
+
+
+def _resolve_stored_token(provider_id: str) -> Optional[str]:
+    """从 auth-profiles.json 中读取指定 provider 的已保存 token。
+
+    Read stored token from auth-profiles.json for a given provider.
+    查找路径：state/agents/*/agent/auth-profiles.json
+    """
+    import glob
+    openclaw_home = _get_openclaw_home()
+    pattern = str(openclaw_home / "state" / "agents" / "*" / "agent" / "auth-profiles.json")
+    for filepath in glob.glob(pattern):
+        try:
+            data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+            profiles = data.get("profiles", {})
+            for _pid, profile in profiles.items():
+                if not isinstance(profile, dict):
+                    continue
+                if profile.get("provider") == provider_id:
+                    token_val = profile.get("token", "")
+                    if token_val and not _config_io.is_masked_value(token_val):
+                        return token_val
+        except (OSError, json.JSONDecodeError, KeyError):
+            continue
+    return None
 
 
 def _handle_openclaw_mcp_blender_run_python(req_id: Any, params: dict) -> dict:
@@ -812,17 +846,53 @@ def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> di
 
 
 def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dict:
-    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态。
+    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender MCP 连通性。
 
     返回：
-        {"installed": bool}
+        {"installed": bool, "blenderConnected": bool, "blenderAddress": str, "blenderError": str | None}
+
+    blenderConnected 的判断逻辑：
+    - 先检查 Gateway 是否运行中
+    - 如果 Gateway 没运行，blenderConnected 一定为 false
+    - 如果 Gateway 运行中，尝试通过 WebSocket 探测 Blender MCP Server 是否可达
     """
     try:
         installed = _dcc_installer.is_gateway_mcp_bridge_installed()
+        blender_status = {"connected": False, "address": "", "error": None}
+        if installed:
+            # Bug #6 修复：先检查 Gateway 是否运行
+            gateway_running = False
+            try:
+                gateway_running = _runtime.is_running()
+            except Exception:
+                pass
+
+            if gateway_running:
+                # Gateway 运行中：检测 Blender MCP Server 是否可达
+                try:
+                    blender_status = _mcp_bridge.check_blender_mcp_connection(timeout=3.0)
+                except Exception as e:
+                    blender_status = {
+                        "connected": False,
+                        "address": "",
+                        "error": str(e),
+                    }
+            else:
+                # Gateway 未运行：blenderConnected = False，附带提示
+                blender_status = {
+                    "connected": False,
+                    "address": _mcp_bridge.MCPBridgeClient.get_instance().server_address,
+                    "error": "Gateway 未运行，无法检测 MCP Bridge 连通性",
+                }
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "result": {"installed": installed},
+            "result": {
+                "installed": installed,
+                "blenderConnected": blender_status.get("connected", False),
+                "blenderAddress": blender_status.get("address", ""),
+                "blenderError": blender_status.get("error"),
+            },
         }
     except Exception as e:
         return {

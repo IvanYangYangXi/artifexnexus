@@ -44,12 +44,41 @@ export default function DefaultAgentTab({ state, dispatch }: Props) {
     return out;
   }, [state.providers]);
 
+  // Bug #3 修复：如果当前选中的模型不在 options 中但非空，也要作为选项保留
+  // （可能是从 openclaw.json 读回的旧值，provider 列表中已无对应条目）
+  const ensureOption = (currentValue: string, options: typeof modelOptions) => {
+    if (currentValue && !options.some((o) => o.value === currentValue)) {
+      return [{ value: currentValue, label: `${currentValue} (未找到)` }, ...options];
+    }
+    return options;
+  };
+
+  const defaultModelOptions = ensureOption(ad.defaultModel, modelOptions);
+  const imageModelOptions = ensureOption(ad.imageModel, modelOptions);
+  const imageGenModelOptions = ensureOption(ad.imageGenerationModel, modelOptions);
+
   return (
     <div className={styles.detail} style={{ width: "100%" }}>
       <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 16 }}>
         Artifex Nexus 默认 agent（来自 STORY-0017）会自动消费此处的"主模型"——
         在这里切，preset 自动跟随。
       </p>
+
+      {modelOptions.length === 0 && (
+        <div
+          style={{
+            background: "#fef3c7",
+            border: "1px solid #f59e0b",
+            borderRadius: 4,
+            padding: "8px 12px",
+            fontSize: 12,
+            marginBottom: 12,
+            color: "#92400e",
+          }}
+        >
+          ⚠ 尚未配置模型。请先在"供应商"标签页添加 Provider 和模型，然后回到此处选择默认模型。
+        </div>
+      )}
 
       <div className={styles.formRow}>
         <label className={styles.formLabel}>{zh.fieldDefaultModel}</label>
@@ -64,7 +93,7 @@ export default function DefaultAgentTab({ state, dispatch }: Props) {
           }
         >
           <option value="">{zh.modelPickerPlaceholder}</option>
-          {modelOptions.map((o) => (
+          {defaultModelOptions.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -85,7 +114,7 @@ export default function DefaultAgentTab({ state, dispatch }: Props) {
           }
         >
           <option value="">{zh.modelPickerPlaceholder}</option>
-          {modelOptions.map((o) => (
+          {imageModelOptions.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -106,7 +135,7 @@ export default function DefaultAgentTab({ state, dispatch }: Props) {
           }
         >
           <option value="">{zh.modelPickerPlaceholder}</option>
-          {modelOptions.map((o) => (
+          {imageGenModelOptions.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -153,6 +182,74 @@ export default function DefaultAgentTab({ state, dispatch }: Props) {
           ))}
         </select>
       </div>
+
+      {/* Bug #5：展示 agents.list 中的预设 agent */}
+      {state.agentPresets.length > 0 && (
+        <fieldset
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 6,
+            padding: "8px 12px",
+            margin: "16px 0 8px",
+          }}
+        >
+          <legend style={{ fontSize: 12, color: "#374151", padding: "0 6px" }}>
+            已注册 Agent 预设（{state.agentPresets.length}）
+          </legend>
+          {state.agentPresets.map((agent) => (
+            <div
+              key={agent.id}
+              style={{
+                border: "1px solid #f3f4f6",
+                borderRadius: 4,
+                padding: "8px 12px",
+                marginBottom: 8,
+                background: agent.isDefault ? "#f0fdf4" : "#fafafa",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontWeight: 600, fontSize: 13 }}>
+                  {agent.name || agent.id}
+                </span>
+                {agent.isDefault && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      background: "#16a34a",
+                      color: "#fff",
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                    }}
+                  >
+                    默认
+                  </span>
+                )}
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                  ID: {agent.id}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#4b5563", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+                <span>Thinking: <strong>{agent.thinkingDefault || "—"}</strong></span>
+                <span>Reasoning: <strong>{agent.reasoningDefault || "—"}</strong></span>
+                <span>Verbose: <strong>{agent.verboseDefault || "—"}</strong></span>
+                <span>Tool Detail: <strong>{agent.toolProgressDetail || "—"}</strong></span>
+                {agent.skills.length > 0 && (
+                  <span style={{ gridColumn: "1 / -1" }}>
+                    Skills: <strong>{agent.skills.join(", ")}</strong>
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </fieldset>
+      )}
     </div>
   );
 }

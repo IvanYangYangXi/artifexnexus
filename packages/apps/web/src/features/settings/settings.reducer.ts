@@ -37,6 +37,8 @@ export interface SettingsState {
   authProfiles: AuthProfileForm[];
   /** Default agent 单一表单 */
   defaultAgent: DefaultAgentForm;
+  /** Agent 预设列表（来自 agents.list，如 artifex-nexus） */
+  agentPresets: any[];
 
   /** 当前选中的 provider id（providers tab 用） */
   selectedProviderId: string | null;
@@ -90,7 +92,8 @@ export type SettingsAction =
       error: string | null;
     }
   | { type: "RESET_DIRTY" }
-  | { type: "IMPORT_REMOTE_MODELS"; providerId: string; modelIds: string[] };
+  | { type: "IMPORT_REMOTE_MODELS"; providerId: string; modelIds: string[] }
+  | { type: "UPDATE_AGENT_PRESET"; agentId: string; patch: Record<string, any> };
 
 // ---------------------------------------------------------------------------
 // 初始 state
@@ -111,6 +114,7 @@ export function createInitialState(): SettingsState {
     providers: [],
     authProfiles: [],
     defaultAgent: { ...INITIAL_DEFAULT_AGENT },
+    agentPresets: [],
     selectedProviderId: null,
     selectedAuthId: null,
     dirty: false,
@@ -162,6 +166,7 @@ export function dumpToState(dump: OpenClawConfigDump): {
   providers: ProviderForm[];
   authProfiles: AuthProfileForm[];
   defaultAgent: DefaultAgentForm;
+  agentPresets: any[];
 } {
   const providerExtras = asObject(asObject(dump.extras).providerExtras);
   const authExtras = asObject(asObject(dump.extras).authExtras);
@@ -247,7 +252,26 @@ export function dumpToState(dump: OpenClawConfigDump): {
     systemPromptOverride: asString(ad.systemPromptOverride),
   };
 
-  return { providers, authProfiles, defaultAgent };
+  // Bug #5：解析 agents.list 中的预设 agent
+  const agentPresets = asArray((dump as any).agentList ?? []).map((raw) => {
+    const obj = asObject(raw);
+    return {
+      id: asString(obj.id),
+      name: asString(obj.name),
+      isDefault: obj.default === true,
+      reasoningDefault: asString(obj.reasoningDefault),
+      thinkingDefault: asString(obj.thinkingDefault),
+      verboseDefault: asString(obj.verboseDefault),
+      toolProgressDetail: asString(obj.toolProgressDetail),
+      workspace: asString(obj.workspace),
+      skills: asArray(obj.skills).map((s) => asString(s)),
+      systemPromptOverride: asString(obj.systemPromptOverride),
+      // 不可编辑字段，保留用于回传
+      agentRuntime: obj.agentRuntime,
+    };
+  });
+
+  return { providers, authProfiles, defaultAgent, agentPresets };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,12 +345,11 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
 
     const modelsOut = p.models.map((m) => {
       // 保留 isDefault / timeoutMs 到 extras（schema 不认）
+      // Bug fix: 必须显式写 isDefault: false，否则旧的 true 值会残留在 extras 中
       const mExtra: Record<string, unknown> = {};
-      if (m.isDefault) mExtra.isDefault = true;
+      mExtra.isDefault = !!m.isDefault;
       if (m.timeoutMs !== undefined) mExtra.timeoutMs = m.timeoutMs;
-      if (Object.keys(mExtra).length > 0) {
-        modelsExtraForProvider[m.id] = mExtra;
-      }
+      modelsExtraForProvider[m.id] = mExtra;
 
       // capabilities → schema 字段
       // vision  -> input 包含 "image"
@@ -406,13 +429,36 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
     ...(ad.reasoningDefault ? { reasoningDefault: ad.reasoningDefault } : {}),
   };
 
+  // agents.list[]（仅含编辑过的 agent 预设）
+  // 注意：openclaw config patch 对数组是 *replace*，所以必须发完整的 list
+  const agentsList = state.agentPresets.map((preset: any) => {
+    const entry: Record<string, unknown> = {
+      id: preset.id,
+      name: preset.name,
+    };
+    if (preset.isDefault) entry.default = true;
+    if (preset.workspace) entry.workspace = preset.workspace;
+    if (preset.thinkingDefault) entry.thinkingDefault = preset.thinkingDefault;
+    if (preset.reasoningDefault) entry.reasoningDefault = preset.reasoningDefault;
+    if (preset.verboseDefault) entry.verboseDefault = preset.verboseDefault;
+    if (preset.toolProgressDetail) entry.toolProgressDetail = preset.toolProgressDetail;
+    if (preset.skills?.length) entry.skills = preset.skills;
+    if (preset.systemPromptOverride) entry.systemPromptOverride = preset.systemPromptOverride;
+    // 保留 agentRuntime（不可编辑但需要回传）
+    if (preset.agentRuntime) entry.agentRuntime = preset.agentRuntime;
+    return entry;
+  });
+
   const patch: Record<string, unknown> = {
     models: { providers: providersOut },
     auth: {
       profiles: authProfilesOut,
       order: authOrderOut,
     },
-    agents: { defaults: agentsDefaults },
+    agents: {
+      defaults: agentsDefaults,
+      ...(agentsList.length > 0 ? { list: agentsList } : {}),
+    },
   };
 
   const extrasPatch: Record<string, unknown> = {
@@ -511,13 +557,14 @@ export function settingsReducer(
       return { ...createInitialState(), load: { kind: "loading" } };
 
     case "LOAD_SUCCESS": {
-      const { providers, authProfiles, defaultAgent } = dumpToState(action.dump);
+      const { providers, authProfiles, defaultAgent, agentPresets } = dumpToState(action.dump);
       return {
         ...createInitialState(),
         load: { kind: "ready" },
         providers,
         authProfiles,
         defaultAgent,
+        agentPresets,
         selectedProviderId: providers[0]?.id ?? null,
         selectedAuthId: authProfiles[0]?.id ?? null,
       };
@@ -745,6 +792,14 @@ export function settingsReducer(
             : p,
         ),
       });
+    }
+
+    case "UPDATE_AGENT_PRESET": {
+      const idx = state.agentPresets.findIndex((a: any) => a.id === action.agentId);
+      if (idx < 0) return state;
+      const updated = [...state.agentPresets];
+      updated[idx] = { ...updated[idx], ...action.patch };
+      return markDirty({ ...state, agentPresets: updated });
     }
 
     default:

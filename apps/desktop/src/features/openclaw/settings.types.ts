@@ -78,6 +78,28 @@ export interface DefaultAgentForm {
   reasoningDefault: string;
 }
 
+/** Agent 预设条目（与 `agents.list[]` 对齐） */
+export interface AgentPresetForm {
+  /** agent id（如 "artifex-nexus"） */
+  id: string;
+  /** 显示名 */
+  name: string;
+  /** 是否默认 agent */
+  isDefault: boolean;
+  /** 推理模式 */
+  reasoningDefault: string;
+  /** 思考级别 */
+  thinkingDefault: string;
+  /** 详细模式 */
+  verboseDefault: string;
+  /** 工具进度详情 */
+  toolProgressDetail: string;
+  /** workspace 路径 */
+  workspace: string;
+  /** skills 列表 */
+  skills: string[];
+}
+
 /** Provider 模板（仅"新增"时一键填默认值；不创建固定 slot） */
 export interface ProviderTemplate {
   /** 模板 key（i18n 用） */

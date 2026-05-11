@@ -17,6 +17,7 @@ const emptyDump: OpenClawConfigDump = {
   authProfiles: {},
   authOrder: {},
   agentDefaults: {},
+  agentList: [],
   extras: {},
 };
 
@@ -47,6 +48,7 @@ describe("dumpToState", () => {
       },
       authOrder: { openai: ["openai-default"] },
       agentDefaults: { model: "openai/gpt-4o-mini" },
+      agentList: [],
       extras: {
         providerExtras: { openai: { displayName: "我的 GPT", protocol: "openai" } },
         // model 级 isDefault 走 extras.modelExtras
@@ -79,6 +81,7 @@ describe("settingsReducer", () => {
       authProfiles: { "k": { provider: "openai", mode: "api-key", token: "t" } },
       authOrder: {},
       agentDefaults: {},
+      agentList: [],
       extras: {},
     };
     const next = settingsReducer(createInitialState(), {
