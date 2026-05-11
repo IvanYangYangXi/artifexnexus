@@ -35,6 +35,9 @@ const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pend
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
 const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal: "U", max: "3", maya: "M", comfyui: "C" };
 
+// StyleE 玻璃常量
+const GLASS = "rounded-[16px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]";
+
 // ─── 主组件 ────────────────────────────────────────────────────────────────
 
 export function SystemPage() {
@@ -186,7 +189,7 @@ function InstallerTab() {
         <div className="p-3 space-y-1">
           {items.map((item) => (
             <div key={item.id}>
-              <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/[0.04]">
+              <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/[0.04] border-b border-white/[0.04]">
                 {item.expandable && <button onClick={() => toggleExpand(item.id)} className="text-muted-foreground">{expanded.has(item.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}</button>}
                 {!item.expandable && <div className="w-3.5" />}
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-bold text-muted-foreground">{ICON_LABELS[item.iconKey]}</span>
@@ -333,7 +336,7 @@ function GatewayTab() {
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-      <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55)]">
+      <div className={GLASS + " p-4"}>
         <div className="flex items-center gap-3"><span className={`flex h-3 w-3 rounded-full ${dotClass}`} /><span className="text-sm font-medium">{stateLabel}</span></div>
         <div className="mt-2 text-xs text-muted-foreground">PID: {status?.pid ?? "—"} · 端口: {status?.port ?? 19789} · 启动: {status?.started_at ? new Date(status.started_at * 1000).toLocaleString("zh-CN") : "—"}</div>
         {state === "errored" && status?.last_error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{status.last_error}</div>}
@@ -342,7 +345,7 @@ function GatewayTab() {
           <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={async () => { const ipc = await getIpc(); try { await ipc.openOpenClawWebUi(); } catch {} }}>🌐 OpenClaw Web UI</button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl font-mono text-[10px]">
+      <div className={GLASS + " flex-1 overflow-y-auto p-4 font-mono text-[10px]"}>
         {logs.length === 0 ? <span className="text-muted-foreground">Gateway 未运行，暂无日志</span> : logs.map((l, i) => <div key={i} className="text-muted-foreground">{l}</div>)}
       </div>
     </div>
