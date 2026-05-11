@@ -58,7 +58,7 @@ export function ChatView() {
         onNewSession={chat.createNewSession}
         onDeleteSession={chat.deleteSession}
         gatewayPort={port}
-        gatewayToken={token}
+        gatewayRunning={gatewayRunning}
       />
 
       {/* C2 消息流 */}

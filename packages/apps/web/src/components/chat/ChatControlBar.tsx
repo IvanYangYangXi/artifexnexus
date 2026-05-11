@@ -5,11 +5,8 @@
  *
  * 数据源：
  *   - 对话列表：sessions prop（chat-service localStorage 持久化）
- *   - Agent/Model 列表：Gateway WS RPC（WebSocket 连接成功后获取）
- *   - 思考强度：localStorage 用户偏好
- *
- * 关键设计：Gateway 启动需要 ~6s（sidecar spawn + HTTP + plugins），
- * WebSocket 在 gateway.ready 之前会被拒绝。数据加载等待 WS 成功连接后触发。
+ *   - Agent/Model 列表：Gateway HTTP REST API（chat-service WS 就绪后拉取）
+ *   - 思考强度：localStorage 用户偏好，分级对齐设置面板
  */
 
 import * as React from "react";
@@ -24,7 +21,6 @@ import {
   cn,
 } from "@artifex-nexus/ui";
 import type { ChatSession } from "../../lib/chat/types";
-import { GatewayWebSocket, type WsConnectionState } from "../../lib/chat/gateway-ws";
 
 // ─── 思考强度 ──────────────────────────────────────────────────────────────
 
@@ -59,7 +55,7 @@ export interface ChatControlBarProps {
   onNewSession: () => void;
   onDeleteSession: (id: string) => void;
   gatewayPort: number;
-  gatewayToken: string;
+  gatewayRunning: boolean;
 }
 
 // ─── 组件 ─────────────────────────────────────────────────────────────────
@@ -71,45 +67,24 @@ export function ChatControlBar({
   onNewSession,
   onDeleteSession,
   gatewayPort,
-  gatewayToken,
+  gatewayRunning,
 }: ChatControlBarProps) {
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
   const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
   const [agent, setAgent] = React.useState(() => lsGet(AGENT_KEY, ""));
   const [model, setModel] = React.useState(() => lsGet(MODEL_KEY, ""));
   const [effort, setEffort] = React.useState(() => lsGet(EFFORT_KEY, "adaptive"));
-  const [wsState, setWsState] = React.useState<WsConnectionState>("disconnected");
+  const [loading, setLoading] = React.useState(false);
 
-  // 通过 Gateway WS RPC 获取 Agent/Model 列表
+  // Gateway 运行后通过 REST API 拉取 Agent/Model 列表
   React.useEffect(() => {
-    if (!gatewayPort) return;
+    if (!gatewayRunning || !gatewayPort) return;
 
-    const wsUrl = `ws://127.0.0.1:${gatewayPort}`;
-    const ws = new GatewayWebSocket(wsUrl, gatewayToken);
-    let unsubState: (() => void) | undefined;
-    let unsubMsg: (() => void) | undefined;
-
-    // 监听连接状态
-    unsubState = ws.onStateChange((state) => {
-      setWsState(state);
-    });
-
-    // 监听 RPC 响应获取模型和 agent 列表
-    unsubMsg = ws.onMessage((event) => {
-      // Gateway 在握手后主动推送 models.list 和 agents.list
-      // 这些事件在 chat-service 的 wsRef 上也会收到，但我们需要在 ControlBar 独立监听
-      // 当前方案：通过 Gateway REST API 获取（更简单可靠）
-    });
-
-    // 连接 + 等待连接成功
     let cancelled = false;
-    const doConnect = async () => {
-      const ok = await ws.connect();
-      if (cancelled || !ok) return;
+    setLoading(true);
 
-      // 连接成功后通过 HTTP REST 拉取数据
+    const load = async () => {
       try {
-        // Agent 列表：从 Gateway 的 /v1/models 和预设配置获取
         const [modelResp, agentResp] = await Promise.allSettled([
           fetch(`http://127.0.0.1:${gatewayPort}/v1/models`, {
             headers: { "Accept": "application/json" },
@@ -119,20 +94,17 @@ export function ChatControlBar({
           }),
         ]);
 
-        if (!cancelled && modelResp.status === "fulfilled" && modelResp.value.ok) {
+        if (cancelled) return;
+
+        // 模型
+        if (modelResp.status === "fulfilled" && modelResp.value.ok) {
           const data = await modelResp.value.json();
-          const rawModels = data?.data ?? [];
-          if (Array.isArray(rawModels) && rawModels.length > 0) {
-            const list: Array<{ id: string; name: string }> = [];
-            for (const m of rawModels) {
-              if (m?.id && !list.find((x) => x.id === m.id)) {
-                list.push({ id: m.id, name: m.id });
-              }
-            }
+          const raw = data?.data ?? [];
+          if (Array.isArray(raw) && raw.length > 0) {
+            const list = raw.filter((m: { id?: string }) => m?.id).map((m: { id: string }) => ({ id: m.id, name: m.id }));
             setModels(list);
-            // 自动选中
             setModel((prev) => {
-              if (list.find((m) => m.id === prev)) return prev;
+              if (list.find((m: { id: string }) => m.id === prev)) return prev;
               const found = list[0].id;
               lsSet(MODEL_KEY, found);
               return found;
@@ -140,35 +112,29 @@ export function ChatControlBar({
           }
         }
 
-        if (!cancelled && agentResp.status === "fulfilled" && agentResp.value.ok) {
+        // Agent
+        if (agentResp.status === "fulfilled" && agentResp.value.ok) {
           const data = await agentResp.value.json();
-          const rawAgents = data?.data ?? [];
-          if (Array.isArray(rawAgents) && rawAgents.length > 0) {
-            const list: Array<{ id: string; name: string }> = [];
-            for (const a of rawAgents) {
-              if (a?.id) list.push({ id: a.id, name: a.name ?? a.id });
-            }
+          const raw = data?.data ?? [];
+          if (Array.isArray(raw) && raw.length > 0) {
+            const list = raw.filter((a: { id?: string }) => a?.id).map((a: { id: string; name?: string }) => ({ id: a.id, name: a.name ?? a.id }));
             setAgents(list);
             setAgent((prev) => {
-              if (list.find((a) => a.id === prev)) return prev;
-              const found = list.find((a) => a.id === "artifex-nexus")?.id ?? list[0].id;
+              if (list.find((a: { id: string }) => a.id === prev)) return prev;
+              const found = list.find((a: { id: string }) => a.id === "artifex-nexus")?.id ?? list[0].id;
               lsSet(AGENT_KEY, found);
               return found;
             });
           }
         }
-      } catch { /* REST API 不可用则保持空状态 */ }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
-    doConnect();
-
-    return () => {
-      cancelled = true;
-      unsubState?.();
-      unsubMsg?.();
-      ws.disconnect();
-    };
-  }, [gatewayPort, gatewayToken]);
+    load();
+    return () => { cancelled = true; };
+  }, [gatewayRunning, gatewayPort]);
 
   // ─── 回调 ──────────────────────────────────────────────────────────────
 
@@ -183,8 +149,6 @@ export function ChatControlBar({
   };
 
   // ─── 渲染 ──────────────────────────────────────────────────────────────
-
-  const loading = wsState !== "connected";
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3">
@@ -222,7 +186,7 @@ export function ChatControlBar({
       {/* Agent */}
       <Select value={agent} onValueChange={(v) => { setAgent(v); lsSet(AGENT_KEY, v); }} disabled={agents.length === 0}>
         <SelectTrigger className={cn("h-7 w-[140px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", agents.length === 0 && "text-muted-foreground")}>
-          <SelectValue placeholder={loading ? "等待 Gateway..." : "无可用 Agent"} />
+          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用 Agent" : "Gateway 未启动"} />
         </SelectTrigger>
         {agents.length > 0 && (
           <SelectContent>
@@ -234,7 +198,7 @@ export function ChatControlBar({
       {/* Model */}
       <Select value={model} onValueChange={(v) => { setModel(v); lsSet(MODEL_KEY, v); }} disabled={models.length === 0}>
         <SelectTrigger className={cn("h-7 w-[150px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", models.length === 0 && "text-muted-foreground")}>
-          <SelectValue placeholder={loading ? "等待 Gateway..." : "无可用模型"} />
+          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用模型" : "Gateway 未启动"} />
         </SelectTrigger>
         {models.length > 0 && (
           <SelectContent>
