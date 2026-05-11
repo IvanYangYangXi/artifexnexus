@@ -75,9 +75,16 @@ const MODULES: ModuleEntry[] = [
 ];
 
 /** 点击自定义连接的处理 */
+let _lastQuickLinkClick = 0;
+
 async function handleQuickLinkClick(link: QuickLink) {
+  const now = Date.now();
+  if (now - _lastQuickLinkClick < 5000) return;
+  _lastQuickLinkClick = now;
+
   if (link.type === "url") {
     window.open(link.target, "_blank");
+    showToast(`已在浏览器中打开: ${link.target}`);
     return;
   }
 
@@ -85,14 +92,23 @@ async function handleQuickLinkClick(link: QuickLink) {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("shell_open_path", { path: link.target });
+    showToast(`已打开: ${link.target}`);
   } catch {
-    // 浏览器环境：复制路径到剪贴板并提示
     navigator.clipboard.writeText(link.target).then(() => {
-      alert(`路径已复制到剪贴板:\n${link.target}\n\n（在 Tauri 桌面应用中可直接打开）`);
+      showToast(`路径已复制: ${link.target}`);
     }).catch(() => {
-      alert(`路径:\n${link.target}\n\n（在 Tauri 桌面应用中可直接打开）`);
+      showToast(`路径: ${link.target}（Tauri 桌面应用中可直接打开）`);
     });
   }
+}
+
+/** 无阻碍 toast 提示 */
+function showToast(message: string) {
+  const el = document.createElement("div");
+  el.className = "fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] rounded-full border border-white/[0.12] bg-white/[0.08] backdrop-blur-xl px-4 py-2 text-xs text-foreground shadow-lg animate-in fade-in slide-in-from-bottom-2";
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => { el.remove(); }, 3000);
 }
 
 interface SidebarProps {

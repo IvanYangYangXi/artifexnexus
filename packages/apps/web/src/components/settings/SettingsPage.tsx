@@ -70,15 +70,53 @@ export function SettingsPage() {
 
 function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: React.Dispatch<SettingsAction> }) {
   const [showAdd, setShowAdd] = React.useState(false);
+  const [newModelId, setNewModelId] = React.useState("");
   const [fetchingModels, setFetchingModels] = React.useState(false);
-  const [remoteModelList, setRemoteModelList] = React.useState<string[] | null>(null);
+  const [remoteModels, setRemoteModels] = React.useState<any[] | null>(null);
+  const [fetchError, setFetchError] = React.useState<string | null>(null);
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [newApiKey, setNewApiKey] = React.useState("");
+
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
   const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
   const maskedKey = authProfile?.apiKey ? "•".repeat(24) : "";
+  const hasRealKey = authProfile?.apiKey && !/^\*+$/.test(authProfile.apiKey) && authProfile.apiKey.length >= 8;
 
-  const handleFetchModels = async () => { if (!selected) return; setFetchingModels(true); try { const ipc = await getIpc(); const models = await ipc.fetchRemoteModels({ providerId: selected.id }); if (models?.models && Array.isArray(models.models)) { setRemoteModelList(models.models.map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean)); } } catch {} finally { setFetchingModels(false); } };
+  // 添加模型
+  const handleAddModel = () => {
+    const id = newModelId.trim();
+    if (!id || !selected) return;
+    dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id });
+    setNewModelId("");
+  };
+
+  // 从远端获取模型列表（需要 baseUrl + 真实 API Key）
+  const handleFetchModels = async () => {
+    if (!selected) return;
+    if (!selected.baseUrl) { setFetchError("请先填写 baseUrl"); return; }
+    if (!hasRealKey) { setFetchError("请先保存 API Key（凭据未找到或为脱敏占位）"); return; }
+
+    setFetchingModels(true);
+    setFetchError(null);
+    setRemoteModels(null);
+    try {
+      const ipc = await getIpc();
+      const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token: authProfile!.apiKey });
+      if (r.success && r.models && r.models.length > 0) {
+        setRemoteModels(r.models);
+      } else {
+        setFetchError(r.error || "未获取到任何模型");
+      }
+    } catch (e: any) { setFetchError(e.message); }
+    setFetchingModels(false);
+  };
+
+  // 导入模型
+  const handleImportModels = (modelIds: string[]) => {
+    if (!selected || modelIds.length === 0) return;
+    dispatch({ type: "IMPORT_REMOTE_MODELS", providerId: selected.id, modelIds });
+    setRemoteModels(null);
+  };
 
   return (
     <div className="flex gap-4" style={{ minHeight: 300 }}>
@@ -126,28 +164,38 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
             </div>
             {/* 模型列表 */}
             <div>
-              <div className="mb-2 flex items-center gap-2">
-                <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">模型 ({selected.models.length})</label>
-                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleFetchModels} disabled={fetchingModels}>{fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}</Button>
-                <Button variant="ghost" size="sm" className="h-5 text-[9px] rounded-full" onClick={() => { const id = prompt("模型 ID:"); if (id?.trim()) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id.trim() }); }}>手动添加</Button>
-              </div>
-              {remoteModelList && (
-                <div className="mb-2 rounded-lg border border-white/[0.10] bg-white/[0.06] p-2 max-h-[200px] overflow-y-auto">
-                  <div className="mb-1 flex items-center gap-2"><span className="text-[10px] text-muted-foreground">可用模型</span><div className="flex-1" /><button className="text-[9px] text-muted-foreground hover:text-foreground" onClick={() => setRemoteModelList(null)}>关闭</button></div>
-                  {remoteModelList.map((id) => { const exists = selected.models.some((m) => m.id === id); return <button key={id} className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[10px] ${exists ? "text-muted-foreground/40" : "hover:bg-white/[0.06]"}`} disabled={exists} onClick={() => { dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id }); setRemoteModelList(null); }}><span className="flex-1 font-mono">{id}</span><span className="text-[9px]">{exists ? "已添加" : "+ 添加"}</span></button>; })}
-                </div>
-              )}
-              <div className="space-y-px rounded-lg border border-white/[0.06]">
+              <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">模型 ({selected.models.length})</label>
+              <div className="mt-1 space-y-px rounded-lg border border-white/[0.06]">
                 {selected.models.length === 0 && <div className="px-3 py-2 text-[10px] text-muted-foreground">暂无模型</div>}
                 {selected.models.map((m, i) => (
-                  <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${m.isDefault ? "bg-primary/[0.08]" : "hover:bg-white/[0.02]"}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${m.isDefault ? "bg-primary" : "bg-muted-foreground/40"}`} />
-                    <span className="flex-1 font-mono">{m.id}</span>
-                    <button className={`text-[10px] ${m.isDefault ? "text-primary" : "text-muted-foreground hover:text-primary"}`} onClick={() => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models: selected.models.map((model, idx) => ({ ...model, isDefault: idx === i })) } as any })}>{m.isDefault ? "默认" : "设为默认"}</button>
-                    <button className="text-[10px] text-muted-foreground hover:text-destructive" onClick={() => dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i })}>删除</button>
+                  <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${m.isDefault ? "bg-primary/[0.08]" : ""}`}>
+                    <input className="h-6 flex-1 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/30" value={m.id} onChange={(e) => dispatch({ type: "UPDATE_MODEL", providerId: selected.id, index: i, patch: { id: e.target.value } })} />
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer shrink-0">
+                      <input type="checkbox" className="rounded border-white/[0.20]" checked={!!m.isDefault} onChange={(e) => { const c = e.target.checked; const models = selected.models.map((_, idx) => ({ ...selected.models[idx], isDefault: idx === i && c })); dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models } as any }); }} />默认
+                    </label>
+                    <button className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive" onClick={() => dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i })}>×</button>
                   </div>
                 ))}
               </div>
+              {/* 添加模型：输入框 + 添加 + 获取模型列表 */}
+              <div className="mt-2 flex gap-2">
+                <input className="h-7 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30" placeholder="model-id (gpt-4o-mini)" value={newModelId} onChange={(e) => setNewModelId(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddModel()} />
+                <Button size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={handleAddModel}>添加</Button>
+                <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full shrink-0" onClick={handleFetchModels} disabled={fetchingModels}>{fetchingModels ? "获取中…" : "获取模型列表"}</Button>
+              </div>
+              {fetchError && <div className="mt-1 text-[10px] text-red-400">{fetchError}</div>}
+              {/* 远端可用模型 */}
+              {remoteModels && remoteModels.length > 0 && (
+                <div className="mt-2 rounded-lg border border-white/[0.10] bg-white/[0.04] p-2 max-h-[200px] overflow-y-auto">
+                  <div className="mb-1 flex items-center gap-2"><span className="text-[10px] text-muted-foreground">远端模型（{remoteModels.length} 个）</span><div className="flex-1" /><button className="text-[9px] rounded-full bg-primary px-2 py-0.5 text-primary-foreground" onClick={() => handleImportModels(remoteModels.map((m: any) => m.id))}>全部导入</button><button className="text-[9px] text-muted-foreground hover:text-foreground ml-1" onClick={() => setRemoteModels(null)}>关闭</button></div>
+                  {remoteModels.map((m: any) => (
+                    <div key={m.id} className="flex items-center justify-between border-b border-white/[0.04] py-0.5 text-xs">
+                      <span>{m.name || m.id}{m.ownedBy && <span className="text-muted-foreground ml-1">({m.ownedBy})</span>}</span>
+                      <button className="text-[10px] text-primary hover:underline" onClick={() => handleImportModels([m.id])}>导入</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full text-destructive" onClick={() => dispatch({ type: "DELETE_PROVIDER", id: selected.id })}><Trash2 className="mr-1 h-3 w-3" />删除此 Provider</Button>
           </div>
