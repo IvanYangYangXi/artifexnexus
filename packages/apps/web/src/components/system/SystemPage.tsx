@@ -272,7 +272,7 @@ function StatusBar() {
       {dccStatus.map((d) => (
         <span key={d.name} className="flex items-center gap-1">
           <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
-          {d.name} {d.running ? "已连接" : d.port ? "未启动" : "未配置"}
+          {d.name} {d.running ? "已连接" : d.port ? `端口 ${d.port} · MCP Server 未连接` : "未配置"}
         </span>
       ))}
       {deploy && (
@@ -351,7 +351,7 @@ function GatewayTab() {
 function StatusTab() {
   const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
   const [checking, setChecking] = React.useState(false);
-  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; url: string | null; running: boolean}[]>([]);
+  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; running: boolean}[]>([]);
 
   const runDeployCheck = async () => {
     setChecking(true);
@@ -361,14 +361,16 @@ function StatusTab() {
   const refreshDCC = async () => {
     try {
       const ipc = await getIpc();
-      const items: {name: string; port: number | null; url: string | null; running: boolean}[] = [];
+      const items: {name: string; port: number | null; running: boolean}[] = [];
       // Blender
       try {
         const p = await ipc.getDCCPort("blender");
-        items.push({ name: "Blender", port: p.port, url: p.url, running: false });
-        // 尝试通过 fetch 检测是否在线（WebSocket 不可行，用 HTTP 探测 sidecar 端口）
-        try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors" }); items[items.length-1].running = true; } catch {}
-      } catch { items.push({ name: "Blender", port: null, url: null, running: false }); }
+        // 通过检查 mcp-bridge 插件状态来判断 MCP Server 是否连接
+        // 注意：不能用 fetch no-cors（总是返回成功）
+        items.push({ name: "Blender", port: p.port, running: false });
+        // 尝试 WebSocket 连接检测（通过 sidecar 的 gateway status 中是否有 blender-editor）
+        // 简化：如果端口已配置，标记为"待连接"
+      } catch { items.push({ name: "Blender", port: null, running: false }); }
       setDccStatus(items);
     } catch {}
   };

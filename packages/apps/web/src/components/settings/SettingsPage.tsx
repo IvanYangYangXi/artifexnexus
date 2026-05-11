@@ -48,11 +48,15 @@ export function SettingsPage() {
       const ipc = await getIpc();
       const result = await ipc.patchOpenClawConfig(patch, extrasPatch);
       if (!result.success) { setSaveMsg(result.validateError || "保存失败"); return; }
-      // 写入 token
-      for (const p of state.authProfiles) {
-        if (p.apiKey && !/^\*+$/.test(p.apiKey) && p.apiKey.length >= 8) {
-          await ipc.setOpenClawAuthToken({ provider: p.provider, profileId: p.id, token: p.apiKey });
-        }
+      // 写入 API Key（通过 setOpenClawAuthToken）
+      const pendingKey = (window as any).__pendingApiKey;
+      if (pendingKey?.token) {
+        await ipc.setOpenClawAuthToken({
+          profileId: `${pendingKey.provider}-default`,
+          token: pendingKey.token,
+          provider: pendingKey.provider,
+        });
+        delete (window as any).__pendingApiKey;
       }
       setSaveMsg("已保存");
       dispatch({ type: "RESET_DIRTY" } as any);
@@ -145,7 +149,7 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] text-muted-foreground">协议</label>
-                <select className="mt-0.5 h-8 w-full rounded-md border border-white/[0.08] bg-white/[0.03] px-2 text-xs"
+                <select className="mt-0.5 h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-xs text-foreground backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30"
                   value={selected.protocol} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { protocol: e.target.value as any } })}>
                   {["openai", "openai-compatible", "anthropic", "google", "azure-openai"].map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
@@ -155,21 +159,26 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                 <Input className="mt-0.5 h-8 text-xs" value={selected.baseUrl} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { baseUrl: e.target.value } })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] text-muted-foreground">API Key</label>
-                <div className="relative mt-0.5">
-                  <Input className="h-8 pr-8 text-xs font-mono" type={showKey.has(selected.id) ? "text" : "password"} value={selected.customHeadersJson ? JSON.parse(selected.customHeadersJson)?.apiKey || "" : ""}
-                    onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { customHeadersJson: JSON.stringify({ ...(selected.customHeadersJson ? JSON.parse(selected.customHeadersJson) : {}), apiKey: e.target.value }) } })} />
-                  <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => toggleKey(selected.id)}>
-                    {showKey.has(selected.id) ? <EyeOff className="h-3 w-3 text-muted-foreground" /> : <Eye className="h-3 w-3 text-muted-foreground" />}
-                  </button>
-                </div>
+            {/* API Key — 通过 auth profile 管理 */}
+            <div>
+              <label className="text-[10px] text-muted-foreground">API Key（通过认证 Profile 管理）</label>
+              <div className="mt-0.5 flex items-center gap-2">
+                <Input className="h-8 flex-1 text-xs font-mono"
+                  type="password"
+                  placeholder="输入新 API Key"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val.length >= 8) {
+                      // 存储到临时变量，保存时通过 setOpenClawAuthToken 写入
+                      (window as any).__pendingApiKey = { provider: selected.id, token: val };
+                    }
+                  }} />
+                <span className="text-[10px] text-muted-foreground">保存时写入</span>
               </div>
-              <div>
-                <label className="text-[10px] text-muted-foreground">关联认证 Profile</label>
-                <Input className="mt-0.5 h-8 text-xs" value={selected.authProfileId || ""} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { authProfileId: e.target.value || undefined } })} placeholder="可选" />
-              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground">关联认证 Profile</label>
+              <Input className="mt-0.5 h-8 text-xs" value={selected.authProfileId || ""} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { authProfileId: e.target.value || undefined } })} placeholder="可选" />
             </div>
             {/* 模型列表 */}
             <div>
@@ -179,13 +188,33 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                   const modelId = prompt("模型 ID（如 gpt-4o）:");
                   if (modelId?.trim()) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: modelId.trim() });
                 }}><Plus className="h-3 w-3" /></Button>
+                <Button variant="ghost" size="sm" className="h-5 text-[9px] rounded-full" onClick={async () => {
+                  try {
+                    const ipc = await getIpc();
+                    const models = await ipc.fetchRemoteModels({ providerId: selected.id });
+                    if (models?.models && Array.isArray(models.models)) {
+                      const ids = models.models.map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean);
+                      // 避免重复
+                      const existing = new Set(selected.models.map((m) => m.id));
+                      const newIds = ids.filter((id: string) => !existing.has(id));
+                      for (const id of newIds) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id });
+                    }
+                  } catch {}
+                }}>获取远程模型</Button>
               </div>
               <div className="flex flex-wrap gap-1">
                 {selected.models.map((m, i) => (
-                  <span key={i} className="flex items-center gap-1 rounded bg-white/[0.06] px-2 py-0.5 text-[10px]">
-                    {m.id} {m.isDefault && "(默认)"}
-                    <button className="text-muted-foreground hover:text-destructive" onClick={() => dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i })}>×</button>
-                  </span>
+                  <button key={i}
+                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] transition-colors ${m.isDefault ? "bg-primary/15 text-primary" : "bg-white/[0.06] hover:bg-white/[0.10]"}`}
+                    onClick={() => {
+                      // 设置/取消默认：把其他模型的 isDefault 取消
+                      const newModels = selected.models.map((model, idx) => ({ ...model, isDefault: idx === i ? !model.isDefault : false }));
+                      dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { models: newModels } as any });
+                    }}
+                    title={m.isDefault ? "默认模型（点击取消）" : "点击设为默认"}>
+                    {m.id} {m.isDefault && "⭐"}
+                    <span className="text-muted-foreground hover:text-destructive ml-1" onClick={(e) => { e.stopPropagation(); dispatch({ type: "DELETE_MODEL", providerId: selected.id, index: i }); }}>×</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -202,7 +231,7 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
 // ─── Agent Tab ─────────────────────────────────────────────────────────────
 
 function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: React.Dispatch<SettingsAction> }) {
-  const agent = state.defaultAgent;
+  const agent = state.defaultAgent || { defaultModel: "", imageModel: "", thinkingDefault: "adaptive" };
   const [resetMsg, setResetMsg] = React.useState<string | null>(null);
 
   const handleReset = async () => {
@@ -211,28 +240,44 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
       const r = await ipc.resetOpenClawAgentPreset(true);
       if (!r.success) setResetMsg(r.error || "重置失败");
       else setResetMsg("已重置");
-      // 重新加载
       const dump = await ipc.dumpOpenClawConfig();
       dispatch({ type: "LOAD_SUCCESS", dump });
     } catch (e: any) { setResetMsg(e.message); }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-lg space-y-4">
       <div>
         <label className="text-[10px] text-muted-foreground">默认模型（provider/model）</label>
         <Input className="mt-0.5 h-8 text-xs" value={agent.defaultModel}
+          placeholder="如: openai/gpt-4o"
           onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { defaultModel: e.target.value } })} />
       </div>
       <div>
         <label className="text-[10px] text-muted-foreground">图像模型</label>
         <Input className="mt-0.5 h-8 text-xs" value={agent.imageModel}
+          placeholder="如: openai/dall-e-3"
           onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { imageModel: e.target.value } })} />
       </div>
       <div>
-        <label className="text-[10px] text-muted-foreground">Thinking 默认</label>
-        <Input className="mt-0.5 h-8 text-xs" value={agent.thinkingDefault}
-          onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { thinkingDefault: e.target.value } })} />
+        <label className="text-[10px] text-muted-foreground">Thinking 模式</label>
+        <select className="mt-0.5 h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-xs text-foreground backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30"
+          value={agent.thinkingDefault || "adaptive"}
+          onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { thinkingDefault: e.target.value } })}>
+          <option value="adaptive">自适应</option>
+          <option value="on">开启</option>
+          <option value="off">关闭</option>
+          <option value="auto">自动</option>
+        </select>
+      </div>
+      <div>
+        <label className="text-[10px] text-muted-foreground">Reasoning 模式</label>
+        <select className="mt-0.5 h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-xs text-foreground backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30"
+          value={agent.reasoningDefault || "on"}
+          onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { reasoningDefault: e.target.value } })}>
+          <option value="on">开启</option>
+          <option value="off">关闭</option>
+        </select>
       </div>
       <Button variant="outline" size="sm" className="h-7 text-xs rounded-full" onClick={handleReset}>重置为默认</Button>
       {resetMsg && <span className="ml-2 text-[10px] text-muted-foreground">{resetMsg}</span>}
