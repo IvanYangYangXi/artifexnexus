@@ -16,7 +16,7 @@ import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../.
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
 
-interface DialogField { key: string; label: string; defaultValue?: string; placeholder?: string; }
+interface DialogField { key: string; label: string; defaultValue?: string; placeholder?: string; type?: "text" | "checkbox"; }
 interface DialogState {
   open: boolean;
   title: string;
@@ -70,7 +70,17 @@ function useAppDialog() {
           </DialogHeader>
           {state.fields.length > 0 && (
             <div className="space-y-3 py-2">
-              {state.fields.map((f) => (
+              {state.fields.map((f) => f.type === "checkbox" ? (
+                <label key={f.key} className="flex items-center gap-2 cursor-pointer rounded px-1 py-1 hover:bg-white/[0.04]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-white/20 bg-white/[0.06] accent-primary"
+                    checked={values[f.key] === "true"}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.checked ? "true" : "false" }))}
+                  />
+                  <span className="text-xs text-foreground">{f.label}</span>
+                </label>
+              ) : (
                 <div key={f.key}>
                   <label className="text-[11px] text-muted-foreground">{f.label}</label>
                   <Input
@@ -211,8 +221,17 @@ function InstallerTab() {
 
   const handleInstall = async (id: string) => {
     const item = items.find((it) => it.id === id);
-    // 重装确认弹窗
-    if (item?.state === "installed") {
+    // OpenClaw 重装确认弹窗（含保留项选择）
+    if (item?.state === "installed" && id === "openclaw") {
+      const result = await showForm("重新安装 OpenClaw", [
+        { key: "preserveProviders", label: "保留已配置的供应商（baseUrl、模型列表等）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveAuth", label: "保留鉴权凭据与绑定（API Key 不删）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveAgents", label: "保留 Agent 设置（默认模型、推理偏好等）", defaultValue: "true", type: "checkbox" },
+        { key: "preservePlugins", label: "保留插件自定义配置（memory-core 等）", defaultValue: "true", type: "checkbox" },
+      ], { description: "重装会重新下载 CLI 并刷新基础配置（gateway/端口）。勾选的项目将在重装后自动恢复。", confirmLabel: "确认重装" });
+      if (!result) return;
+    } else if (item?.state === "installed") {
+      // 非 OpenClaw 的重装确认
       const ok = await showConfirm(`确认重装 ${item.name}？`, "重装会重新下载/部署组件，当前配置将保留。");
       if (!ok) return;
     }

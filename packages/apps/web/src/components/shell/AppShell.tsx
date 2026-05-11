@@ -115,6 +115,18 @@ export function AppShell() {
     setMounted(true);
   }, []);
 
+  // 监听全局 nav 事件（子组件通过 dispatchEvent 触发模块切换）
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && typeof detail === "string") {
+        setCurrentModule(detail as any);
+      }
+    };
+    window.addEventListener("nav", handler);
+    return () => window.removeEventListener("nav", handler);
+  }, []);
+
   // 响应式：在窄屏强制折叠 / 隐藏（不覆盖用户偏好，仅在断点变更时一次性）
   const lastBp = React.useRef<string>("");
   React.useEffect(() => {
