@@ -73,6 +73,38 @@ tags: [story, chat, api, websocket, streaming, M3]
     - 针对性单测 60 通过（`test_bootstrap_fixed_port_writes_19789_even_when_busy`、`test_reset_config_port_if_drifted_heals_legacy_19809`、`test_port_busy_error_carries_occupants`、`test_start_gateway_raises_port_busy_when_external_occupant`）。
     - 手工跑 `reset_config_port_if_drifted` 把当前用户的 `openclaw.json` 从 19809 改回 19789，`token` / `models.providers` / `agents.list` / `plugins` 全部原样保留；`run/ports.json` 同步为 19789。
     - `pnpm typecheck` 通过；`pnpm tauri build` 成功，产物 `artifex-nexus-desktop.exe` 12.29 MB + `Artifex Nexus_0.1.0_x64-setup.exe` 3.12 MB（2026-05-11 20:34）。
+- 2026-05-11 21:21 修复 origin 白名单 + WS 重连（第五轮）：
+  - 症状：修好端口后仍连不上，Gateway 反复 1008 `origin not allowed`
+  - 根因：`allowedOrigins` 只有 `https://tauri.localhost` 和 `tauri://localhost`，但 Tauri WebView2 在 Windows 上实际发出的 Origin 是 `http://tauri.localhost`（无 s）
+  - 方案：`runtime.py` + `bootstrap.py` 的 `required_origins` / 初始 `allowedOrigins` 加入 `"http://tauri.localhost"`
+  - 验证：Gateway 日志从 `origin-mismatch` 变为 `startup-sidecars-pending`（origin 通过了）
+- 2026-05-11 21:30 修复 WS 首次连接失败后不重连（第五轮续）：
+  - 症状：Gateway ready 后前端再也没有 WS 连接尝试
+  - 根因：`gateway-ws.ts` 的 `_handshake()` Promise 在 WS 被服务端关闭时永远不 resolve → `connect()` 的 Promise 也 hang → 重连触发了但下一次 connect 内部永远 pending
+  - 方案：
+    1. `_handshake()` 内部加 `safeResolve` 包装 + onclose hook，WS 关闭时立即 resolve(false)
+    2. `connect()` 内部用 `safeConnectResolve` 包装，onclose 中也 resolve(false)，避免 Promise 永远 pending
+    3. `connect()` onclose 中加 `clearTimeout(handshakeTimeout)` 防止超时后误关新 WS
+- 2026-05-11 22:34 修复状态机卡死 + API key 保存 + auth 路径迁移：
+  - 状态机卡死：Gateway 崩溃后前端 streaming 状态无法恢复
+    - 方案：WS 断连时 dispatch RESET_STATE；启动时清理 localStorage 中 isStreaming=true 的消息；2 分钟 idle timeout 自动 FINISH_STREAMING
+  - API key 保存：`SettingsPage.tsx` handleSave 调 `setOpenClawAuthToken` 时缺少 `profileId` 参数
+    - 方案：从 `__pendingApiKey.profileId` 取值，fallback 为 `${provider}-default`
+  - auth-profiles.json 路径：OpenClaw v2026.5.4 重装后 agent state 从 `state/agents/` 迁移到 `.openclaw/agents/`，但凭证文件留在旧路径
+    - 方案：`bootstrap.py` 新增 `_migrate_auth_profiles_files()`，preserve 恢复 auth 后自动复制到新路径
+  - 产物：`artifex-nexus-desktop.exe` 11.79 MB（2026-05-11 23:47）
+- 2026-05-11 23:47 其他改动：
+  - `Cargo.toml` 启用 `features = ["devtools"]`（F12 可打开 DevTools）
+  - `ChatInputArea.tsx` 停止按钮 + 发送按钮始终显示
+  - 新增 `STORY-0041` backlog：重装流程重构（备份-全新安装-恢复）
+  - 发现：Gateway 每条消息的 model-resolution(6.7s) + auth(3.2s) 是上游行为，非前端可优化
+  - 发现：Gateway 实际使用内联 `apiKey` 方式（`models.providers.<id>.apiKey`）可正常工作
+
+## 未完成 / 下一步
+
+- [ ] Tool 调用 UI 显示：需要解析 Gateway WS 的 tool_use/tool_result 格式，用 DevTools 抓取实际消息格式
+- [ ] 每条消息 ~10s 延迟：Gateway model-resolution + auth 每次都跑，可能与 session 复用策略有关
+- [ ] STORY-0041：重装流程重构
 - 2026-05-11 21:00 清理 controlUi.allowedOrigins 里漂移残留（第四轮）：
   - 症状：第三轮修好 `gateway.port` 后，用户发现 `controlUi.allowedOrigins` 里仍留着 `http://127.0.0.1:19809` / `http://localhost:19809` 两条死白名单。
   - 根因：`runtime._ensure_control_ui_allowed_origins` 历来是"取并集只加不删"，漂移期间被塞入的旧 port loopback 条目永远不会被清掉。

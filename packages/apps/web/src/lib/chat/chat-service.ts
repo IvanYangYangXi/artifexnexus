@@ -123,13 +123,20 @@ export function chatReducer(
       return {
         ...state,
         messages: state.messages.map((m) => {
-          if (m.id !== state.streamingMessageId || !m.toolCalls) return m;
-          return {
-            ...m,
-            toolCalls: m.toolCalls.map((tc) =>
+          if (m.id !== state.streamingMessageId) return m;
+          const existingCalls = m.toolCalls ?? [];
+          const existingIdx = existingCalls.findIndex((tc) => tc.id === action.toolCallId);
+          let updatedCalls;
+          if (existingIdx >= 0) {
+            // 更新已有 toolCall
+            updatedCalls = existingCalls.map((tc) =>
               tc.id === action.toolCallId ? { ...tc, ...action.update } : tc,
-            ),
-          };
+            );
+          } else {
+            // 新增 toolCall（phase=start 时）
+            updatedCalls = [...existingCalls, { id: action.toolCallId, name: "", status: "running" as const, ...action.update }];
+          }
+          return { ...m, toolCalls: updatedCalls };
         }),
         chatState: "tool_executing",
       };
@@ -387,8 +394,9 @@ export function useChatService(options: ChatServiceOptions) {
       case "delta": {
         // 收到新内容，重置超时计时器
         resetStreamTimeout();
+
+        // 文本增量
         if (event.message) {
-          // Gateway 发送累积文本，提取增量
           const lastText = lastTextRef.current;
           const incremental = event.message.startsWith(lastText)
             ? event.message.slice(lastText.length)
@@ -398,21 +406,78 @@ export function useChatService(options: ChatServiceOptions) {
             dispatch({ type: "APPEND_DELTA", text: incremental });
           }
         }
+
+        // Tool 调用开始/更新
+        if (event.toolCall) {
+          const tc = event.toolCall;
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: tc.id,
+            update: {
+              id: tc.id,
+              name: tc.name,
+              input: tc.meta || tc.title,
+              status: tc.phase === "end" ? "done" : "running",
+              durationMs: tc.durationMs,
+            },
+          });
+        }
+
+        // Tool 输出增量
+        if (event.toolOutput && event.toolOutput.phase === "delta") {
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: event.toolOutput.toolCallId,
+            update: {
+              output: event.toolOutput.output,
+              status: "running",
+            },
+          });
+        }
         break;
       }
 
       case "final": {
         clearStreamTimeout();
+
+        // Tool 调用结束
+        if (event.toolCall) {
+          const tc = event.toolCall;
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: tc.id,
+            update: {
+              id: tc.id,
+              name: tc.name,
+              status: "done",
+              durationMs: tc.durationMs,
+            },
+          });
+          break; // tool end 不结束整个流
+        }
+
+        // Tool 输出结束
+        if (event.toolOutput) {
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: event.toolOutput.toolCallId,
+            update: {
+              output: event.toolOutput.output,
+              status: event.toolOutput.exitCode === 0 ? "done" : "error",
+              durationMs: event.toolOutput.durationMs,
+            },
+          });
+          break; // tool output end 不结束整个流
+        }
+
+        // 文本流结束
         const finalText = event.message || lastTextRef.current;
         if (finalText && state.streamingMessageId) {
-          // 确保最终文本完整
           lastTextRef.current = "";
-          // 用完整文本替换流式内容
-          dispatch({ type: "APPEND_DELTA", text: "" }); // trigger re-render
+          dispatch({ type: "APPEND_DELTA", text: "" });
         }
         dispatch({ type: "FINISH_STREAMING" });
         lastTextRef.current = "";
-        // 处理队列
         processQueue();
         break;
       }

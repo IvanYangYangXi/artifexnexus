@@ -90,6 +90,54 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 
 M3 后期 / M4 前期。当前已通过手动复制 `auth-profiles.json` 到新路径临时解决。
 
+## 附加问题（同 STORY 一起解决）
+
+### A. 对话反应延迟 ~85s（Pi 运行时会话唤醒问题）
+
+**症状**：每条消息从发送到首次 thinking 开始要 75-85 秒。后续 LLM 推理只需 6-14 秒。
+
+**根因**：Agent 配置了 `agentRuntime: { id: "pi" }`，但没有显式设置 heartbeat 间隔。Pi 运行时在会话空闲后进入低功耗轮询模式，新消息需要等待一个轮询周期才被拾取。
+
+**延迟分解**：
+```
+85 秒总延迟
+├── ~75-78s → 会话唤醒 / 通道路由 / 上下文准备（首次 LLM 调用前）
+├── ~14s   → 首轮 reasoning/thinking（LLM 推理）
+├── ~7s    → 后续工具调用 + thinking
+```
+
+**修复方案**：在 `openclaw.json` 的 `agents.defaults` 或 agent 配置中缩短心跳间隔：
+```json
+{
+  "agents": {
+    "defaults": {
+      "heartbeat": {
+        "every": "15 seconds"
+      }
+    }
+  }
+}
+```
+
+### B. 模型/Provider 信息存储方式优化
+
+**当前问题**：
+- 前端 Settings UI 使用 `auth.profiles` + `auth.order` + 独立 `auth-profiles.json` 的复杂多文件方式存储 API Key
+- Gateway embedded agent 实际查找 auth 走的是 `state/agents/<id>/agent/auth-profiles.json`
+- CLI 的 `models auth paste-token` 写的是 `.openclaw/agents/<id>/agent/auth-profiles.json`
+- 两个路径不一致导致 CLI 能找到 token 但 Gateway 找不到
+
+**参考旧版本**（`C:\Users\yangjili\.openclaw\openclaw.json`）：
+- 旧版直接在 `models.providers.<id>.apiKey` 内联存储 token
+- 简单、一个文件管理、Gateway 直接支持
+- 新版也兼容这种方式（已验证 `infer model run` 成功）
+
+**修复方案**：
+1. bootstrap 生成的默认配置改用内联 `apiKey` 方式
+2. Settings UI 保存 API Key 时直接 patch `models.providers.<id>.apiKey`（走 `openclaw config patch`）
+3. 不再依赖 `auth-profiles.json` 文件（或作为 fallback）
+4. 对齐旧版配置格式，provider id 用有意义的名称（如 `netease-codemaker`）而非 `custom`
+
 ## 关联
 
 - STORY-0039：Chat/Gateway 连接问题（触发发现本问题）

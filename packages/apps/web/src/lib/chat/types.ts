@@ -97,6 +97,26 @@ export interface GatewayChatEvent {
   runId?: string;
   /** 工具调用信息（Anthropic 风格 content blocks） */
   messageBlocks?: GatewayMessageBlock[];
+  /** Tool 调用生命周期事件（来自 event=agent, stream=item, kind=tool） */
+  toolCall?: {
+    id: string;
+    phase: "start" | "update" | "end";
+    name: string;
+    title: string;
+    status: string;
+    meta?: string;
+    startedAt?: number;
+    endedAt?: number;
+    durationMs?: number;
+  };
+  /** Tool 命令输出事件（来自 event=agent, stream=command_output） */
+  toolOutput?: {
+    toolCallId: string;
+    phase: "delta" | "end";
+    output: string;
+    exitCode?: number;
+    durationMs?: number;
+  };
 }
 
 /** Gateway 消息块 */

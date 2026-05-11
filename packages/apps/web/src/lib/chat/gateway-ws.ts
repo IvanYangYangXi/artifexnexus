@@ -445,15 +445,65 @@ export class GatewayWebSocket {
         return;
       }
 
-      // chat 事件
+      // 调试：打印所有事件（帮助理解 Gateway 协议格式）
+      if (msg.event && msg.event !== "chat" && msg.event !== "agent" && msg.event !== "tick") {
+        console.log(`[gateway-ws] event=${msg.event}`, JSON.stringify(msg.payload ?? msg).slice(0, 300));
+      }
+
+      // chat 事件（文本流）
       if (msg.event === "chat") {
-        const payload = msg.payload ?? {};
+        const payload = msg.payload ?? msg;
         const chatEvent: GatewayChatEvent = {
           state: payload.state ?? "delta",
           message: this._extractText(payload.message ?? ""),
           runId: payload.runId,
         };
         this._messageHandlers.forEach((h) => h(chatEvent));
+      }
+
+      // agent 事件（tool 调用 + 命令执行）
+      if (msg.event === "agent") {
+        const payload = msg.payload ?? msg;
+        const stream = payload.stream;
+        const data = payload.data ?? {};
+
+        // stream="item" + kind="tool" → tool 调用生命周期
+        if (stream === "item" && data.kind === "tool") {
+          const toolEvent: GatewayChatEvent = {
+            state: data.phase === "end" ? "final" : "delta",
+            message: "",
+            runId: payload.runId,
+            toolCall: {
+              id: data.toolCallId,
+              phase: data.phase,  // start | update | end
+              name: data.name,
+              title: data.title,
+              status: data.status,
+              meta: data.meta,
+              startedAt: data.startedAt,
+              endedAt: data.endedAt,
+              durationMs: data.endedAt && data.startedAt ? data.endedAt - data.startedAt : undefined,
+            },
+          };
+          this._messageHandlers.forEach((h) => h(toolEvent));
+        }
+
+        // stream="command_output" → tool 输出
+        if (stream === "command_output") {
+          const toolEvent: GatewayChatEvent = {
+            state: data.phase === "end" ? "final" : "delta",
+            message: "",
+            runId: payload.runId,
+            toolOutput: {
+              toolCallId: data.toolCallId,
+              phase: data.phase,
+              output: data.output ?? "",
+              exitCode: data.exitCode,
+              durationMs: data.durationMs,
+            },
+          };
+          this._messageHandlers.forEach((h) => h(toolEvent));
+        }
       }
     } catch {
       // 忽略非 JSON 消息
