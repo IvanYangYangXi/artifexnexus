@@ -1,6 +1,11 @@
 /**
  * Chat mock 数据 — STORY-0034 阶段使用
  * STORY-0039 接入 OpenClaw API 后替换
+ *
+ * @deprecated STORY-0039 完成后，MockMessage 和 MOCK_MESSAGES 已由
+ *   src/lib/chat/types.ts 中的 ChatMessage 替代。
+ *   MOCK_AGENTS / MOCK_MODELS / MOCK_CONVERSATIONS / MOCK_SESSION_FILES
+ *   仍可用于 dev 模式和 UI 占位。
  */
 
 export interface MockMessage {

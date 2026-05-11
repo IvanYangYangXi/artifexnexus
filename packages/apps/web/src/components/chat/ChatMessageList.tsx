@@ -22,11 +22,11 @@ import {
   type ToolCallData,
   cn,
 } from "@artifex-nexus/ui";
-import type { MockMessage } from "../../lib/chatMock";
+import type { ChatMessage } from "../../lib/chat/types";
 import { ScrollFade } from "./ScrollFade";
 
 interface ChatMessageListProps {
-  messages: MockMessage[];
+  messages: ChatMessage[];
   messagesEndRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -45,7 +45,7 @@ export function ChatMessageList({ messages, messagesEndRef }: ChatMessageListPro
 
 // ─── 消息气泡 ──────────────────────────────────────────────────────────────
 
-function MessageBubble({ message }: { message: MockMessage }) {
+function MessageBubble({ message }: { message: ChatMessage }) {
   if (message.role === "system") {
     return (
       <div className="my-2 text-center text-[11px] text-muted-foreground">
@@ -102,8 +102,8 @@ function MessageBubble({ message }: { message: MockMessage }) {
                 (tc): ToolCallData => ({
                   id: tc.id,
                   name: tc.name,
-                  status: tc.status === "completed" ? "done" : tc.status === "error" ? "error" : "running",
-                  durationMs: tc.duration ? parseFloat(tc.duration) * 1000 : undefined,
+                  status: tc.status === "done" ? "done" : tc.status === "error" ? "error" : "running",
+                  durationMs: tc.durationMs,
                   args: tc.input ? { code: tc.input } : undefined,
                   result: tc.output,
                 }),

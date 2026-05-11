@@ -18,6 +18,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  RotateCcw,
   Send,
   Slash,
   Square,
@@ -36,7 +37,9 @@ interface SessionFile {
 interface ChatInputAreaProps {
   onSend: (text: string) => void;
   onStop: () => void;
+  onResume?: () => void;
   isStreaming: boolean;
+  canResume: boolean;
   pendingCount: number;
   pendingMessages: string[];
   sessionFiles: SessionFile[];
@@ -76,7 +79,9 @@ function savePrompts(prompts: QuickPrompt[]) {
 export function ChatInputArea({
   onSend,
   onStop,
+  onResume,
   isStreaming,
+  canResume,
   pendingCount,
   pendingMessages,
   sessionFiles,
@@ -330,26 +335,42 @@ export function ChatInputArea({
 
         {/* C3c 发送区 */}
         <div className="flex items-center gap-1.5">
-          {/* 停止按钮 — 常驻 */}
-          <Button
-            size="icon"
-            variant={isStreaming ? "destructive" : "ghost"}
-            className="h-9 w-9"
-            onClick={onStop}
-            disabled={!isStreaming}
-          >
-            <Square className={cn("h-4 w-4", isStreaming && "fill-current")} />
-          </Button>
+          {/* 停止按钮 — 生成中显示 */}
+          {isStreaming && (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9"
+              onClick={onStop}
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          )}
 
-          {/* 发送按钮 */}
-          <Button
-            size="icon"
-            className="h-9 w-9 rounded-full"
-            onClick={handleSend}
-            disabled={!text.trim()}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {/* 恢复按钮 — 已停止可恢复时显示 */}
+          {!isStreaming && canResume && onResume && (
+            <Button
+              size="icon"
+              variant="default"
+              className="h-9 w-9"
+              onClick={onResume}
+              title="继续生成"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* 发送按钮 — 非生成态显示 */}
+          {!isStreaming && (
+            <Button
+              size="icon"
+              className="h-9 w-9 rounded-full"
+              onClick={handleSend}
+              disabled={!text.trim()}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
 
           {/* 发送方式切换 */}
           <div className="relative">

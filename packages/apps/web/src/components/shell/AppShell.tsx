@@ -27,6 +27,13 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  Button,
 } from "@artifex-nexus/ui";
 
 export interface PreviewFile {
@@ -62,6 +69,17 @@ export const RunToolContext = React.createContext<{
   runTool: () => {},
   pendingToolName: null,
   clearPendingTool: () => {},
+});
+
+// Gateway 连接信息 context（Chat 模块用于建立 WebSocket）
+export const GatewayContext = React.createContext<{
+  port: number;
+  token: string;
+  running: boolean;
+}>({
+  port: 19789,
+  token: "",
+  running: false,
 });
 
 const STORAGE_KEYS = {
@@ -160,7 +178,48 @@ export function AppShell() {
   // 钉选 Skill 状态
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
   const [gatewayRunning, setGatewayRunning] = React.useState(false);
+  const [gatewayPort, setGatewayPort] = React.useState(19789);
   const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
+  const [openclawInstalled, setOpenclawInstalled] = React.useState(true);
+  const [showInstallDialog, setShowInstallDialog] = React.useState(false);
+
+  // 启动时自动检测：已安装 → 自动启动 Gateway；未安装 → 跳转系统面板 + 弹窗
+  const startupCheckDone = React.useRef(false);
+  React.useEffect(() => {
+    if (startupCheckDone.current) return;
+    startupCheckDone.current = true;
+    const doCheck = async () => {
+      try {
+        const { getIpc } = await import("../../lib/ipc");
+        const ipc = await getIpc();
+        const s = await ipc.getOpenClawStatus();
+        if (s.cli_installed) {
+          // 已安装 → 自动启动 Gateway
+          setOpenclawInstalled(true);
+          if (!s.gateway_running) {
+            try {
+              await ipc.startGateway();
+              setGatewayRunning(true);
+            } catch {
+              // 启动失败，后续轮询会处理
+            }
+          } else {
+            setGatewayRunning(true);
+          }
+        } else {
+          // 未安装 → 跳转系统面板 + 弹窗
+          setOpenclawInstalled(false);
+          setCurrentModule("system");
+          setTimeout(() => setShowInstallDialog(true), 500);
+        }
+      } catch {
+        // IPC 不可用（浏览器 dev 模式），静默跳过
+      }
+    };
+    // 延迟 300ms，等 AppShell 渲染完毕再检测
+    const timer = setTimeout(doCheck, 300);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 轮询 Gateway 状态（10s）
   React.useEffect(() => {
@@ -170,7 +229,7 @@ export function AppShell() {
         const ipc = await getIpc();
         const s = await ipc.getOpenClawStatus();
         setGatewayRunning(s.gateway_running);
-        // DCC MCP 连接状态
+        if (s.port) setGatewayPort(s.port);
         const statuses: { name: string; connected: boolean }[] = [];
         try {
           await ipc.getDCCPort("blender");
@@ -214,6 +273,7 @@ export function AppShell() {
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
+    <GatewayContext.Provider value={{ port: gatewayPort, token: "", running: gatewayRunning }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* A 顶栏 */}
       <Topbar
@@ -279,7 +339,35 @@ export function AppShell() {
           )}
         </div>
       </div>
+
+      {/* 启动时 OpenClaw 未安装提示弹窗 */}
+      <Dialog open={showInstallDialog} onOpenChange={setShowInstallDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>未检测到 OpenClaw</DialogTitle>
+            <DialogDescription>
+              Artifex Nexus 需要 OpenClaw Gateway 才能提供 AI 对话功能。
+              请先在"系统"面板中完成 OpenClaw 的安装。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowInstallDialog(false)}
+            >
+              稍后再说
+            </Button>
+            <Button onClick={() => {
+              setShowInstallDialog(false);
+              setCurrentModule("system");
+            }}>
+              前往安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+    </GatewayContext.Provider>
     </RunToolContext.Provider>
     </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>

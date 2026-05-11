@@ -26,7 +26,6 @@ import {
   Plus,
   Puzzle,
   Settings,
-  Settings2,
   Terminal,
   Trash2,
   User,
@@ -271,7 +270,7 @@ export function Sidebar({
           )}
         </div>
 
-        {/* B3 用户区 */}
+        {/* B3 用户区（预留，当前仅头像占位） */}
         <div
           className={cn(
             "flex items-center gap-2 border-t border-border/60 px-2 py-2",
@@ -294,20 +293,6 @@ export function Sidebar({
               <div className="text-[10px] text-muted-foreground">点击登录</div>
             </div>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-                onClick={() => onSelect("settings")}
-                aria-label="设置"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">设置</TooltipContent>}
-          </Tooltip>
         </div>
       </aside>
 
