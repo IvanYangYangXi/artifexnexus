@@ -7,6 +7,9 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# --- Next.js static export ---
+packages/apps/web/out/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

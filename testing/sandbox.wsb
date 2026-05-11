@@ -1,0 +1,37 @@
+<Configuration>
+  <!--
+    Artifex Nexus — Windows Sandbox 快速测试配置
+    
+    使用方法：
+      1. 确保 Windows Sandbox 已启用（控制面板 → Windows 功能 → Windows Sandbox）
+      2. 先执行 pnpm tauri build 构建安装包
+      3. 双击此 .wsb 文件启动沙盒
+      4. 沙盒内桌面自动打开共享文件夹，直接运行安装包测试
+      
+    注意：
+      - Windows Sandbox 基于 Hyper-V，需 Win 10/11 Pro 或 Enterprise
+      - 沙盒关闭后所有数据销毁，每次测试从零开始
+      - 需联网下载 WebView2 Runtime（沙盒内会自动下载）
+      - WebView2 每次启动沙盒都需重新下载安装，约耗时 30 秒
+  -->
+  
+  <VGpu>Disable</VGpu>
+  <Networking>Default</Networking>
+  <MemoryInMB>4096</MemoryInMB>
+  
+  <MappedFolders>
+    <!--
+      将构建产物目录映射为只读共享文件夹
+      路径需修改为你的实际项目路径
+    -->
+    <MappedFolder>
+      <HostFolder>D:\MyProject_D\artifexnexus\apps\desktop\src-tauri\target\release\bundle\nsis</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\artifact</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  
+  <LogonCommand>
+    <Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '================================================'; Write-Host '  Artifex Nexus Windows Sandbox 测试环境' -ForegroundColor Cyan; Write-Host '================================================'; Write-Host ''; Write-Host '安装包已映射到桌面 artifact 文件夹'; Write-Host ''; Write-Host '测试步骤：'; Write-Host '  1. 等待 WebView2 Runtime 安装完成'; Write-Host '  2. 双击安装包开始测试'; Write-Host '  3. 按 testing/install-checklist.md 逐项验证'; Write-Host ''; Write-Host '注意：沙盒关闭后所有数据丢失'; Write-Host '================================================'; Write-Host ''; $installerUrl = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'; $installerPath = Join-Path $env:TEMP 'WebView2Setup.exe'; Write-Host '[1/2] 正在下载 WebView2 Runtime...' -ForegroundColor Yellow; Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing; Write-Host '[2/2] 正在安装 WebView2 Runtime...' -ForegroundColor Yellow; $proc = Start-Process -FilePath $installerPath -ArgumentList '/silent /install' -Wait -PassThru; if ($proc.ExitCode -eq 0) { Write-Host 'WebView2 Runtime 安装完成!' -ForegroundColor Green } else { Write-Host 'WebView2 Runtime 安装失败 (exit: ' + $proc.ExitCode + ')，但仍可尝试测试' -ForegroundColor Yellow }; Write-Host ''; Get-ChildItem 'C:\Users\WDAGUtilityAccount\Desktop\artifact\*.exe' | ForEach-Object { Write-Host ('安装包: ' + $_.Name + ' (' + [math]::Round($_.Length/1MB,2) + ' MB)') -ForegroundColor Green }; Write-Host ''; Start-Sleep -Seconds 2"</Command>
+  </LogonCommand>
+</Configuration>
