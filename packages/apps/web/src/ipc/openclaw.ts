@@ -1,22 +1,11 @@
 // OpenClaw IPC 封装：调用 Tauri Rust 命令，桥接 sidecar JSON-RPC。
 // OpenClaw IPC wrapper: invokes Tauri Rust commands that bridge to sidecar JSON-RPC.
 //
-// 从 apps/desktop/src/ipc/openclaw.ts 复制，仅修改 invoke 来源：
-// Desktop: import { invoke } from "@tauri-apps/api/core"
-// Web UI:  window.__TAURI__.invoke（Tauri webview 自动注入）
-// 惰性访问避免 Next.js SSR 时 window is not defined
+// 从 apps/desktop/src/ipc/openclaw.ts 复制，完全一致。
+// 注意：此文件依赖 @tauri-apps/api，仅在 Tauri webview 中可用。
+// 浏览器开发环境请使用 mock 数据。
 
-function getInvoke() {
-  if (typeof window === "undefined") return undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (window as any).__TAURI__?.invoke as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-}
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const fn = getInvoke();
-  if (!fn) throw new Error(`[Tauri] 非 Tauri 环境，无法调用 ${cmd}`);
-  return fn(cmd, args ?? {});
-}
+import { invoke } from "@tauri-apps/api/core";
 
 /** openclaw.status 返回的聚合状态 */
 export interface OpenClawStatus {

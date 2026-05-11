@@ -10,10 +10,8 @@
 import * as React from "react";
 import { Cpu, Bot, Plus, Trash2, Eye, EyeOff, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input } from "@artifex-nexus/ui";
-import {
-  dumpOpenClawConfig, getOpenClawAgentPresetStatus, resetOpenClawAgentPreset,
-  type OpenClawConfigDump, type OpenClawAgentPresetStatus,
-} from "../../ipc/openclaw";
+import { getIpc } from "../../lib/ipc";
+import type { OpenClawConfigDump, OpenClawAgentPresetStatus } from "../../ipc/openclaw";
 
 export function SettingsPage() {
   const [tab, setTab] = React.useState("providers");
@@ -46,7 +44,8 @@ function ProvidersTab() {
   React.useEffect(() => {
     void (async () => {
       try {
-        const dump = await dumpOpenClawConfig();
+        const ipc = await getIpc();
+        const dump = await ipc.dumpOpenClawConfig();
         setConfig(dump);
       } catch (e: any) {
         setError(e.message || String(e));
@@ -142,7 +141,8 @@ function AgentTab() {
 
   const fetchStatus = async () => {
     try {
-      const s = await getOpenClawAgentPresetStatus();
+      const ipc = await getIpc();
+      const s = await ipc.getOpenClawAgentPresetStatus();
       setStatus(s);
     } catch {}
     setLoading(false);
@@ -153,7 +153,8 @@ function AgentTab() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await resetOpenClawAgentPreset();
+      const ipc = await getIpc();
+      await ipc.resetOpenClawAgentPreset();
       await fetchStatus();
     } catch {} finally { setResetting(false); }
   };

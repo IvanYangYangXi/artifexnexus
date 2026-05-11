@@ -15,6 +15,7 @@
   "dependencies": {
     "@artifex-nexus/contracts": "workspace:*",
     "@artifex-nexus/ui": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "lucide-react": "^0.453.0",
     "next": "^15.0.0",

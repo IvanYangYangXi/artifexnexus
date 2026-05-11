@@ -11,13 +11,8 @@ import * as React from "react";
 import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import {
-  getOpenClawStatus, installOpenClaw, bootstrapOpenClaw, startOpenClaw,
-  detectBlenderVersions, installBlenderAddon,
-  getGatewayStatus, startGateway, restartGateway,
-  validateDeployments,
-  type OpenClawStatus, type GatewayStatus, type DeployValidationResult,
-} from "../../ipc/openclaw";
+import { getIpc } from "../../lib/ipc";
+import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../../ipc/openclaw";
 
 // ─── 类型 ───────────────────────────────────────────────────────────────────
 
@@ -85,9 +80,10 @@ function InstallerTab() {
   React.useEffect(() => { handleGlobalDetect(); }, []);
 
   const handleGlobalDetect = async () => {
+    const ipc = await getIpc();
     // OpenClaw 状态
     try {
-      const status = await getOpenClawStatus();
+      const status = await ipc.getOpenClawStatus();
       setOpenclawStatus(status);
       let s: ItemState;
       if (status.gateway_running) s = "installed";
@@ -95,9 +91,8 @@ function InstallerTab() {
       else s = "not-installed";
       setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: s } : it));
       addLog("openclaw", "info", `OpenClaw 状态: ${s === "installed" ? "已安装" : s === "update-available" ? "可更新" : "未安装"}`);
-      // 部署校验
       try {
-        const v = await validateDeployments();
+        const v = await ipc.validateDeployments();
         const sum = v.summary;
         if (sum.total === 0) addLog("openclaw", "info", "部署文件校验: 暂无部署记录");
         else {
@@ -117,31 +112,32 @@ function InstallerTab() {
     // Blender 检测
     try {
       addLog("blender", "info", "正在检测本机 Blender 版本…");
-      const result = await detectBlenderVersions();
-      const children = result.versions.map((v) => ({
+      const result = await ipc.detectBlenderVersions();
+      const children = result.versions.map((v: any) => ({
         label: `Blender ${v.version}`, version: v.version,
         installPath: `%APPDATA%/Blender Foundation/Blender/${v.version}/scripts/addons`,
         projectPath: "", scriptPath: `artifex_nexus_v${result.addon_info.version}`,
         state: (v.installed ? "installed" : "not-installed") as ItemState,
       }));
-      const hasInstalled = children.some((c) => c.state === "installed");
+      const hasInstalled = children.some((c: any) => c.state === "installed");
       setItems((prev) => prev.map((it) => it.id === "blender" ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
-      addLog("blender", "info", `检测到 ${result.versions.length} 个版本（已装: ${children.filter((c) => c.state === "installed").length}）`);
+      addLog("blender", "info", `检测到 ${result.versions.length} 个版本（已装: ${children.filter((c: any) => c.state === "installed").length}）`);
     } catch { addLog("blender", "warn", "Blender 检测失败（sidecar 不可用）"); }
   };
 
   const handleInstall = async (id: string) => {
+    const ipc = await getIpc();
     if (id === "openclaw") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "开始安装 OpenClaw...");
       try {
-        const r = await installOpenClaw("v2026.5.4");
+        const r = await ipc.installOpenClaw("v2026.5.4");
         if (!r.success) { addLog(id, "error", r.error_message || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it)); return; }
         addLog(id, "info", "安装完成，初始化配置...");
-        const b = await bootstrapOpenClaw("v2026.5.4");
+        const b = await ipc.bootstrapOpenClaw("v2026.5.4");
         if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
         addLog(id, "info", "启动 Gateway...");
-        const s = await startOpenClaw(b.port);
+        const s = await ipc.startOpenClaw(b.port);
         if (!s.success) { addLog(id, "error", s.message || "启动失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
         addLog(id, "info", "Gateway 启动成功");
         setItems((prev) => prev.map((it) => {
@@ -156,9 +152,9 @@ function InstallerTab() {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "正在安装 Blender 插件...");
       try {
-        const bs = await (window as any).__TAURI__?.invoke("openclaw_gateway_mcp_bridge_status");
-        if (!bs?.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await (window as any).__TAURI__?.invoke("openclaw_gateway_mcp_bridge_install"); }
-        const r = await installBlenderAddon("5.1", false);
+        const bs = await ipc.invoke("openclaw_gateway_mcp_bridge_status");
+        if (!bs?.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await ipc.invoke("openclaw_gateway_mcp_bridge_install"); }
+        const r = await ipc.installBlenderAddon("5.1", false);
         if (r.success) { addLog(id, "info", "Blender 插件安装完成"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); }
         else { addLog(id, "error", r.error || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error || undefined } : it)); }
       } catch (e: any) { addLog(id, "error", e.message); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); }
@@ -246,14 +242,15 @@ function GatewayTab() {
   const [status, setStatus] = React.useState<GatewayStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  const fetchStatus = async () => { try { const s = await getGatewayStatus(); setStatus(s); } catch {} };
+  const fetchStatus = async () => { try { const ipc = await getIpc(); const s = await ipc.getGatewayStatus(); setStatus(s); } catch {} };
   React.useEffect(() => { fetchStatus(); }, []);
 
   const handleStart = async () => {
     setBusy(true);
     try {
-      if (status?.state === "running") await restartGateway();
-      else await startGateway();
+      const ipc = await getIpc();
+      if (status?.state === "running") await ipc.restartGateway();
+      else await ipc.startGateway();
       await fetchStatus();
     } catch {} finally { setBusy(false); }
   };
@@ -284,7 +281,7 @@ function GatewayTab() {
 
 function StatusTab() {
   const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
-  React.useEffect(() => { void (async () => { try { const v = await validateDeployments(); setDeploy(v); } catch {} })(); }, []);
+  React.useEffect(() => { void (async () => { try { const ipc = await getIpc(); const v = await ipc.validateDeployments(); setDeploy(v); } catch {} })(); }, []);
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
