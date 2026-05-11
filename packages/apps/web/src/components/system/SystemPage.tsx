@@ -296,12 +296,29 @@ function GatewayTab() {
 function StatusTab() {
   const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
   const [checking, setChecking] = React.useState(false);
+  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; url: string | null; running: boolean}[]>([]);
 
   const runDeployCheck = async () => {
     setChecking(true);
     try { const ipc = await getIpc(); const v = await ipc.validateDeployments(); setDeploy(v); } catch {} finally { setChecking(false); }
   };
-  React.useEffect(() => { runDeployCheck(); }, []);
+
+  const refreshDCC = async () => {
+    try {
+      const ipc = await getIpc();
+      const items: {name: string; port: number | null; url: string | null; running: boolean}[] = [];
+      // Blender
+      try {
+        const p = await ipc.getDCCPort("blender");
+        items.push({ name: "Blender", port: p.port, url: p.url, running: false });
+        // 尝试通过 fetch 检测是否在线（WebSocket 不可行，用 HTTP 探测 sidecar 端口）
+        try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors" }); items[items.length-1].running = true; } catch {}
+      } catch { items.push({ name: "Blender", port: null, url: null, running: false }); }
+      setDccStatus(items);
+    } catch {}
+  };
+
+  React.useEffect(() => { runDeployCheck(); refreshDCC(); }, []);
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -313,26 +330,19 @@ function StatusTab() {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">DCC 连接</span>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={async () => {
-            try { const ipc = await getIpc(); const r = await ipc.detectBlenderVersions(); /* 更新状态 */ } catch {}
-          }}>刷新</Button>
+          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={refreshDCC}>刷新</Button>
         </div>
         <div className="mt-2 space-y-1.5 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-            <span>Blender</span>
-            <span className="text-muted-foreground">MCP Server 未启动 · 未连接</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-            <span>Maya</span>
-            <span className="text-muted-foreground">未安装</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-            <span>Unreal</span>
-            <span className="text-muted-foreground">未安装</span>
-          </div>
+          {dccStatus.length === 0 && <div className="text-muted-foreground">点击刷新检测</div>}
+          {dccStatus.map((d) => (
+            <div key={d.name} className="flex items-center gap-2">
+              <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
+              <span>{d.name}</span>
+              <span className="text-muted-foreground">
+                {d.running ? `MCP Server 运行中 · ws://127.0.0.1:${d.port}` : d.port ? `端口已配置(${d.port}) · MCP Server 未启动` : "未配置"}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
