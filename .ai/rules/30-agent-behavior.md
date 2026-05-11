@@ -112,3 +112,21 @@
 - [ ] **状态迁移三处同步**（文件位置 / frontmatter.status / board.md 列）已全部完成
 - [ ] **GUI 任务**：UI 结构 spec 已 accepted，再写代码
 - [ ] **多级任务**：parent / children 双向可达，孤儿（无 parent 又非 EPIC）= 0
+
+## 8. OpenClaw 配置文件编码规范（强制）
+
+OpenClaw 的 `openclaw.json` 使用 **UTF-8 无 BOM** 编码。写入中文时必须遵守：
+
+1. **Python 写入**：必须使用 `json.dumps(data, ensure_ascii=False).encode('utf-8')`，
+   然后以 `'wb'` 模式写文件。禁止依赖系统默认编码（Windows 下可能是 GBK）。
+2. **Python 读取**：必须 `open(path, 'rb')` + `.decode('utf-8')` 或
+   `open(path, encoding='utf-8')`。禁止省略 encoding 参数。
+3. **不要用 `ensure_ascii=True`**（默认值）：虽然不会产生乱码，但会把中文转为
+   `\uXXXX` 转义序列，可读性差且占用更多空间。
+4. **OpenClaw CLI 的 `config patch --stdin`**：stdin 管道输入也必须是 UTF-8 编码的
+   JSON。subprocess 调用时设 `encoding='utf-8'` 或传 bytes。
+5. **乱码排查**：如果看到类似"鍗佷簩"、"涓撹亴"等字符，说明 UTF-8 字节被当作
+   Latin-1/GBK 解读了。修复方法：用 `json.dumps(ensure_ascii=False).encode('utf-8')`
+   重写整个文件。
+6. **最小字号规范**：系统页和设置页的文字最小为 `11px`（`text-[11px]`），
+   禁止使用 `text-[9px]` 或 `text-[10px]`，确保可读性。
