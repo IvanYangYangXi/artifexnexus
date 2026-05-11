@@ -362,20 +362,23 @@ export class GatewayWebSocket {
     if (!this._ws) return;
 
     // Gateway client 白名单（来自 OpenClaw client-info.ts）：
-    // client.id 枚举：webchat-ui | openclaw-control-ui | node-host | webchat | cli | ...
+    // client.id 枚举：webchat-ui | openclaw-control-ui | cli | node-host | webchat | ...
     // client.mode 枚举：webchat | cli | ui | backend | node | probe | test
     //
-    // Artifex Nexus 作为嵌入桌面的 Web 聊天界面，使用 webchat-ui / webchat
+    // 参考 artclaw_bridge gateway_client.py _handshake()：
+    //   - client.id: "cli"，client.mode: "cli"（工具类应用的通用标识）
+    //   - scopes: ["operator.read", "operator.write", "operator.admin"]
+    //   - device: 可选（含签名时防止 device identity required；空时降级到 token-only）
 
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "webchat-ui",
+        id: "cli",
         displayName: "Artifex Nexus",
         version: "0.1.0",
         platform: "win32",
-        mode: "webchat",
+        mode: "cli",
       },
       caps: [],
       auth: { token: this._token },
@@ -390,7 +393,7 @@ export class GatewayWebSocket {
       params,
     });
 
-    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=webchat-ui`);
+    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=cli`);
     this._ws.send(payload);
   }
 
