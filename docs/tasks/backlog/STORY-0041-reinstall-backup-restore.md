@@ -119,6 +119,13 @@ M3 后期 / M4 前期。当前已通过手动复制 `auth-profiles.json` 到新�
 }
 ```
 
+**补充发现**（2026-05-12 00:47）：实际延迟 ~10s 更可能是 **Control UI 设备认证超时回退** 导致：
+- 客户端发 `connect` RPC 时未传 `device` 字段
+- Gateway `dangerouslyDisableDeviceAuth: true` 跳过了 device auth
+- 但客户端/Gateway 内部可能仍有 10s 超时回退逻辑
+- 修复方向：connect params 中传 `device: null` 告知 Gateway 无需 device auth
+- 已在 `gateway-ws.ts` 中加入 `device: null`，待验证是否消除延迟
+
 ### B. 模型/Provider 信息存储方式优化
 
 **当前问题**：

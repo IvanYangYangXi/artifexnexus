@@ -410,6 +410,8 @@ export class GatewayWebSocket {
       },
       caps: [],
       auth: { token: this._token },
+      // STORY-0041：尝试跳过 device auth 超时（待验证字段名）
+      device: null,
       role: "operator",
       scopes: ["operator.read", "operator.write", "operator.admin"],
     };
