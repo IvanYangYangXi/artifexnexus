@@ -48,11 +48,11 @@ export function SettingsPage() {
       const ipc = await getIpc();
       const result = await ipc.patchOpenClawConfig(patch, extrasPatch);
       if (!result.success) { setSaveMsg(result.validateError || "保存失败"); return; }
-      // 写入 API Key（通过 setOpenClawAuthToken）
+      // 写入 API Key（通过 window 临时存储，ProvidersTab 设置）
       const pendingKey = (window as any).__pendingApiKey;
-      if (pendingKey?.token) {
+      if (pendingKey?.token && pendingKey?.profileId) {
         await ipc.setOpenClawAuthToken({
-          profileId: `${pendingKey.provider}-default`,
+          profileId: pendingKey.profileId,
           token: pendingKey.token,
           provider: pendingKey.provider,
         });
@@ -99,8 +99,14 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const [showAdd, setShowAdd] = React.useState(false);
   const [fetchingModels, setFetchingModels] = React.useState(false);
   const [remoteModelList, setRemoteModelList] = React.useState<string[] | null>(null);
+  const [showApiKey, setShowApiKey] = React.useState(false);
+  const [newApiKey, setNewApiKey] = React.useState("");
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
+
+  // 读取关联的 auth profile 的 token（脱敏）
+  const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
+  const maskedKey = authProfile?.apiKey ? "•".repeat(Math.min(authProfile.apiKey.length, 24)) : "";
 
   const handleFetchModels = async () => {
     if (!selected) return;
@@ -175,21 +181,32 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                 <Input className="mt-0.5 h-8 text-xs" value={selected.baseUrl} onChange={(e) => dispatch({ type: "UPDATE_PROVIDER", id: selected.id, patch: { baseUrl: e.target.value } })} />
               </div>
             </div>
-            {/* API Key — 通过 auth profile 管理 */}
+            {/* API Key */}
             <div>
-              <label className="text-[10px] text-muted-foreground">API Key（通过认证 Profile 管理）</label>
+              <label className="text-[10px] text-muted-foreground">API Key</label>
               <div className="mt-0.5 flex items-center gap-2">
-                <Input className="h-8 flex-1 text-xs font-mono"
-                  type="password"
-                  placeholder="输入新 API Key"
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val.length >= 8) {
-                      // 存储到临时变量，保存时通过 setOpenClawAuthToken 写入
-                      (window as any).__pendingApiKey = { provider: selected.id, token: val };
-                    }
-                  }} />
-                <span className="text-[10px] text-muted-foreground">保存时写入</span>
+                {maskedKey ? (
+                  <>
+                    <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey ? "text" : "password"}
+                      value={showApiKey ? (authProfile?.apiKey || "") : maskedKey}
+                      readOnly={!showApiKey}
+                      onChange={(e) => setNewApiKey(e.target.value)} />
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowApiKey(!showApiKey)}>
+                      {showApiKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Input className="h-8 flex-1 text-xs font-mono" type="password"
+                      placeholder="输入 API Key（保存时写入）"
+                      value={newApiKey}
+                      onChange={(e) => {
+                        setNewApiKey(e.target.value);
+                        (window as any).__pendingApiKey = { profileId: selected.authProfileId, token: e.target.value, provider: selected.id };
+                      }} />
+                    <span className="text-[10px] text-muted-foreground">新密钥</span>
+                  </>
+                )}
               </div>
             </div>
             <div>
@@ -203,7 +220,11 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                 <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleFetchModels} disabled={fetchingModels}>
                   {fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
                 </Button>
-                <span className="text-[9px] text-muted-foreground">添加</span>
+                <span className="text-[9px] text-muted-foreground">获取远程</span>
+                <Button variant="ghost" size="sm" className="h-5 text-[9px] rounded-full" onClick={() => {
+                  const id = prompt("手动输入模型 ID（如 gpt-4o）:");
+                  if (id?.trim()) dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id.trim() });
+                }}>手动添加</Button>
               </div>
               {/* 远程模型选择器 */}
               {remoteModelList && (

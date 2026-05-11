@@ -275,14 +275,15 @@ function StatusBar() {
       {dccStatus.map((d) => (
         <span key={d.name} className="flex items-center gap-1">
           <span className={`h-1.5 w-1.5 rounded-full ${d.running ? "bg-emerald-400" : d.port ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
-          {d.name} {d.running ? "已连接" : d.port ? `端口 ${d.port} · MCP Server 未连接` : "未配置"}
+          {d.name} {d.port ? `端口 ${d.port}` : "未配置"} {d.running ? "· 已连接" : d.port ? "· MCP Server 已启动 · 等待 Gateway" : ""}
         </span>
       ))}
       {deploy && (
         <span className="text-muted-foreground">
-          · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.corrupted ?? 0}⚠️
+          · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.outdated ?? 0}🔄 {deploy.summary?.corrupted ?? 0}⚠️ {deploy.summary?.missing ?? 0}❌
         </span>
       )}
+      <span className="text-muted-foreground">· Sidecar 端口 19789</span>
       <div className="flex-1" />
       <Button variant="outline" size="sm" className="h-5 text-[9px] rounded-full" onClick={refresh}>刷新</Button>
     </div>

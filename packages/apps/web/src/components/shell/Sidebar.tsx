@@ -81,16 +81,11 @@ async function handleQuickLinkClick(link: QuickLink) {
     return;
   }
 
-  // 文件夹/文件：通过 Tauri invoke → sidecar shell.open_path RPC
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tauri = (window as any).__TAURI__;
-  if (tauri?.invoke) {
-    try {
-      await tauri.invoke("shell_open_path", { path: link.target });
-    } catch (e: unknown) {
-      alert(`无法打开: ${link.target}\n${e}`);
-    }
-  } else {
+  // 文件夹/文件：通过 Tauri shell_open_path 命令打开
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("shell_open_path", { path: link.target });
+  } catch {
     // 浏览器环境：复制路径到剪贴板并提示
     navigator.clipboard.writeText(link.target).then(() => {
       alert(`路径已复制到剪贴板:\n${link.target}\n\n（在 Tauri 桌面应用中可直接打开）`);
