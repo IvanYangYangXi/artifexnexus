@@ -83,41 +83,41 @@ export async function fetchGatewayModels(port: number): Promise<ModelOption[]> {
  * 获取可用 Agent 列表
  *
  * 当前 OpenClaw Gateway 未暴露标准 agent 列表端点；
- * 使用硬编码 + 预设 agent 组合。后续 STORY-0040 接入 config dump 后扩展。
+ * 代理预设存储在 openclaw.json → agents.list[] 中，
+ * 需通过 Tauri IPC 的 dumpOpenClawConfig() 获取（STORY-0040 实现）。
+ *
+ * 目前返回 Gateway 探测结果，无可用的返回空数组。
  */
 export async function fetchGatewayAgents(port: number): Promise<AgentOption[]> {
-  // OpenClaw Gateway 当前版本没有标准 /v1/agents 端点。
-  // Agent 预设存储在 openclaw.json → agents.list[] 中，
-  // 需通过 Tauri IPC 的 dumpOpenClawConfig() 获取（STORY-0040 实现）。
-  // 目前返回默认 agent + 从 Gateway 探测到的已知预设。
-  const agents: AgentOption[] = [
-    { id: "artifex-nexus", name: "Artifex Nexus" },
-  ];
-
-  // 尝试探测 Gateway 是否有 agent 端点（未来版本兼容）
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`http://127.0.0.1:${port}/v1/agents`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data?.data)) {
-        for (const a of data.data) {
-          if (a.id && !agents.find((x) => x.id === a.id)) {
-            agents.push({ id: a.id, name: a.name ?? a.id });
-          }
+  // 尝试探测 Gateway 的 agent 相关端点
+  const endpoints = ["/v1/agents", "/api/agents"];
+  for (const ep of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`http://127.0.0.1:${port}${ep}`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+        if (list.length > 0) {
+          return list
+            .filter((a: { id?: string; name?: string }) => a.id)
+            .map((a: { id?: string; name?: string }) => ({
+              id: a.id!,
+              name: a.name ?? a.id!,
+            }));
         }
       }
+    } catch {
+      // 端点不可用，继续尝试下一个
     }
-  } catch {
-    // 端点不存在，忽略
   }
-
-  return agents;
+  return [];
 }
 
 // ─── 健康检查 ──────────────────────────────────────────────────────────────
