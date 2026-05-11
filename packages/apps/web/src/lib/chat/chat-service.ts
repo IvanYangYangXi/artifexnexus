@@ -342,48 +342,84 @@ export function useChatService(options: ChatServiceOptions) {
 
     let cancelled = false;
 
-    const wsUrl = `ws://127.0.0.1:${gatewayPort}`;
-    const ws = new GatewayWebSocket(wsUrl, gatewayToken);
-    wsRef.current = ws;
-
-    ws.onStateChange((wsState) => {
-      const mapped = wsState === "connected" ? "connected"
-        : wsState === "disconnected" ? "disconnected"
-        : "connecting";
-
-      // WS 断连时重置状态机，避免卡在 streaming/sending 状态
-      // （场景：Gateway 崩溃或网络断开，流式消息永远不会收到结束信号）
-      if (mapped === "disconnected" && prevWsStateRef.current === "connected") {
-        clearStreamTimeout();
-        dispatch({ type: "RESET_STATE" });
-      }
-
-      // 自动恢复：重连后检测是否有未完成的流式消息
-      if (mapped === "connected" && prevWsStateRef.current !== "connected") {
-        // 延迟检查，等 Reducer 状态稳定
-        setTimeout(() => {
-          const lastMsg = state.messages[state.messages.length - 1];
-          if (lastMsg?.role === "assistant" && lastMsg.isStreaming && lastMsg.content.length > 0) {
-            // 有未完成的流式消息 → 自动续写
-            resume();
+    /**
+     * 等待 Gateway HTTP 就绪后再建 WebSocket。
+     *
+     * 问题：OpenClaw Gateway 启动需要 ~5-8s（sidecar spawn → HTTP → plugins）。
+     * 如果在 `gateway ready` 之前建 WebSocket，GW 返回
+     * `startup-sidecars-pending` → 1008 拒绝，日志刷 WARN。
+     *
+     * 方案：轮询 HTTP 200 → 拿到响应后再等 3s → 建 WS。
+     */
+    const waitForGatewayReady = async (): Promise<boolean> => {
+      const maxWait = 30_000; // 最长等 30s
+      const startedAt = Date.now();
+      while (!cancelled && Date.now() - startedAt < maxWait) {
+        try {
+          const resp = await fetch(`http://127.0.0.1:${gatewayPort}/v1/models`, {
+            method: "GET",
+            signal: AbortSignal.timeout(2000),
+          });
+          if (resp.ok) {
+            // Gateway HTTP 就绪，额外等 3s 让 sidecars/plugins 完全初始化
+            await new Promise((r) => setTimeout(r, 3000));
+            return true;
           }
-        }, 500);
+        } catch {
+          // 未就绪，继续轮询
+        }
+        await new Promise((r) => setTimeout(r, 2000));
       }
-      prevWsStateRef.current = mapped;
-      setWsState(mapped);
-    });
+      return false;
+    };
 
-    ws.onMessage((event: GatewayChatEvent) => {
-      handleGatewayEvent(event);
-    });
+    const doConnect = async () => {
+      if (cancelled) return;
+      const ready = await waitForGatewayReady();
+      if (cancelled || !ready) return;
 
-    // 直接连接 WS（WS 自身有重连机制，不需要前置 HTTP 探测）
-    ws.connect().catch(() => {});
+      const wsUrl = `ws://127.0.0.1:${gatewayPort}`;
+      const ws = new GatewayWebSocket(wsUrl, gatewayToken);
+      if (cancelled) { ws.disconnect(); return; }
+      wsRef.current = ws;
+
+      ws.onStateChange((wsState) => {
+        const mapped = wsState === "connected" ? "connected"
+          : wsState === "disconnected" ? "disconnected"
+          : "connecting";
+
+        if (mapped === "disconnected" && prevWsStateRef.current === "connected") {
+          clearStreamTimeout();
+          dispatch({ type: "RESET_STATE" });
+        }
+
+        if (mapped === "connected" && prevWsStateRef.current !== "connected") {
+          setTimeout(() => {
+            const lastMsg = state.messages[state.messages.length - 1];
+            if (lastMsg?.role === "assistant" && lastMsg.isStreaming && lastMsg.content.length > 0) {
+              resume();
+            }
+          }, 500);
+        }
+        prevWsStateRef.current = mapped;
+        setWsState(mapped);
+      });
+
+      ws.onMessage((event: GatewayChatEvent) => {
+        handleGatewayEvent(event);
+      });
+
+      ws.connect().catch(() => {});
+    };
+
+    doConnect();
 
     return () => {
       cancelled = true;
-      ws.disconnect();
-      wsRef.current = null;
+      if (wsRef.current) {
+        wsRef.current.disconnect();
+        wsRef.current = null;
+      }
     };
   }, [gatewayPort, gatewayToken]);
 
