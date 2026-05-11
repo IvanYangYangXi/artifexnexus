@@ -172,7 +172,23 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
   return (
     <div className={`max-w-lg ${GLASS} p-4 space-y-4`}>
       <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Agent 默认设置（agents.defaults）</div>
-      <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 text-xs text-muted-foreground">配置来源: openclaw.json → agents.defaults。安装时自动写入 Artifex Nexus 预设。</div>
+      <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 text-xs text-muted-foreground">
+        配置来源: openclaw.json → agents.defaults。安装时自动写入 Artifex Nexus 预设。
+      </div>
+      {/* 人格信息 */}
+      {agent.systemPromptOverride && (
+        <div>
+          <label className="text-[10px] text-muted-foreground">系统提示词 (systemPromptOverride)</label>
+          <textarea className="mt-1 h-24 w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-primary/30"
+            value={agent.systemPromptOverride}
+            onChange={(e) => dispatch({ type: "UPDATE_DEFAULT_AGENT", patch: { systemPromptOverride: e.target.value } })} />
+        </div>
+      )}
+      {!agent.systemPromptOverride && (
+        <div className="rounded-lg border border-dashed border-white/[0.08] p-3 text-xs text-muted-foreground">
+          未检测到 systemPromptOverride（人格信息）。请通过安装向导安装 Artifex Nexus Agent 预设。
+        </div>
+      )}
       <div><label className="text-[10px] text-muted-foreground">默认模型 (model)</label><Input className="mt-1 h-8 text-xs" value={agent.defaultModel} placeholder="如: openai/gpt-4o" onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{defaultModel:e.target.value}})} /></div>
       <div><label className="text-[10px] text-muted-foreground">图像模型 (imageModel)</label><Input className="mt-1 h-8 text-xs" value={agent.imageModel} placeholder="如: openai/dall-e-3" onChange={e=>dispatch({type:"UPDATE_DEFAULT_AGENT",patch:{imageModel:e.target.value}})} /></div>
       <div className="grid grid-cols-2 gap-4">

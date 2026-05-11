@@ -244,6 +244,7 @@ export function dumpToState(dump: OpenClawConfigDump): {
     imageGenerationModel: asString(ad.imageGenerationModel),
     thinkingDefault: asString(ad.thinkingDefault, "adaptive"),
     reasoningDefault: asString(ad.reasoningDefault, "on"),
+    systemPromptOverride: asString(ad.systemPromptOverride),
   };
 
   return { providers, authProfiles, defaultAgent };

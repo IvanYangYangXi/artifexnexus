@@ -76,6 +76,8 @@ export interface DefaultAgentForm {
   imageGenerationModel: string;
   thinkingDefault: string;
   reasoningDefault: string;
+  /** Artifex Nexus 预设人格信息 */
+  systemPromptOverride?: string;
 }
 
 /** Provider 模板（仅"新增"时一键填默认值；不创建固定 slot） */
