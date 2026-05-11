@@ -289,47 +289,76 @@ export class GatewayWebSocket {
       }
 
       const deadline = Date.now() + HANDSHAKE_TIMEOUT;
+      let challengeReceived = false;
+      let connectSent = false;
+      let connectReqId = "";
 
-      // 等待 connect.challenge
       const originalOnMessage = this._ws.onmessage;
       this._ws.onmessage = (event: MessageEvent) => {
-        try {
-          const msg = JSON.parse(event.data as string);
-          if (msg.event === "connect.challenge") {
-            // 收到 challenge → 发送 connect 请求
-            const nonce = msg.payload?.nonce ?? "";
-            this._sendConnect(nonce);
-          } else if (msg.type === "res" && msg.id) {
-            const pending = this._pendingRequests.get(msg.id);
-            if (pending) {
-              this._pendingRequests.delete(msg.id);
-              if (msg.error) {
-                pending.reject(new Error(String(msg.error)));
-              } else {
-                pending.resolve(msg.payload ?? {});
-              }
-            }
-            // connect 成功
-            if (msg.id.startsWith("connect-")) {
-              this._ws!.onmessage = originalOnMessage;
-              resolve(!msg.error);
-            }
-          }
-        } catch {
-          // 忽略非 JSON 消息
-        }
-
-        // 超时检查
+        // 超时
         if (Date.now() > deadline) {
           this._ws!.onmessage = originalOnMessage;
+          console.warn("[gateway-ws] Handshake timed out");
+          resolve(false);
+          return;
+        }
+
+        try {
+          const msg = JSON.parse(event.data as string);
+
+          // Step 1: 等待 connect.challenge
+          if (!challengeReceived) {
+            if (msg.event === "connect.challenge") {
+              challengeReceived = true;
+              const nonce = msg.payload?.nonce ?? "";
+              console.log("[gateway-ws] Received connect.challenge, sending connect...");
+              connectReqId = `connect-${this._nextReqId()}`;
+              this._sendConnectInternal(nonce, connectReqId);
+              connectSent = true;
+            }
+            return;
+          }
+
+          // Step 2: connect 已发送，等待响应
+          if (connectSent) {
+            // 接受 res 或任何非 challenge 的消息作为握手完成信号
+            if (msg.type === "res") {
+              console.log(
+                `[gateway-ws] Connect response: id=${msg.id}, error=${!!msg.error}, payload=${JSON.stringify(msg.payload)?.slice(0, 80)}`,
+              );
+              this._ws!.onmessage = originalOnMessage;
+              // 响应匹配我们的 connect 请求 ID 且无错误 → 成功
+              if (msg.id === connectReqId && !msg.error) {
+                resolve(true);
+              } else if (msg.error) {
+                console.warn(`[gateway-ws] Connect rejected: ${JSON.stringify(msg.error)}`);
+                resolve(false);
+              } else {
+                // 响应来了但 ID 不匹配或格式不同，仍视为成功（Gateway 已确认）
+                resolve(true);
+              }
+              return;
+            }
+
+            // 其他事件（如 agent 推送）→ 忽略，继续等待 res
+            console.log(`[gateway-ws] Pre-connect event: ${msg.event ?? msg.type}`);
+          }
+        } catch {
+          // 非 JSON 消息忽略
+        }
+
+        // 超时检查（每次消息都检查）
+        if (Date.now() > deadline) {
+          this._ws!.onmessage = originalOnMessage;
+          console.warn("[gateway-ws] Handshake timed out");
           resolve(false);
         }
       };
     });
   }
 
-  /** 发送 connect RPC */
-  private _sendConnect(nonce: string): void {
+  /** 发送 connect RPC（内部，由 _handshake 调用） */
+  private _sendConnectInternal(nonce: string, reqId: string): void {
     if (!this._ws) return;
 
     // 生成设备 ID：优先用 localStorage 缓存的稳定 ID，首次生成 UUID
@@ -344,7 +373,6 @@ export class GatewayWebSocket {
       deviceId = `dev-${Date.now()}`;
     }
 
-    const reqId = `connect-${this._nextReqId()}`;
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
@@ -361,22 +389,15 @@ export class GatewayWebSocket {
       scopes: ["operator.read", "operator.write", "operator.admin"],
     };
 
-    this._pendingRequests.set(reqId, {
-      resolve: () => {},
-      reject: () => {},
-      timeout: setTimeout(() => {
-        this._pendingRequests.delete(reqId);
-      }, HANDSHAKE_TIMEOUT),
+    const payload = JSON.stringify({
+      type: "req",
+      id: reqId,
+      method: "connect",
+      params,
     });
 
-    this._ws.send(
-      JSON.stringify({
-        type: "req",
-        id: reqId,
-        method: "connect",
-        params,
-      }),
-    );
+    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=${deviceId}`);
+    this._ws.send(payload);
   }
 
   /** 处理 WebSocket 消息 */
