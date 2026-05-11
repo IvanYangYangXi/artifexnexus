@@ -103,6 +103,9 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const [newApiKey, setNewApiKey] = React.useState("");
   // Bug #1: 添加"覆盖模式"状态——当用户想要更换已保存的 API Key 时
   const [overrideApiKey, setOverrideApiKey] = React.useState(false);
+  // 测试连接状态
+  const [testing, setTesting] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<{ success: boolean; latencyMs?: number; error?: string } | null>(null);
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
   const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
@@ -112,6 +115,20 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const hasRealToken = authProfile?.apiKey && !/^\*+$/.test(authProfile.apiKey || "") && authProfile.apiKey.length >= 8;
 
   const handleAddModel = () => { const id = newModelId.trim(); if (!id || !selected) return; dispatch({ type: "ADD_MODEL", providerId: selected.id, modelId: id }); setNewModelId(""); };
+
+  // 测试连接：通过 sidecar 发一次最小请求验证 provider + auth 连通性
+  const handleTestConnection = async () => {
+    if (!selected) return;
+    const defaultModel = selected.models.find((m) => m.isDefault)?.id || selected.models[0]?.id;
+    if (!defaultModel) { setTestResult({ success: false, error: "请先添加至少一个模型" }); return; }
+    setTesting(true); setTestResult(null);
+    try {
+      const ipc = await getIpc();
+      const r = await ipc.testOpenClawProvider({ providerId: selected.id, modelId: defaultModel, authProfileId: selected.authProfileId });
+      setTestResult({ success: r.success, latencyMs: r.latencyMs, error: r.error });
+    } catch (e: any) { setTestResult({ success: false, error: e.message }); }
+    setTesting(false);
+  };
 
   // Bug #2 修复: 获取模型列表时传递 providerId，让 sidecar 自动读取已存储的 token
   const handleFetchModels = async () => {
@@ -188,6 +205,17 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
             </div>
             {fetchError&&<div className="mt-1 text-[11px] text-red-400">{fetchError}</div>}
             {remoteModels&&remoteModels.length>0&&<div className="mt-2 rounded-lg border border-white/[0.10] bg-white/[0.04] p-2 max-h-[200px] overflow-y-auto"><div className="mb-1 flex items-center gap-2"><span className="text-[11px] text-muted-foreground">远端模型（{remoteModels.length}个）</span><div className="flex-1"/><button className="text-[11px] rounded-full bg-primary px-2 py-0.5 text-primary-foreground" onClick={()=>handleImportModels(remoteModels.map((m:any)=>m.id))}>全部导入</button><button className="text-[11px] text-muted-foreground hover:text-foreground ml-1" onClick={()=>setRemoteModels(null)}>关闭</button></div>{remoteModels.map((m:any)=>(<div key={m.id} className="flex items-center justify-between border-b border-white/[0.04] py-0.5 text-xs"><span>{m.name||m.id}{m.ownedBy&&<span className="text-muted-foreground ml-1">({m.ownedBy})</span>}</span><button className="text-[11px] text-primary hover:underline" onClick={()=>handleImportModels([m.id])}>导入</button></div>))}</div>}
+          </div>
+          {/* 测试连接 */}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs rounded-full" onClick={handleTestConnection} disabled={testing || !selected.models.length}>
+              {testing ? "测试中…" : "测试连接"}
+            </Button>
+            {testResult && (
+              <span className={`text-[11px] ${testResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                {testResult.success ? `✓ 连接成功${testResult.latencyMs ? ` (${testResult.latencyMs}ms)` : ""}` : `✗ ${testResult.error || "连接失败"}`}
+              </span>
+            )}
           </div>
           <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full text-destructive" onClick={()=>dispatch({type:"DELETE_PROVIDER",id:selected.id})}><Trash2 className="mr-1 h-3 w-3"/>删除</Button>
         </div>}
