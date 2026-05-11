@@ -174,11 +174,18 @@ export function AppShell() {
       {/* A 顶栏 */}
       <Topbar
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-        onTogglePanel={() => {
-          setPanelOpen((v) => !v);
-        }}
+        onTogglePanel={() => { setPanelOpen((v) => !v); }}
         sidebarHidden={!showSidebar}
         panelOpen={panelOpen}
+        gatewayRunning={false}
+        dccCount={0}
+        onStartGateway={async () => {
+          try {
+            const { getIpc } = await import("../../lib/ipc");
+            const ipc = await getIpc();
+            await ipc.startGateway();
+          } catch {}
+        }}
       />
 
       {/* B + C + D 区 */}

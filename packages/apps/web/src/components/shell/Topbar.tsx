@@ -19,13 +19,14 @@ interface TopbarProps {
   onTogglePanel: () => void;
   sidebarHidden: boolean;
   panelOpen: boolean;
+  gatewayRunning?: boolean;
+  dccCount?: number;
+  onStartGateway?: () => void;
 }
 
 export function Topbar({
-  onToggleSidebar,
-  onTogglePanel,
-  sidebarHidden,
-  panelOpen,
+  onToggleSidebar, onTogglePanel, sidebarHidden, panelOpen,
+  gatewayRunning, dccCount, onStartGateway,
 }: TopbarProps) {
   return (
     <header className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-white/[0.02] px-3 backdrop-blur-xl text-titlebar-foreground">
@@ -67,23 +68,18 @@ export function Topbar({
       {/* A3 控制区 */}
       <div className="flex shrink-0 items-center gap-1.5">
         {/* 状态指示 */}
-        <div className="hidden items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium md:flex">
-          <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" />
+        <div className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium md:flex">
+          <span className={`flex h-1.5 w-1.5 rounded-full ${gatewayRunning ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : "bg-muted-foreground/40"}`} />
           <span className="text-muted-foreground">Gateway</span>
-          <span className="text-muted-foreground/50">·</span>
-          <span className="font-mono">2 DCC</span>
+          {dccCount !== undefined && dccCount > 0 && <><span className="text-muted-foreground/50">·</span><span className="font-mono">{dccCount} DCC</span></>}
         </div>
 
-        {/* Gateway 启动（占位：默认运行中所以隐藏，演示用 ghost button） */}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="hidden h-7 px-2 text-xs lg:inline-flex"
-          aria-label="启动 Gateway"
-        >
-          <Play className="mr-1 h-3 w-3" />
-          启动
-        </Button>
+        {/* Gateway 启动按钮 */}
+        {!gatewayRunning && onStartGateway && (
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onStartGateway}>
+            <Play className="mr-1 h-3 w-3" />启动
+          </Button>
+        )}
 
         {/* 面板开关 */}
         <Button

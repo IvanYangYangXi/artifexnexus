@@ -241,9 +241,23 @@ function InstallerTab() {
 function GatewayTab() {
   const [status, setStatus] = React.useState<GatewayStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [logs, setLogs] = React.useState<string[]>([]);
 
   const fetchStatus = async () => { try { const ipc = await getIpc(); const s = await ipc.getGatewayStatus(); setStatus(s); } catch {} };
   React.useEffect(() => { fetchStatus(); }, []);
+
+  // 轮询日志
+  React.useEffect(() => {
+    if (status?.state !== "running") return;
+    const timer = setInterval(async () => {
+      try {
+        const ipc = await getIpc();
+        const result = await ipc.tailGatewayLog({ lines: 50 });
+        if (result?.lines) setLogs(result.lines);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [status?.state]);
 
   const handleStart = async () => {
     setBusy(true);
@@ -267,11 +281,11 @@ function GatewayTab() {
         {state === "errored" && status?.last_error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{status.last_error}</div>}
         <div className="mt-3 flex gap-2">
           <button className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.5)]" onClick={handleStart} disabled={busy}>{state === "running" ? "↻ 重启 Gateway" : "▶ 启动 Gateway"}</button>
-          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={() => window.open(`http://127.0.0.1:${status?.port ?? 19789}`, "_blank")}>🌐 OpenClaw Web UI</button>
+          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={async () => { const ipc = await getIpc(); try { await ipc.openOpenClawWebUi(); } catch {} }}>🌐 OpenClaw Web UI</button>
         </div>
       </div>
-      <div className="flex-1 rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
-        <div className="text-xs text-muted-foreground">Gateway 日志 — STORY-0040 接入 tail_log</div>
+      <div className="flex-1 overflow-y-auto rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl font-mono text-[10px]">
+        {logs.length === 0 ? <span className="text-muted-foreground">Gateway 未运行，暂无日志</span> : logs.map((l, i) => <div key={i} className="text-muted-foreground">{l}</div>)}
       </div>
     </div>
   );
@@ -281,7 +295,13 @@ function GatewayTab() {
 
 function StatusTab() {
   const [deploy, setDeploy] = React.useState<DeployValidationResult | null>(null);
-  React.useEffect(() => { void (async () => { try { const ipc = await getIpc(); const v = await ipc.validateDeployments(); setDeploy(v); } catch {} })(); }, []);
+  const [checking, setChecking] = React.useState(false);
+
+  const runDeployCheck = async () => {
+    setChecking(true);
+    try { const ipc = await getIpc(); const v = await ipc.validateDeployments(); setDeploy(v); } catch {} finally { setChecking(false); }
+  };
+  React.useEffect(() => { runDeployCheck(); }, []);
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -290,17 +310,41 @@ function StatusTab() {
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><div>端口: 19789</div><div>HOME: ~/.artifexnexus/.openclaw/</div><div>版本: v2026.5.4</div></div>
       </div>
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
-        <div className="text-sm font-medium">DCC 连接</div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">DCC 连接</span>
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={async () => {
+            try { const ipc = await getIpc(); const r = await ipc.detectBlenderVersions(); /* 更新状态 */ } catch {}
+          }}>刷新</Button>
+        </div>
         <div className="mt-2 space-y-1.5 text-xs">
-          {[{ name: "Blender 5.1", addr: "ws://127.0.0.1:18083", ok: true }, { name: "Maya 2026", addr: "—", ok: false }].map((d) => (
-            <div key={d.name} className="flex items-center gap-2"><span className={`h-1.5 w-1.5 rounded-full ${d.ok ? "bg-emerald-400" : "bg-muted-foreground/40"}`} /><span>{d.name}</span><span className="text-muted-foreground">{d.addr}</span></div>
-          ))}
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+            <span>Blender</span>
+            <span className="text-muted-foreground">MCP Server 未启动 · 未连接</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+            <span>Maya</span>
+            <span className="text-muted-foreground">未安装</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+            <span>Unreal</span>
+            <span className="text-muted-foreground">未安装</span>
+          </div>
         </div>
       </div>
       <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl">
-        <div className="text-sm font-medium">部署校验</div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">部署校验</span>
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" className="h-6 text-[10px] rounded-full" onClick={runDeployCheck} disabled={checking}>
+            {checking ? "校验中..." : "校验"}
+          </Button>
+        </div>
         <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-          {deploy ? deploy.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>加载中...</div>}
+          {deploy ? deploy.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>点击校验按钮检测</div>}
         </div>
       </div>
     </div>
