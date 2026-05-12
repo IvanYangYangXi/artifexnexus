@@ -616,15 +616,40 @@ function GatewayTab() {
   const fetchStatus = async () => { try { const ipc = await getIpc(); const s = await ipc.getGatewayStatus(); setStatus(s); } catch {} };
   React.useEffect(() => { fetchStatus(); }, []);
 
-  // 轮询日志
+  // 轮询日志（增量拉取，只展示当次 Gateway 启动后的条目）
+  const lastLogIdRef = React.useRef<number | null>(null);
+  const startedAtRef = React.useRef<number>(0);
+
+  // status 拿到后记录当次启动时间
+  React.useEffect(() => {
+    if (status?.started_at) {
+      startedAtRef.current = status.started_at;
+    }
+  }, [status?.started_at]);
+
   React.useEffect(() => {
     if (status?.state !== "running") return;
+    // 重置：切换到新 Gateway 时清空旧日志
+    setLogs([]);
+    lastLogIdRef.current = null;
+
     const timer = setInterval(async () => {
       try {
         const ipc = await getIpc();
-        const result = await ipc.tailGatewayLog({ n: 50 });
-        if (result?.entries) {
-          const newLines = result.entries.map((e: any) => {
+        const args = lastLogIdRef.current !== null
+          ? { sinceId: lastLogIdRef.current }
+          : { n: 50 };
+        const result = await ipc.tailGatewayLog(args);
+        if (result?.entries && result.entries.length > 0) {
+          // 记录最大 id，下次增量拉取
+          lastLogIdRef.current = result.max_id;
+          // 过滤：只保留当次启动后的日志条目
+          const startTs = startedAtRef.current;
+          const filtered = startTs > 0
+            ? result.entries.filter((e: any) => e.ts >= startTs)
+            : result.entries;
+          if (filtered.length === 0) return;
+          const newLines = filtered.map((e: any) => {
             const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
             return `${time} ${e.level || ""} ${e.text || ""}`;
           });

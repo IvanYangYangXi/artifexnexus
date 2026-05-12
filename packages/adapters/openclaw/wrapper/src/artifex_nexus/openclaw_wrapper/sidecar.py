@@ -36,6 +36,7 @@ try:
     from . import ports as _ports
     from . import runtime as _runtime
     from . import sidecar_gateway as _sidecar_gateway
+    from . import sidecar_sessions as _sidecar_sessions
     from . import web_ui as _web_ui
 except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
@@ -48,6 +49,7 @@ except ImportError:
     import ports as _ports  # type: ignore[no-redef]
     import runtime as _runtime  # type: ignore[no-redef]
     import sidecar_gateway as _sidecar_gateway  # type: ignore[no-redef]
+    import sidecar_sessions as _sidecar_sessions  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
 
 
@@ -1127,6 +1129,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.web.open": _sidecar_gateway.handle_web_open,
     # STORY-0039 M3：Chat WS 直连 — 前端需要 port + token 才能完成握手
     "openclaw.gateway.auth_info": _sidecar_gateway.handle_gateway_auth_info,
+    # STORY-0039 M3：对话列表管理 — 前端需要列出/恢复 Gateway 对话
+    "openclaw.sessions.list": _sidecar_sessions.handle_sessions_list,
 }
 
 

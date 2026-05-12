@@ -592,6 +592,51 @@ export async function getMCPBridgeStatus(): Promise<MCPBridgeStatus> {
   return invoke<MCPBridgeStatus>("openclaw_gateway_mcp_bridge_status");
 }
 
+// ---------------------------------------------------------------------------
+// STORY-0039 M3：对话列表管理
+// ---------------------------------------------------------------------------
+
+/** 单个对话摘要 */
+export interface SessionSummary {
+  sessionKey: string;
+  sessionId: string;
+  title: string;
+  /** unix ts（毫秒） */
+  createdAt: number;
+  /** unix ts（毫秒） */
+  updatedAt: number;
+  model: string;
+  modelProvider: string;
+  status: string;
+  totalTokens: number;
+}
+
+/** openclaw.sessions.list 返回 */
+export interface SessionsListResult {
+  sessions: SessionSummary[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+/** 获取 Gateway 对话列表（从 sessions.json 读取，按最近活跃排序）。
+ *
+ * STORY-0039：ChatControlBar 对话切换器使用此命令获取可切换的对话列表。
+ * 数据源是 Gateway 的 sessions.json（唯一真相），通过 sidecar RPC 读取。
+ */
+export async function getSessionsList(args?: {
+  agentId?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<SessionsListResult> {
+  return invoke<SessionsListResult>("openclaw_sessions_list", {
+    agentId: args?.agentId ?? null,
+    offset: args?.offset ?? null,
+    limit: args?.limit ?? null,
+  });
+}
+
 // ── 通用 invoke（仅新 UI 用于少数未封装的命令） ────────────────────────────
 
 export { invoke };

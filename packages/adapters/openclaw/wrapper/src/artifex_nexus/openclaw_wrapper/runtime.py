@@ -721,8 +721,10 @@ def _list_pids_on_port(port: int) -> list[int]:
                 text=True,
                 timeout=5,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
+                encoding="utf-8",
+                errors="replace",
             )
-            for line in r.stdout.splitlines():
+            for line in (r.stdout or "").splitlines():
                 if "LISTENING" not in line:
                     continue
                 parts = line.split()

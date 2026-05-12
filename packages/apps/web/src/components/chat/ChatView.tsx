@@ -5,6 +5,11 @@
  *
  * 对齐 docs/specs/ui/web-chat-structure.md §4
  * STORY-0039：接入 OpenClaw Gateway WebSocket 实现真实流式对话
+ *
+ * 对话管理流程（方案 B）：
+ * - 对话列表从 sidecar RPC 获取（Gateway sessions.json）
+ * - 切换对话时通过 Gateway HTTP /sessions/<key>/history 加载消息
+ * - 新建对话时生成新 sessionKey，首条消息发送后 Gateway 自动创建 session
  */
 
 import * as React from "react";
@@ -16,17 +21,57 @@ import { useChatService } from "../../lib/chat/chat-service";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
-  const { port, token, running: gatewayRunning } = React.useContext(GatewayContext);
+  const { port, token, running: gatewayRunning, authReady } = React.useContext(GatewayContext);
   const pendingHandledRef = React.useRef(false);
+
+  // 当前活跃的 sessionKey（格式 agent:<agentId>:<sessionName>）
+  const [activeSessionKey, setActiveSessionKey] = React.useState("");
 
   // Chat 状态机
   const chat = useChatService({
     gatewayPort: port,
     gatewayToken: token,
     gatewayRunning,
+    authReady,
   });
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  // 切换对话：中止当前流 → 清空 → 加载 Gateway 侧的历史消息
+  const handleSwitchSession = React.useCallback(async (sessionKey: string) => {
+    // 如果当前正在流式生成，先中止
+    if (chat.isStreaming) {
+      await chat.stop();
+    }
+
+    setActiveSessionKey(sessionKey);
+    // 通过 chat-service 切换到对应 session（清空消息 + 更新 sessionKeyRef）
+    chat.switchSession(sessionKey);
+
+    // 从 Gateway WS 加载历史消息（chat.history RPC）
+    if (gatewayRunning && chat.wsState === "connected") {
+      try {
+        const ws = chat.getWs();
+        if (ws && ws.state === "connected") {
+          const history = await ws.sendRpc("chat.history", { sessionKey });
+          const messages = history?.messages ?? history?.items ?? [];
+          if (Array.isArray(messages) && messages.length > 0) {
+            chat.loadHistoryMessages(messages);
+          }
+        }
+      } catch {
+        // 历史加载失败，保持空白
+      }
+    }
+  }, [gatewayRunning, port, chat]);
+
+  // 新建对话
+  const handleNewSession = React.useCallback(() => {
+    const timestamp = Date.now();
+    const newSessionKey = `agent:artifex-nexus:session-${timestamp}`;
+    setActiveSessionKey(newSessionKey);
+    chat.createNewSession();
+  }, [chat]);
 
   // 处理 pending tool 预输入
   React.useEffect(() => {
@@ -53,11 +98,9 @@ export function ChatView() {
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* C1 控制栏 */}
       <ChatControlBar
-        sessions={chat.sessions}
-        activeSessionId={chat.activeSessionId}
-        onSwitchSession={chat.switchSession}
-        onNewSession={chat.createNewSession}
-        onDeleteSession={chat.deleteSession}
+        activeSessionKey={activeSessionKey}
+        onSwitchSession={handleSwitchSession}
+        onNewSession={handleNewSession}
         gatewayPort={port}
         gatewayRunning={gatewayRunning}
       />

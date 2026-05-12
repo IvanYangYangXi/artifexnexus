@@ -94,7 +94,9 @@ pub fn run() {
             commands::openclaw_gateway::openclaw_gateway_tail_log,
             commands::openclaw_gateway::openclaw_web_open,
             // STORY-0039 M3：Chat WS 连接凭据（port + token）
-            commands::openclaw_gateway::openclaw_gateway_auth_info
+            commands::openclaw_gateway::openclaw_gateway_auth_info,
+            // STORY-0039 M3：对话列表管理
+            commands::openclaw_sessions::openclaw_sessions_list
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

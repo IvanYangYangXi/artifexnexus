@@ -41,7 +41,8 @@ export type ChatAction =
   | { type: "SET_SESSION"; session: ChatSession }
   | { type: "SET_SESSIONS"; sessions: ChatSession[] }
   | { type: "CLEAR_MESSAGES" }
-  | { type: "RESET_STATE" };
+  | { type: "RESET_STATE" }
+  | { type: "LOAD_HISTORY"; messages: ChatMessage[] };
 
 export interface ChatServiceState {
   chatState: ChatState;
@@ -88,6 +89,8 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
       return { ...state, messages: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     case "RESET_STATE":
       return { ...state, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+    case "LOAD_HISTORY":
+      return { ...state, messages: action.messages, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     default:
       return state;
   }
@@ -100,38 +103,33 @@ export interface ChatServiceOptions {
   gatewayToken?: string;
   agentId?: string;
   gatewayRunning?: boolean;
+  /** port/token 凭据是否已从 sidecar 拉取到。未就绪时不建 WS。 */
+  authReady?: boolean;
 }
 
 export function useChatService(options: ChatServiceOptions) {
-  const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus", gatewayRunning = false } = options;
+  const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus", gatewayRunning = false, authReady = false } = options;
 
-  const [sessionId] = React.useState(() => `session-${Date.now()}`);
-  const sessionKey = `agent:${agentId}:${sessionId}`;
+  // sessionKey 由外部通过 switchSession 控制
+  const sessionKeyRef = React.useRef(`agent:${agentId}:session-${Date.now()}`);
 
   const wsRef = React.useRef<GatewayWebSocket | null>(null);
   const [wsState, setWsState] = React.useState<"disconnected" | "connecting" | "connected">("disconnected");
 
-  // Reducer — 恢复上次会话
+  // Reducer — 初始空消息列表（对话内容由 Gateway 加载）
   const [state, dispatch] = React.useReducer(chatReducer, null, () => {
-    let sessions = loadSessions();
-    if (sessions.length === 0) {
-      const ds: ChatSession = { id: `session-${Date.now()}`, title: "新对话", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] };
-      sessions = [ds]; persistSessions(sessions); persistActiveSession(ds.id);
-    }
-    const activeId = getActiveSessionId(sessions);
-    const active = sessions.find(s => s.id === activeId) ?? sessions[0];
-    const messages = (active.messages ?? []).map(m => m.isStreaming ? { ...m, isStreaming: false } : m);
-    return { chatState: "idle" as ChatState, messages, streamingMessageId: null, pendingQueue: [], error: null, sessions, activeSessionId: active.id, cancelledMessageId: null };
+    return { chatState: "idle" as ChatState, messages: [], streamingMessageId: null, pendingQueue: [], error: null, sessions: [], activeSessionId: "", cancelledMessageId: null };
   });
 
   const lastTextRef = React.useRef("");
   const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected">("disconnected");
 
   // ─── Gateway 连接管理 ─────────────────────────────────────────────────
-  // 关键：仅在 gatewayRunning=true 时才建 WS，避免向未就绪 Gateway 重复连接
+  // 关键：仅在 gatewayRunning=true 且 authReady=true 时才建 WS，
+  // 避免向未就绪 Gateway 或使用空 token 重复连接
 
   React.useEffect(() => {
-    if (!gatewayPort || gatewayPort <= 0 || !gatewayRunning) {
+    if (!gatewayPort || gatewayPort <= 0 || !gatewayRunning || !authReady) {
       setWsState("disconnected");
       return;
     }
@@ -163,7 +161,7 @@ export function useChatService(options: ChatServiceOptions) {
       ws.disconnect();
       wsRef.current = null;
     };
-  }, [gatewayPort, gatewayToken, gatewayRunning]);
+  }, [gatewayPort, gatewayToken, gatewayRunning, authReady]);
 
   // ─── Gateway 事件处理（b5bfb7e 原始逻辑） ─────────────────────────────
 
@@ -223,13 +221,13 @@ export function useChatService(options: ChatServiceOptions) {
     const streamMsgId = genMsgId();
     dispatch({ type: "START_STREAMING", messageId: streamMsgId });
     lastTextRef.current = "";
-    const ok = await ws.sendChat({ sessionKey, message: text });
+    const ok = await ws.sendChat({ sessionKey: sessionKeyRef.current, message: text });
     if (!ok) dispatch({ type: "SET_ERROR", error: "发送失败，请检查 Gateway 状态" });
   }
 
   async function stop(): Promise<void> {
     const ws = wsRef.current;
-    if (ws && ws.state === "connected") await ws.abortChat(sessionKey);
+    if (ws && ws.state === "connected") await ws.abortChat(sessionKeyRef.current);
     dispatch({ type: "STOP" });
     lastTextRef.current = "";
   }
@@ -249,45 +247,69 @@ export function useChatService(options: ChatServiceOptions) {
   // ─── 会话管理 ──────────────────────────────────────────────────────────
 
   function switchSession(sessionId: string): void {
-    const session = state.sessions.find(s => s.id === sessionId);
-    if (session) { dispatch({ type: "SET_SESSION", session }); persistActiveSession(sessionId); }
+    // 更新 sessionKey（外部 ChatView 会在切换后调用 loadHistoryMessages 加载消息）
+    sessionKeyRef.current = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
+    dispatch({ type: "CLEAR_MESSAGES" });
   }
 
   function createNewSession(): void {
-    const ns: ChatSession = { id: `session-${Date.now()}`, title: `新对话 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] };
-    const sessions = [ns, ...state.sessions];
-    dispatch({ type: "SET_SESSIONS", sessions }); dispatch({ type: "SET_SESSION", session: ns });
-    persistSessions(sessions); persistActiveSession(ns.id);
+    const newKey = `agent:${agentId}:session-${Date.now()}`;
+    sessionKeyRef.current = newKey;
+    dispatch({ type: "CLEAR_MESSAGES" });
   }
 
-  function deleteSession(sessionId: string): void {
-    const sessions = state.sessions.filter(s => s.id !== sessionId);
-    if (sessions.length === 0) { createNewSession(); return; }
-    const nextId = sessionId === state.activeSessionId ? sessions[0].id : state.activeSessionId;
-    dispatch({ type: "SET_SESSIONS", sessions });
-    persistSessions(sessions); persistActiveSession(nextId);
-    const ns = sessions.find(s => s.id === nextId);
-    if (ns) dispatch({ type: "SET_SESSION", session: ns });
+  function deleteSession(_sessionId: string): void {
+    // 未来实现：通过 Gateway API 删除 session
+    // 当前仅清空消息
+    dispatch({ type: "CLEAR_MESSAGES" });
   }
 
-  function renameSession(sessionId: string, title: string): void {
-    const sessions = state.sessions.map(s => s.id === sessionId ? { ...s, title, updatedAt: new Date().toISOString() } : s);
-    dispatch({ type: "SET_SESSIONS", sessions }); persistSessions(sessions);
+  function renameSession(_sessionId: string, _title: string): void {
+    // 未来实现：通过 Gateway API 重命名 session
   }
 
-  // ─── 持久化 ────────────────────────────────────────────────────────────
+  // ─── 持久化（已迁移到 Gateway 侧，前端不再管理） ─────────────────────
 
-  React.useEffect(() => {
-    if (state.messages.length > 0) saveCurrentSession(state.activeSessionId, state.sessions, state.messages);
-  }, [state.messages]);
+  /** 从 Gateway HTTP 历史加载消息（切换对话时调用） */
+  function loadHistoryMessages(rawMessages: unknown[]): void {
+    const messages: ChatMessage[] = [];
+    for (const [idx, m] of rawMessages.entries()) {
+      if (typeof m !== "object" || m === null) continue;
+      const msg = m as Record<string, unknown>;
+      const role = msg.role === "user" ? "user" : msg.role === "system" ? "system" : "assistant";
+      // 提取文本内容
+      let content = "";
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        content = (msg.content as Array<{ type?: string; text?: string }>)
+          .filter(b => b.type === "text")
+          .map(b => b.text ?? "")
+          .join("");
+      }
+      // 跳过纯 system 消息（如 system prompt）和空消息
+      if (role === "system" && content.length > 500) continue;
+      if (!content) continue;
+      messages.push({
+        id: (msg.id as string) ?? `history-${idx}-${Date.now()}`,
+        role: role as "user" | "assistant" | "system",
+        content,
+        timestamp: (msg.timestamp as string) ?? new Date().toISOString(),
+        isStreaming: false,
+      });
+    }
+    dispatch({ type: "LOAD_HISTORY", messages });
+  }
 
   return {
     chatState: state.chatState, messages: state.messages, sessions: state.sessions,
     activeSessionId: state.activeSessionId, pendingQueue: state.pendingQueue, error: state.error,
     wsState, isStreaming: state.chatState === "streaming" || state.chatState === "tool_executing",
-    cancelledMessageId: state.cancelledMessageId,
+    cancelledMessageId: state.cancelledMessageId, getSessionKey: () => sessionKeyRef.current,
     sendMessage, stop, resume, clearMessages: () => dispatch({ type: "CLEAR_MESSAGES" }),
-    switchSession, createNewSession, deleteSession, renameSession,
+    switchSession, createNewSession, deleteSession, renameSession, loadHistoryMessages,
+    /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */
+    getWs: () => wsRef.current,
   };
 }
 

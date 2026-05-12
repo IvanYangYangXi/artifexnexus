@@ -155,7 +155,15 @@ export class GatewayWebSocket {
           safeConnectResolve(false);
           // 非主动关闭时自动重连
           if (event.code !== 1000 && !this._disposed) {
-            this._scheduleReconnect();
+            // STORY-0039：Gateway 返回 close code 1013 + reason="gateway starting"
+            // 表示 sidecar 尚未就绪。此时做短暂延迟重试（不消耗重连计数），
+            // 避免指数退避导致的 WARN 刷屏。
+            if (event.code === 1013) {
+              console.log("[gateway-ws] Gateway still starting (code=1013), will retry in 2s...");
+              this._scheduleStartupRetry();
+            } else {
+              this._scheduleReconnect();
+            }
           }
         };
 
@@ -181,6 +189,28 @@ export class GatewayWebSocket {
       this._ws = null;
     }
     this._setState("disconnected");
+  }
+
+  // ─── 通用 RPC ──────────────────────────────────────────────────────────
+
+  /**
+   * 发送通用 RPC 请求并等待响应。
+   * 用于 chat.history、commands.list 等非流式 RPC。
+   */
+  async sendRpc(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    if (!this._ws || this._state !== "connected") {
+      throw new Error("WebSocket not connected");
+    }
+    const reqId = this._nextReqId();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this._pendingRequests.delete(reqId);
+        reject(new Error(`RPC ${method} timeout`));
+      }, CHAT_TIMEOUT);
+
+      this._pendingRequests.set(reqId, { resolve, reject, timeout });
+      this._ws!.send(JSON.stringify({ type: "req", id: reqId, method, params }));
+    });
   }
 
   // ─── 聊天 ──────────────────────────────────────────────────────────────
@@ -410,8 +440,9 @@ export class GatewayWebSocket {
       },
       caps: [],
       auth: { token: this._token },
-      // STORY-0041：尝试跳过 device auth 超时（待验证字段名）
-      device: null,
+      // STORY-0039：device 必须是 object（不能是 null），
+      // dangerouslyDisableDeviceAuth=true 时传空对象跳过 device pairing。
+      device: {},
       role: "operator",
       scopes: ["operator.read", "operator.write", "operator.admin"],
     };
@@ -569,6 +600,34 @@ export class GatewayWebSocket {
         this._scheduleReconnect();
       }
     }, delay);
+  }
+
+  /**
+   * Gateway 启动期间重试（close code 1013）。
+   * 不消耗 _reconnectAttempts，固定 2s 间隔重试最多 10 次。
+   * 一旦连上或 disposed 就停止。
+   */
+  private _startupRetryCount = 0;
+  private static readonly MAX_STARTUP_RETRIES = 10;
+  private static readonly STARTUP_RETRY_DELAY = 2_000;
+
+  private _scheduleStartupRetry(): void {
+    if (this._disposed || this._startupRetryCount >= GatewayWebSocket.MAX_STARTUP_RETRIES) {
+      // 超出启动重试上限，降级到普通重连
+      if (!this._disposed) this._scheduleReconnect();
+      return;
+    }
+    this._cancelReconnect();
+    this._startupRetryCount++;
+    this._reconnectTimer = setTimeout(async () => {
+      if (this._disposed) return;
+      const ok = await this.connect();
+      if (ok) {
+        // 成功连接，重置启动重试计数
+        this._startupRetryCount = 0;
+      }
+      // 如果仍失败且又收到 1013，onclose 会再次调用 _scheduleStartupRetry
+    }, GatewayWebSocket.STARTUP_RETRY_DELAY);
   }
 
   /** 取消重连 */
