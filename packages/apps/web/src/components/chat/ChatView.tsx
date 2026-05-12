@@ -14,11 +14,13 @@
  */
 
 import * as React from "react";
+import { AlertTriangle, RefreshCw, WifiOff } from "lucide-react";
 import { ChatControlBar } from "./ChatControlBar";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInputArea } from "./ChatInputArea";
 import { RunToolContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
+import { cn } from "@artifex-nexus/ui";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
@@ -118,6 +120,43 @@ export function ChatView() {
     silentLoadHistory(activeSessionKey);
   }, [activeSessionKey]);
 
+  // ─── Gateway 连接状态检测 ──────────────────────────────────────────
+  // 检测 WS 断开（Gateway 崩溃）并显示友好提示
+  const prevWsState = React.useRef(chat.wsState);
+  const [gatewayDisconnected, setGatewayDisconnected] = React.useState(false);
+  const [reconnecting, setReconnecting] = React.useState(false);
+
+  React.useEffect(() => {
+    const was = prevWsState.current;
+    const now = chat.wsState;
+    prevWsState.current = now;
+
+    if (was === "connected" && now === "disconnected") {
+      // Gateway 从连接变断开 → 崩溃/断连
+      setGatewayDisconnected(true);
+      setReconnecting(false);
+    } else if (now === "connecting") {
+      setReconnecting(true);
+    } else if (now === "connected") {
+      // 重连成功 → 清除提示
+      setGatewayDisconnected(false);
+      setReconnecting(false);
+    }
+  }, [chat.wsState]);
+
+  // 手动重启 Gateway
+  async function handleRestartGateway() {
+    setReconnecting(true);
+    try {
+      const { getIpc } = await import("../../lib/ipc");
+      const ipc = await getIpc();
+      await ipc.restartGateway({ port: port });
+    } catch (err) {
+      console.warn("[ChatView] restart gateway failed:", err);
+    }
+    // 重连由 chat-service 的 WS 自动重连机制处理
+  }
+
   // 自动滚动到底部（切对话=instant，新消息=smooth）
   React.useEffect(() => {
     const behavior = scrollBehaviorRef.current;
@@ -145,6 +184,43 @@ export function ChatView() {
         messages={chat.messages}
         messagesEndRef={messagesEndRef}
       />
+
+      {/* Gateway 断开/重连提示横幅 */}
+      {gatewayDisconnected && (
+        <div className={cn(
+          "flex items-center gap-2 px-4 py-2 text-xs border-t",
+          reconnecting
+            ? "bg-amber-500/10 border-amber-500/20 text-amber-200"
+            : "bg-destructive/10 border-destructive/20 text-destructive",
+        )}>
+          {reconnecting ? (
+            <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" />
+          ) : (
+            <WifiOff className="h-3.5 w-3.5 shrink-0" />
+          )}
+          <span className="flex-1">
+            {reconnecting
+              ? "正在重连 Gateway..."
+              : "Gateway 连接已断开（可能崩溃），无法发送消息"}
+          </span>
+          {!reconnecting && (
+            <button
+              onClick={handleRestartGateway}
+              className="shrink-0 rounded px-2 py-0.5 text-[11px] bg-destructive/20 hover:bg-destructive/30 transition-colors"
+            >
+              重启 Gateway
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 错误提示 */}
+      {chat.error && !gatewayDisconnected && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs border-t bg-destructive/10 border-destructive/20 text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{chat.error}</span>
+        </div>
+      )}
 
       {/* C3 输入区 */}
       <ChatInputArea
