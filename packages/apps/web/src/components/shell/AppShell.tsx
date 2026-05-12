@@ -242,12 +242,13 @@ export function AppShell() {
           if (!s.gateway_running) {
             try {
               setStartupPhase("正在启动 OpenClaw Gateway…");
+              // sidecar 可能还在初始化，加超时 + 错误提示
               await ipc.startGateway();
               setGatewayRunning(true);
-              // 通过轮询日志匹配关键阶段，判断 Gateway 是否 fully ready
+              // 轮询等待 Gateway fully ready（最多 60s）
               const waitReady = async () => {
                 let lastLogId = 0;
-                for (let i = 0; i < 30; i++) { // 最多等 30s（每次 1s）
+                for (let i = 0; i < 60; i++) { // 最多等 60s
                   await new Promise(r => setTimeout(r, 1000));
                   try {
                     // 方式一：日志匹配（精准检测阶段）
@@ -300,8 +301,13 @@ export function AppShell() {
               const parsed = parsePortBusyError(err);
               if (parsed) {
                 setPortBusyError(parsed);
+                setStartupPhase(`端口 ${parsed.port} 被占用，请在"系统"面板手动处理`);
+              } else {
+                setStartupPhase(`启动失败: ${String(err).slice(0, 60)}`);
               }
-              // 任何启动失败都关闭遮罩，跳转系统状态页
+              // 启动失败 → 关闭遮罩，跳转系统面板
+              setGatewayRunning(false);
+              await new Promise(r => setTimeout(r, 2000));
               setGatewayStarting(false);
               setCurrentModule("system");
             }
