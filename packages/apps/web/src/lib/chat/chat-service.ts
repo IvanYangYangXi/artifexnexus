@@ -237,6 +237,7 @@ export function useChatService(options: ChatServiceOptions) {
     const ok = await ws.sendChat({
       sessionKey: sessionKeyRef.current,
       message: text,
+      thinking: cfg.thinking,
     });
     if (!ok) dispatch({ type: "SET_ERROR", error: "发送失败，请检查 Gateway 状态" });
   }

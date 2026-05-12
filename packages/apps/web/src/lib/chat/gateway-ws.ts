@@ -223,6 +223,8 @@ export class GatewayWebSocket {
   async sendChat(params: {
     sessionKey: string;
     message: string;
+    /** 思考强度（off/minimal/low/medium/high/xhigh/adaptive/max），透传到 Gateway chat.send.thinking */
+    thinking?: string;
   }): Promise<boolean> {
     if (!this._ws || this._state !== "connected") {
       return false;
@@ -236,6 +238,9 @@ export class GatewayWebSocket {
       message: params.message,
       idempotencyKey,
     };
+
+    // thinking 是 Gateway chat.send 的合法参数（来自 OpenClaw acp-cli.js requestParams）
+    if (params.thinking) chatParams.thinking = params.thinking;
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
