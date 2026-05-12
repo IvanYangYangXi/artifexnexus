@@ -117,6 +117,7 @@ export function ChatView() {
         onNewSession={handleNewSession}
         gatewayPort={port}
         gatewayRunning={gatewayRunning}
+        onConfigChange={(cfg) => chat.setSelectedConfig(cfg)}
       />
 
       {/* C2 消息流 */}

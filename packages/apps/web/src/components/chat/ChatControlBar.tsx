@@ -61,6 +61,8 @@ export interface ChatControlBarProps {
   gatewayPort: number;
   /** Gateway 是否在运行 */
   gatewayRunning: boolean;
+  /** Agent/Model/Thinking 变更时通知父组件 */
+  onConfigChange?: (cfg: { agentId?: string; model?: string; thinking?: string }) => void;
 }
 
 // ─── 组件 ─────────────────────────────────────────────────────────────────
@@ -71,6 +73,7 @@ export function ChatControlBar({
   onNewSession,
   gatewayPort,
   gatewayRunning,
+  onConfigChange,
 }: ChatControlBarProps) {
   const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -222,7 +225,7 @@ export function ChatControlBar({
       <div className="flex-1" />
 
       {/* Agent */}
-      <Select value={agent} onValueChange={(v) => { setAgent(v); lsSet(AGENT_KEY, v); }} disabled={agents.length === 0}>
+      <Select value={agent} onValueChange={(v) => { setAgent(v); lsSet(AGENT_KEY, v); onConfigChange?.({ agentId: v, model, thinking: effort }); }} disabled={agents.length === 0}>
         <SelectTrigger className={cn("h-7 w-[140px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", agents.length === 0 && "text-muted-foreground")}>
           <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用 Agent" : "Gateway 未启动"} />
         </SelectTrigger>
@@ -234,7 +237,7 @@ export function ChatControlBar({
       </Select>
 
       {/* Model */}
-      <Select value={model} onValueChange={(v) => { setModel(v); lsSet(MODEL_KEY, v); }} disabled={models.length === 0}>
+      <Select value={model} onValueChange={(v) => { setModel(v); lsSet(MODEL_KEY, v); onConfigChange?.({ agentId: agent, model: v, thinking: effort }); }} disabled={models.length === 0}>
         <SelectTrigger className={cn("h-7 w-[150px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", models.length === 0 && "text-muted-foreground")}>
           <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用模型" : "Gateway 未启动"} />
         </SelectTrigger>
@@ -246,7 +249,7 @@ export function ChatControlBar({
       </Select>
 
       {/* Effort */}
-      <Select value={effort} onValueChange={(v) => { setEffort(v); lsSet(EFFORT_KEY, v); }}>
+      <Select value={effort} onValueChange={(v) => { setEffort(v); lsSet(EFFORT_KEY, v); onConfigChange?.({ agentId: agent, model, thinking: v }); }}>
         <SelectTrigger className="h-7 w-[100px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
           <SelectValue />
         </SelectTrigger>

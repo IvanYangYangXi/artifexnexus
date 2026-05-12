@@ -210,6 +210,17 @@ export function useChatService(options: ChatServiceOptions) {
 
   // ─── 发送/停止/恢复/队列 ──────────────────────────────────────────────
 
+  // 当前选中配置（由 ChatView 通过 ChatControlBar 回调更新）
+  const selectedConfig = React.useRef<{ agentId?: string; model?: string; thinking?: string }>({});
+
+  function setSelectedConfig(cfg: { agentId?: string; model?: string; thinking?: string }) {
+    selectedConfig.current = cfg;
+    // agent 变化时同步更新 sessionKey
+    if (cfg.agentId && state.activeSessionId) {
+      sessionKeyRef.current = `agent:${cfg.agentId}:${state.activeSessionId}`;
+    }
+  }
+
   async function sendMessage(text: string): Promise<void> {
     if (!text.trim()) return;
     if (!sessionKeyRef.current) { dispatch({ type: "SET_ERROR", error: "请先选择一个对话" }); return; }
@@ -222,7 +233,14 @@ export function useChatService(options: ChatServiceOptions) {
     const streamMsgId = genMsgId();
     dispatch({ type: "START_STREAMING", messageId: streamMsgId });
     lastTextRef.current = "";
-    const ok = await ws.sendChat({ sessionKey: sessionKeyRef.current, message: text });
+    const cfg = selectedConfig.current;
+    const ok = await ws.sendChat({
+      sessionKey: sessionKeyRef.current,
+      message: text,
+      agentId: cfg.agentId || agentId,
+      model: cfg.model,
+      thinking: cfg.thinking,
+    });
     if (!ok) dispatch({ type: "SET_ERROR", error: "发送失败，请检查 Gateway 状态" });
   }
 
@@ -309,6 +327,8 @@ export function useChatService(options: ChatServiceOptions) {
     cancelledMessageId: state.cancelledMessageId, getSessionKey: () => sessionKeyRef.current,
     sendMessage, stop, resume, clearMessages: () => dispatch({ type: "CLEAR_MESSAGES" }),
     switchSession, createNewSession, deleteSession, renameSession, loadHistoryMessages,
+    /** 更新 ChatControlBar 选中的 Agent/Model/Thinking，影响 chat.send params */
+    setSelectedConfig,
     /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */
     getWs: () => wsRef.current,
   };

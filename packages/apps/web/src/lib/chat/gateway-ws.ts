@@ -223,6 +223,12 @@ export class GatewayWebSocket {
   async sendChat(params: {
     sessionKey: string;
     message: string;
+    /** 目标 Agent ID（如 artifex-nexus） */
+    agentId?: string;
+    /** 模型 ID（如 gpt-4o） */
+    model?: string;
+    /** 思考强度（off/minimal/low/medium/high/xhigh/adaptive/max） */
+    thinking?: string;
   }): Promise<boolean> {
     if (!this._ws || this._state !== "connected") {
       return false;
@@ -231,16 +237,16 @@ export class GatewayWebSocket {
     const reqId = this._nextReqId();
     const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-    const payload = {
-      type: "req",
-      id: reqId,
-      method: "chat.send",
-      params: {
-        sessionKey: params.sessionKey,
-        message: params.message,
-        idempotencyKey,
-      },
+    const chatParams: Record<string, unknown> = {
+      sessionKey: params.sessionKey,
+      message: params.message,
+      idempotencyKey,
     };
+
+    // 可选参数：agent/model/thinking 透传 Gateway
+    if (params.agentId) chatParams.agentId = params.agentId;
+    if (params.model) chatParams.model = params.model;
+    if (params.thinking) chatParams.thinkingBudget = params.thinking;
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
@@ -264,7 +270,12 @@ export class GatewayWebSocket {
       });
 
       try {
-        this._ws!.send(JSON.stringify(payload));
+        this._ws!.send(JSON.stringify({
+          type: "req",
+          id: reqId,
+          method: "chat.send",
+          params: chatParams,
+        }));
       } catch {
         clearTimeout(timeout);
         this._pendingRequests.delete(reqId);
