@@ -139,7 +139,17 @@ tags: [story, chat, api, websocket, streaming, M3]
 
 **问题 4：Gateway 崩溃静默失败**
 - 日志关键证据：`eventLoop degraded=true, delayMaxMs=10720.6` — Node.js 事件循环阻塞 10.7s 后进程崩溃（OpenClaw 上游 bug）
-- 方案：检测 WS connected→disconnected 转换 → 红色横幅"Gateway 连接已断开" + "重启 Gateway" 按钮；重连中显示琥珀色横幅；重连成功自动清除
+- 方案 v1：内嵌横幅（红色/琥珀色状态条 + 重启按钮）
+- 方案 v2（最终）：改为右下角 sonner toast 通知（非阻塞）
+  - AppShell 挂载 `<Toaster />`（position=bottom-right）
+  - Gateway 断连 → `toast.error`（持久，带"重启 Gateway"按钮）
+  - 重连中 → `toast.loading` 替换同一 toast
+  - 重连成功 → `toast.success`（2s 后自动消失）
+  - `chat.error` → 独立 `toast.error`（5s 后消失）
+
+**问题 5：停止按钮无法终止 Gateway 崩溃后的流式状态**
+- 根因：WS onclose → dispatch `RESET_STATE` 只清 `streamingMessageId`/`chatState`，不清消息的 `isStreaming:true` 标记。之后 `STOP` 用已清空的 `streamingMessageId` 匹配不到消息 → `isStreaming` 永久残留
+- 修：`RESET_STATE` 增加 `messages.map` 清理所有 `isStreaming:true`；`stop()` 追加 `RESET_STATE` 兜底
 
 **架构规范更新**：`.ai/rules/00-architecture.md` 新增第 10 条 — 桌面应用代码分层优先级（TS > Python > Rust）
 
