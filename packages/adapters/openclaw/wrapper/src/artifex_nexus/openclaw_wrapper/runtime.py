@@ -507,7 +507,9 @@ def start_gateway(
     # 2.7 启动前硬检查：若端口仍被 **非 OpenClaw 进程**占用 → 拒绝启动、上抛
     #     PortBusyError，前端会弹窗让用户决定（STORY-0039 方案 A）。
     #     我们宁可显式失败也不偷偷换端口——端口漂移比启动失败更难排查。
+    logger.info("start_gateway: 端口检查 (port=%d) ...", port)
     remaining = _list_pids_on_port(port)
+    logger.info("start_gateway: _list_pids_on_port(%d) → %s", port, remaining)
     if remaining:
         occupants = [
             _describe_pid(pid)
@@ -539,6 +541,8 @@ def start_gateway(
     #    本地单 user 场景没有"杀别人 gateway"的风险，安全可用。
     cmd = [str(bin_path), "gateway", "run", "--port", str(port), "--force"]
 
+    logger.info("start_gateway: 启动命令: %s", cmd)
+
     # 4. 注入隔离环境变量（统一走 helper，保证三件套一致）
     env = _sp.build_openclaw_env(home)
 
@@ -556,6 +560,7 @@ def start_gateway(
             env=env,
             **popen_kw,
         )
+        logger.info("start_gateway: gateway 子进程已启动 pid=%d", proc.pid)
     except OSError as e:
         msg = f"启动 gateway 失败: {e}"
         _gateway_state.set_errored(msg)
