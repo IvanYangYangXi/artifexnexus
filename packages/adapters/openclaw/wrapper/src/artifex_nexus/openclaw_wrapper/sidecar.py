@@ -1131,6 +1131,7 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.gateway.auth_info": _sidecar_gateway.handle_gateway_auth_info,
     # STORY-0039 M3：对话列表管理 — 前端需要列出/恢复 Gateway 对话
     "openclaw.sessions.list": _sidecar_sessions.handle_sessions_list,
+    "openclaw.sessions.history": _sidecar_sessions.handle_sessions_history,
 }
 
 

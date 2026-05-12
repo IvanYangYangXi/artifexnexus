@@ -94,3 +94,28 @@ pub async fn openclaw_sessions_list(
         has_more: result["has_more"].as_bool().unwrap_or(false),
     })
 }
+
+/// 获取指定对话的历史消息（从 session transcript .jsonl 文件读取）。
+#[tauri::command]
+pub async fn openclaw_sessions_history(
+    sidecar: State<'_, SidecarState>,
+    session_key: String,
+    agent_id: Option<String>,
+    limit: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let params = json!({
+        "session_key": session_key,
+        "agent_id": agent_id.unwrap_or_else(|| "artifex-nexus".to_string()),
+        "limit": limit.unwrap_or(50),
+    });
+
+    let result = manager.call("openclaw.sessions.history", params)?;
+    Ok(serde_json::Value::Object(
+        result.as_object().cloned().unwrap_or_default(),
+    ))
+}

@@ -251,8 +251,10 @@ export class GatewayWebSocket {
       this._pendingRequests.set(reqId, {
         resolve: (ackPayload) => {
           clearTimeout(timeout);
+          // Gateway chat.send ACK: status 可能在 payload 顶层或嵌套
           const status = ackPayload?.status ?? "";
-          resolve(status === "started" || status === "streaming" || status === "accepted" || status === "running");
+          // 只要没有 error，且收到了响应，就认为成功
+          resolve(true);
         },
         reject: () => {
           clearTimeout(timeout);
@@ -440,9 +442,10 @@ export class GatewayWebSocket {
       },
       caps: [],
       auth: { token: this._token },
-      // STORY-0039：device 必须是 object（不能是 null），
-      // dangerouslyDisableDeviceAuth=true 时传空对象跳过 device pairing。
-      device: {},
+      // STORY-0039：不传 device 字段。
+      // ArtClawToolManager 的做法：当无 device identity 时不包含 device，
+      // Gateway 在 dangerouslyDisableDeviceAuth=true 时允许无 device 连接。
+      // 如果传了 device 但签名不完整，反而会被 schema 拒绝。
       role: "operator",
       scopes: ["operator.read", "operator.write", "operator.admin"],
     };
@@ -470,9 +473,11 @@ export class GatewayWebSocket {
           this._pendingRequests.delete(msg.id);
           clearTimeout(pending.timeout);
           if (msg.error) {
-            pending.reject(new Error(String(msg.error)));
+            pending.reject(new Error(typeof msg.error === "string" ? msg.error : JSON.stringify(msg.error)));
           } else {
-            pending.resolve(msg.payload ?? {});
+            // 传整个响应对象（去掉 type/id），让调用方自己取需要的字段
+            const { type: _t, id: _i, ...rest } = msg;
+            pending.resolve(rest);
           }
         }
         return;

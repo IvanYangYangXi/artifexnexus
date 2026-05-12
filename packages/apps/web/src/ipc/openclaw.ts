@@ -637,6 +637,26 @@ export async function getSessionsList(args?: {
   });
 }
 
+/** 获取指定对话的历史消息（从 session transcript .jsonl 文件读取）。
+ *
+ * STORY-0039：切换或加载对话时自动获取历史消息。
+ * 数据源是 Gateway 的 session transcript 文件（.jsonl）。
+ */
+export async function getSessionsHistory(args: {
+  sessionKey: string;
+  agentId?: string;
+  limit?: number;
+}): Promise<{ messages: Array<{ id: string; role: string; content: string; timestamp: string }> }> {
+  return invoke<{ messages: Array<{ id: string; role: string; content: string; timestamp: string }> }>(
+    "openclaw_sessions_history",
+    {
+      sessionKey: args.sessionKey,
+      agentId: args.agentId ?? null,
+      limit: args.limit ?? null,
+    }
+  );
+}
+
 // ── 通用 invoke（仅新 UI 用于少数未封装的命令） ────────────────────────────
 
 export { invoke };

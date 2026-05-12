@@ -186,3 +186,113 @@ def handle_sessions_list(req_id: Any, params: dict) -> dict:
                 "message": f"读取对话列表失败: {exc}",
             },
         }
+
+
+def handle_sessions_history(req_id: Any, params: dict) -> dict:
+    """``openclaw.sessions.history`` RPC：读取指定对话的历史消息。
+
+    直接从 session transcript .jsonl 文件读取，不依赖 Gateway WS。
+
+    Args (params):
+        session_key (str): 对话 sessionKey，如 "agent:artifex-nexus:main"。
+        agent_id (str): Agent ID，默认 "artifex-nexus"。
+        limit (int): 最多返回多少条消息，默认 50。
+        openclaw_home (str): OPENCLAW_HOME 路径。
+
+    Returns:
+        ``{ messages }`` — 消息列表（最近 limit 条，按时间正序）
+    """
+    try:
+        home = _params_home(params)
+        agent_id = params.get("agent_id", DEFAULT_AGENT_ID)
+        session_key = params.get("session_key", "")
+        limit = min(200, max(1, int(params.get("limit", 50))))
+
+        if not session_key:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32602, "message": "缺少 session_key 参数"},
+            }
+
+        # 从 sessions.json 找到对应 session 的 transcript 文件路径
+        raw_sessions = _read_sessions_json(home, agent_id)
+        entry = raw_sessions.get(session_key, {})
+        session_file = entry.get("sessionFile", "")
+
+        if not session_file:
+            # 尝试通过 sessionId 查找
+            session_id = entry.get("sessionId", "")
+            if session_id:
+                sessions_dir = home / "state" / "agents" / agent_id / "sessions"
+                session_file = str(sessions_dir / f"{session_id}.jsonl")
+
+        if not session_file or not Path(session_file).exists():
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"messages": []},
+            }
+
+        # 读取 .jsonl 文件，提取 user/assistant 消息
+        messages = []
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if record.get("type") != "message":
+                        continue
+
+                    msg = record.get("message", {})
+                    role = msg.get("role", "")
+                    if role not in ("user", "assistant"):
+                        continue
+
+                    # 提取文本内容
+                    content_parts = msg.get("content", [])
+                    text = ""
+                    if isinstance(content_parts, str):
+                        text = content_parts
+                    elif isinstance(content_parts, list):
+                        text_parts = []
+                        for part in content_parts:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text_parts.append(part.get("text", ""))
+                        text = "\n".join(text_parts)
+
+                    if not text:
+                        continue
+
+                    messages.append({
+                        "id": record.get("id", ""),
+                        "role": role,
+                        "content": text,
+                        "timestamp": record.get("timestamp", ""),
+                    })
+        except OSError as e:
+            logger.warning("读取 session transcript 失败: %s", e)
+
+        # 只返回最近 limit 条
+        if len(messages) > limit:
+            messages = messages[-limit:]
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"messages": messages},
+        }
+
+    except Exception as exc:
+        logger.exception("openclaw.sessions.history 失败")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32603, "message": f"读取对话历史失败: {exc}"},
+        }

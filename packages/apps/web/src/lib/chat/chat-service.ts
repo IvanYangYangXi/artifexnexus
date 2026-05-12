@@ -110,8 +110,8 @@ export interface ChatServiceOptions {
 export function useChatService(options: ChatServiceOptions) {
   const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus", gatewayRunning = false, authReady = false } = options;
 
-  // sessionKey 由外部通过 switchSession 控制
-  const sessionKeyRef = React.useRef(`agent:${agentId}:session-${Date.now()}`);
+  // sessionKey 由外部通过 switchSession 控制，初始为空（等待对话列表选中）
+  const sessionKeyRef = React.useRef("");
 
   const wsRef = React.useRef<GatewayWebSocket | null>(null);
   const [wsState, setWsState] = React.useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -212,6 +212,7 @@ export function useChatService(options: ChatServiceOptions) {
 
   async function sendMessage(text: string): Promise<void> {
     if (!text.trim()) return;
+    if (!sessionKeyRef.current) { dispatch({ type: "SET_ERROR", error: "请先选择一个对话" }); return; }
     if (state.chatState === "sending" || state.chatState === "streaming" || state.chatState === "tool_executing") {
       dispatch({ type: "ADD_USER_MESSAGE", text }); dispatch({ type: "ENQUEUE", text }); return;
     }

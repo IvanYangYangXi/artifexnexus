@@ -37,8 +37,8 @@ export function ChatView() {
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // 切换对话：中止当前流 → 清空 → 加载 Gateway 侧的历史消息
-  const handleSwitchSession = React.useCallback(async (sessionKey: string) => {
+  // 切换对话：中止当前流 → 清空 → 从 sidecar 加载历史消息
+  async function handleSwitchSession(sessionKey: string) {
     // 如果当前正在流式生成，先中止
     if (chat.isStreaming) {
       await chat.stop();
@@ -48,30 +48,26 @@ export function ChatView() {
     // 通过 chat-service 切换到对应 session（清空消息 + 更新 sessionKeyRef）
     chat.switchSession(sessionKey);
 
-    // 从 Gateway WS 加载历史消息（chat.history RPC）
-    if (gatewayRunning && chat.wsState === "connected") {
-      try {
-        const ws = chat.getWs();
-        if (ws && ws.state === "connected") {
-          const history = await ws.sendRpc("chat.history", { sessionKey });
-          const messages = history?.messages ?? history?.items ?? [];
-          if (Array.isArray(messages) && messages.length > 0) {
-            chat.loadHistoryMessages(messages);
-          }
-        }
-      } catch {
-        // 历史加载失败，保持空白
+    // 从 sidecar 读取 session transcript 文件获取历史
+    try {
+      const { getIpc } = await import("../../lib/ipc");
+      const ipc = await getIpc();
+      const result = await ipc.getSessionsHistory({ sessionKey, limit: 50 });
+      if (result?.messages && result.messages.length > 0) {
+        chat.loadHistoryMessages(result.messages);
       }
+    } catch (err) {
+      console.warn("[ChatView] load history failed:", err);
     }
-  }, [gatewayRunning, port, chat]);
+  }
 
   // 新建对话
-  const handleNewSession = React.useCallback(() => {
+  function handleNewSession() {
     const timestamp = Date.now();
     const newSessionKey = `agent:artifex-nexus:session-${timestamp}`;
     setActiveSessionKey(newSessionKey);
     chat.createNewSession();
-  }, [chat]);
+  }
 
   // 处理 pending tool 预输入
   React.useEffect(() => {
@@ -88,6 +84,24 @@ export function ChatView() {
   React.useEffect(() => {
     pendingHandledRef.current = false;
   });
+
+  // WS 连通后自动加载当前对话历史（解决初始选中对话时 WS 还没连上的问题）
+  React.useEffect(() => {
+    if (!activeSessionKey || chat.messages.length > 0) return;
+    // 通过 sidecar 加载历史（不依赖 WS 状态）
+    (async () => {
+      try {
+        const { getIpc } = await import("../../lib/ipc");
+        const ipc = await getIpc();
+        const result = await ipc.getSessionsHistory({ sessionKey: activeSessionKey, limit: 50 });
+        if (result?.messages && result.messages.length > 0) {
+          chat.loadHistoryMessages(result.messages);
+        }
+      } catch (err) {
+        console.warn("[ChatView] auto-load history failed:", err);
+      }
+    })();
+  }, [activeSessionKey]);
 
   // 自动滚动到底部
   React.useEffect(() => {
