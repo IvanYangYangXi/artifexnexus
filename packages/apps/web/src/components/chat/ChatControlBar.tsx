@@ -117,7 +117,7 @@ export function ChatControlBar({
 
     loadSessions();
     return () => { cancelled = true; };
-  }, [gatewayRunning]);
+  }, [gatewayRunning, activeSessionKey]);
 
   // Gateway 运行后通过 sidecar 读取配置中的 Agent/Model 列表
   React.useEffect(() => {
