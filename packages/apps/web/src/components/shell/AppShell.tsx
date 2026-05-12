@@ -232,6 +232,13 @@ export function AppShell() {
   React.useEffect(() => {
     if (startupCheckDone.current) return;
     startupCheckDone.current = true;
+
+    let retryCount = 0;
+    const MAX_RETRY = 30;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const stopPolling = () => { if (timer) { clearInterval(timer); timer = null; } };
+
     const doCheck = async (attempt: number) => {
       try {
         const { getIpc } = await import("../../lib/ipc");
@@ -249,7 +256,7 @@ export function AppShell() {
               await ipc.restartGateway();
               setGatewayRunning(true);
               setGatewayStarting(false);
-              clearInterval(timer);
+              stopPolling();
               return;
             }
           } catch {
@@ -257,7 +264,7 @@ export function AppShell() {
           }
         }
         // sidecar 就绪 → 停止轮询
-        clearInterval(timer);
+        stopPolling();
         if (s.cli_installed) {
           setOpenclawInstalled(true);
           if (!s.gateway_running) {
@@ -357,18 +364,13 @@ export function AppShell() {
         }
       } catch {
         // sidecar IPC 未就绪 → 静默，等下一次 interval 重试
-        if (attempt <= 3) {
-          setStartupPhase(`等待 sidecar 就绪…（${attempt}/${MAX_RETRY}）`);
-        }
+        setStartupPhase(`等待 sidecar 就绪…（${attempt}/${MAX_RETRY}）`);
       }
     };
-    // 轮询 sidecar IPC 就绪后再调 doCheck（最多 30s）
-    let retryCount = 0;
-    const MAX_RETRY = 30;
-    const timer = setInterval(async () => {
+    timer = setInterval(async () => {
       retryCount++;
       if (retryCount > MAX_RETRY) {
-        clearInterval(timer);
+        stopPolling();
         setStartupPhase("sidecar 启动超时");
         await new Promise(r => setTimeout(r, 2000));
         setGatewayStarting(false);
@@ -377,7 +379,7 @@ export function AppShell() {
       }
       await doCheck(retryCount);
     }, 1000);
-    return () => clearInterval(timer);
+    return () => { if (timer) clearInterval(timer); };
   }, []);
 
   // 轮询 Gateway 状态（10s）
