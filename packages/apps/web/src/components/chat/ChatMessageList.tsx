@@ -160,9 +160,7 @@ function CodeBlock({
   language: string;
   code: string;
 }) {
-  // 处理代码字符串（去首尾空白，兼容 Windows 换行符）
-  const safeCode = (code || "").replace(/\r\n/g, "\n");
-  const trimmed = safeCode.replace(/\n+$/, "");
+  const trimmed = code.replace(/\n$/, "").replace(/\n$/, "");
   const lines = trimmed.split("\n");
   const shouldCollapse = lines.length > 5;
   const key = hashKey(language, trimmed);
@@ -206,7 +204,7 @@ function CodeBlock({
       <div className={cn(!expanded && shouldCollapse && "max-h-[140px] overflow-hidden")}>
         <SyntaxHighlighter
           style={oneDark}
-          language={language || "text"}
+          language={language}
           PreTag="div"
           customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
         >
