@@ -6,10 +6,11 @@
  * 对齐 docs/specs/ui/web-chat-structure.md §4
  * STORY-0039：接入 OpenClaw Gateway WebSocket 实现真实流式对话
  *
- * 对话管理流程（方案 B）：
- * - 对话列表从 sidecar RPC 获取（Gateway sessions.json）
- * - 切换对话时通过 Gateway HTTP /sessions/<key>/history 加载消息
- * - 新建对话时生成新 sessionKey，首条消息发送后 Gateway 自动创建 session
+ * 对话管理流程（混合方案）：
+ * - 切换对话时先从 IndexedDB 缓存瞬间显示历史消息
+ * - 后台静默从 Gateway 拉最新 history，拉到就更新 + 刷新缓存
+ * - 新消息（发送/接收/流式）走现有 WebSocket 通道
+ * - 消息变化时自动回写 IndexedDB 缓存供下次切换
  */
 
 import * as React from "react";
@@ -18,6 +19,7 @@ import { ChatMessageList } from "./ChatMessageList";
 import { ChatInputArea } from "./ChatInputArea";
 import { RunToolContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
+import { saveMessages, loadMessages } from "../../lib/chat/persistence";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
@@ -27,7 +29,7 @@ export function ChatView() {
   // 当前活跃的 sessionKey（格式 agent:<agentId>:<sessionName>）
   const [activeSessionKey, setActiveSessionKey] = React.useState("");
 
-  // 切换对话时的 loading 中间态（避免显示前一对话内容）
+  // 切换对话时的 loading 中间态（仅在 IndexedDB 也无缓存时才显示）
   const [switchingSession, setSwitchingSession] = React.useState(false);
 
   // Chat 状态机
@@ -40,8 +42,10 @@ export function ChatView() {
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // 切换对话：显示 loading → 加载历史 → 成功替换 / 失败提示
-  // 2026-05-12 v3：加 loading 中间态，彻底避免用户看到前一对话残留内容。
+  // 防止 Gateway history 后台拉取与用户新消息冲突的标记
+  const lastSwitchKeyRef = React.useRef("");
+
+  // ─── 切换对话（核心：先缓存后 Gateway）─────────────────────────────────
   async function handleSwitchSession(sessionKey: string) {
     if (!sessionKey || sessionKey === "__empty__" || sessionKey === "__new__") {
       return;
@@ -56,36 +60,93 @@ export function ChatView() {
       await chat.stop();
     }
 
-    // 立即进入 loading 态 + 清空消息（用户看到 loading 骨架屏而非旧内容）
+    // 在切走前，把当前对话的消息存入缓存
+    const currentKey = lastSwitchKeyRef.current;
+    const currentMessages = chat.messages;
+    if (currentKey && currentMessages.length > 0) {
+      saveMessages(currentKey, currentMessages).catch(() => {});
+    }
+
+    // 更新标记
     setActiveSessionKey(sessionKey);
-    setSwitchingSession(true);
+    lastSwitchKeyRef.current = sessionKey;
     chat.switchSession(sessionKey);
 
-    // 异步加载历史
+    // 第一步：从 IndexedDB 缓存瞬间加载
+    let cacheHit = false;
+    try {
+      const cached = await loadMessages(sessionKey);
+      if (cached.length > 0) {
+        chat.loadHistoryMessages(cached);
+        cacheHit = true;
+      }
+    } catch {
+      // IndexedDB 不可用，继续走 Gateway
+    }
+
+    // 没命中缓存才显示 loading
+    if (!cacheHit) {
+      setSwitchingSession(true);
+    }
+
+    // 第二步：后台静默从 Gateway 拉最新历史
     try {
       const { getIpc } = await import("../../lib/ipc");
       const ipc = await getIpc();
       const result = await ipc.getSessionsHistory({ sessionKey, limit: 50 });
       const messages = result?.messages ?? [];
-      if (messages.length > 0) {
+      // 只有在用户没有再次切换对话时才更新
+      if (lastSwitchKeyRef.current === sessionKey && messages.length > 0) {
         chat.loadHistoryMessages(messages);
+        // 更新缓存
+        saveMessages(sessionKey, messages).catch(() => {});
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn(`[ChatView] 切对话失败：${errMsg}`);
-      // 加载失败不保留旧消息（已被 CLEAR），用户看到空对话 + 可重试
+      console.warn("[ChatView] Gateway history failed (非致命):", err);
+      // Gateway 失败不影响——用户已经看到了缓存内容（或空对话）
     } finally {
-      setSwitchingSession(false);
+      if (lastSwitchKeyRef.current === sessionKey) {
+        setSwitchingSession(false);
+      }
     }
   }
 
-  // 新建对话
+  // ─── 新建对话 ──────────────────────────────────────────────────────────
   function handleNewSession() {
+    // 切走前保存当前对话
+    const currentKey = lastSwitchKeyRef.current;
+    const currentMessages = chat.messages;
+    if (currentKey && currentMessages.length > 0) {
+      saveMessages(currentKey, currentMessages).catch(() => {});
+    }
+
     const timestamp = Date.now();
     const newSessionKey = `agent:artifex-nexus:session-${timestamp}`;
     setActiveSessionKey(newSessionKey);
+    lastSwitchKeyRef.current = newSessionKey;
     chat.createNewSession();
   }
+
+  // ─── 消息变化时自动回写 IndexedDB 缓存 ─────────────────────────────────
+  // 仅在非流式状态（idle）且有消息时写入，避免流式 delta 频繁写 DB
+  const prevChatStateRef = React.useRef(chat.chatState);
+  React.useEffect(() => {
+    const wasStreaming = prevChatStateRef.current === "streaming" || prevChatStateRef.current === "tool_executing";
+    const isNowIdle = chat.chatState === "idle";
+    prevChatStateRef.current = chat.chatState;
+
+    // 流式结束 → idle：写缓存（一次完整回复结束后）
+    if (wasStreaming && isNowIdle && lastSwitchKeyRef.current && chat.messages.length > 0) {
+      saveMessages(lastSwitchKeyRef.current, chat.messages).catch(() => {});
+    }
+  }, [chat.chatState, chat.messages]);
+
+  // 用户发送消息后也写缓存（ADD_USER_MESSAGE 后 chatState 仍是 idle → sending）
+  React.useEffect(() => {
+    if (chat.chatState === "sending" && lastSwitchKeyRef.current && chat.messages.length > 0) {
+      saveMessages(lastSwitchKeyRef.current, chat.messages).catch(() => {});
+    }
+  }, [chat.chatState]);
 
   // 处理 pending tool 预输入
   React.useEffect(() => {
@@ -108,16 +169,33 @@ export function ChatView() {
     if (!activeSessionKey || activeSessionKey === "__empty__" || activeSessionKey === "__new__") return;
     if (!activeSessionKey.startsWith("agent:")) return;
     if (chat.messages.length > 0) return;
-    // 通过 sidecar 加载历史（不依赖 WS 状态）
+    // 走混合加载
+    lastSwitchKeyRef.current = activeSessionKey;
     chat.switchSession(activeSessionKey);
-    setSwitchingSession(true);
+
     (async () => {
+      // 先读缓存
+      let cacheHit = false;
+      try {
+        const cached = await loadMessages(activeSessionKey);
+        if (cached.length > 0 && lastSwitchKeyRef.current === activeSessionKey) {
+          chat.loadHistoryMessages(cached);
+          cacheHit = true;
+        }
+      } catch { /* ignore */ }
+
+      if (!cacheHit) {
+        setSwitchingSession(true);
+      }
+
+      // 后台拉 Gateway
       try {
         const { getIpc } = await import("../../lib/ipc");
         const ipc = await getIpc();
         const result = await ipc.getSessionsHistory({ sessionKey: activeSessionKey, limit: 50 });
-        if (result?.messages && result.messages.length > 0) {
+        if (result?.messages && result.messages.length > 0 && lastSwitchKeyRef.current === activeSessionKey) {
           chat.loadHistoryMessages(result.messages);
+          saveMessages(activeSessionKey, result.messages).catch(() => {});
         }
       } catch (err) {
         console.warn("[ChatView] auto-load history failed:", err);
