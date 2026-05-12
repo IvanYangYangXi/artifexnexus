@@ -232,11 +232,13 @@ export function AppShell() {
   React.useEffect(() => {
     if (startupCheckDone.current) return;
     startupCheckDone.current = true;
-    const doCheck = async () => {
+    const doCheck = async (attempt: number) => {
       try {
         const { getIpc } = await import("../../lib/ipc");
         const ipc = await getIpc();
         const s = await ipc.getOpenClawStatus();
+        // sidecar 就绪 → 停止轮询
+        clearInterval(timer);
         if (s.cli_installed) {
           setOpenclawInstalled(true);
           if (!s.gateway_running) {
@@ -335,13 +337,28 @@ export function AppShell() {
           setTimeout(() => setShowInstallDialog(true), 500);
         }
       } catch {
-        // IPC 不可用（浏览器 dev 模式）或 sidecar 启动失败，关闭遮罩避免永久卡住
-        setGatewayStarting(false);
+        // sidecar IPC 未就绪 → 静默，等下一次 interval 重试
+        if (attempt <= 3) {
+          setStartupPhase(`等待 sidecar 就绪…（${attempt}/${MAX_RETRY}）`);
+        }
       }
     };
-    // 延迟 300ms，等 AppShell 渲染完毕再检测
-    const timer = setTimeout(doCheck, 300);
-    return () => clearTimeout(timer);
+    // 轮询 sidecar IPC 就绪后再调 doCheck（最多 30s）
+    let retryCount = 0;
+    const MAX_RETRY = 30;
+    const timer = setInterval(async () => {
+      retryCount++;
+      if (retryCount > MAX_RETRY) {
+        clearInterval(timer);
+        setStartupPhase("sidecar 启动超时");
+        await new Promise(r => setTimeout(r, 2000));
+        setGatewayStarting(false);
+        setCurrentModule("system");
+        return;
+      }
+      await doCheck(retryCount);
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // 轮询 Gateway 状态（10s）
