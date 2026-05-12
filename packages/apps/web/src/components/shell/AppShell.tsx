@@ -232,23 +232,109 @@ export function AppShell() {
   React.useEffect(() => {
     if (startupCheckDone.current) return;
     startupCheckDone.current = true;
-
-    // 极简启动：显示 3s 启动画面后关闭遮罩，Gateway 状态由轮询驱动
-    const timer = setTimeout(() => {
-      setGatewayStarting(false);
-      // 异步触发 Gateway 启动（不阻塞 UI）
-      (async () => {
-        try {
-          const { getIpc } = await import("../../lib/ipc");
-          const ipc = await getIpc();
-          const s = await ipc.getOpenClawStatus();
-          if (s.cli_installed && !s.gateway_running) {
-            await ipc.startGateway();
+    const doCheck = async () => {
+      try {
+        const { getIpc } = await import("../../lib/ipc");
+        const ipc = await getIpc();
+        const s = await ipc.getOpenClawStatus();
+        if (s.cli_installed) {
+          setOpenclawInstalled(true);
+          if (!s.gateway_running) {
+            try {
+              setStartupPhase("正在启动 OpenClaw Gateway…");
+              await ipc.startGateway();
+              setGatewayRunning(true);
+              // 通过轮询日志匹配关键阶段，判断 Gateway 是否 fully ready
+              const waitReady = async () => {
+                let lastLogId = 0;
+                for (let i = 0; i < 30; i++) { // 最多等 30s（每次 1s）
+                  await new Promise(r => setTimeout(r, 1000));
+                  try {
+                    // 方式一：日志匹配（精准检测阶段）
+                    const args = lastLogId > 0 ? { sinceId: lastLogId } : { n: 50 };
+                    const batch = await ipc.tailGatewayLog(args);
+                    if (batch?.max_id) lastLogId = batch.max_id;
+                    if (batch?.entries) {
+                      for (const entry of batch.entries) {
+                        const text = (entry as any).text || "";
+                        if (text.includes("loading configuration") || text.includes("resolving authentication")) {
+                          setStartupPhase("加载配置文件…");
+                        } else if (text.includes("starting HTTP") || text.includes("http server listening")) {
+                          setStartupPhase("HTTP 服务已启动，等待 sidecar…");
+                        } else if (text.includes("starting channels") || text.includes("sidecars")) {
+                          setStartupPhase("正在初始化 sidecars 和通道…");
+                        } else if (text.includes("[gateway] ready")) {
+                          setStartupPhase("Gateway 就绪");
+                          setGatewayStarting(false);
+                          return;
+                        }
+                        const level = (entry as any).level || "";
+                        if (level === "ERROR") {
+                          setStartupPhase(`启动异常: ${text.slice(0, 80)}`);
+                        }
+                      }
+                    }
+                    // 方式二：fallback — 如果日志里没匹配到 ready 但 status 已经是 running，
+                    // 说明 gateway 已就绪但日志可能被刷过了
+                    if (i >= 5) { // 至少等 5 秒后再检查 status fallback
+                      const st = await ipc.getOpenClawStatus();
+                      if (st.gateway_running) {
+                        setStartupPhase("Gateway 就绪");
+                        setGatewayStarting(false);
+                        return;
+                      }
+                    }
+                  } catch {
+                    // tail_log 或 status 失败，继续等
+                  }
+                }
+                // 超时：关闭遮罩，跳转系统状态页
+                setStartupPhase("启动超时，请检查日志");
+                await new Promise(r => setTimeout(r, 1000));
+                setGatewayStarting(false);
+                setGatewayRunning(false);
+                setCurrentModule("system");
+              };
+              waitReady();
+            } catch (err) {
+              const parsed = parsePortBusyError(err);
+              if (parsed) {
+                setPortBusyError(parsed);
+              }
+              // 任何启动失败都关闭遮罩，跳转系统状态页
+              setGatewayStarting(false);
+              setCurrentModule("system");
+            }
+          } else {
+            // 已在运行 → 直接关闭遮罩
+            setGatewayRunning(true);
+            setGatewayStarting(false);
           }
-        } catch { /* best-effort */ }
-      })();
-    }, 3000);
-
+          // Gateway 就绪后拉一次连接凭据（port + token），供 Chat WS 握手用
+          // 启动有个短暂窗口期（pid 锁 + 端口探测），延迟 400ms 再拉
+          setTimeout(async () => {
+            try {
+              const info = await ipc.getGatewayAuthInfo();
+              if (info.port > 0) setGatewayPort(info.port);
+              setGatewayToken(info.token || "");
+              setGatewayAuthReady(true);
+            } catch {
+              // auth_info 拉取失败，ChatView 会显示未连接
+            }
+          }, 400);
+        } else {
+          // 未安装 → 跳转系统面板 + 弹窗
+          setOpenclawInstalled(false);
+          setCurrentModule("system");
+          setTimeout(() => setShowInstallDialog(true), 500);
+        }
+      } catch {
+        // IPC 不可用（浏览器 dev 模式）或 sidecar 启动失败，关闭遮罩避免永久卡住
+        setGatewayStarting(false);
+      }
+    };
+    // 延迟 300ms，等 AppShell 渲染完毕再检测
+    const timer = setTimeout(doCheck, 300);
     return () => clearTimeout(timer);
   }, []);
 
