@@ -256,10 +256,12 @@ export interface ChatServiceOptions {
   gatewayToken?: string;
   /** Agent ID */
   agentId?: string;
+  /** Gateway 是否确认运行中（来自 AppShell IPC 轮询），false 时不建 WS */
+  gatewayRunning?: boolean;
 }
 
 export function useChatService(options: ChatServiceOptions) {
-  const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus" } = options;
+  const { gatewayPort, gatewayToken = "", agentId = "artifex-nexus", gatewayRunning = false } = options;
 
   // Gateway WebSocket
   const wsRef = React.useRef<GatewayWebSocket | null>(null);
@@ -339,30 +341,15 @@ export function useChatService(options: ChatServiceOptions) {
       setWsState("disconnected");
       return;
     }
+    // Gateway 未确认运行时不建 WS
+    if (!gatewayRunning) {
+      setWsState("disconnected");
+      return;
+    }
 
     let cancelled = false;
 
-    /**
-     * 等待 Gateway 就绪后再建 WebSocket。
-     *
-     * 通过 Tauri IPC openclaw.status 轮询 gateway_running 和 port，
-     * 避免 HTTP fetch 在启动阶段刷多个连接。
-     */
-    const waitForGatewayReady = async (): Promise<boolean> => {
-      try {
-        const { getIpc } = await import("../ipc");
-        const ipc = await getIpc();
-        const status = await ipc.getOpenClawStatus();
-        return status.gateway_running && status.port === gatewayPort;
-      } catch {
-        return false;
-      }
-    };
-
     const doConnect = async () => {
-      if (cancelled) return;
-      const ready = await waitForGatewayReady();
-      if (cancelled || !ready) return;
 
       const wsUrl = `ws://127.0.0.1:${gatewayPort}`;
       const ws = new GatewayWebSocket(wsUrl, gatewayToken);
@@ -407,7 +394,7 @@ export function useChatService(options: ChatServiceOptions) {
         wsRef.current = null;
       }
     };
-  }, [gatewayPort, gatewayToken]);
+  }, [gatewayPort, gatewayToken, gatewayRunning]);
 
   // ─── Gateway 事件处理 ──────────────────────────────────────────────────
 

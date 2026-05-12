@@ -23,6 +23,7 @@ export function ChatView() {
   const chat = useChatService({
     gatewayPort: port,
     gatewayToken: token,
+    gatewayRunning,
   });
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
