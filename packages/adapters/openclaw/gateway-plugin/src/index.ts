@@ -111,7 +111,7 @@ class McpWebSocketClient {
         const timeout = setTimeout(() => {
           reject(new Error(`Connection to ${this.url} timed out`));
           this.ws?.close();
-        }, 10000);
+        }, 5000);
 
         this.ws.onopen = async () => {
           clearTimeout(timeout);
