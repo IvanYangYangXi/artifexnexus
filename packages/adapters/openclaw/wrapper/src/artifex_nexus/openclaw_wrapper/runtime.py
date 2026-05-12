@@ -484,44 +484,11 @@ def start_gateway(
         raise FileNotFoundError(msg)
 
     # 2.5 启动前配置自愈：保证 Control UI 浏览器白名单覆盖当前 port
-    #     Pre-start config self-heal: ensure Control UI allowedOrigins covers
-    #     current loopback port. Idempotent — safe to call every start.
-    #     Why：v2026.5.4 Control UI 默认严格 origin 校验；当本机存在任何
-    #     代理头注入（浏览器扩展/路由器透明代理）时，loopback 客户端不再被
-    #     视为 local，必须命中显式白名单，否则 ws 握手 1008 origin not allowed。
     _ensure_control_ui_allowed_origins(bin_path, home, port)
 
-    # 2.6 启动前孤儿清理：如目标端口仍被旧 openclaw 进程占用 → 强杀
-    #     Pre-start orphan cleanup: kill any leftover openclaw process still
-    #     holding the port. Covers:
-    #     - 上次 sidecar 崩溃后的孤儿（Tauri 主进程被任务管理器强结束，
-    #       sidecar 来不及收 child）
-    #     - taskkill /T 未杀透留下的"端口占着但 PID 改了"残留
-    #     - OpenClaw advisory lock 未释放（与端口绑定，杀进程即释放）
-    #     这层与 ``--force`` 互补：``--force`` 只清 listener，不清 lockfile；
-    #     这里直接杀进程，lockfile 跟着走。
-    cleaned = _cleanup_orphan_gateways(port)
-    if cleaned > 0:
-        logger.info("启动前清理了 %d 个 openclaw 孤儿进程", cleaned)
-
-    # 2.7 启动前硬检查：若端口仍被 **非 OpenClaw 进程**占用 → 拒绝启动、上抛
-    #     PortBusyError，前端会弹窗让用户决定（STORY-0039 方案 A）。
-    #     我们宁可显式失败也不偷偷换端口——端口漂移比启动失败更难排查。
-    logger.info("start_gateway: 端口检查 (port=%d) ...", port)
-    remaining = _list_pids_on_port(port)
-    logger.info("start_gateway: _list_pids_on_port(%d) → %s", port, remaining)
-    if remaining:
-        occupants = [
-            _describe_pid(pid)
-            for pid in remaining
-            if not _is_openclaw_process(pid)
-        ]
-        if occupants:
-            msg = f"端口 {port} 被以下非 OpenClaw 进程占用，拒绝自动切换端口："
-            for o in occupants:
-                msg += f"\n  - PID={o['pid']} name={o['name']}"
-            _gateway_state.set_errored(msg)
-            raise PortBusyError(port, occupants)
+    # 2.6 孤儿清理 + 端口检查：跳过 netstat（中文 Windows 兼容性差），
+    #     改用 --force 兜底 + subprocess 5s timeout 保护
+    logger.info("start_gateway: 跳过孤儿检查（依赖 --force）")
 
     # 3. 构建命令
     #    用 "gateway run" 而不是 "gateway start"：
