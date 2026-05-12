@@ -34,6 +34,7 @@ import {
   DialogDescription,
   DialogFooter,
   Button,
+  Toaster,
 } from "@artifex-nexus/ui";
 
 export interface PreviewFile {
@@ -692,6 +693,7 @@ export function AppShell() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Toaster />
     </div>
     </GatewayContext.Provider>
     </RunToolContext.Provider>
