@@ -197,7 +197,7 @@ export function ChatControlBar({
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3">
       {/* 对话列表 */}
-      <Select value={activeSessionKey || undefined} onValueChange={handleConvChange}>
+      <Select value={activeSessionKey || "__empty__"} onValueChange={handleConvChange}>
         <SelectTrigger className="h-7 w-[180px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
           <SelectValue placeholder={
             sessionsLoading ? "加载中..." :
@@ -206,6 +206,9 @@ export function ChatControlBar({
           } />
         </SelectTrigger>
         <SelectContent>
+          {sessions.length === 0 && (
+            <SelectItem value="__empty__" disabled className="text-muted-foreground">暂无对话</SelectItem>
+          )}
           {sessions.map((s) => (
             <SelectItem key={s.sessionKey} value={s.sessionKey} className="group">
               <span className="flex-1 truncate max-w-[130px]">{s.title}</span>

@@ -100,6 +100,19 @@ impl SidecarClient {
 
         let mut child = cmd.spawn().map_err(|e| format!("无法启动 sidecar: {e}"))?;
 
+        // 读取 stderr 到一个独立线程，避免管道缓冲区满导致 sidecar 阻塞
+        if let Some(stderr) = child.stderr.take() {
+            use std::io::BufRead;
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(l) = line {
+                        eprintln!("[sidecar:stderr] {}", l);
+                    }
+                }
+            });
+        }
+
         let stdin = child
             .stdin
             .take()
