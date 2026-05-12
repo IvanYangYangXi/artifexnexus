@@ -236,7 +236,26 @@ export function AppShell() {
       try {
         const { getIpc } = await import("../../lib/ipc");
         const ipc = await getIpc();
+        
+        // 启动前先尝试清理孤儿：如果 Gateway 已被标记为 running 但端口没占用，重置状态
+        // 如果端口被旧进程占用，先调 stop 再 start
         const s = await ipc.getOpenClawStatus();
+        if (s.gateway_running && s.pid) {
+          // 确认 PID 是否真的在跑
+          try {
+            const psResult = await ipc.getGatewayStatus();
+            if (psResult.state !== "running") {
+              // 状态不一致，尝试重启
+              await ipc.restartGateway();
+              setGatewayRunning(true);
+              setGatewayStarting(false);
+              clearInterval(timer);
+              return;
+            }
+          } catch {
+            // getGatewayStatus 不可用则降级到 stop + start
+          }
+        }
         // sidecar 就绪 → 停止轮询
         clearInterval(timer);
         if (s.cli_installed) {
