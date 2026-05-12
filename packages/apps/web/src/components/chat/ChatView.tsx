@@ -27,6 +27,9 @@ export function ChatView() {
   // 当前活跃的 sessionKey（格式 agent:<agentId>:<sessionName>）
   const [activeSessionKey, setActiveSessionKey] = React.useState("");
 
+  // 切换对话时的 loading 中间态（避免显示前一对话内容）
+  const [switchingSession, setSwitchingSession] = React.useState(false);
+
   // Chat 状态机
   const chat = useChatService({
     gatewayPort: port,
@@ -37,27 +40,42 @@ export function ChatView() {
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // 切换对话：中止当前流 → 清空 → 从 sidecar 加载历史消息
+  // 切换对话：显示 loading → 加载历史 → 成功替换 / 失败提示
+  // 2026-05-12 v3：加 loading 中间态，彻底避免用户看到前一对话残留内容。
   async function handleSwitchSession(sessionKey: string) {
+    if (!sessionKey || sessionKey === "__empty__" || sessionKey === "__new__") {
+      return;
+    }
+    if (!sessionKey.startsWith("agent:")) {
+      console.warn("[ChatView] 拒绝非法 sessionKey:", sessionKey);
+      return;
+    }
+
     // 如果当前正在流式生成，先中止
     if (chat.isStreaming) {
       await chat.stop();
     }
 
+    // 立即进入 loading 态 + 清空消息（用户看到 loading 骨架屏而非旧内容）
     setActiveSessionKey(sessionKey);
-    // 通过 chat-service 切换到对应 session（清空消息 + 更新 sessionKeyRef）
+    setSwitchingSession(true);
     chat.switchSession(sessionKey);
 
-    // 从 sidecar 读取 session transcript 文件获取历史
+    // 异步加载历史
     try {
       const { getIpc } = await import("../../lib/ipc");
       const ipc = await getIpc();
       const result = await ipc.getSessionsHistory({ sessionKey, limit: 50 });
-      if (result?.messages && result.messages.length > 0) {
-        chat.loadHistoryMessages(result.messages);
+      const messages = result?.messages ?? [];
+      if (messages.length > 0) {
+        chat.loadHistoryMessages(messages);
       }
     } catch (err) {
-      console.warn("[ChatView] load history failed:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[ChatView] 切对话失败：${errMsg}`);
+      // 加载失败不保留旧消息（已被 CLEAR），用户看到空对话 + 可重试
+    } finally {
+      setSwitchingSession(false);
     }
   }
 
@@ -87,8 +105,12 @@ export function ChatView() {
 
   // WS 连通后自动加载当前对话历史（解决初始选中对话时 WS 还没连上的问题）
   React.useEffect(() => {
-    if (!activeSessionKey || chat.messages.length > 0) return;
+    if (!activeSessionKey || activeSessionKey === "__empty__" || activeSessionKey === "__new__") return;
+    if (!activeSessionKey.startsWith("agent:")) return;
+    if (chat.messages.length > 0) return;
     // 通过 sidecar 加载历史（不依赖 WS 状态）
+    chat.switchSession(activeSessionKey);
+    setSwitchingSession(true);
     (async () => {
       try {
         const { getIpc } = await import("../../lib/ipc");
@@ -99,6 +121,8 @@ export function ChatView() {
         }
       } catch (err) {
         console.warn("[ChatView] auto-load history failed:", err);
+      } finally {
+        setSwitchingSession(false);
       }
     })();
   }, [activeSessionKey]);
@@ -124,6 +148,7 @@ export function ChatView() {
       <ChatMessageList
         messages={chat.messages}
         messagesEndRef={messagesEndRef}
+        loading={switchingSession}
       />
 
       {/* C3 输入区 */}
