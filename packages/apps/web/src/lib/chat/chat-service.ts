@@ -88,7 +88,8 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "CLEAR_MESSAGES":
       return { ...state, messages: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     case "RESET_STATE":
-      return { ...state, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+      // Gateway 断连时清理：把所有 isStreaming 的消息标记为完成，避免 UI 卡在流式状态
+      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     case "LOAD_HISTORY":
       return { ...state, messages: action.messages, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     default:
@@ -254,6 +255,9 @@ export function useChatService(options: ChatServiceOptions) {
     const ws = wsRef.current;
     if (ws && ws.state === "connected") await ws.abortChat(sessionKeyRef.current);
     dispatch({ type: "STOP" });
+    // 兜底：如果 RESET_STATE 已经清了 streamingMessageId，STOP 的 map 匹配不到
+    // 再 dispatch 一次 RESET_STATE 强制清理所有 isStreaming 消息
+    dispatch({ type: "RESET_STATE" });
     lastTextRef.current = "";
   }
 
