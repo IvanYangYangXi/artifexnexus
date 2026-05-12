@@ -21,10 +21,10 @@ import type {
 } from "./types";
 import { GatewayWebSocket } from "./gateway-ws";
 
-// ─── 常量 ──────────────────────────────────────────────────────────────────
-
-const STORAGE_KEY_SESSIONS = "artifex.chat.sessions";
-const STORAGE_KEY_ACTIVE = "artifex.chat.activeSessionId";
+// ─── 内存消息缓存（同步，跟 ArtClawToolManager cachedMessages 同思路）────
+// 按 sessionKey 缓存消息数组。切对话时同步存/取，零延迟。
+// Gateway history 仅作为后台静默刷新源，不阻塞 UI。
+const messageCache = new Map<string, ChatMessage[]>();
 
 // ─── Reducer Action ────────────────────────────────────────────────────────
 
@@ -123,6 +123,14 @@ export function useChatService(options: ChatServiceOptions) {
 
   const lastTextRef = React.useRef("");
   const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected">("disconnected");
+
+  // ─── 消息变化时自动同步内存缓存 ──────────────────────────────────────
+  // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
+  React.useEffect(() => {
+    if (sessionKeyRef.current && state.messages.length > 0 && !state.streamingMessageId) {
+      messageCache.set(sessionKeyRef.current, state.messages);
+    }
+  }, [state.messages, state.streamingMessageId]);
 
   // ─── Gateway 连接管理 ─────────────────────────────────────────────────
   // 关键：仅在 gatewayRunning=true 且 authReady=true 时才建 WS，
@@ -264,9 +272,30 @@ export function useChatService(options: ChatServiceOptions) {
   // ─── 会话管理 ──────────────────────────────────────────────────────────
 
   function switchSession(sessionId: string): void {
-    // 更新 sessionKey（外部 ChatView 会在切换后调用 loadHistoryMessages 加载消息）
-    sessionKeyRef.current = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
-    dispatch({ type: "CLEAR_MESSAGES" });
+    // 守卫：拒绝哨兵值（__empty__/__new__）和空值。
+    if (!sessionId || sessionId === "__empty__" || sessionId === "__new__") {
+      return;
+    }
+
+    // 1. 把当前对话的消息存入内存缓存
+    const currentKey = sessionKeyRef.current;
+    if (currentKey && state.messages.length > 0) {
+      messageCache.set(currentKey, state.messages);
+    }
+
+    // 2. 更新 sessionKey
+    const newKey = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
+    sessionKeyRef.current = newKey;
+
+    // 3. 从内存缓存同步读取目标对话的消息
+    const cached = messageCache.get(newKey);
+    if (cached && cached.length > 0) {
+      // 有缓存 → 直接加载（同步，零延迟）
+      dispatch({ type: "LOAD_HISTORY", messages: cached });
+    } else {
+      // 无缓存 → 清空（新对话 or 首次加载）
+      dispatch({ type: "CLEAR_MESSAGES" });
+    }
   }
 
   function createNewSession(): void {
@@ -316,6 +345,10 @@ export function useChatService(options: ChatServiceOptions) {
       });
     }
     dispatch({ type: "LOAD_HISTORY", messages });
+    // 同步写入内存缓存
+    if (sessionKeyRef.current && messages.length > 0) {
+      messageCache.set(sessionKeyRef.current, messages);
+    }
   }
 
   return {
@@ -331,11 +364,3 @@ export function useChatService(options: ChatServiceOptions) {
     getWs: () => wsRef.current,
   };
 }
-
-// ─── localStorage 持久化 ──────────────────────────────────────────────────
-
-function loadSessions(): ChatSession[] { try { const r = localStorage.getItem(STORAGE_KEY_SESSIONS); return r ? JSON.parse(r) : []; } catch { return []; } }
-function persistSessions(s: ChatSession[]): void { try { localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(s)); } catch { /* ignore */ } }
-function getActiveSessionId(sessions: ChatSession[]): string { try { const stored = localStorage.getItem(STORAGE_KEY_ACTIVE); if (stored && sessions.find(x => x.id === stored)) return stored; } catch { /* ignore */ } return sessions[0]?.id ?? "default"; }
-function persistActiveSession(id: string): void { try { localStorage.setItem(STORAGE_KEY_ACTIVE, id); } catch { /* ignore */ } }
-function saveCurrentSession(activeId: string, sessions: ChatSession[], messages: ChatMessage[]): void { try { const updated = sessions.map(s => s.id === activeId ? { ...s, messages, updatedAt: new Date().toISOString() } : s); localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(updated)); } catch { /* ignore */ } }

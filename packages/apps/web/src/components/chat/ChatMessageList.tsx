@@ -33,7 +33,7 @@ const codeBlockExpandedCache = new Map<string, boolean>();
 interface ChatMessageListProps {
   messages: ChatMessage[];
   messagesEndRef: React.RefObject<HTMLDivElement>;
-  /** 正在切换对话（显示 loading 骨架屏） */
+  /** 正在切换对话（显示 loading 骨架屏） — 可选，同步缓存方案下通常不需要 */
   loading?: boolean;
 }
 
