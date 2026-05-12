@@ -258,7 +258,12 @@ export function AppShell() {
           if (!s.gateway_running) {
             try {
               setStartupPhase("正在启动 OpenClaw Gateway…");
-              await ipc.startGateway();
+              // startGateway 可能因 sidecar 阻塞，加 15s 超时
+              const startPromise = ipc.startGateway();
+              const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("启动超时")), 15000)
+              );
+              await Promise.race([startPromise, timeoutPromise]);
               setGatewayRunning(true);
               // 简单轮询等待 Gateway 就绪（不依赖日志管道）
               const waitReady = async () => {
