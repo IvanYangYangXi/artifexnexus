@@ -184,6 +184,13 @@ export function ChatControlBar({
   // ─── 回调 ──────────────────────────────────────────────────────────────
 
   const handleConvChange = (key: string) => {
+    // 过滤哨兵值：__empty__ 是 sessions 为空时占位 SelectItem，
+    // __new__ 是"新建对话"按钮。真实 sessionKey 形如 "agent:<id>:<name>"。
+    // 不过滤会导致 onSwitchSession("__empty__") → chat.switchSession 清空消息后
+    // 加载历史失败 → 历史消息丢失（之前 bug 现场）。
+    if (key === "__empty__" || !key) {
+      return;
+    }
     if (key === "__new__") {
       onNewSession();
     } else {
