@@ -145,14 +145,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
 // ─── Markdown 渲染 ──────────────────────────────────────────────────────────
 
-// 全局展开状态缓存（避免消息重渲染导致折叠状态丢失）
-const expandedBlocks = new Map<string, boolean>();
-
-function hashKey(lang: string, code: string): string {
-  return `${lang}:${code.slice(0, 50)}:${code.length}`;
-}
-
-/** 代码块组件：超过5行自动折叠，展开状态持久化 */
+/** 代码块组件：超过5行自动折叠 */
 function CodeBlock({
   language,
   code,
@@ -160,19 +153,10 @@ function CodeBlock({
   language: string;
   code: string;
 }) {
-  const trimmed = code.replace(/\n$/, "").replace(/\n$/, "");
+  const trimmed = code.replace(/\n$/, "");
   const lines = trimmed.split("\n");
   const shouldCollapse = lines.length > 5;
-  const key = hashKey(language, trimmed);
-  const [expanded, setExpanded] = React.useState(() => {
-    if (!shouldCollapse) return true;
-    return expandedBlocks.get(key) ?? false;
-  });
-
-  const toggle = (v: boolean) => {
-    setExpanded(v);
-    if (shouldCollapse) expandedBlocks.set(key, v);
-  };
+  const [expanded, setExpanded] = React.useState(!shouldCollapse);
   const displayCode = expanded || !shouldCollapse
     ? trimmed
     : lines.slice(0, 5).join("\n") + "\n";
@@ -184,7 +168,7 @@ function CodeBlock({
           <span className="shrink-0 font-mono">{language}</span>
           {shouldCollapse && (
             <button
-              onClick={() => toggle(!expanded)}
+              onClick={() => setExpanded(!expanded)}
               className="hover:text-foreground transition-colors truncate"
             >
               {expanded ? "收起" : `${lines.length} 行（点击展开）`}
@@ -214,7 +198,7 @@ function CodeBlock({
       {shouldCollapse && !expanded && (
         <div
           className="cursor-pointer bg-muted/30 py-1.5 text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors border-t border-white/[0.04]"
-          onClick={() => toggle(true)}
+          onClick={() => setExpanded(true)}
         >
           展开全部 {lines.length} 行
         </div>
