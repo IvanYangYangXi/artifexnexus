@@ -725,7 +725,11 @@ def _list_pids_on_port(port: int) -> list[int]:
                 errors="replace",
             )
             for line in (r.stdout or "").splitlines():
-                if "LISTENING" not in line:
+                # netstat -ano 列格式（中/英文 Win 均适用）：
+                #   Proto  Local Address          Foreign Address        State           PID
+                #   0      1_:   2                 3_:   4                5               6
+                # 用 "LISTENING" 或 "LISTEN" 或本地化 "监听中" 三种形式
+                if not ("LISTEN" in line.upper()):
                     continue
                 parts = line.split()
                 if len(parts) < 5:

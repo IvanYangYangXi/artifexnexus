@@ -233,153 +233,23 @@ export function AppShell() {
     if (startupCheckDone.current) return;
     startupCheckDone.current = true;
 
-    let retryCount = 0;
-    const MAX_RETRY = 30;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    const stopPolling = () => { if (timer) { clearInterval(timer); timer = null; } };
-
-    const doCheck = async (attempt: number) => {
-      try {
-        const { getIpc } = await import("../../lib/ipc");
-        const ipc = await getIpc();
-        
-        // 启动前先尝试清理孤儿：如果 Gateway 已被标记为 running 但端口没占用，重置状态
-        // 如果端口被旧进程占用，先调 stop 再 start
-        const s = await ipc.getOpenClawStatus();
-        if (s.gateway_running && s.pid) {
-          // 确认 PID 是否真的在跑
-          try {
-            const psResult = await ipc.getGatewayStatus();
-            if (psResult.state !== "running") {
-              // 状态不一致，尝试重启
-              await ipc.restartGateway();
-              setGatewayRunning(true);
-              setGatewayStarting(false);
-              stopPolling();
-              return;
-            }
-          } catch {
-            // getGatewayStatus 不可用则降级到 stop + start
+    // 极简启动：显示 3s 启动画面后关闭遮罩，Gateway 状态由轮询驱动
+    const timer = setTimeout(() => {
+      setGatewayStarting(false);
+      // 异步触发 Gateway 启动（不阻塞 UI）
+      (async () => {
+        try {
+          const { getIpc } = await import("../../lib/ipc");
+          const ipc = await getIpc();
+          const s = await ipc.getOpenClawStatus();
+          if (s.cli_installed && !s.gateway_running) {
+            await ipc.startGateway();
           }
-        }
-        // sidecar 就绪 → 停止轮询
-        stopPolling();
-        if (s.cli_installed) {
-          setOpenclawInstalled(true);
-          if (!s.gateway_running) {
-            try {
-              setStartupPhase("正在启动 OpenClaw Gateway…");
-              // sidecar 可能还在初始化，加超时 + 错误提示
-              await ipc.startGateway();
-              setGatewayRunning(true);
-              // 轮询等待 Gateway fully ready（最多 60s）
-              const waitReady = async () => {
-                let lastLogId = 0;
-                for (let i = 0; i < 60; i++) { // 最多等 60s
-                  await new Promise(r => setTimeout(r, 1000));
-                  try {
-                    // 方式一：日志匹配（精准检测阶段）
-                    const args = lastLogId > 0 ? { sinceId: lastLogId } : { n: 50 };
-                    const batch = await ipc.tailGatewayLog(args);
-                    if (batch?.max_id) lastLogId = batch.max_id;
-                    if (batch?.entries) {
-                      for (const entry of batch.entries) {
-                        const text = (entry as any).text || "";
-                        if (text.includes("loading configuration") || text.includes("resolving authentication")) {
-                          setStartupPhase("加载配置文件…");
-                        } else if (text.includes("starting HTTP") || text.includes("http server listening")) {
-                          setStartupPhase("HTTP 服务已启动，等待 sidecar…");
-                        } else if (text.includes("starting channels") || text.includes("sidecars")) {
-                          setStartupPhase("正在初始化 sidecars 和通道…");
-                        } else if (text.includes("[gateway] ready")) {
-                          setStartupPhase("Gateway 就绪");
-                          setGatewayStarting(false);
-                          return;
-                        }
-                        const level = (entry as any).level || "";
-                        if (level === "ERROR") {
-                          setStartupPhase(`启动异常: ${text.slice(0, 80)}`);
-                        }
-                      }
-                    }
-                    // 方式二：fallback — 如果日志里没匹配到 ready 但 status 已经是 running，
-                    // 说明 gateway 已就绪但日志可能被刷过了
-                    if (i >= 5) { // 至少等 5 秒后再检查 status fallback
-                      const st = await ipc.getOpenClawStatus();
-                      if (st.gateway_running) {
-                        setStartupPhase("Gateway 就绪");
-                        setGatewayStarting(false);
-                        return;
-                      }
-                    }
-                  } catch {
-                    // tail_log 或 status 失败，继续等
-                  }
-                }
-                // 超时：关闭遮罩，跳转系统状态页
-                setStartupPhase("启动超时，请检查日志");
-                await new Promise(r => setTimeout(r, 1000));
-                setGatewayStarting(false);
-                setGatewayRunning(false);
-                setCurrentModule("system");
-              };
-              waitReady();
-            } catch (err) {
-              const parsed = parsePortBusyError(err);
-              if (parsed) {
-                setPortBusyError(parsed);
-                setStartupPhase(`端口 ${parsed.port} 被占用，请在"系统"面板手动处理`);
-              } else {
-                setStartupPhase(`启动失败: ${String(err).slice(0, 60)}`);
-              }
-              // 启动失败 → 关闭遮罩，跳转系统面板
-              setGatewayRunning(false);
-              await new Promise(r => setTimeout(r, 2000));
-              setGatewayStarting(false);
-              setCurrentModule("system");
-            }
-          } else {
-            // 已在运行 → 直接关闭遮罩
-            setGatewayRunning(true);
-            setGatewayStarting(false);
-          }
-          // Gateway 就绪后拉一次连接凭据（port + token），供 Chat WS 握手用
-          // 启动有个短暂窗口期（pid 锁 + 端口探测），延迟 400ms 再拉
-          setTimeout(async () => {
-            try {
-              const info = await ipc.getGatewayAuthInfo();
-              if (info.port > 0) setGatewayPort(info.port);
-              setGatewayToken(info.token || "");
-              setGatewayAuthReady(true);
-            } catch {
-              // auth_info 拉取失败，ChatView 会显示未连接
-            }
-          }, 400);
-        } else {
-          // 未安装 → 跳转系统面板 + 弹窗
-          setOpenclawInstalled(false);
-          setCurrentModule("system");
-          setTimeout(() => setShowInstallDialog(true), 500);
-        }
-      } catch {
-        // sidecar IPC 未就绪 → 静默，等下一次 interval 重试
-        setStartupPhase(`等待 sidecar 就绪…（${attempt}/${MAX_RETRY}）`);
-      }
-    };
-    timer = setInterval(async () => {
-      retryCount++;
-      if (retryCount > MAX_RETRY) {
-        stopPolling();
-        setStartupPhase("sidecar 启动超时");
-        await new Promise(r => setTimeout(r, 2000));
-        setGatewayStarting(false);
-        setCurrentModule("system");
-        return;
-      }
-      await doCheck(retryCount);
-    }, 1000);
-    return () => { if (timer) clearInterval(timer); };
+        } catch { /* best-effort */ }
+      })();
+    }, 3000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   // 轮询 Gateway 状态（10s）
