@@ -38,6 +38,9 @@ export function ChatView() {
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
+  // 区分"切对话跳底"（instant）和"新消息平滑滚动"（smooth）
+  const scrollBehaviorRef = React.useRef<ScrollBehavior>("instant");
+
   // ─── 切换对话（纯同步，消息从内存缓存瞬间加载）─────────────────────
   async function handleSwitchSession(sessionKey: string) {
     if (!sessionKey || sessionKey === "__empty__" || sessionKey === "__new__") {
@@ -53,8 +56,8 @@ export function ChatView() {
     }
 
     setActiveSessionKey(sessionKey);
+    scrollBehaviorRef.current = "instant"; // 切对话直接跳底，不播动画
     // switchSession 内部同步：存当前消息 → 从缓存读目标消息 → dispatch
-    // 不需要 await，不需要 loading
     chat.switchSession(sessionKey);
 
     // 后台静默从 Gateway 刷新（缓存为空时特别有用，但不阻塞 UI）
@@ -109,14 +112,20 @@ export function ChatView() {
     if (!activeSessionKey.startsWith("agent:")) return;
     if (chat.messages.length > 0) return;
     // switchSession 同步读缓存（首次可能为空）
+    scrollBehaviorRef.current = "instant"; // 初始加载也直接跳底
     chat.switchSession(activeSessionKey);
     // 后台拉 Gateway 填充
     silentLoadHistory(activeSessionKey);
   }, [activeSessionKey]);
 
-  // 自动滚动到底部
+  // 自动滚动到底部（切对话=instant，新消息=smooth）
   React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const behavior = scrollBehaviorRef.current;
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    // 用完 instant 后恢复为 smooth（后续新消息用平滑动画）
+    if (behavior === "instant") {
+      scrollBehaviorRef.current = "smooth";
+    }
   }, [chat.messages]);
 
   return (
