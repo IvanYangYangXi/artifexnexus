@@ -119,6 +119,7 @@ def _extract_session_summary(session_key: str, entry: dict) -> Optional[dict]:
         "modelProvider": entry.get("modelProvider", ""),
         "status": entry.get("status", ""),
         "totalTokens": entry.get("totalTokens", 0),
+        "hasTranscript": bool(session_file and Path(session_file).exists()),
     }
 
 
@@ -155,7 +156,7 @@ def handle_sessions_list(req_id: Any, params: dict) -> dict:
             if not isinstance(entry, dict):
                 continue
             summary = _extract_session_summary(session_key, entry)
-            if summary:
+            if summary and summary.get("hasTranscript"):
                 summaries.append(summary)
 
         # 按 updatedAt 降序排列（最近活跃的在前）
