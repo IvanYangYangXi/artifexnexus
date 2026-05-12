@@ -236,6 +236,25 @@ export function AppShell() {
     let attempt = 0;
     let done = false;
 
+    // ---------------------------------------------------------------
+    // 全局硬超时（2026-05-12 修复，2026-05-12 调整为 60s）
+    // 不管走哪条 doCheck/waitReady 路径，启动后 60s 必须强制把
+    // gatewayStarting 置 false，确保覆盖遮罩绝不会永久卡住——这是
+    // 兜底网，配合下面"已运行"分支的真实探测，双保险。
+    // ---------------------------------------------------------------
+    const hardTimeout = setTimeout(() => {
+      if (!done) {
+        console.error("[AppShell] startup hard timeout (60s) — forcing overlay close");
+        done = true;
+        setStartupPhase("启动超时（60s 强制跳出，请进入「系统」面板查看 Gateway 状态）");
+        setGatewayStarting(false);
+        setCurrentModule("system");
+      } else {
+        // doCheck 已经走完，但遮罩仍可能因为某条路径漏关而留着——再 set 一次保险
+        setGatewayStarting(false);
+      }
+    }, 60_000);
+
     const fetchGatewayAuth = async (ipc: any) => {
       try {
         const info = await ipc.getGatewayAuthInfo();
@@ -243,6 +262,30 @@ export function AppShell() {
         setGatewayToken(info.token || "");
         setGatewayAuthReady(true);
       } catch { }
+    };
+
+    /**
+     * 真实探测 Gateway 是否真的在跑（不只信 PID 锁文件）。
+     *
+     * Why（2026-05-12 调试发现）：
+     *   sidecar 的 is_running() 只看 PID 锁文件 + tasklist 验进程是否存在，
+     *   但 OpenClaw Gateway 进程是 node.exe；当用户没用优雅 stop 关 exe 时，
+     *   node.exe 变孤儿继续 listen 19789，但**实际可能已经无法响应**（句柄
+     *   错乱、token 失效等）。此时 is_running() 返 true，前端走"已运行"分
+     *   支不调 startGateway，但 ChatView WS 握手会失败 → 用户看遮罩消失但
+     *   功能全废。
+     *
+     *   getGatewayAuthInfo 会真正读 openclaw.json 的 token + 当前注册端口；
+     *   能成功且 port>0 就当作真活；失败/port=0 当作"PID 锁是谎言"，强制
+     *   force_restart 再 spawn 一次 gateway。
+     */
+    const verifyGatewayActuallyAlive = async (ipc: any): Promise<boolean> => {
+      try {
+        const info = await ipc.getGatewayAuthInfo();
+        return !!(info && info.port > 0);
+      } catch {
+        return false;
+      }
     };
 
     const doCheck = async () => {
@@ -255,56 +298,128 @@ export function AppShell() {
         done = true; // sidecar 就绪，停止重试
         if (s.cli_installed) {
           setOpenclawInstalled(true);
+
+          // -----------------------------------------------------------
+          // 统一 Gateway 启动逻辑（2026-05-12 重构）
+          //
+          // 之前的代码把 "未运行" 和 "已运行" 分成两个分支，"未运行"
+          // 分支内用 waitReady 轮询，但 waitReady 里 `if (done) return`
+          // 引用了外层 done（已经是 true），导致第一轮就退出、遮罩永远
+          // 不会关。重构后：
+          //   1. 先无条件调 startGateway（RPC 本身是幂等的）
+          //   2. 成功后进入 waitReady 轮询（独立 cancelled flag）
+          //   3. "已运行" 走 verifyGatewayActuallyAlive 快速路径
+          //   4. 每条路径都保证 setGatewayStarting(false) 被调用
+          // -----------------------------------------------------------
+
           if (!s.gateway_running) {
+            // === "未运行"分支 ===
+            setStartupPhase("正在启动 OpenClaw Gateway…");
             try {
-              setStartupPhase("正在启动 OpenClaw Gateway…");
-              try {
-                await ipc.startGateway();
-                setGatewayRunning(true);
-              } catch (e: any) {
-                console.error("[AppShell] startGateway failed:", e);
-                setStartupPhase(`启动 Gateway 失败: ${e?.message || String(e)}`);
-                await new Promise(r => setTimeout(r, 3000));
-                setGatewayStarting(false);
-                setCurrentModule("system");
-                return;
-              }
-              setGatewayRunning(true);
-              // 简单轮询等待 Gateway 就绪（不依赖日志管道）
-              const waitReady = async () => {
-                for (let i = 0; i < 60; i++) {
-                  if (done) return;
-                  await new Promise(r => setTimeout(r, 1000));
-                  try {
-                    const st = await ipc.getOpenClawStatus();
-                    if (st.gateway_running) {
-                      setStartupPhase("Gateway 就绪");
-                      setGatewayStarting(false);
-                      fetchGatewayAuth(ipc);
-                      return;
-                    }
-                    setStartupPhase(`等待 Gateway 就绪…（${i + 1}/60）`);
-                  } catch { /* status 查询失败，继续等 */ }
-                }
-                setStartupPhase("Gateway 启动超时，跳转系统面板");
-                await new Promise(r => setTimeout(r, 1500));
-                setGatewayStarting(false);
-                setCurrentModule("system");
-              };
-              waitReady();
-            } catch (err) {
-              const parsed = parsePortBusyError(err);
+              await ipc.startGateway();
+            } catch (e: any) {
+              console.error("[AppShell] startGateway failed:", e);
+              const parsed = parsePortBusyError(e);
               if (parsed) {
                 setPortBusyError(parsed);
               }
-              // 任何启动失败都关闭遮罩，跳转系统状态页
+              setStartupPhase(`启动 Gateway 失败: ${e?.message || String(e)}`);
+              await new Promise(r => setTimeout(r, 3000));
               setGatewayStarting(false);
               setCurrentModule("system");
+              return;
             }
-          } else {
-            // 已在运行 → 直接关闭遮罩
-            setGatewayRunning(true);
+
+            // startGateway RPC 成功，开始轮询等待 gateway 真正就绪。
+            // 用独立 cancelled flag，不依赖外层 done。
+            let cancelled = false;
+            const cleanup = () => { cancelled = true; };
+            // 把 cleanup 挂到 effect 的 teardown（组件卸载时取消轮询）
+            // 通过 hardTimeout 兜底；这里只用 cancelled 防止组件已卸载后
+            // 继续 setState。
+
+            setStartupPhase("等待 Gateway 就绪…");
+            for (let i = 0; i < 30; i++) {
+              if (cancelled) return;
+              await new Promise(r => setTimeout(r, 1000));
+              try {
+                const st = await ipc.getOpenClawStatus();
+                if (st.gateway_running) {
+                  console.info(`[AppShell] gateway ready after ${i + 1}s`);
+                  setStartupPhase("Gateway 就绪");
+                  setGatewayRunning(true);
+                  setGatewayStarting(false);
+                  fetchGatewayAuth(ipc);
+                  return;
+                }
+                setStartupPhase(`等待 Gateway 就绪…（${i + 1}/30）`);
+              } catch {
+                // status 查询失败（sidecar 可能在重启），继续等
+              }
+            }
+
+            // 30 次轮询都没看到 running — 兜底：再试一次 startGateway
+            // 因为第一次 startGateway 成功后 sidecar 可能被 Rust 端重启，
+            // 旧 sidecar 的 atexit hook 把 gateway 杀了。
+            console.warn("[AppShell] waitReady exhausted 30 rounds, retrying startGateway");
+            setStartupPhase("Gateway 未就绪，正在重试启动…");
+            try {
+              await ipc.startGateway({ forceRestart: true });
+              // 等 3s 让 gateway 有时间初始化
+              await new Promise(r => setTimeout(r, 3000));
+              const st2 = await ipc.getOpenClawStatus();
+              if (st2.gateway_running) {
+                console.info("[AppShell] gateway ready after retry");
+                setGatewayRunning(true);
+                setGatewayStarting(false);
+                fetchGatewayAuth(ipc);
+                return;
+              }
+            } catch (e2: any) {
+              console.error("[AppShell] retry startGateway failed:", e2);
+            }
+
+            // 重试也失败了 — 关遮罩，跳系统面板
+            setStartupPhase("Gateway 启动超时，跳转系统面板");
+            await new Promise(r => setTimeout(r, 1500));
             setGatewayStarting(false);
+            setCurrentModule("system");
+
+          } else {
+            // === "已运行"分支 ===
+            // sidecar 报告 gateway_running=true，但 PID 锁可能是孤儿/谎言。
+            console.info("[AppShell] sidecar reports gateway_running=true, verifying...");
+            const actuallyAlive = await verifyGatewayActuallyAlive(ipc);
+            if (actuallyAlive) {
+              setGatewayRunning(true);
+              setGatewayStarting(false);
+              console.info("[AppShell] gateway verified alive (auth_info OK)");
+            } else {
+              console.warn("[AppShell] PID lock claims running but auth_info failed — force restart");
+              setStartupPhase("检测到孤儿 Gateway，正在重启…");
+              try {
+                await ipc.startGateway({ forceRestart: true });
+                // 等 3s 让 gateway 初始化
+                await new Promise(r => setTimeout(r, 3000));
+                const st = await ipc.getOpenClawStatus();
+                if (st.gateway_running) {
+                  setGatewayRunning(true);
+                  setStartupPhase("Gateway 已重启");
+                  setGatewayStarting(false);
+                } else {
+                  setStartupPhase("Gateway 重启后仍未就绪，请检查系统面板");
+                  await new Promise(r => setTimeout(r, 1500));
+                  setGatewayStarting(false);
+                  setCurrentModule("system");
+                }
+              } catch (e: any) {
+                console.error("[AppShell] force restart failed:", e);
+                setStartupPhase(`重启 Gateway 失败: ${e?.message || String(e)}`);
+                await new Promise(r => setTimeout(r, 3000));
+                setGatewayStarting(false);
+                setCurrentModule("system");
+              }
+            }
           }
           // Gateway 就绪后拉一次连接凭据（port + token），供 Chat WS 握手用
           // 启动有个短暂窗口期（pid 锁 + 端口探测），延迟 400ms 再拉
@@ -321,6 +436,7 @@ export function AppShell() {
         } else {
           // 未安装 → 跳转系统面板 + 弹窗
           setOpenclawInstalled(false);
+          setGatewayStarting(false);
           setCurrentModule("system");
           setTimeout(() => setShowInstallDialog(true), 500);
         }
@@ -340,7 +456,7 @@ export function AppShell() {
     // 首次立即执行，失败再轮询
     doCheck().catch(() => {});
     const interval = setInterval(doCheck, 1000);
-    return () => { done = true; clearInterval(interval); };
+    return () => { done = true; clearInterval(interval); clearTimeout(hardTimeout); };
   }, []);
 
   // 轮询 Gateway 状态（10s）

@@ -45,6 +45,29 @@ MAX_TAIL_N = 2000
 """单次 ``tail_log`` 拉取上限，避免一次回 8000 行打爆 stdio。"""
 
 
+def _get_pid_on_port(port: int) -> int | None:
+    """通过 netstat 获取监听指定端口的进程 PID（Windows only）。"""
+    try:
+        import subprocess as _sub
+        out = _sub.check_output(
+            ["netstat", "-ano"],
+            timeout=3,
+            creationflags=0x08000000 if os.name == "nt" else 0,
+        ).decode("utf-8", errors="replace")
+        for line in out.splitlines():
+            # 匹配  TCP  127.0.0.1:19789  0.0.0.0:0  LISTENING  12345
+            if f":{port}" in line and "LISTEN" in line:
+                parts = line.split()
+                if parts:
+                    try:
+                        return int(parts[-1])
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 路径工具（与 sidecar.py 同源；这里独立一份避免循环 import）
 # ---------------------------------------------------------------------------
@@ -154,9 +177,64 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
         ``{ state, pid, port, started_at, last_log_id, last_error }``
 
         ``uptime_seconds`` 已去掉，前端基于 ``started_at`` 自算。
+
+    2026-05-12 修复：sidecar 重启后 gateway_state 是进程级单例（默认 stopped），
+    但 gateway 可能仍在运行（由上一个 sidecar 启动）。
+    多重 fallback：
+    1. runtime.is_running()（PID 锁 + tasklist）
+    2. 端口探测（直接连 127.0.0.1:port 看是否有人监听）
+    只要任一检测到 running，就自动恢复 gateway_state。
     """
     try:
         info = _gateway_state.get_info()
+
+        # Fallback：单例显示 stopped/errored 但 gateway 可能仍在运行
+        if info.state != "running":
+            # 方式 1：PID 锁 + tasklist
+            recovered = False
+            if _runtime.is_running():
+                recovered = True
+
+            # 方式 2：端口探测（PID 锁可能失效，但端口不会骗人）
+            if not recovered:
+                port = DEFAULT_PORT
+                try:
+                    port = _bootstrap.get_gateway_port(_get_openclaw_home())
+                except Exception:
+                    pass
+                try:
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(0.5)
+                    result = s.connect_ex(("127.0.0.1", port))
+                    s.close()
+                    if result == 0:
+                        recovered = True
+                        # 端口在监听但 PID 未知——尝试从 netstat 获取 PID
+                        actual_pid = _get_pid_on_port(port)
+                        if actual_pid and actual_pid > 0:
+                            _gateway_state.set_running(pid=actual_pid, port=port)
+                            logger.info(
+                                "gateway_state 通过端口探测恢复: pid=%s port=%s",
+                                actual_pid, port,
+                            )
+                        else:
+                            # 没拿到 PID，用一个虚拟信息表示 running
+                            # 手动构建 info 而不走 set_running（它要求 pid>0）
+                            info = _gateway_state.GatewayInfo(
+                                state="running",
+                                pid=None,
+                                port=port,
+                                started_at=None,
+                                last_error=None,
+                            )
+                except Exception:
+                    pass
+
+            # 重新读取（可能已被 is_running() 或上面的逻辑更新）
+            if recovered:
+                info = _gateway_state.get_info()
+
         last_log_id = _gateway_log.get_log_buffer().stats()["max_id"]
         return {
             "jsonrpc": "2.0",

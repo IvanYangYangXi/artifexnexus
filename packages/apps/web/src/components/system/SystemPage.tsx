@@ -614,7 +614,9 @@ function GatewayTab() {
   const [logs, setLogs] = React.useState<string[]>([]);
 
   const fetchStatus = async () => { try { const ipc = await getIpc(); const s = await ipc.getGatewayStatus(); setStatus(s); } catch {} };
-  React.useEffect(() => { fetchStatus(); }, []);
+  // 2026-05-12: mount 后立即拉 + 每 5s 轮询，解决 sidecar 重启后
+  // gateway_state 延迟恢复导致面板永远显示"未运行"的问题
+  React.useEffect(() => { fetchStatus(); const t = setInterval(fetchStatus, 5000); return () => clearInterval(t); }, []);
 
   // 轮询日志（增量拉取，只展示当次 Gateway 启动后的条目）
   const lastLogIdRef = React.useRef<number | null>(null);

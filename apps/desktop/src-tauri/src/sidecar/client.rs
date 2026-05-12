@@ -67,7 +67,14 @@ impl SidecarClient {
         // 跨平台 Python 命令：Windows 用 python，Unix 用 python3
         let python_cmd = if cfg!(windows) { "python" } else { "python3" };
         let mut cmd = Command::new(python_cmd);
-        cmd.arg(sidecar_path)
+        // -u：强制 Python stdin/stdout/stderr 完全无缓冲。
+        // Why：Tauri 子进程模式下 Python 默认把 sys.stdin / sys.stdout 当作非 tty，
+        //   走 block-buffered 模式 → Rust 写完 NDJSON 一行 + flush 后，Python 端
+        //   `for line in sys.stdin:` 仍可能在 buffer 填满前不返回，造成 sidecar
+        //   收不到 RPC、Rust 30s 超时 → 反复重启循环（2026-05-12 调试发现）。
+        // -u 让 Python 直接绕过这层缓冲，等价于运行时设 PYTHONUNBUFFERED=1。
+        cmd.arg("-u")
+            .arg(sidecar_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()); // 不 inherit，避免弹出控制台窗口
@@ -85,6 +92,12 @@ impl SidecarClient {
             cmd.env(key, value);
         }
 
+        // 强制 Python 全无缓冲 + UTF-8 stdio：与上面的 `-u` 双保险，
+        // 同时把 stdin/stdout 编码强制成 UTF-8，避免 Windows 默认 mbcs/GBK
+        // 解码 Rust 写来的 JSON 字符串（含中文 token / 路径）时炸 UnicodeDecodeError。
+        cmd.env("PYTHONUNBUFFERED", "1");
+        cmd.env("PYTHONIOENCODING", "utf-8");
+
         // 将 sidecar.py 所在目录加入 PYTHONPATH，确保相对导入可用
         if let Some(parent) = std::path::Path::new(sidecar_path).parent() {
             let pythonpath = parent.to_string_lossy().to_string();
@@ -100,15 +113,51 @@ impl SidecarClient {
 
         let mut child = cmd.spawn().map_err(|e| format!("无法启动 sidecar: {e}"))?;
 
-        // 读取 stderr 到一个独立线程，避免管道缓冲区满导致 sidecar 阻塞
+        // 读取 stderr 到一个独立线程，避免管道缓冲区满导致 sidecar 阻塞。
+        // 同时把 stderr 落到日志文件 ~/.artifexnexus/logs/sidecar-stderr-<pid>.log，
+        // 方便 GUI 模式（CREATE_NO_WINDOW）下事后排查 sidecar 卡死/异常。
+        // 注意：用 USERPROFILE/HOME 环境变量解析 home，避免引入新 crate。
         if let Some(stderr) = child.stderr.take() {
             use std::io::BufRead;
+            let pid = child.id();
+            // 计算日志文件路径
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .ok();
+            let log_path: Option<std::path::PathBuf> = home.map(|h| {
+                let dir = std::path::PathBuf::from(h)
+                    .join(".artifexnexus")
+                    .join("logs");
+                let _ = std::fs::create_dir_all(&dir);
+                dir.join(format!("sidecar-stderr-{pid}.log"))
+            });
             std::thread::spawn(move || {
+                use std::io::Write;
+                let mut log_file = log_path
+                    .as_ref()
+                    .and_then(|p| {
+                        std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(p)
+                            .ok()
+                    });
+                if let Some(f) = log_file.as_mut() {
+                    let _ = writeln!(f, "[startup] sidecar stderr capture begin pid={pid}");
+                    let _ = f.flush();
+                }
                 let reader = std::io::BufReader::new(stderr);
                 for line in reader.lines() {
                     if let Ok(l) = line {
-                        eprintln!("[sidecar:stderr] {}", l);
+                        eprintln!("[sidecar:stderr] {l}");
+                        if let Some(f) = log_file.as_mut() {
+                            let _ = writeln!(f, "{l}");
+                            let _ = f.flush();
+                        }
                     }
+                }
+                if let Some(f) = log_file.as_mut() {
+                    let _ = writeln!(f, "[shutdown] sidecar stderr capture end pid={pid}");
                 }
             });
         }

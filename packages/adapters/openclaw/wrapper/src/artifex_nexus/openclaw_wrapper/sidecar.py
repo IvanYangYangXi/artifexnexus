@@ -24,6 +24,11 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+# 早期启动打点 #0：捕获 import 链失败前的最早时刻；任何 ImportError 都会让
+# 这一行先落到 sidecar-stderr-<pid>.log，避免"日志空白 = sidecar 黑死"。
+sys.stderr.write("[sidecar.boot] python entrypoint reached\n")
+sys.stderr.flush()
+
 # 支持直接执行和包内导入两种方式
 try:
     from . import agent_preset as _agent_preset
@@ -51,6 +56,9 @@ except ImportError:
     import sidecar_gateway as _sidecar_gateway  # type: ignore[no-redef]
     import sidecar_sessions as _sidecar_sessions  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
+
+sys.stderr.write("[sidecar.boot] all submodules imported\n")
+sys.stderr.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -1174,12 +1182,29 @@ def _shutdown_gateway_quietly() -> None:
         - **静默**：任何异常都吞掉（atexit 抛出会污染 stderr，且此时 stdout
           可能已关闭，写日志会引发 BrokenPipeError）
         - **快速**：不能阻塞 sidecar 退出超过 SHUTDOWN_TIMEOUT（5s）
+
+    2026-05-12 修复：stdin EOF 退出（Rust 端重建 sidecar）时**不杀 gateway**。
+        当 Rust SidecarManager 因 RPC 超时 drop 旧 client 并 spawn 新 sidecar
+        时，旧 sidecar 收到 stdin EOF → main() 循环退出 → atexit 触发。
+        此时 gateway 应该继续运行，由新 sidecar 接管。只有真正的终止信号
+        （SIGTERM / SIGINT / SIGBREAK = Tauri 主进程退出）才应杀 gateway。
+        通过 _exit_reason 全局变量区分退出原因。
     """
     try:
+        if _exit_reason == "eof":
+            # stdin EOF = Rust 端重建 sidecar，不杀 gateway
+            return
         if _runtime.is_running():
             _runtime.stop_gateway()
     except Exception:
         pass
+
+
+# sidecar 退出原因标记：
+#   "eof"    = stdin EOF（Rust drop client 重建 sidecar）→ 不杀 gateway
+#   "signal" = 终止信号（Tauri 主进程退出）→ 杀 gateway
+#   "unknown"= 默认/异常退出 → 杀 gateway（安全兜底）
+_exit_reason: str = "unknown"
 
 
 def _signal_handler(signum: int, _frame: Any) -> None:
@@ -1189,6 +1214,8 @@ def _signal_handler(signum: int, _frame: Any) -> None:
     sys.exit, but we call shutdown explicitly to ensure stop_gateway runs even
     if some atexit handler upstream raises.
     """
+    global _exit_reason
+    _exit_reason = "signal"
     _shutdown_gateway_quietly()
     sys.exit(0)
 
@@ -1207,6 +1234,8 @@ def main() -> None:
     """
     # 注册退出 hook
     atexit.register(_shutdown_gateway_quietly)
+    sys.stderr.write("[sidecar.boot] atexit registered\n")
+    sys.stderr.flush()
 
     # 注册信号 hook（Win/POSIX 通用 + Win 专属 SIGBREAK）
     try:
@@ -1217,6 +1246,8 @@ def main() -> None:
     except (ValueError, OSError):
         # 在某些环境（比如 PyInstaller 子线程）下注册可能失败，不阻塞启动
         pass
+    sys.stderr.write("[sidecar.boot] signal handlers installed\n")
+    sys.stderr.flush()
 
     # STORY-0039：启动期 port-drift 自愈
     # 旧版 bootstrap_with_port_probe 可能把 gateway.port 迁到 19809/19829，
@@ -1224,13 +1255,44 @@ def main() -> None:
     # 自愈失败不能阻塞 sidecar 主循环（前端还要靠它跑 openclaw.status）。
     try:
         _bootstrap.reset_config_port_if_drifted(_get_openclaw_home())
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[sidecar.boot] port-drift self-heal raised: {exc!r}\n")
+        sys.stderr.flush()
 
-    for line in sys.stdin:
+    # 启动调试打点：标记主循环已进入；用于排查 Tauri spawn 模式下
+    # stdin 是否被 buffer 卡住、Python 是否真到达读取阶段。
+    sys.stderr.write("[sidecar.main] entering stdin loop\n")
+    sys.stderr.flush()
+
+    # 用 readline() 替代 `for line in sys.stdin:` —— 后者在 Windows 命名管道上
+    # 走 BufferedReader iterator 协议，可能预读整个 buffer 后才返回，
+    # 与 Tauri PIPE 的"短行写入"配合不佳；readline() 一次只处理一行，
+    # 行为更可预测。
+    while True:
+        try:
+            line = sys.stdin.readline()
+        except Exception as exc:
+            sys.stderr.write(f"[sidecar.main] readline error: {exc!r}\n")
+            sys.stderr.flush()
+            break
+        if not line:
+            # EOF：Tauri 关窗 / stdin 被关 → 主循环退出
+            # 标记为 EOF 退出 → atexit 不杀 gateway（Rust 端可能在重建 sidecar）
+            global _exit_reason
+            _exit_reason = "eof"
+            sys.stderr.write("[sidecar.main] stdin EOF, exiting\n")
+            sys.stderr.flush()
+            break
         line = line.strip()
         if not line:
             continue
+        # 调试打点：每条 RPC 入口
+        try:
+            preview = line[:140].replace("\n", " ")
+        except Exception:
+            preview = "<preview-failed>"
+        sys.stderr.write(f"[sidecar.rpc] in: {preview}\n")
+        sys.stderr.flush()
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
@@ -1246,6 +1308,13 @@ def main() -> None:
         response = handle_request(request)
         sys.stdout.write(json.dumps(response) + "\n")
         sys.stdout.flush()
+        # 调试打点：每条 RPC 出口
+        try:
+            method = request.get("method", "?")
+        except Exception:
+            method = "?"
+        sys.stderr.write(f"[sidecar.rpc] out: {method}\n")
+        sys.stderr.flush()
 
 
 if __name__ == "__main__":

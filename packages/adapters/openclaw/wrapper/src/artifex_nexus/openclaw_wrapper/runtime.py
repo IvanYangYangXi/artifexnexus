@@ -233,6 +233,13 @@ def _is_pid_alive(pid: int) -> bool:
     """检查 PID 是否存活。
 
     Check if a process with the given PID is alive.
+
+    .. note::
+        本函数 **只判活，不验身份**。Windows 的 PID 在进程结束后会被
+        快速回收复用——如果某次 OpenClaw Gateway crash 没清 PID 锁，
+        这个 PID 可能已经被另一个完全不相关的程序（VS Code、chrome.exe
+        甚至 Tauri 自己）占用，导致 :func:`is_running` 误报 true。
+        想知道 "PID 是不是 OpenClaw Gateway" 请用 :func:`_is_openclaw_gateway_pid`。
     """
     try:
         if _is_windows():
@@ -253,6 +260,62 @@ def _is_pid_alive(pid: int) -> bool:
             # Unix: kill -0
             os.kill(pid, 0)
             return True
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _is_openclaw_gateway_pid(pid: int) -> bool:
+    """校验 PID 真是 OpenClaw Gateway 进程（不只是个活进程）。
+
+    Verify that the given PID is **actually** an OpenClaw Gateway process,
+    not a stale PID lock pointing to a recycled PID owned by another app.
+
+    Why（2026-05-12 修复）：
+        之前 :func:`is_running` 只用 :func:`_is_pid_alive` 判活——但 Windows
+        进程 ID 回收很快，PID 锁文件里的 PID 完全可能指向某个完全无关的
+        chrome.exe / Code.exe / 甚至 tauri 子进程。结果 sidecar 报告
+        ``gateway_running=true``，前端走"已运行"分支不调 ``startGateway``，
+        但实际 19789 端口空着 / Gateway 根本没活——遮罩不会卡，但 ChatView
+        WS 握手立刻失败，用户体验极差。
+
+        这里用 ``tasklist /FI "PID eq {pid}"`` 拿 image name，确认是
+        ``node.exe``（OpenClaw CLI 是 Node 程序）才返回 True。
+
+    Returns:
+        - True：PID 存活且 image name 是 ``node.exe``。
+        - False：PID 不存在 / image name 不匹配 / 子进程查询失败。
+    """
+    if pid <= 0:
+        return False
+    try:
+        if _is_windows():
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                timeout=5,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+            )
+            try:
+                stdout = result.stdout.decode("utf-8", errors="replace")
+            except (UnicodeDecodeError, AttributeError):
+                stdout = str(result.stdout)
+            # CSV 行示例： "node.exe","12345","Console","1","45,678 K"
+            # 简单子串匹配 node.exe 即可（OpenClaw Gateway 是 Node 进程）
+            return "node.exe" in stdout.lower() and str(pid) in stdout
+        else:
+            # Unix: 读 /proc/<pid>/comm 看进程名是否是 node
+            try:
+                comm = Path(f"/proc/{pid}/comm").read_text(encoding="utf-8").strip()
+                return "node" in comm.lower()
+            except OSError:
+                # macOS 没 /proc，退到 ps
+                result = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "comm="],
+                    capture_output=True,
+                    timeout=5,
+                )
+                comm = result.stdout.decode("utf-8", errors="replace").strip()
+                return "node" in comm.lower()
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -903,10 +966,20 @@ def is_running() -> bool:
     """检查 gateway 是否运行中。
 
     Check if the gateway is currently running.
+
+    自愈语义（2026-05-12 修复）：
+        本函数会在 sidecar **任意进程**调用时返回正确状态，包括 Rust 端因
+        前一次 sidecar 超时被 drop 后 spawn 出来的新 sidecar。新 sidecar 的
+        模块级全局 ``_current_process`` / ``_current_openclaw_home`` 都是 None，
+        但 ``run/gateway.pid`` 锁文件还在；只要文件指向的 PID 真实存活，就
+        认为 gateway 仍在跑。
+
+        之前的实现只在 ``_current_openclaw_home`` 不为 None 时才查 PID 锁文件，
+        导致新 sidecar 永远报 ``gateway_running=false`` → 前端遮罩永不消失。
     """
     global _current_process, _current_openclaw_home
 
-    # 先检查内存中的进程
+    # 1) 同进程内 spawn 过 → 用 Popen.poll 判活
     if _current_process is not None:
         poll = _current_process.poll()
         if poll is None:
@@ -914,13 +987,96 @@ def is_running() -> bool:
         # 进程已退出，清理
         _current_process = None
 
-    # 检查 PID 文件
-    if _current_openclaw_home:
-        pid = _read_pid(_current_openclaw_home)
-        if pid and _is_pid_alive(pid):
+    # 2) PID 锁文件 fallback
+    #    优先用本进程记下的 home；否则回退默认路径，让新 sidecar 也能识别
+    #    上一代 sidecar 留下的 gateway。
+    home = _current_openclaw_home
+    if home is None:
+        env_home = os.environ.get("OPENCLAW_HOME", "")
+        if env_home:
+            home = Path(env_home).expanduser().resolve()
+        else:
+            home = Path.home() / ".artifexnexus" / ".openclaw"
+
+    pid = _read_pid(home)
+    if pid and _is_openclaw_gateway_pid(pid):
+        # 同步把 home 记到模块单例上，下次 stop_gateway 才有 home 可用
+        if _current_openclaw_home is None:
+            _current_openclaw_home = home
+        # 同步把 gateway_state 拉成 running，让 openclaw.gateway.status 也能正确
+        try:
+            from . import bootstrap as _bs
+            port = _bs.get_gateway_port(home)
+        except Exception:
+            port = DEFAULT_PORT
+        try:
+            cur = _gateway_state.get_info()
+            if cur.state != "running" or cur.pid != pid:
+                _gateway_state.set_running(pid=pid, port=port)
+        except Exception:
+            pass
+        return True
+
+    # PID 锁存在但指向的不是 node.exe（孤儿/谎言）→ 主动清理避免下次再误报
+    if pid and not _is_openclaw_gateway_pid(pid):
+        try:
+            _clear_pid(home)
+        except Exception:
+            pass
+
+    # 3) 端口探测 fallback：PID 锁不可靠时，直接探端口
+    #    openclaw gateway run --force 可能在 wrapper 进程退出后留下 node.exe
+    #    子进程在不同 PID 运行，此时 PID 锁无效但端口在监听。
+    port = DEFAULT_PORT
+    try:
+        from . import bootstrap as _bs
+        port = _bs.get_gateway_port(home)
+    except Exception:
+        pass
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        result = s.connect_ex(("127.0.0.1", port))
+        s.close()
+        if result == 0:
+            # 端口有人监听 → gateway 在跑
+            if _current_openclaw_home is None:
+                _current_openclaw_home = home
+            # 尝试从 netstat 获取真实 PID 并写入 PID 锁
+            actual_pid = _get_pid_on_port(port)
+            if actual_pid and actual_pid > 0:
+                try:
+                    _write_pid(home, actual_pid)
+                    _gateway_state.set_running(pid=actual_pid, port=port)
+                except Exception:
+                    pass
             return True
+    except Exception:
+        pass
 
     return False
+
+
+def _get_pid_on_port(port: int) -> int | None:
+    """通过 netstat 获取监听指定端口的进程 PID。"""
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano"],
+            timeout=3,
+            creationflags=0x08000000 if os.name == "nt" else 0,
+        ).decode("utf-8", errors="replace")
+        for line in out.splitlines():
+            if f":{port}" in line and "LISTEN" in line:
+                parts = line.split()
+                if parts:
+                    try:
+                        return int(parts[-1])
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
