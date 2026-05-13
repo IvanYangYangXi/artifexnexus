@@ -202,6 +202,14 @@ def _pid_file(openclaw_home: Path) -> Path:
     return openclaw_home.parent / "run" / "gateway.pid"
 
 
+def _gateway_log_file(openclaw_home: Path) -> Path:
+    """返回 gateway 持久化日志文件路径。
+    用于 Gateway 崩溃后事后追查（内存 log buffer 不够）。"""
+    log_dir = openclaw_home.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "gateway.log"
+
+
 def _sidecar_marker_file(openclaw_home: Path) -> Path:
     """返回 sidecar 实例标记文件（独立于 PID 文件，防复用误判）。"""
     return openclaw_home.parent / "run" / "sidecar.instance"
@@ -494,6 +502,7 @@ def _ensure_control_ui_allowed_origins(
 def _pump_stream_to_log_buffer(
     stream: IO[str],
     source: str,
+    log_file_path: Optional[Path] = None,
 ) -> None:
     """守护线程入口：逐行读 stdout/stderr 灌入 :func:`gateway_log.get_log_buffer`。
 
@@ -504,8 +513,16 @@ def _pump_stream_to_log_buffer(
     Args:
         stream: ``proc.stdout`` 或 ``proc.stderr``（``text=True`` 模式）。
         source: ``"stdout"`` 或 ``"stderr"``，写入 ``LogEntry.stream``。
+        log_file_path: 可选磁盘日志文件，每行同时追加（事后崩溃追查）。
     """
     buf = _gateway_log.get_log_buffer()
+    log_file = None
+    if log_file_path is not None:
+        try:
+            log_file = open(log_file_path, "a", encoding="utf-8", errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("无法打开 gateway 持久化日志 %s: %s", log_file_path, exc)
+            log_file = None
     try:
         for line in stream:
             text = line.strip()
@@ -516,6 +533,15 @@ def _pump_stream_to_log_buffer(
             except Exception:
                 # 单行入 buffer 失败不应弄死整条 pump 线程
                 logger.debug("pump %s: append failed for line=%r", source, text)
+            # 同时写磁盘文件（崩溃后能事后追查）
+            if log_file is not None:
+                try:
+                    import datetime as _dt
+                    ts = _dt.datetime.now().strftime("%H:%M:%S")
+                    log_file.write(f"{ts} [{source}] {text}\n")
+                    log_file.flush()
+                except Exception:
+                    pass
     except (OSError, ValueError):
         # stream 已关闭等 IO 异常 → EOF 等价，安静退出
         pass
@@ -524,6 +550,11 @@ def _pump_stream_to_log_buffer(
             stream.close()
         except Exception:
             pass
+        if log_file is not None:
+            try:
+                log_file.close()
+            except Exception:
+                pass
 
 
 def start_gateway(
@@ -651,17 +682,26 @@ def start_gateway(
     _write_pid(home, proc.pid)
 
     # 7. 启动两个守护日志泵线程（daemon=True：sidecar 退出自动收）
+    # v4: 同时持久化到磁盘文件 logs/gateway.log（崩溃后能事后追查）
+    log_file_path = _gateway_log_file(home)
+    # 启动时写入分隔符标记新启动
+    try:
+        import datetime as _dt
+        with open(log_file_path, "a", encoding="utf-8") as _f:
+            _f.write(f"\n========== Gateway started PID={proc.pid} port={port} at {_dt.datetime.now().isoformat()} ==========\n")
+    except Exception as exc:
+        logger.warning("写入 gateway 日志启动标记失败: %s", exc)
     if proc.stdout is not None:
         threading.Thread(
             target=_pump_stream_to_log_buffer,
-            args=(proc.stdout, "stdout"),
+            args=(proc.stdout, "stdout", log_file_path),
             name=f"gateway-log-stdout-{proc.pid}",
             daemon=True,
         ).start()
     if proc.stderr is not None:
         threading.Thread(
             target=_pump_stream_to_log_buffer,
-            args=(proc.stderr, "stderr"),
+            args=(proc.stderr, "stderr", log_file_path),
             name=f"gateway-log-stderr-{proc.pid}",
             daemon=True,
         ).start()
