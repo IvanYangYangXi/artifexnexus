@@ -632,12 +632,14 @@ function GatewayTab() {
       setStatus(s);
 
       // TCP 存活检测：sidecar 报告 running 时，快速验证端口是否真的在监听
+      // 注意：不能用 resp.ok 判活 —— Gateway 的 / 或 /health 可能返回非 200
+      // 只要 fetch 不抛连接错误，就说明端口在监听（TCP 握手成功）
       if (s.state === "running" && s.port) {
         try {
-          const resp = await fetch(`http://127.0.0.1:${s.port}/health`, {
+          await fetch(`http://127.0.0.1:${s.port}/`, {
             signal: AbortSignal.timeout(TCP_PROBE_TIMEOUT),
           });
-          setLiveness(resp.ok ? "alive" : "dead");
+          setLiveness("alive");
         } catch {
           // fetch 失败（连接拒绝/超时/网络错误）→ 端口不通
           setLiveness("dead");

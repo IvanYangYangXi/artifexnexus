@@ -204,9 +204,10 @@ export function ChatView() {
   // ─── Gateway 连接状态检测（toast 通知，右下角非阻塞）────────────────
   const prevWsState = React.useRef(chat.wsState);
   const disconnectToastId = React.useRef<string | number | undefined>(undefined);
-  // degraded toast 冷却期：防止事件循环频繁抖动导致 toast 刷屏
-  const lastDegradedToastRef = React.useRef(0);
-  const DEGRADED_TOAST_COOLDOWN_MS = 3 * 60 * 1000;
+  // degraded toast 5 秒延迟：短暂抖动不弹 toast，持续退化才提示
+  const degradedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const degradedToastShownRef = React.useRef(false);
+  const DEGRADED_DEBOUNCE_MS = 5000;
 
   // 同步 WS 状态到 GatewayContext（供 Topbar 状态指示使用）
   // "degraded" 也是已连接状态（WS 活跃，仅 Event Loop 繁忙），Topbar 应显示"已连接"
@@ -236,15 +237,26 @@ export function ChatView() {
       // 重连成功 → 替换为成功 toast（2s 后消失）
       toast.success("Gateway 已重新连接", { id: disconnectToastId.current, duration: 2000 });
       disconnectToastId.current = undefined;
+    } else if (now === "connected" && was === "degraded") {
+      // degraded → connected：取消待弹 toast
+      if (degradedTimerRef.current) {
+        clearTimeout(degradedTimerRef.current);
+        degradedTimerRef.current = null;
+      }
+      degradedToastShownRef.current = false;
     } else if (now === "degraded") {
-      // Event Loop 退化 → 警告 toast（冷却期 3 分钟，防抖动刷屏）
-      const nowMs = Date.now();
-      if (nowMs - lastDegradedToastRef.current > DEGRADED_TOAST_COOLDOWN_MS) {
-        lastDegradedToastRef.current = nowMs;
-        disconnectToastId.current = toast.warning("Gateway 事件循环繁忙", {
-          description: "正在恢复中，消息可能延迟，请稍等片刻...",
-          duration: 5000,
-        });
+      // Event Loop 退化：延迟 5 秒再弹 toast，短暂恢复则取消
+      if (!degradedTimerRef.current && !degradedToastShownRef.current) {
+        degradedTimerRef.current = setTimeout(() => {
+          degradedTimerRef.current = null;
+          degradedToastShownRef.current = true;
+          disconnectToastId.current = toast.warning("Gateway 事件循环繁忙", {
+            description: "消息可能延迟响应，请稍等片刻...",
+            duration: 5000,
+          });
+          // 3 分钟后允许再次提示
+          setTimeout(() => { degradedToastShownRef.current = false; }, 3 * 60 * 1000);
+        }, DEGRADED_DEBOUNCE_MS);
       }
     }
   }, [chat.wsState]);
