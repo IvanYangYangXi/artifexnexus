@@ -99,10 +99,28 @@ def _generate_default_config(
     - gateway.port: Gateway 监听端口 / Gateway listen port
     - gateway.mode: Gateway 运行模式（local）/ Gateway mode
     - agents.defaults.workspace: Agent 工作区路径 / Agent workspace path
-    - plugins.entries: 启用的 plugin 列表（object 格式，仅 5 个）/ Enabled plugins (object format, 5 only)
+    - plugins.entries: 4 个核心插件启用 + 49 个 AI Provider 禁用，其余默认。
+      总计 93 插件中禁用 49 个（阻止 require()），启动时实际加载 ~44 个。
     - browser.cdpPortRangeStart: CDP 端口段起始 / CDP port range start
     """
     workspace_path = openclaw_home / DEFAULT_WORKSPACE
+
+    # AI Provider 插件列表（全部禁用，用户通过设置面板手动启用需要的）
+    # 基于 OpenClaw v2026.5.4 extensions/ 目录扫描，package.json name 含 "-provider" 后缀。
+    # 禁用原因：Artifex Nexus 不需要 Gateway 内置的 AI Provider 插件（模型配置由
+    # 设置面板的 models.providers 管理），加载 49 个 Provider 插件会严重拖慢启动速度。
+    _AI_PROVIDER_PLUGIN_IDS = [
+        "alibaba", "amazon-bedrock", "amazon-bedrock-mantle", "anthropic",
+        "anthropic-vertex", "arcee", "byteplus", "cerebras", "chutes",
+        "cloudflare-ai-gateway", "comfy", "deepgram", "deepinfra", "deepseek",
+        "fal", "fireworks", "github-copilot", "groq", "huggingface",
+        "kilocode", "kimi-coding", "litellm", "lmstudio", "minimax",
+        "mistral", "moonshot", "nvidia", "ollama", "openai", "opencode",
+        "opencode-go", "openrouter", "qianfan", "qwen", "runway",
+        "senseaudio", "sglang", "stepfun", "synthetic", "tencent",
+        "together", "venice", "vercel-ai-gateway", "vllm", "volcengine",
+        "voyage", "vydra", "xiaomi", "zai",
+    ]
 
     config = {
         "gateway": {
@@ -151,13 +169,13 @@ def _generate_default_config(
                 "thinkingDefault": "adaptive",
             }
         },
-        # Plugin 裁剪：仅保留 Artifex Nexus 需要的 plugin
-        # 上游 schema 期望 plugins.entries.<plugin_id>.enabled 格式
-        # 实测 v2026.5.4 plugin ID：
-        #   - browser: @openclaw/browser-plugin (ID: browser)
-        #   - file: File Transfer (ID: file-transfer)
-        #   - memory-core: 记忆核心 + 梦境模式（dreaming）
-        #   - shell/mcp/gateway 是内置能力，不需要在 plugins 中配置
+        # Plugin 配置（TASK-0052）：
+        #   - 4 个核心插件启用：browser / file-transfer / memory-core / mcp-bridge
+        #   - 49 个 AI Provider 插件显式禁用（"enabled": false，阻止 require()）
+        #   - 其余 40 个插件保留默认（enabledByDefault=true），用户可能用到
+        # 上游 schema 期望 plugins.entries.<plugin_id>.enabled 格式。
+        # enabled=false 时 plugin loader 直接返回 "plugin-disabled"，完全跳过
+        # require() 调用 —— 这是减少启动时加载插件数（93→4+40=44）的关键。
         "plugins": {
             "entries": {
                 "browser": {"enabled": True},
@@ -181,6 +199,8 @@ def _generate_default_config(
                         }
                     }
                 },
+                # AI Provider 插件全部禁用（用户通过设置面板手动启用）
+                **{pid: {"enabled": False} for pid in _AI_PROVIDER_PLUGIN_IDS},
             }
         },
         # CDP 端口段起始 = gateway port + 11

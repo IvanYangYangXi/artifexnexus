@@ -11,7 +11,7 @@
  */
 
 import * as React from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
   Button,
-  cn,
 } from "@artifex-nexus/ui";
 import type { SessionSummary } from "../../ipc/openclaw";
 
@@ -55,14 +54,18 @@ export interface ChatControlBarProps {
   activeSessionKey: string;
   /** 切换到指定对话 */
   onSwitchSession: (sessionKey: string) => void;
-  /** 新建对话 */
-  onNewSession: () => void;
+  /** 新建对话（已废弃，改用 onOpenNewSessionDialog） */
+  onNewSession?: () => void;
   /** Gateway HTTP 端口 */
   gatewayPort: number;
   /** Gateway 是否在运行 */
   gatewayRunning: boolean;
   /** Agent/Model/Thinking 变更时通知父组件 */
   onConfigChange?: (cfg: { agentId?: string; model?: string; thinking?: string }) => void;
+  /** 点击 [+] 打开新建对话配置面板 */
+  onOpenNewSessionDialog: () => void;
+  /** 删除指定对话 */
+  onDeleteSession?: (sessionKey: string) => void;
 }
 
 // ─── 组件 ─────────────────────────────────────────────────────────────────
@@ -70,10 +73,12 @@ export interface ChatControlBarProps {
 export function ChatControlBar({
   activeSessionKey,
   onSwitchSession,
-  onNewSession,
+  onNewSession: _onNewSession,
   gatewayPort,
   gatewayRunning,
   onConfigChange,
+  onOpenNewSessionDialog,
+  onDeleteSession,
 }: ChatControlBarProps) {
   const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -192,11 +197,11 @@ export function ChatControlBar({
       return;
     }
     if (key === "__new__") {
-      onNewSession();
-    } else {
-      onSwitchSession(key);
-      lsSet(ACTIVE_SESSION_KEY, key);
+      onOpenNewSessionDialog();
+      return;
     }
+    onSwitchSession(key);
+    lsSet(ACTIVE_SESSION_KEY, key);
   };
 
   // ─── 渲染 ──────────────────────────────────────────────────────────────
@@ -222,6 +227,18 @@ export function ChatControlBar({
               {s.model && (
                 <span className="ml-1 text-[10px] text-muted-foreground">{s.model}</span>
               )}
+              {onDeleteSession && (
+                <button
+                  className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onDeleteSession(s.sessionKey);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </SelectItem>
           ))}
           <div className="border-t border-border mt-1 pt-1">
@@ -234,39 +251,37 @@ export function ChatControlBar({
 
       <div className="flex-1" />
 
-      {/* Agent */}
-      <Select value={agent} onValueChange={(v) => { setAgent(v); lsSet(AGENT_KEY, v); onConfigChange?.({ agentId: v, model, thinking: effort }); }} disabled={agents.length === 0}>
-        <SelectTrigger className={cn("h-7 w-[140px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", agents.length === 0 && "text-muted-foreground")}>
-          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用 Agent" : "Gateway 未启动"} />
-        </SelectTrigger>
-        {agents.length > 0 && (
-          <SelectContent>
-            {agents.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-          </SelectContent>
-        )}
-      </Select>
+      {/* ─── Agent / Model / Thinking 只读标签 + [+] 按钮 ─── */}
 
-      {/* Model */}
-      <Select value={model} onValueChange={(v) => { setModel(v); lsSet(MODEL_KEY, v); onConfigChange?.({ agentId: agent, model: v, thinking: effort }); }} disabled={models.length === 0}>
-        <SelectTrigger className={cn("h-7 w-[150px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50", models.length === 0 && "text-muted-foreground")}>
-          <SelectValue placeholder={loading ? "加载中..." : gatewayRunning ? "无可用模型" : "Gateway 未启动"} />
-        </SelectTrigger>
-        {models.length > 0 && (
-          <SelectContent>
-            {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-          </SelectContent>
-        )}
-      </Select>
+      {/* Agent 标签 */}
+      <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
+        {loading ? "Agent: 加载中..." : gatewayRunning
+          ? `Agent: ${agents.find(a => a.id === agent)?.name ?? agent}`
+          : "Agent: —"}
+      </span>
 
-      {/* Effort */}
-      <Select value={effort} onValueChange={(v) => { setEffort(v); lsSet(EFFORT_KEY, v); onConfigChange?.({ agentId: agent, model, thinking: v }); }}>
-        <SelectTrigger className="h-7 w-[100px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {THINKING_OPTIONS.map((e) => <SelectItem key={e.id} value={e.id}>{e.label}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      {/* Model 标签 */}
+      <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
+        {loading ? "Model: 加载中..." : gatewayRunning
+          ? `Model: ${models.find(m => m.id === model)?.name ?? model}`
+          : "Model: —"}
+      </span>
+
+      {/* Thinking 标签 */}
+      <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
+        {THINKING_OPTIONS.find(e => e.id === effort)?.label ?? "思考: 自适应"}
+      </span>
+
+      {/* [+] 新建对话 */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={onOpenNewSessionDialog}
+        title="新建对话"
+      >
+        <Plus className="h-3 w-3" />
+      </Button>
     </div>
   );
 }

@@ -10,7 +10,6 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
-- [ ] [[STORY-0039-m3-func-chat-api]]
 - [ ] [[STORY-0040-m3-func-modules-api]]
 - [ ] [[EPIC-0004-m4-skill-system]]
 - [ ] [[EPIC-0005-m5-tool-system]]
@@ -26,10 +25,15 @@ tags:
 
 ## In Progress
 
+- [ ] [[STORY-0039-m3-func-chat-api]]
+- [ ] [[TASK-0050-chat-panel-interaction-optimization]]
+
 
 
 ## Review
 
+- [ ] [[TASK-0051-story39-gateway-stability]]
+- [ ] [[TASK-0052-gateway-startup-optimization]]
 - [ ] [[STORY-0038-m3-ui-desktop-embed]]
 - [ ] [[STORY-0037-m3-ui-settings-right-panel]]
 - [ ] [[STORY-0036-m3-ui-system-module]]

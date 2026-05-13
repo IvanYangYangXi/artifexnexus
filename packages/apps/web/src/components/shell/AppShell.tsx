@@ -79,11 +79,16 @@ export const GatewayContext = React.createContext<{
   running: boolean;
   /** 凭据是否已从 sidecar 拉取到（port/token 就位前前端不应建 WS） */
   authReady: boolean;
+  /** WebSocket 是否已连接（由 ChatView 更新，供 Topbar 状态指示） */
+  wsConnected: boolean;
+  setWsConnected: (v: boolean) => void;
 }>({
   port: 19789,
   token: "",
   running: false,
   authReady: false,
+  wsConnected: false,
+  setWsConnected: () => {},
 });
 
 const STORAGE_KEYS = {
@@ -215,6 +220,7 @@ export function AppShell() {
   const [gatewayPort, setGatewayPort] = React.useState(19789);
   const [gatewayToken, setGatewayToken] = React.useState<string>("");
   const [gatewayAuthReady, setGatewayAuthReady] = React.useState(false);
+  const [wsConnected, setWsConnected] = React.useState(false);
   const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
   const [openclawInstalled, setOpenclawInstalled] = React.useState(true);
   const [showInstallDialog, setShowInstallDialog] = React.useState(false);
@@ -526,7 +532,7 @@ export function AppShell() {
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
-    <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady }}>
+    <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady, wsConnected, setWsConnected }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* Gateway 启动全屏遮罩 */}
       {gatewayStarting && !openclawInstalled === false && (
@@ -559,6 +565,7 @@ export function AppShell() {
         sidebarHidden={!showSidebar}
         panelOpen={panelOpen}
         gatewayRunning={gatewayRunning}
+        wsConnected={wsConnected}
         dccStatus={dccStatus}
         onStartGateway={async () => {
           try {

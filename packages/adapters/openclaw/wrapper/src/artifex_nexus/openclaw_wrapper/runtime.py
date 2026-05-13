@@ -620,11 +620,144 @@ def start_gateway(
     _current_openclaw_home = home
     _gateway_state.set_running(pid=proc.pid, port=port)
 
+    # 8.5 初始化空闲计时器（P2-7b）
+    report_gateway_activity()
+
+    # 9. 启动后台健康监控 daemon 线程（崩溃检测 + 自动重启）
+    _start_health_monitor()
+
     return GatewayProcess(
         pid=proc.pid,
         port=port,
         message=f"gateway 已启动 (pid={proc.pid})",
     )
+
+
+# ─── 后台健康监控（P0-3：崩溃检测 + 自动重启） ─────────────────────────
+
+_health_monitor_started = False
+_health_monitor_restart_count = 0
+_health_monitor_restart_window_start = 0.0
+_MAX_RESTARTS_PER_WINDOW = 3
+_RESTART_WINDOW_SECS = 60.0
+
+# ─── 空闲检测（P2-7b：Gateway 空闲关闭，节省资源） ─────────────────────
+_GATEWAY_IDLE_SHUTDOWN_SECS = 1800  # 30 分钟无活动 → 关闭 gateway
+_last_gateway_activity = 0.0       # 上次活动时间戳
+
+
+def report_gateway_activity() -> None:
+    """报告 Gateway 有活动，重置空闲计时器。
+
+    Report gateway activity to reset the idle shutdown timer.
+    应由 sidecar 的 RPC handler（status / chat 等）在每次前端交互时调用。
+    """
+    global _last_gateway_activity
+    _last_gateway_activity = time.time()
+
+
+def _start_health_monitor() -> None:
+    """启动后台 daemon 线程：每 5s 检测 gateway 进程存活，死则自动重启。
+
+    Start a background daemon thread that polls the gateway child process
+    every 5 seconds. If the process has exited, auto-restart with rate
+    limiting (max 3 restarts per 60s window).
+    """
+    global _health_monitor_started
+    if _health_monitor_started:
+        return
+    _health_monitor_started = True
+
+    t = threading.Thread(
+        target=_health_monitor_loop,
+        name="gateway-health-monitor",
+        daemon=True,
+    )
+    t.start()
+    logger.info("_start_health_monitor: health monitor thread started")
+
+
+def _health_monitor_loop() -> None:
+    """后台循环：每 5s poll() 一次 gateway 子进程。"""
+    global _health_monitor_started
+
+    while _health_monitor_started:
+        time.sleep(5)
+
+        # 只有 sidecar 标记为 running 才监控
+        if _gateway_state.get_info().state != "running":
+            continue
+
+        # 检查子进程是否还活着
+        proc = _current_process
+        if proc is None:
+            continue
+
+        poll_result = proc.poll()
+        if poll_result is None:
+            # 进程仍在运行 → 检查空闲超时
+            if (
+                _last_gateway_activity > 0
+                and time.time() - _last_gateway_activity > _GATEWAY_IDLE_SHUTDOWN_SECS
+            ):
+                idle_min = _GATEWAY_IDLE_SHUTDOWN_SECS / 60
+                logger.info(
+                    "health_monitor: gateway 已空闲 %.0f 分钟，关闭以节省资源",
+                    idle_min,
+                )
+                stop_gateway()
+                # idle 关闭后不设 error，下次 start_gateway 会重新初始化
+            continue
+
+        # ── 进程已退出 → 崩溃检测 ──
+        exit_code = poll_result
+        logger.warning(
+            "health_monitor: gateway pid=%d 已退出 (exit_code=%s)，触发自动重启",
+            proc.pid,
+            exit_code,
+        )
+
+        # 速率限制
+        now = time.time()
+        global _health_monitor_restart_count, _health_monitor_restart_window_start
+        if now - _health_monitor_restart_window_start > _RESTART_WINDOW_SECS:
+            _health_monitor_restart_count = 0
+            _health_monitor_restart_window_start = now
+
+        _health_monitor_restart_count += 1
+        if _health_monitor_restart_count > _MAX_RESTARTS_PER_WINDOW:
+            logger.error(
+                "health_monitor: %ds 内重启了 %d 次，超出上限 %d 次，暂停自动重启",
+                _RESTART_WINDOW_SECS,
+                _health_monitor_restart_count - 1,
+                _MAX_RESTARTS_PER_WINDOW,
+            )
+            _gateway_state.set_errored(
+                f"Gateway 频繁崩溃（{_RESTART_WINDOW_SECS}s 内 {_health_monitor_restart_count - 1} 次重启），已暂停自动恢复"
+            )
+            _health_monitor_started = False
+            return
+
+        # 执行自动重启
+        try:
+            logger.info(
+                "health_monitor: 正在自动重启 gateway (第 %d/%d 次)...",
+                _health_monitor_restart_count,
+                _MAX_RESTARTS_PER_WINDOW,
+            )
+            _gateway_state.set_errored(
+                f"Gateway 进程退出 (exit_code={exit_code})，正在自动重启 ({_health_monitor_restart_count}/{_MAX_RESTARTS_PER_WINDOW})..."
+            )
+
+            # 复用 start_gateway 的重启逻辑
+            stop_gateway()
+            _ = start_gateway(
+                openclaw_home=_current_openclaw_home or Path.home() / ".artifexnexus" / ".openclaw",
+            )
+            logger.info("health_monitor: gateway 自动重启成功")
+        except Exception as e:
+            logger.error("health_monitor: 自动重启失败: %s", e)
+            _gateway_state.set_errored(f"Gateway 自动重启失败: {e}")
 
 
 def _wait_pid_dead(pid: int, timeout: float) -> bool:
@@ -709,6 +842,10 @@ def stop_gateway() -> bool:
     if home:
         _clear_pid(home)
     _gateway_state.set_stopped()
+
+    # 停止后台健康监控（用户主动 stop 不需要自动重启）
+    global _health_monitor_started
+    _health_monitor_started = False
 
     return True
 

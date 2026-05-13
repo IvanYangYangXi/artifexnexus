@@ -26,6 +26,37 @@ import { GatewayWebSocket } from "./gateway-ws";
 // Gateway history 仅作为后台静默刷新源，不阻塞 UI。
 const messageCache = new Map<string, ChatMessage[]>();
 
+// ─── localStorage 持久化（P1-4：防页面刷新/崩溃丢失消息） ──────────
+const LS_PREFIX = "artifex_chat:";
+const MAX_PERSISTED_MESSAGES = 200;
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 从 localStorage 恢复指定会话的消息 */
+function loadPersistedMessages(sessionKey: string): ChatMessage[] | null {
+  try {
+    const raw = localStorage.getItem(`${LS_PREFIX}${sessionKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ChatMessage[];
+    if (!Array.isArray(parsed)) return null;
+    return parsed.slice(0, MAX_PERSISTED_MESSAGES);
+  } catch {
+    return null;
+  }
+}
+
+/** debounced 写入 localStorage（500ms，避免流式消息期间高频写） */
+function persistMessages(sessionKey: string, messages: ChatMessage[]): void {
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    try {
+      const subset = messages.slice(-MAX_PERSISTED_MESSAGES);
+      localStorage.setItem(`${LS_PREFIX}${sessionKey}`, JSON.stringify(subset));
+    } catch {
+      // localStorage 满了或不可写，静默忽略
+    }
+  }, 500);
+}
+
 // ─── Reducer Action ────────────────────────────────────────────────────────
 
 export type ChatAction =
@@ -88,8 +119,9 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "CLEAR_MESSAGES":
       return { ...state, messages: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     case "RESET_STATE":
-      // Gateway 断连时清理：把所有 isStreaming 的消息标记为完成，避免 UI 卡在流式状态
-      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+      // Gateway 断连时清理：把所有 isStreaming 的消息标记为完成，避免 UI 卡在流式状态。
+      // 注意：不清 cancelledMessageId，避免破坏 stop() → resume() 链路。
+      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: state.cancelledMessageId };
     case "LOAD_HISTORY":
       return { ...state, messages: action.messages, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     default:
@@ -115,7 +147,11 @@ export function useChatService(options: ChatServiceOptions) {
   const sessionKeyRef = React.useRef("");
 
   const wsRef = React.useRef<GatewayWebSocket | null>(null);
-  const [wsState, setWsState] = React.useState<"disconnected" | "connecting" | "connected">("disconnected");
+  const [wsState, setWsState] = React.useState<"disconnected" | "connecting" | "connected" | "degraded">("disconnected");
+  /** Gateway 事件循环是否处于退化状态（从 health 事件检测） */
+  const [eventLoopDegraded, setEventLoopDegraded] = React.useState(false);
+  /** MCP Bridge 是否可用（连续工具调用失败 → false） */
+  const [mcpBridgeAvailable, setMcpBridgeAvailable] = React.useState(true);
 
   // Reducer — 初始空消息列表（对话内容由 Gateway 加载）
   const [state, dispatch] = React.useReducer(chatReducer, null, () => {
@@ -123,13 +159,14 @@ export function useChatService(options: ChatServiceOptions) {
   });
 
   const lastTextRef = React.useRef("");
-  const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected">("disconnected");
+  const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected" | "degraded">("disconnected");
 
-  // ─── 消息变化时自动同步内存缓存 ──────────────────────────────────────
+  // ─── 消息变化时自动同步内存缓存 + localStorage ──────────────────────
   // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
   React.useEffect(() => {
     if (sessionKeyRef.current && state.messages.length > 0 && !state.streamingMessageId) {
       messageCache.set(sessionKeyRef.current, state.messages);
+      persistMessages(sessionKeyRef.current, state.messages);
     }
   }, [state.messages, state.streamingMessageId]);
 
@@ -157,6 +194,12 @@ export function useChatService(options: ChatServiceOptions) {
       }
       prevWsStateRef.current = mapped;
       setWsState(mapped);
+      // 状态变更时同步检查事件循环退化
+      const degraded = ws.eventLoopDegraded;
+      setEventLoopDegraded(degraded);
+      if (mapped === "connected" && degraded) {
+        setWsState("degraded");
+      }
     });
 
     ws.onMessage((event: GatewayChatEvent) => {
@@ -165,8 +208,26 @@ export function useChatService(options: ChatServiceOptions) {
 
     ws.connect().catch(() => {});
 
+    // ── 健康状态轮询：health 事件通过 WS 消息流更新 GatewayWebSocket 内部状态，
+    // 这里定时同步到 React state 以驱动 UI 更新。 ──
+    const healthInterval = setInterval(() => {
+      if (cancelled) return;
+      const degraded = ws.eventLoopDegraded;
+      setEventLoopDegraded(degraded);
+      // P2-8：同步 MCP Bridge 可用性
+      const mcpOk = ws.mcpBridgeAvailable;
+      setMcpBridgeAvailable(mcpOk);
+      // 连上了但事件循环退化 → 显示 degraded 状态
+      if (ws.state === "connected" && degraded) {
+        setWsState("degraded");
+      } else if (ws.state === "connected" && !degraded) {
+        setWsState("connected");
+      }
+    }, 2000);
+
     return () => {
       cancelled = true;
+      clearInterval(healthInterval);
       ws.disconnect();
       wsRef.current = null;
     };
@@ -224,10 +285,11 @@ export function useChatService(options: ChatServiceOptions) {
 
   function setSelectedConfig(cfg: { agentId?: string; model?: string; thinking?: string }) {
     selectedConfig.current = cfg;
-    // agent 变化时同步更新 sessionKey
-    if (cfg.agentId && state.activeSessionId) {
-      sessionKeyRef.current = `agent:${cfg.agentId}:${state.activeSessionId}`;
-    }
+    // NOTE: 不在此处更新 sessionKeyRef。
+    // sessionKeyRef 由 switchSession() / createNewSession() 统一管理。
+    // 旧逻辑 `sessionKeyRef.current = 'agent:${cfg.agentId}:${state.activeSessionId}'`
+    // 在新建对话时会用残留的旧 activeSessionId 拼出错误 key，导致 Gateway 收到
+    // 无效 sessionKey → 崩溃 / WS 断连。
   }
 
   async function sendMessage(text: string): Promise<void> {
@@ -238,7 +300,21 @@ export function useChatService(options: ChatServiceOptions) {
     }
     dispatch({ type: "ADD_USER_MESSAGE", text });
     const ws = wsRef.current;
-    if (!ws || ws.state !== "connected") { dispatch({ type: "SET_ERROR", error: "Gateway 未连接" }); return; }
+    // STORY-0039-HOTFIX：使用 isSendReady() 替代 ws.state !== "connected"，
+    // 避免在网关重连冷却期 / 事件循环退化期发送消息导致超时。
+    if (!ws || !ws.isSendReady()) {
+      if (ws && ws.eventLoopDegraded) {
+        dispatch({ type: "SET_ERROR", error: "Gateway 正在恢复中，请稍后重试..." });
+      } else if (ws && ws.state === "connected") {
+        dispatch({ type: "SET_ERROR", error: "Gateway 刚完成重连，请稍等几秒再发送" });
+      } else if (gatewayRunning) {
+        // Gateway 进程在运行但 WebSocket 未连接 → 区分"gateway 挂了"和"正在建立连接"
+        dispatch({ type: "SET_ERROR", error: "WebSocket 未连接，Gateway 正在运行中" });
+      } else {
+        dispatch({ type: "SET_ERROR", error: "Gateway 未启动，请检查系统面板" });
+      }
+      return;
+    }
     const streamMsgId = genMsgId();
     dispatch({ type: "START_STREAMING", messageId: streamMsgId });
     lastTextRef.current = "";
@@ -254,10 +330,8 @@ export function useChatService(options: ChatServiceOptions) {
   async function stop(): Promise<void> {
     const ws = wsRef.current;
     if (ws && ws.state === "connected") await ws.abortChat(sessionKeyRef.current);
+    // STOP reducer 已经设置 cancelledMessageId，不再跟 RESET_STATE 清除它。
     dispatch({ type: "STOP" });
-    // 兜底：如果 RESET_STATE 已经清了 streamingMessageId，STOP 的 map 匹配不到
-    // 再 dispatch 一次 RESET_STATE 强制清理所有 isStreaming 消息
-    dispatch({ type: "RESET_STATE" });
     lastTextRef.current = "";
   }
 
@@ -297,8 +371,15 @@ export function useChatService(options: ChatServiceOptions) {
       // 有缓存 → 直接加载（同步，零延迟）
       dispatch({ type: "LOAD_HISTORY", messages: cached });
     } else {
-      // 无缓存 → 清空（新对话 or 首次加载）
-      dispatch({ type: "CLEAR_MESSAGES" });
+      // 无内存缓存 → 尝试 localStorage 恢复
+      const persisted = loadPersistedMessages(newKey);
+      if (persisted && persisted.length > 0) {
+        messageCache.set(newKey, persisted);
+        dispatch({ type: "LOAD_HISTORY", messages: persisted });
+      } else {
+        // 无缓存也无持久化 → 清空（新对话 or 首次加载）
+        dispatch({ type: "CLEAR_MESSAGES" });
+      }
     }
   }
 
@@ -308,10 +389,14 @@ export function useChatService(options: ChatServiceOptions) {
     dispatch({ type: "CLEAR_MESSAGES" });
   }
 
-  function deleteSession(_sessionId: string): void {
-    // 未来实现：通过 Gateway API 删除 session
-    // 当前仅清空消息
-    dispatch({ type: "CLEAR_MESSAGES" });
+  function deleteSession(sessionId: string): void {
+    // 从内存缓存清除
+    const key = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
+    messageCache.delete(key);
+    // 如果删除的是当前会话，清空消息
+    if (sessionKeyRef.current === key) {
+      dispatch({ type: "CLEAR_MESSAGES" });
+    }
   }
 
   function renameSession(_sessionId: string, _title: string): void {
@@ -358,7 +443,8 @@ export function useChatService(options: ChatServiceOptions) {
   return {
     chatState: state.chatState, messages: state.messages, sessions: state.sessions,
     activeSessionId: state.activeSessionId, pendingQueue: state.pendingQueue, error: state.error,
-    wsState, isStreaming: state.chatState === "streaming" || state.chatState === "tool_executing",
+    wsState, eventLoopDegraded, mcpBridgeAvailable,
+    isStreaming: state.chatState === "streaming" || state.chatState === "tool_executing",
     cancelledMessageId: state.cancelledMessageId, getSessionKey: () => sessionKeyRef.current,
     sendMessage, stop, resume, clearMessages: () => dispatch({ type: "CLEAR_MESSAGES" }),
     switchSession, createNewSession, deleteSession, renameSession, loadHistoryMessages,
@@ -366,5 +452,10 @@ export function useChatService(options: ChatServiceOptions) {
     setSelectedConfig,
     /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */
     getWs: () => wsRef.current,
+    /** 发送 agentTurn keep-alive（防止 Gateway 回收会话进程） */
+    sendAgentTurn: (sessionKey: string) => {
+      const ws = wsRef.current;
+      if (ws) ws.sendAgentTurn(sessionKey);
+    },
   };
 }

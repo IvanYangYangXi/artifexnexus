@@ -307,6 +307,9 @@ def _handle_openclaw_status(req_id: Any, params: dict) -> dict:
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
     port = params.get("port", 19789)
 
+    # P2-7b：每次 status 轮询都报告活动，重置网关空闲关闭计时器
+    _runtime.report_gateway_activity()
+
     try:
         status = _runtime.get_status(Path(openclaw_home), port)
         result = status.to_dict()

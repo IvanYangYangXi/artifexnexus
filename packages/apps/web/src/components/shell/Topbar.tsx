@@ -20,6 +20,8 @@ interface TopbarProps {
   sidebarHidden: boolean;
   panelOpen: boolean;
   gatewayRunning?: boolean;
+  /** WebSocket 是否已连接 */
+  wsConnected?: boolean;
   /** DCC MCP Server 连接状态列表 */
   dccStatus?: { name: string; connected: boolean }[];
   onStartGateway?: () => void;
@@ -27,7 +29,7 @@ interface TopbarProps {
 
 export function Topbar({
   onToggleSidebar, onTogglePanel, sidebarHidden, panelOpen,
-  gatewayRunning, dccStatus, onStartGateway,
+  gatewayRunning, wsConnected, dccStatus, onStartGateway,
 }: TopbarProps) {
   const [showDropdown, setShowDropdown] = React.useState(false);
   // 超过 3 个时折叠为下拉
@@ -75,8 +77,15 @@ export function Topbar({
       <div className="flex shrink-0 items-center gap-1.5">
         {/* 状态指示 */}
         <div className="relative hidden items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium md:flex">
+          {/* Gateway 进程状态 */}
           <span className={`flex h-1.5 w-1.5 rounded-full ${gatewayRunning ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : "bg-muted-foreground/40"}`} />
-          <span className="text-muted-foreground">Gateway</span>
+          <span className="text-muted-foreground">GW</span>
+          {/* WebSocket 连接状态 */}
+          <span className="text-muted-foreground/50">·</span>
+          <span className={`flex h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : gatewayRunning ? "bg-amber-400 animate-pulse" : "bg-muted-foreground/40"}`} />
+          <span className={wsConnected ? "text-foreground/80" : gatewayRunning ? "text-amber-400" : "text-muted-foreground"}>
+            WS
+          </span>
           {/* 内联显示 DCC 状态（<=3 个） */}
           {inlineItems && inlineItems.map((d) => (
             <React.Fragment key={d.name}>
@@ -93,7 +102,19 @@ export function Topbar({
                 {dccStatus!.filter(d => d.connected).length}/{dccStatus!.length} DCC ▾
               </button>
               {showDropdown && (
-                <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-white/[0.10] bg-card p-1.5 shadow-xl backdrop-blur-xl">
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-white/[0.10] bg-card p-1.5 shadow-xl backdrop-blur-xl">
+                  <div className="flex items-center gap-2 rounded px-2 py-1 text-[11px]">
+                    <span className={`h-1.5 w-1.5 rounded-full ${gatewayRunning ? "bg-emerald-400" : "bg-muted-foreground/40"}`} />
+                    <span className="text-foreground">Gateway</span>
+                    <span className="flex-1 text-right text-muted-foreground">{gatewayRunning ? "运行中" : "未运行"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 rounded px-2 py-1 text-[11px]">
+                    <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-emerald-400" : gatewayRunning ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
+                    <span className="text-foreground">WebSocket</span>
+                    <span className="flex-1 text-right text-muted-foreground">
+                      {wsConnected ? "已连接" : gatewayRunning ? "连接中…" : "未连接"}
+                    </span>
+                  </div>
                   {dccStatus!.map((d) => (
                     <div key={d.name} className="flex items-center gap-2 rounded px-2 py-1 text-[11px]">
                       <span className={`h-1.5 w-1.5 rounded-full ${d.connected ? "bg-emerald-400" : "bg-amber-400"}`} />

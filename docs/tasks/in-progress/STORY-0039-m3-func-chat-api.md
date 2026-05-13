@@ -9,6 +9,10 @@ assignee: pair
 estimate: 2d
 created: 2026-05-10
 parent: "[[../backlog/EPIC-0003-m3-web-ui-chat]]"
+children:
+  - "[[../review/TASK-0051-story39-gateway-stability]]"
+  - "[[../review/TASK-0052-gateway-startup-optimization]]"
+  - "[[../in-progress/TASK-0050-chat-panel-interaction-optimization]]"
 milestone: M3
 related_specs:
   - "[[../../specs/ui/web-chat-structure]]"
