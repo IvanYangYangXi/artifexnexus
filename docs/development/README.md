@@ -43,6 +43,7 @@ artifex doctor
 
 - `[[sdd-workflow]]` — **SDD 工作流**（想法→任务→规格→实现→合并；AI 口令）
 - `[[task-management]]` — Vibe Coding 任务管理方案（Obsidian Kanban）
+- `[[team-roles]]` — 团队角色定义与协作流程（PM / 程序 / QA）
 - `[[agent-onboarding]]` — 各类 AI Agent 的接入方式与一键粘贴提示词
 - `[[context-handoff-copy-model-and-validation]]` — 统一 Copy 安装模型 + 部署清单校验（ADR 0008 实施手册）
 - `[[skill-authoring/README]]` — Skill 编写指南

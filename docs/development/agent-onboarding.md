@@ -177,9 +177,93 @@ def install_maya_addon(version: str) -> Dict: ...
 | Agent 自作主张合并 done | 忽略了 done 仅由人类触发 | 在对话中重申："done 不能自己标" |
 | Web 工程 Dialog/Popover/Sheet 看不见 / 动画失效 / dev 崩溃 | Tailwind v4 + pnpm workspace symlink + tailwindcss-animate 缺失 等 | 严格按 `[[web-frontend-setup]]` §4 接入清单走完 |
 
+## 8. WorkBuddy 协作注意（双存储模型）
+
+> **关键认知**：WorkBuddy 有自己的内存/任务系统（`~/.workbuddy/` + `.workbuddy/`），**与项目 Obsidian Vault（`docs/`）是两套独立体系**。
+> 换用其他 AI 工具（Claude Code / Cursor / Copilot）时，WorkBuddy 的文件不会被读取。
+
+### 8.1 两套存储的分工
+
+```
+─── WorkBuddy 体系（工具专属，换工具即丢失）───
+~/.workbuddy/
+├── SOUL.md           AI 人格定义
+├── IDENTITY.md       身份标识
+├── USER.md           用户画像
+├── workbuddy.db      SQLite（automations 等）
+├── teams/            多 Agent 团队配置
+├── tasks/            WorkBuddy 内部任务（非项目任务）
+└── mcp.json          MCP Server 配置
+
+项目根/.workbuddy/
+├── HANDOFF.md        会话接续提示词
+├── memory/
+│   ├── MEMORY.md     长期记忆（项目偏好/约定）
+│   └── YYYY-MM-DD.md 每日工作日志
+└── probe_sidecar.py  调试探针
+
+─── 项目体系（工具无关，所有 AI 可读）───
+docs/
+├── tasks/            Obsidian Kanban 任务卡
+├── specs/            架构/子系统设计
+├── development/      开发规范/角色定义
+├── decisions/        ADR 决策记录
+├── inbox/            灵感/需求草稿
+└── ...
+```
+
+### 8.2 文档写入铁律
+
+| 写什么 | 落哪里 | 为什么 |
+|--------|--------|--------|
+| 项目方案/规格/ADR | `docs/specs/` / `docs/decisions/` | 工具无关，Obsidian Vault 可见 |
+| 任务卡片（EPIC/STORY/TASK） | `docs/tasks/<status>/` | Kanban 系统驱动，所有工具可读 |
+| 开发规范/角色定义 | `docs/development/` | 项目级约定，新人/AI 必读 |
+| WorkBuddy 会话上下文 | `HANDOFF.md` | 换对话时粘贴，仅 WorkBuddy 用 |
+| 项目偏好/用户约定 | `.workbuddy/memory/MEMORY.md` | WorkBuddy 跨会话记忆 |
+| 调试日志/每日进展 | `.workbuddy/memory/YYYY-MM-DD.md` | 仅 WorkBuddy 需要的历史 |
+| Python 调试脚本 | `.workbuddy/probe_sidecar.py` | 开发期探针，不进 docs |
+
+### 8.3 WorkBuddy 特有的自动生成文件
+
+WorkBuddy 会在执行任务时自动创建一些文件，**不要把它们当作项目文档**：
+
+| 文件/目录 | 性质 | 说明 |
+|-----------|------|------|
+| `~/.workbuddy/artifact-index/` | 缓存 | 产物索引，自动生成 |
+| `~/.workbuddy/traces/` | 缓存 | 执行跟踪，自动生成 |
+| `~/.workbuddy/tasks/<uuid>/` | 内部任务 | WorkBuddy 内置任务系统 JSON |
+| `~/.workbuddy/teams/<name>/` | 团队配置 | 多 Agent 团队定义 |
+| `~/.workbuddy/blobs/` | 缓存 | 二进制缓存 |
+
+### 8.4 跨工具协作实践
+
+**场景 A：在 WorkBuddy 开发，换到 Claude Code 继续**
+
+1. 确保所有项目级别文档都在 `docs/`（不在 `~/.workbuddy/`）
+2. 复制 `.workbuddy/HANDOFF.md` 内容作为新对话首条消息
+3. Claude Code 会自动读取 `CLAUDE.md` + `AGENTS.md`，无需额外配置
+
+**场景 B：多个 AI 工具混用**
+
+- 项目知识放 `docs/` — 这是唯一的事实来源
+- WorkBuddy 专属内容（每日日志、会话记录）放 `.workbuddy/memory/` — 不需要其他工具知道
+- 团队配置（`teams/`、`tasks/`）是 WorkBuddy 独有功能，其他工具没有等价物
+
+### 8.5 HANDOFF.md 使用
+
+`.workbuddy/HANDOFF.md` 是项目级的会话接续文件。当需要在 WorkBuddy 中开启新对话继续之前的工作时：
+
+1. 复制 `HANDOFF.md` 中分隔线之间的全部内容
+2. 粘贴到新对话的第一条消息
+3. 它会包含：当前任务、已完成项、关键文件位置、下一步操作
+
+该文件由 AI 在每次重大进展后更新，确保始终可用。
+
 ## 相关
 
 - `[[sdd-workflow]]`
 - `[[task-management]]`
+- `[[team-roles]]` — 团队角色定义与协作流程
 - `[[web-frontend-setup]]` — Web 工程接入 `@artifex-nexus/ui` 必读
 - `[[../../.ai/rules/30-agent-behavior]]`
