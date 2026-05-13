@@ -877,10 +877,25 @@ def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> di
 
 
 def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dict:
-    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender MCP 连通性。
+    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender MCP 连通性 + 过时检测。
 
     返回：
-        {"installed": bool, "blenderConnected": bool, "blenderAddress": str, "blenderError": str | None}
+        {
+            "installed": bool,
+            "blenderConnected": bool,        # MCP 握手完成 + 工具可用
+            "blenderServerRunning": bool,    # Blender MCP Server 进程在监听端口（TCP socket，无 MCP 协议）
+            "blenderAddress": str,
+            "blenderError": str | None,
+            "upToDate": bool,
+            "sourceHash": str | None,
+            "deployedHash": str | None,
+        }
+
+    blenderServerRunning 与 blenderConnected 的区别：
+    - blenderServerRunning：纯 TCP socket connect 到端口，仅判断进程是否在监听。
+      用于区分"Blender 未启动"（端口无人监听 → don't show）和
+      "Blender 已启动但 MCP 未就绪"（端口有人监听但握手失败 → 黄色）。
+    - blenderConnected：WebSocket 连接 + MCP initialize 握手完成 → 绿色。
 
     blenderConnected 的判断逻辑：
     - 先检查 Gateway 是否运行中
@@ -889,7 +904,17 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
     """
     try:
         installed = _dcc_installer.is_gateway_mcp_bridge_installed()
+
+        # C1: 过时检测
+        freshness = {"upToDate": False, "sourceHash": None, "deployedHash": None, "error": None}
+        if installed:
+            try:
+                freshness = _dcc_installer.check_mcp_bridge_freshness()
+            except Exception as e:
+                freshness["error"] = str(e)
+
         blender_status = {"connected": False, "address": "", "error": None}
+        blender_server_running = False
         if installed:
             # Bug #6 修复：先检查 Gateway 是否运行
             gateway_running = False
@@ -899,14 +924,27 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
                 pass
 
             if gateway_running:
-                # Gateway 运行中：检测 Blender MCP Server 是否可达
+                # 先做轻量 TCP 探测（快速，无 MCP 协议开销）
                 try:
-                    blender_status = _mcp_bridge.check_blender_mcp_connection(timeout=3.0)
-                except Exception as e:
+                    blender_server_running = _mcp_bridge.check_blender_mcp_server_running(timeout=1.0)
+                except Exception:
+                    pass
+
+                # 如果 TCP 可达，再做 MCP 握手检测
+                if blender_server_running:
+                    try:
+                        blender_status = _mcp_bridge.check_blender_mcp_connection(timeout=3.0)
+                    except Exception as e:
+                        blender_status = {
+                            "connected": False,
+                            "address": "",
+                            "error": str(e),
+                        }
+                else:
                     blender_status = {
                         "connected": False,
-                        "address": "",
-                        "error": str(e),
+                        "address": _mcp_bridge.MCPBridgeClient.get_instance().server_address,
+                        "error": "Blender MCP Server 未启动（端口无监听）",
                     }
             else:
                 # Gateway 未运行：blenderConnected = False，附带提示
@@ -921,8 +959,12 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
             "result": {
                 "installed": installed,
                 "blenderConnected": blender_status.get("connected", False),
+                "blenderServerRunning": blender_server_running,
                 "blenderAddress": blender_status.get("address", ""),
                 "blenderError": blender_status.get("error"),
+                "upToDate": freshness.get("upToDate", False),
+                "sourceHash": freshness.get("sourceHash"),
+                "deployedHash": freshness.get("deployedHash"),
             },
         }
     except Exception as e:

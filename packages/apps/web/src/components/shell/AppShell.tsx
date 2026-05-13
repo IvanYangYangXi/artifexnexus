@@ -497,10 +497,16 @@ export function AppShell() {
           if (s.gateway_running) {
             try {
               const bs = await ipc.getMCPBridgeStatus();
-              connected = bs?.blenderConnected ?? false;
+              // 三态逻辑：
+              // - blenderServerRunning=false → Blender 未启动 → 不显示指示器
+              // - blenderServerRunning=true + blenderConnected=false → 黄色（连接中）
+              // - blenderConnected=true → 绿色（MCP 握手完成）
+              if (bs?.blenderServerRunning) {
+                connected = bs.blenderConnected ?? false;
+                statuses.push({ name: "Blender", connected });
+              }
             } catch {}
           }
-          statuses.push({ name: "Blender", connected });
         } catch {}
         setDccStatus(statuses);
       } catch {}

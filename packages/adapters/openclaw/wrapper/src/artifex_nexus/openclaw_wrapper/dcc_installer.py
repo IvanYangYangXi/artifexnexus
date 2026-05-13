@@ -905,6 +905,10 @@ def _get_openclaw_plugins_dir() -> Path:
     return Path(openclaw_home) / "extensions"
 
 
+# Gateway 实际需要的文件（只拷贝这两份，不整树拷贝）
+_GATEWAY_MCP_BRIDGE_REQUIRED_FILES = ["index.js", "openclaw.plugin.json"]
+
+
 def install_gateway_mcp_bridge() -> Dict:
     """
     部署 mcp-bridge 插件到 OpenClaw bundled extensions 目录 + patch 配置 + 刷注册表。
@@ -913,11 +917,17 @@ def install_gateway_mcp_bridge() -> Dict:
     patch openclaw.json config, and refresh the plugin registry.
 
     安装步骤：
-    1. 物理拷贝 gateway-plugin/ → dist/extensions/mcp-bridge/（不用 junction/symlink，
-       因为 OpenClaw discovery 会 realpath 解析，跨卷 junction 导致路径逃逸被拒绝）
-    2. 确保 openclaw.json 中 plugins.entries.mcp-bridge 已配置
-    3. 确保 openclaw.json 中 plugins.allow 包含 "mcp-bridge"
-    4. 执行 `openclaw plugins registry --refresh` 更新注册表缓存
+    1. 校验 index.js 已构建（A2：拷贝前检查）
+    2. 只拷贝 Gateway 实际需要的文件：index.js + openclaw.plugin.json（A1：不用 copytree）
+    3. 确保 openclaw.json 中 plugins.entries.mcp-bridge 已配置
+    4. 确保 openclaw.json 中 plugins.allow 包含 "mcp-bridge"
+    5. 执行 `openclaw plugins registry --refresh` 更新注册表缓存
+
+    为什么不用 copytree：
+      - Gateway 只加载 index.js + openclaw.plugin.json，拷贝 src/ / node_modules/ 无用
+      - copytree 会把未重新编译的旧 index.js 也拷过去，掩盖过时问题
+      - 物理拷贝（不用 junction/symlink）：OpenClaw discovery 会 realpath 解析，
+        跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝
 
     Returns:
         {"success": bool, "method": str, "target": str, "error": str|None}
@@ -936,6 +946,16 @@ def install_gateway_mcp_bridge() -> Dict:
             "error": f"插件源码目录不存在: {src_dir}",
         }
 
+    # A2: 拷贝前校验 index.js 存在（防止部署未构建的插件）
+    index_js_src = os.path.join(src_dir, "index.js")
+    if not os.path.isfile(index_js_src):
+        return {
+            "success": False,
+            "method": None,
+            "target": target_dir,
+            "error": "index.js 未构建，请先编译 gateway-plugin（如 `pnpm build`）",
+        }
+
     # 确保 plugins 目录存在
     os.makedirs(str(plugins_dir), exist_ok=True)
 
@@ -943,11 +963,17 @@ def install_gateway_mcp_bridge() -> Dict:
     if os.path.exists(target_dir) or _is_junction_or_symlink(target_dir):
         _remove_link_or_dir(target_dir)
 
-    # 强制使用物理拷贝（不用 junction/symlink）。
-    # 原因：OpenClaw v2026.5.4 的 discovery 会 fs.realpathSync 解析路径，
-    # 跨卷 junction 导致 rootDir 指向源码盘，被 trusted-root 安全检查拒绝。
+    # A1: 只拷贝 Gateway 实际需要的文件（不用 copytree）
+    os.makedirs(target_dir, exist_ok=True)
     try:
-        shutil.copytree(src_dir, target_dir, ignore=_get_ignore_patterns_for_shutil())
+        for fname in _GATEWAY_MCP_BRIDGE_REQUIRED_FILES:
+            src = os.path.join(src_dir, fname)
+            tgt = os.path.join(target_dir, fname)
+            if os.path.isfile(src):
+                shutil.copy2(src, tgt)
+                logger.debug(f"  已拷贝: {fname} ({os.path.getsize(tgt)} bytes)")
+            else:
+                logger.warning(f"  {fname} 不存在于源码目录，跳过")
         method = "copy"
     except Exception as e:
         return {
@@ -1095,10 +1121,76 @@ def _refresh_plugin_registry() -> None:
 
 
 def is_gateway_mcp_bridge_installed() -> bool:
-    """检查 mcp-bridge 插件是否已正确部署（目录存在且含 manifest）"""
+    """检查 mcp-bridge 插件是否已正确部署。
+
+    B2 加强：不仅检查 openclaw.plugin.json，还检查 index.js 存在且非空。
+    """
     target_dir = _get_openclaw_plugins_dir() / "mcp-bridge"
     manifest = target_dir / "openclaw.plugin.json"
-    return manifest.exists()
+    index_js = target_dir / "index.js"
+    return manifest.exists() and index_js.exists() and index_js.stat().st_size > 0
+
+
+def check_mcp_bridge_freshness() -> Dict:
+    """对比源码 index.js 与部署 index.js 的 SHA-256，判断插件是否过时。
+
+    B1 新增：以 SHA-256 为过时判断依据（不用 package.json version，因为 bug fix
+    不一定会 bump 版本号）。
+
+    Returns:
+        {
+            "upToDate": bool,           # True 表示已部署最新版本
+            "sourceHash": str | None,   # 源码 index.js 的 SHA-256
+            "deployedHash": str | None, # 部署 index.js 的 SHA-256
+            "error": str | None,        # 错误信息（如有）
+        }
+    """
+    result: Dict = {
+        "upToDate": False,
+        "sourceHash": None,
+        "deployedHash": None,
+        "error": None,
+    }
+
+    # 获取源码 index.js 路径
+    try:
+        src_dir = _get_gateway_plugin_src_dir()
+    except RuntimeError as e:
+        result["error"] = f"无法定位源码目录: {e}"
+        return result
+
+    src_index_js = src_dir / "index.js"
+    if not src_index_js.is_file():
+        result["error"] = f"源码 index.js 不存在或未构建: {src_index_js}"
+        return result
+
+    # 计算源码 SHA-256
+    try:
+        source_hash = _compute_file_sha256(src_index_js)
+        result["sourceHash"] = source_hash
+    except OSError as e:
+        result["error"] = f"无法读取源码 index.js: {e}"
+        return result
+
+    # 获取部署 index.js 路径
+    target_dir = _get_openclaw_plugins_dir() / "mcp-bridge"
+    deployed_index_js = target_dir / "index.js"
+
+    if not deployed_index_js.is_file():
+        result["error"] = f"部署目标 index.js 不存在: {deployed_index_js}"
+        result["upToDate"] = False
+        return result
+
+    # 计算部署 SHA-256
+    try:
+        deployed_hash = _compute_file_sha256(deployed_index_js)
+        result["deployedHash"] = deployed_hash
+    except OSError as e:
+        result["error"] = f"无法读取部署 index.js: {e}"
+        return result
+
+    result["upToDate"] = (source_hash == deployed_hash)
+    return result
 
 
 def uninstall_gateway_mcp_bridge() -> Dict:

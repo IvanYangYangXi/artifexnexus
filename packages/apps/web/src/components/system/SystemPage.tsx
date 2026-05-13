@@ -555,7 +555,7 @@ function InstallerLogView({ logs }: { logs: LogEntry[] }) {
 
 const MAX_LOG_LINES = 200;
 
-function LogView({ logs }: { logs: string[] }) {
+function LogView({ logs, emptyMessage }: { logs: string[]; emptyMessage?: string }) {
   const endRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = React.useState(true);
@@ -585,7 +585,7 @@ function LogView({ logs }: { logs: string[] }) {
       onScroll={handleScroll}
     >
       {visible.length === 0 ? (
-        <span className="text-muted-foreground">Gateway 未运行，暂无日志</span>
+        <span className="text-muted-foreground">{emptyMessage ?? "Gateway 未运行，暂无日志"}</span>
       ) : (
         visible.map((l, i) => (
           <div key={i} className={`whitespace-pre-wrap break-all ${l.includes("ERROR") || l.includes("error") ? "text-red-400" : l.includes("WARN") || l.includes("warn") ? "text-amber-400" : "text-muted-foreground"}`}>
@@ -608,14 +608,50 @@ function LogView({ logs }: { logs: string[] }) {
 
 // ─── Gateway Tab ────────────────────────────────────────────────────────────
 
+const LOG_POLL_INTERVAL = 600;   // 日志轮询间隔（ms），打开页面时快速加载
+const LOG_INITIAL_BATCH = 200;   // 首次拉取条数
+const LOG_MAX_BUFFER = 500;      // 前端最多保留条数
+const TCP_PROBE_TIMEOUT = 2000;  // TCP 存活检测超时（ms）
+
 function GatewayTab() {
   const [status, setStatus] = React.useState<GatewayStatus | null>(null);
-  const [busy, setBusy] = React.useState(false);
   const [logs, setLogs] = React.useState<string[]>([]);
+  // TCP 存活检测状态：checking / alive / dead
+  const [liveness, setLiveness] = React.useState<"checking" | "alive" | "dead">("checking");
 
-  const fetchStatus = async () => { try { const ipc = await getIpc(); const s = await ipc.getGatewayStatus(); setStatus(s); } catch {} };
-  // 2026-05-12: mount 后立即拉 + 每 5s 轮询，解决 sidecar 重启后
-  // gateway_state 延迟恢复导致面板永远显示"未运行"的问题
+  // 启动/重启流程的分阶段状态反馈
+  type StartPhase = "idle" | "starting" | "waiting" | "success" | "failed";
+  const [startPhase, setStartPhase] = React.useState<StartPhase>("idle");
+  const [startError, setStartError] = React.useState<string | null>(null);
+  const busy = startPhase !== "idle";
+
+  const fetchStatus = async () => {
+    try {
+      const ipc = await getIpc();
+      const s = await ipc.getGatewayStatus();
+      setStatus(s);
+
+      // TCP 存活检测：sidecar 报告 running 时，快速验证端口是否真的在监听
+      if (s.state === "running" && s.port) {
+        try {
+          const resp = await fetch(`http://127.0.0.1:${s.port}/health`, {
+            signal: AbortSignal.timeout(TCP_PROBE_TIMEOUT),
+          });
+          setLiveness(resp.ok ? "alive" : "dead");
+        } catch {
+          // fetch 失败（连接拒绝/超时/网络错误）→ 端口不通
+          setLiveness("dead");
+        }
+      } else {
+        setLiveness("dead");
+      }
+    } catch {
+      // IPC 失败：sidecar 不可用，状态无法获取
+      setLiveness("dead");
+    }
+  };
+
+  // 挂载立即拉 + 每 5s 轮询（解决 sidecar 重启后状态延迟恢复的问题）
   React.useEffect(() => { fetchStatus(); const t = setInterval(fetchStatus, 5000); return () => clearInterval(t); }, []);
 
   // 轮询日志（增量拉取，只展示当次 Gateway 启动后的条目）
@@ -635,13 +671,17 @@ function GatewayTab() {
     setLogs([]);
     lastLogIdRef.current = null;
 
-    const timer = setInterval(async () => {
+    let active = true;
+
+    const doPoll = async () => {
+      if (!active) return;
       try {
         const ipc = await getIpc();
         const args = lastLogIdRef.current !== null
           ? { sinceId: lastLogIdRef.current }
-          : { n: 50 };
+          : { n: LOG_INITIAL_BATCH };
         const result = await ipc.tailGatewayLog(args);
+        if (!active) return;
         if (result?.entries && result.entries.length > 0) {
           // 记录最大 id，下次增量拉取
           lastLogIdRef.current = result.max_id;
@@ -655,49 +695,132 @@ function GatewayTab() {
             const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
             return `${time} ${e.level || ""} ${e.text || ""}`;
           });
-          // 性能保护：只保留最新 500 条
+          // 性能保护：只保留最新 LOG_MAX_BUFFER 条
           setLogs(prev => {
             const merged = [...prev, ...newLines];
-            return merged.length > 500 ? merged.slice(-500) : merged;
+            return merged.length > LOG_MAX_BUFFER ? merged.slice(-LOG_MAX_BUFFER) : merged;
           });
         }
-      } catch {}
-    }, 1500);
-    return () => clearInterval(timer);
+      } catch {
+        // 日志拉取失败（Gateway 未真正运行等）→ 静默，等下次轮询
+      }
+    };
+
+    // 立即执行首次拉取（不等待 interval，页面打开即加载）
+    doPoll();
+    // 之后以 LOG_POLL_INTERVAL 频率增量轮询
+    const timer = setInterval(doPoll, LOG_POLL_INTERVAL);
+    return () => { active = false; clearInterval(timer); };
   }, [status?.state]);
 
   const handleStart = async () => {
-    setBusy(true);
+    setStartPhase("starting");
+    setStartError(null);
     try {
       const ipc = await getIpc();
-      if (status?.state === "running") {
-        await ipc.restartGateway();
-      } else {
-        await ipc.startGateway();
+      const isRestart = status?.state === "running";
+      const result = isRestart
+        ? await ipc.restartGateway()
+        : await ipc.startGateway();
+
+      if (!result?.success) {
+        setStartPhase("failed");
+        setStartError(result?.message || "启动失败");
+        return;
       }
-      // 等待1秒后刷新状态
+
+      // Gateway spawn 成功，等待就绪
+      setStartPhase("waiting");
       await new Promise((r) => setTimeout(r, 1500));
       await fetchStatus();
-    } catch {} finally { setBusy(false); }
+
+      setStartPhase("success");
+      // 3 秒后自动恢复 idle，防止成功提示一直挂着
+    } catch (e: any) {
+      setStartPhase("failed");
+      setStartError(e?.message || String(e) || "启动异常");
+    }
   };
 
-  const state = status?.state ?? "stopped";
-  const dotClass = state === "running" ? "bg-emerald-400" : state === "errored" ? "bg-red-400" : "bg-muted-foreground/40";
-  const stateLabel = state === "running" ? "运行中" : state === "errored" ? "异常" : "未运行";
+  // 综合判定显示状态：sidecar 报告 + TCP 存活检测
+  const sidecarState = status?.state ?? "stopped";
+  const isLivenessDead = sidecarState === "running" && liveness === "dead";
+  const isChecking = sidecarState === "running" && liveness === "checking";
+
+  const state: string = isLivenessDead ? "unresponsive" : sidecarState;
+  const dotClass = state === "running" ? "bg-emerald-400"
+    : state === "unresponsive" ? "bg-amber-400 animate-pulse"
+    : state === "errored" ? "bg-red-400"
+    : "bg-muted-foreground/40";
+  const stateLabel = state === "running" ? "运行中"
+    : state === "unresponsive" ? "无响应"
+    : state === "errored" ? "异常"
+    : "未运行";
+
+  // 日志区域空状态文案：根据 Gateway 状态给出不同提示
+  const logEmptyMessage = (() => {
+    if (sidecarState === "running" && isChecking) return "检测 Gateway 连通性...";
+    if (sidecarState === "running" && isLivenessDead) return "Gateway 端口无响应（进程可能已退出）";
+    if (sidecarState === "running") return "Gateway 运行中，正在加载日志...";
+    if (sidecarState === "errored") return "Gateway 异常，暂无日志";
+    return "Gateway 未运行，暂无日志";
+  })();
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       <div className={GLASS + " p-4"}>
-        <div className="flex items-center gap-3"><span className={`flex h-3 w-3 rounded-full ${dotClass}`} /><span className="text-sm font-medium">{stateLabel}</span></div>
-        <div className="mt-2 text-xs text-muted-foreground">PID: {status?.pid ?? "—"} · 端口: {status?.port ?? 19789} · 启动: {status?.started_at ? new Date(status.started_at * 1000).toLocaleString("zh-CN") : "—"}</div>
-        {state === "errored" && status?.last_error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{status.last_error}</div>}
-        <div className="mt-3 flex gap-2">
-          <button className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.5)]" onClick={handleStart} disabled={busy}>{state === "running" ? "↻ 重启 Gateway" : "▶ 启动 Gateway"}</button>
-          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={async () => { const ipc = await getIpc(); try { await ipc.openOpenClawWebUi(); } catch {} }}>🌐 OpenClaw Web UI</button>
+        <div className="flex items-center gap-3">
+          <span className={`flex h-3 w-3 rounded-full ${dotClass}`} />
+          <span className="text-sm font-medium">{stateLabel}</span>
+          {isLivenessDead && (
+            <span className="text-[11px] text-amber-400">(sidecar 报告运行中但端口不通)</span>
+          )}
         </div>
+        <div className="mt-2 text-xs text-muted-foreground">
+          PID: {status?.pid ?? "—"} · 端口: {status?.port ?? 19789} · 启动: {status?.started_at ? new Date(status.started_at * 1000).toLocaleString("zh-CN") : "—"}
+        </div>
+        {state === "errored" && status?.last_error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{status.last_error}</div>}
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.5)] disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            onClick={handleStart}
+            disabled={busy}
+          >
+            {busy ? (
+              <>
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                {startPhase === "starting" ? "正在启动..." : "等待就绪..."}
+              </>
+            ) : (
+              state === "running" ? "↻ 重启 Gateway" : state === "unresponsive" ? "↻ 强制重启 Gateway" : "▶ 启动 Gateway"
+            )}
+          </button>
+          <button className="rounded-full border border-white/[0.10] bg-white/[0.05] px-4 py-1.5 text-xs backdrop-blur-md disabled:opacity-40" disabled={state !== "running"} onClick={async () => { const ipc = await getIpc(); try { await ipc.openOpenClawWebUi(); } catch {} }}>
+            🌐 OpenClaw Web UI
+          </button>
+        </div>
+        {/* 启动/重启进度反馈 */}
+        {startPhase === "success" && (
+          <div className="mt-2 rounded bg-emerald-500/10 px-2 py-1 text-xs text-emerald-400 inline-flex items-center gap-1">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Gateway 启动成功，正在连接...
+          </div>
+        )}
+        {startPhase === "failed" && (
+          <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-400 flex items-center gap-2">
+            <span>❌ {startError || "启动失败"}</span>
+            <button className="underline hover:text-red-300 ml-auto shrink-0" onClick={() => setStartPhase("idle")}>关闭</button>
+          </div>
+        )}
+        {startPhase === "starting" && (
+          <div className="mt-2 text-[11px] text-muted-foreground">正在通过 sidecar 启动 Gateway 进程...</div>
+        )}
+        {startPhase === "waiting" && (
+          <div className="mt-2 text-[11px] text-muted-foreground">Gateway 进程已创建，等待端口就绪...</div>
+        )}
       </div>
       <div className={GLASS + " flex-1 flex flex-col overflow-hidden p-4"}>
-        <LogView logs={logs} />
+        <LogView logs={logs} emptyMessage={logEmptyMessage} />
       </div>
     </div>
   );

@@ -184,18 +184,52 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
     1. runtime.is_running()（PID 锁 + tasklist）
     2. 端口探测（直接连 127.0.0.1:port 看是否有人监听）
     只要任一检测到 running，就自动恢复 gateway_state。
+
+    2026-05-13 修复：增加反向存活检测。
+    当 state == "running" 但进程实际已死（sidecar 重启后 health monitor 未恢复），
+    自动将状态修正为 stopped/errored，并重启 health monitor。
     """
     try:
         info = _gateway_state.get_info()
 
-        # Fallback：单例显示 stopped/errored 但 gateway 可能仍在运行
+        # ── 反向存活检测：state == "running" 但进程可能已退出 ──
+        if info.state == "running":
+            actually_alive = False
+            proc = _runtime._current_process
+            if proc is not None:
+                # 有 Popen 对象：poll() 是最快的方式（非阻塞）
+                if proc.poll() is None:
+                    actually_alive = True
+            elif info.pid and info.pid > 0:
+                # 无 Popen 对象但有 PID（sidecar 重启后恢复的场景）：
+                # 用快速端口探测确认（比 tasklist 快得多）
+                port = info.port or DEFAULT_PORT
+                try:
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(0.3)  # 300ms 快速探测
+                    result = s.connect_ex(("127.0.0.1", port))
+                    s.close()
+                    actually_alive = (result == 0)
+                except Exception:
+                    actually_alive = False
+
+            if not actually_alive:
+                # 进程已退出但状态未更新 → 修正
+                logger.warning(
+                    "gateway_status: state='running' 但进程已死 (pid=%s port=%s)，修正为 stopped",
+                    info.pid, info.port,
+                )
+                _gateway_state.set_stopped()
+                info = _gateway_state.get_info()
+
+        # ── Fallback：单例显示 stopped/errored 但 gateway 可能仍在运行 ──
         if info.state != "running":
-            # 方式 1：PID 锁 + tasklist
             recovered = False
             if _runtime.is_running():
                 recovered = True
 
-            # 方式 2：端口探测（PID 锁可能失效，但端口不会骗人）
+            # 端口探测（PID 锁可能失效，但端口不会骗人）
             if not recovered:
                 port = DEFAULT_PORT
                 try:
@@ -220,7 +254,6 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
                             )
                         else:
                             # 没拿到 PID，用一个虚拟信息表示 running
-                            # 手动构建 info 而不走 set_running（它要求 pid>0）
                             info = _gateway_state.GatewayInfo(
                                 state="running",
                                 pid=None,
@@ -234,6 +267,15 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
             # 重新读取（可能已被 is_running() 或上面的逻辑更新）
             if recovered:
                 info = _gateway_state.get_info()
+
+            # 从 stopped 恢复到 running 后，重启 health monitor
+            # （sidecar 重启后 _health_monitor_started 为 False，
+            #  需要重新启动以监控后续的进程退出）
+            if info.state == "running":
+                try:
+                    _runtime._start_health_monitor()
+                except Exception:
+                    pass
 
         last_log_id = _gateway_log.get_log_buffer().stats()["max_id"]
         return {

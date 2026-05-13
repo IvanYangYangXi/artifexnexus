@@ -64,7 +64,13 @@ class TestGatewayStatus:
         buf.append("stdout", "boot ok")
         buf.append("stderr", "warn: x")
 
-        resp = sidecar_gateway.handle_gateway_status(req_id=2, _params={})
+        # mock _current_process 为"存活中"（poll() → None），
+        # 避免反向存活检测误判 PID 4321 已死
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        with patch.object(sidecar_gateway._runtime, "_current_process", fake_proc):
+            resp = sidecar_gateway.handle_gateway_status(req_id=2, _params={})
+
         result = resp["result"]
         assert result["state"] == "running"
         assert result["pid"] == 4321

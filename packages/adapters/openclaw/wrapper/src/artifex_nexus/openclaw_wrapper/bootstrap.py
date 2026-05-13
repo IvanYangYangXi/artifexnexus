@@ -528,6 +528,32 @@ def bootstrap(
         # EPIC-0001 第二批 #3 / STORY-0017
         _try_install_default_agent_preset(openclaw_home)
 
+        # 8. 自动部署 mcp-bridge 插件（失败仅 warn，不阻塞 bootstrap）
+        # 此时 openclaw.json 已就绪 + CLI 已安装 → install_gateway_mcp_bridge()
+        # 可正常执行拷贝 + config patch + registry refresh。
+        # 这也会自动生成 deploy-manifest.json，让 validate_all_deployments() 立即可用。
+        try:
+            try:
+                from . import dcc_installer as _dcc
+            except ImportError:
+                import dcc_installer as _dcc  # type: ignore[no-redef]
+            result = _dcc.install_gateway_mcp_bridge()
+            if result["success"]:
+                logger.info(
+                    "bootstrap: mcp-bridge 插件已自动部署到 %s",
+                    result.get("target"),
+                )
+            else:
+                logger.warning(
+                    "bootstrap: mcp-bridge 自动部署失败: %s",
+                    result.get("error", "未知错误"),
+                )
+        except Exception:
+            logger.warning(
+                "bootstrap: mcp-bridge 自动部署异常（不阻塞 bootstrap）",
+                exc_info=True,
+            )
+
         return BootstrapResult(
             success=True,
             created_dirs=created_dirs,

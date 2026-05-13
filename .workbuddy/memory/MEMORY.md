@@ -94,3 +94,23 @@
    - 根因：keepalive 只在 "connected" 运行；degraded 时停止 → 60s 无活动 → heartbeat timeout 强制重连 → 亮黄灯 → 重连后又 degraded → 死循环
    - 修复：keepalive 条件放宽为 `"connected" || "degraded"`；`sendMessage` 在 degraded 时不阻断，让 `sendChat` 内部排队
    - 影响文件：`ChatView.tsx`（keepalive）、`chat-service.ts`（sendMessage 放行 + 错误文案）
+
+## 团队结构（2026-05-13）
+
+- **Team**: `artifex-nexus-team`（位于 `~/.workbuddy/teams/artifex-nexus-team/`）
+- **任务列表**: `~/.workbuddy/tasks/artifex-nexus-team/`
+
+### 团队成员
+
+| 角色 | Agent Name | 职责 |
+|------|-----------|------|
+| 产品经理 | `产品经理` | 产品规划、方案/计划/开发文档、任务管理、需求推进落地 |
+| 开发工程师 | `程序` | 功能开发、问题定位、修 bug、构建验证，完成后通知 PM + QA |
+| 质量保障 | `QA` | 文档 review、代码 review、功能测试，验收报告输出 |
+
+### 协作流程
+1. 用户提需求 → 产品经理拆解任务 → 创建任务到共享任务列表
+2. 产品经理分配开发任务给"程序"，分配测试任务给"QA"
+3. 程序完成后 → SendMessage 通知产品经理 + QA
+4. QA 审查/测试 → 结论（通过/不通过）→ 通知程序 + 产品经理
+5. 产品经理跟踪闭环

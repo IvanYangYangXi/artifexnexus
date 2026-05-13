@@ -334,3 +334,33 @@ def check_blender_mcp_connection(timeout: float = 3.0) -> Dict[str, Any]:
             "address": address,
             "error": f"无法连接到 Blender MCP Server ({address})。请确认 Blender 已启动且 Artifex Nexus 插件已启用。",
         }
+
+
+def check_blender_mcp_server_running(
+    host: str = "127.0.0.1", port: int = DEFAULT_BLENDER_MCP_PORT, timeout: float = 1.0
+) -> bool:
+    """检测 Blender MCP Server 进程是否在监听端口（纯 TCP socket connect，不跑 MCP 协议）。
+
+    Check if the Blender MCP Server process is listening on the port using a
+    raw TCP socket connect — no WebSocket handshake, no MCP initialize.
+
+    与 :func:`check_blender_mcp_connection` 的区别：
+    - 本函数仅检测端口是否有进程在监听（TCP SYN → SYN-ACK → 立即关闭）
+    - 不涉及 MCP 协议握手，速度极快（~1s timeout）
+    - 用于区分"Blender 未启动"（端口无人监听）和"Blender 已启动但 MCP 未就绪"
+
+    Args:
+        host: MCP Server 主机地址，默认 127.0.0.1。
+        port: MCP Server 端口，默认 18083。
+        timeout: 连接超时秒数，默认 1s。
+
+    Returns:
+        True 如果端口上有进程在监听。
+    """
+    import socket as _socket
+    try:
+        sock = _socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return True
+    except (OSError, ConnectionRefusedError, TimeoutError):
+        return False

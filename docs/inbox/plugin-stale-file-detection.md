@@ -1,7 +1,7 @@
 ---
 tags: [proposal, install, detect, mcp-bridge, stale-files]
 created: 2026-05-13
-status: draft
+status: implemented
 ---
 
 # 插件安装/检测过时文件方案
