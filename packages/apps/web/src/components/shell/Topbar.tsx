@@ -13,6 +13,7 @@ import * as React from "react";
 import { Bell, Menu, Play, PanelRight, Search, Sparkles } from "lucide-react";
 
 import { Button, Input, cn } from "@artifex-nexus/ui";
+import { uiLog } from "../../lib/ui-log";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -47,7 +48,7 @@ export function Topbar({
             size="icon"
             variant="ghost"
             className="h-7 w-7"
-            onClick={onToggleSidebar}
+            onClick={() => { uiLog.click("Topbar", "toggleSidebar", { sidebarHidden }); onToggleSidebar(); }}
             aria-label="打开侧边栏"
           >
             <Menu className="h-4 w-4" />
@@ -132,7 +133,7 @@ export function Topbar({
 
         {/* Gateway 启动按钮（仅未运行时显示） */}
         {!gatewayRunning && onStartGateway && (
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onStartGateway}>
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => { uiLog.click("Topbar", "startGateway"); onStartGateway(); }}>
             <Play className="mr-1 h-3 w-3" />启动
           </Button>
         )}
@@ -145,7 +146,7 @@ export function Topbar({
             "h-7 w-7",
             panelOpen && "bg-accent text-accent-foreground",
           )}
-          onClick={onTogglePanel}
+          onClick={() => { uiLog.click("Topbar", "togglePanel", { panelOpen }); onTogglePanel(); }}
           aria-label={panelOpen ? "隐藏右侧面板" : "显示右侧面板"}
         >
           <PanelRight className="h-4 w-4" />

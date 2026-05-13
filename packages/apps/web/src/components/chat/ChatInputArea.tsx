@@ -28,6 +28,7 @@ import {
 import { Button, Textarea, cn } from "@artifex-nexus/ui";
 import { PreviewFileContext, PinnedSkillsContext } from "../shell/AppShell";
 import { AtMentionDialog, type MentionItem } from "./AtMentionDialog";
+import { uiLog } from "../../lib/ui-log";
 
 interface SessionFile {
   name: string;
@@ -198,7 +199,11 @@ export function ChatInputArea({
 
   const handleSend = () => {
     // 仅当完全未连接时阻止发送；degraded 状态下允许发送（消息进入队列）
-    if (!text.trim() || (!isWsConnected && !isWsDegraded)) return;
+    if (!text.trim() || (!isWsConnected && !isWsDegraded)) {
+      uiLog.warn("ChatInput", "sendBlocked", { hasText: !!text.trim(), isWsConnected, isWsDegraded });
+      return;
+    }
+    uiLog.send("ChatInput", "send", { textLen: text.length, isStreaming, pendingCount, isWsDegraded });
     onSend(text);
     setText("");
     textareaRef.current?.focus();
@@ -237,7 +242,7 @@ export function ChatInputArea({
             </span>
             {onClearQueue && pendingCount > 1 && (
               <button
-                onClick={onClearQueue}
+                onClick={() => { uiLog.click("ChatInput", "clearQueue", { pendingCount }); onClearQueue(); }}
                 className="text-[10px] text-amber-400/70 hover:text-amber-300 underline-offset-2 hover:underline transition-colors"
                 title="清空整个队列"
               >
@@ -252,7 +257,7 @@ export function ChatInputArea({
               <input
                 type="checkbox"
                 checked={mergeEnabled}
-                onChange={onMergeToggle}
+                onChange={(e) => { uiLog.click("ChatInput", "mergeToggle", { newVal: e.target.checked, pendingCount }); onMergeToggle?.(); }}
                 className="h-3 w-3 cursor-pointer accent-primary"
               />
               合并发送
@@ -269,7 +274,7 @@ export function ChatInputArea({
                   <span className="flex-1 truncate text-foreground/80">{msg}</span>
                   {onRemoveFromQueue && (
                     <button
-                      onClick={() => onRemoveFromQueue(i)}
+                      onClick={() => { uiLog.click("ChatInput", "removeFromQueue", { index: i, msgPreview: msg.slice(0, 30) }); onRemoveFromQueue(i); }}
                       className="shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
                       title="从队列移除该消息"
                       aria-label="删除该队列消息"
@@ -414,7 +419,7 @@ export function ChatInputArea({
           <Plus className="h-3.5 w-3.5" />
         </Button>
         <div className="flex-1" />
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={onNewSession}>
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => { uiLog.click("ChatInput", "newSession"); onNewSession?.(); }}>
           <Plus className="h-3 w-3" />
           新对话
         </Button>
@@ -443,7 +448,7 @@ export function ChatInputArea({
               size="icon"
               variant="destructive"
               className="h-9 w-9"
-              onClick={onStop}
+              onClick={() => { uiLog.click("ChatInput", "stop"); onStop(); }}
               title="停止生成"
             >
               <Square className="h-4 w-4 fill-current" />
@@ -456,7 +461,7 @@ export function ChatInputArea({
               size="icon"
               variant="default"
               className="h-9 w-9"
-              onClick={onResume}
+              onClick={() => { uiLog.click("ChatInput", "resume"); onResume(); }}
               title="继续生成"
             >
               <RotateCcw className="h-4 w-4" />

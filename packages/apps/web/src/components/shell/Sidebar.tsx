@@ -48,6 +48,7 @@ import {
 } from "@artifex-nexus/ui";
 
 import { QuickLinkDialog } from "./QuickLinkDialog";
+import { uiLog } from "../../lib/ui-log";
 import {
   type QuickLink,
   type QuickLinkType,
@@ -197,7 +198,7 @@ export function Sidebar({
               module={m}
               active={currentModule === m.id}
               collapsed={collapsed}
-              onClick={() => onSelect(m.id)}
+              onClick={() => { uiLog.nav("Sidebar", "switchModule", { from: currentModule, to: m.id }); onSelect(m.id); }}
             />
           ))}
         </nav>
@@ -219,7 +220,7 @@ export function Sidebar({
               key={link.id}
               link={link}
               collapsed={collapsed}
-              onClick={() => handleQuickLinkClick(link)}
+              onClick={() => { uiLog.click("Sidebar", "quickLink", { linkId: link.id, name: link.name }); handleQuickLinkClick(link); }}
               onEdit={() => handleEdit(link)}
               onDelete={() => handleDelete(link)}
               onCopyPath={() => handleCopyPath(link)}
