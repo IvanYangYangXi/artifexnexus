@@ -394,15 +394,30 @@ export function AppShell() {
 
           } else {
             // === "已运行"分支 ===
-            // sidecar 报告 gateway_running=true，但 PID 锁可能是孤儿/谎言。
-            console.info("[AppShell] sidecar reports gateway_running=true, verifying...");
+            // sidecar 报告 gateway_running=true，但：
+            //   1. PID 锁可能是孤儿/谎言
+            //   2. 更关键的（P1-8）：sidecar 已随 EXE 重启，旧 gateway
+            //      的 pump 线程（stdout/stderr → log buffer）随旧 sidecar
+            //      已死。新 sidecar 无法 attach 到旧进程 PIPE → 日志永空。
+            //   解决方案：始终调用 startGateway()（sidecar 内部通过
+            //   _is_current_sidecar_instance() 检测自己是否是创建者），
+            //   同一实例 → 幂等返回；不同实例 → 强制 kill + 重启。
+            console.info("[AppShell] sidecar reports gateway_running=true, calling startGateway for instance check...");
+            try {
+              await ipc.startGateway();
+              // 短暂等待 kill+restart 完成（同实例则立即返回，不用等）
+              await new Promise(r => setTimeout(r, 500));
+            } catch (e: any) {
+              console.warn("[AppShell] startGateway in running-branch failed:", e?.message || e);
+              // 不致命：可能 sidecar 忙不过来，继续测活
+            }
             const actuallyAlive = await verifyGatewayActuallyAlive(ipc);
             if (actuallyAlive) {
               setGatewayRunning(true);
               setGatewayStarting(false);
               console.info("[AppShell] gateway verified alive (auth_info OK)");
             } else {
-              console.warn("[AppShell] PID lock claims running but auth_info failed — force restart");
+              console.warn("[AppShell] auth_info failed after startGateway — force restart");
               setStartupPhase("检测到孤儿 Gateway，正在重启…");
               try {
                 await ipc.startGateway({ forceRestart: true });
