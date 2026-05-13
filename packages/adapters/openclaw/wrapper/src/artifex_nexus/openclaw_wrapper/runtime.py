@@ -202,6 +202,11 @@ def _pid_file(openclaw_home: Path) -> Path:
     return openclaw_home.parent / "run" / "gateway.pid"
 
 
+def _sidecar_marker_file(openclaw_home: Path) -> Path:
+    """返回 sidecar 实例标记文件（独立于 PID 文件，防复用误判）。"""
+    return openclaw_home.parent / "run" / "sidecar.instance"
+
+
 def _read_pid(openclaw_home: Path) -> Optional[int]:
     """读取 PID 锁文件。"""
     pf = _pid_file(openclaw_home)
@@ -214,10 +219,37 @@ def _read_pid(openclaw_home: Path) -> Optional[int]:
 
 
 def _write_pid(openclaw_home: Path, pid: int) -> None:
-    """写入 PID 锁文件。"""
+    """写入 PID 锁文件，同时写入 sidecar 实例标记。"""
+    import os as _os
     pf = _pid_file(openclaw_home)
     pf.parent.mkdir(parents=True, exist_ok=True)
     pf.write_text(str(pid), encoding="utf-8")
+    # 写入 sidecar 实例标记（含 PID + 启动时间，用于检测 sidecar 重启）
+    sf = _sidecar_marker_file(openclaw_home)
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    sf.write_text(f"{_os.getpid()}\n{time.time()}", encoding="utf-8")
+
+
+def _is_current_sidecar_instance(openclaw_home: Path) -> bool:
+    """判断当前运行的 sidecar 是否就是创建 gateway 的那个实例。
+
+    2026-05-13 P1-8 修复：sidecar 重启后，旧 gateway 进程可能仍在运行，
+    但 pump 线程（stdout/stderr → log buffer）已随旧 sidecar 死亡。
+    新 sidecar 无法 attach 到旧进程的 PIPE，导致日志面板永远空。
+    此函数用于检测"我是不是原始 sidecar"，若否则应强制重启 gateway。
+    """
+    import os as _os
+    sf = _sidecar_marker_file(openclaw_home)
+    if not sf.exists():
+        return False
+    try:
+        lines = sf.read_text(encoding="utf-8").strip().split("\n")
+        if len(lines) < 1:
+            return False
+        recorded_pid = int(lines[0].strip())
+        return recorded_pid == _os.getpid()
+    except (ValueError, OSError, IndexError):
+        return False
 
 
 def _clear_pid(openclaw_home: Path) -> None:
@@ -524,17 +556,35 @@ def start_gateway(
 
     home = Path(openclaw_home).expanduser().resolve()
 
-    # 1. PID 锁检查：如果已有 pid 且存活，复用
+    # 1. PID 锁检查：如果已有 pid 且存活，判断是否当前 sidecar 实例创建
     existing_pid = _read_pid(home)
     if existing_pid and _is_pid_alive(existing_pid):
-        # 复用语义：sidecar 这一进程内并未 spawn，无法挂日志 pump；
-        # started_at 取"sidecar 接管时间"作为近似下界（前端展示无歧义）
-        _gateway_state.set_running(pid=existing_pid, port=port)
-        return GatewayProcess(
-            pid=existing_pid,
-            port=port,
-            message="gateway 已在运行（复用现有进程）",
-        )
+        if _is_current_sidecar_instance(home):
+            # 同一 sidecar 实例 → 复用（pump 线程存活，日志可正常拉取）
+            _gateway_state.set_running(pid=existing_pid, port=port)
+            return GatewayProcess(
+                pid=existing_pid,
+                port=port,
+                message="gateway 已在运行（复用现有进程）",
+            )
+        else:
+            # 不同 sidecar 实例 → 旧 gateway 的 pump 线程已死，必须重启
+            logger.info(
+                "start_gateway: 检测到前一个 sidecar 实例残留的 gateway (pid=%s)，"
+                "pump 线程已无法捕获日志，强制重启",
+                existing_pid,
+            )
+            try:
+                logger.info(
+                    "start_gateway: 强制终止旧 gateway (pid=%s)...",
+                    existing_pid,
+                )
+                _force_kill(existing_pid)
+                _wait_pid_dead(existing_pid, SHUTDOWN_TIMEOUT)
+                _clear_pid(home)
+                logger.info("start_gateway: 旧 gateway 已终止，将启动新进程")
+            except Exception as e:
+                logger.warning("start_gateway: 停止旧 gateway 失败: %s", e)
 
     # 2. 查找 openclaw 可执行文件
     bin_path = _find_openclaw_bin(home)

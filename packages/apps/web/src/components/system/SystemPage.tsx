@@ -715,7 +715,12 @@ function GatewayTab() {
           const filtered = startTs > 0
             ? result.entries.filter((e: any) => e.ts >= startTs)
             : result.entries;
-          if (filtered.length === 0) return;
+          if (filtered.length === 0) {
+            console.log(
+              `[GatewayTab] doPoll: got ${result.entries.length} entries but all filtered (startTs=${startTs}, firstTs=${result.entries[0]?.ts})`,
+            );
+            return;
+          }
           const newLines = filtered.map((e: any) => {
             const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
             return `${time} ${e.level || ""} ${e.text || ""}`;
@@ -725,9 +730,18 @@ function GatewayTab() {
             const merged = [...prev, ...newLines];
             return merged.length > LOG_MAX_BUFFER ? merged.slice(-LOG_MAX_BUFFER) : merged;
           });
+        } else {
+          // 日志为空：首次轮询打印诊断信息
+          if (lastLogIdRef.current === null) {
+            console.log(
+              `[GatewayTab] doPoll: tailGatewayLog returned ${result?.entries?.length ?? -1} entries, ` +
+              `buffer_size=${result?.buffer_size ?? "?"}, max_id=${result?.max_id ?? "?"}`,
+            );
+          }
         }
-      } catch {
-        // 日志拉取失败（Gateway 未真正运行等）→ 静默，等下次轮询
+      } catch (err: any) {
+        // 日志拉取失败（sidecar 不可用等）→ 打印诊断便于排查
+        console.warn(`[GatewayTab] doPoll failed:`, err?.message || err);
       }
     };
 
