@@ -42,11 +42,17 @@ interface ChatInputAreaProps {
   canResume: boolean;
   pendingCount: number;
   pendingMessages: string[];
+  /** v4.1：删除队列中第 index 条消息 */
+  onRemoveFromQueue?: (index: number) => void;
+  /** v4.1：清空整个队列 */
+  onClearQueue?: () => void;
   sessionFiles: SessionFile[];
   /** 打开新建对话配置面板 */
   onNewSession?: () => void;
   /** WebSocket 是否已连接（未连接时禁用发送） */
   isWsConnected?: boolean;
+  /** WS 已连接但 Event Loop 退化（Gateway 繁忙，消息将排队） */
+  isWsDegraded?: boolean;
   /** 合并发送开关状态（方案 §3.4） */
   mergeEnabled?: boolean;
   /** 合并发送开关回调 */
@@ -92,9 +98,12 @@ export function ChatInputArea({
   canResume,
   pendingCount,
   pendingMessages,
+  onRemoveFromQueue,
+  onClearQueue,
   sessionFiles,
   onNewSession,
   isWsConnected = true,
+  isWsDegraded = false,
   mergeEnabled = true,
   onMergeToggle,
 }: ChatInputAreaProps) {
@@ -117,6 +126,18 @@ export function ChatInputArea({
   React.useEffect(() => {
     setQuickPrompts(loadPrompts());
   }, []);
+
+  // v4 重构：队列徽章延迟 500ms 显示，避免一条普通消息（microtask 即发出）的闪烁
+  const [showPendingBadge, setShowPendingBadge] = React.useState(false);
+  React.useEffect(() => {
+    if (pendingCount === 0) {
+      setShowPendingBadge(false);
+      return;
+    }
+    // pendingCount > 0 → 500ms 后才显示徽章
+    const timer = setTimeout(() => setShowPendingBadge(true), 500);
+    return () => clearTimeout(timer);
+  }, [pendingCount]);
 
   // 监听预输入事件（Tool 运行 → 预填输入框）
   React.useEffect(() => {
@@ -176,7 +197,8 @@ export function ChatInputArea({
   };
 
   const handleSend = () => {
-    if (!text.trim() || !isWsConnected) return;
+    // 仅当完全未连接时阻止发送；degraded 状态下允许发送（消息进入队列）
+    if (!text.trim() || (!isWsConnected && !isWsDegraded)) return;
     onSend(text);
     setText("");
     textareaRef.current?.focus();
@@ -203,23 +225,58 @@ export function ChatInputArea({
 
   return (
     <div className="shrink-0 border-t border-border bg-background px-4 pb-3 pt-2">
-      {/* 信息队列区 — AI 生成中时显示 */}
-      {pendingCount > 0 && (
+      {/* 信息队列区 — AI 生成中 / WS 不可用时显示
+       * v4.1：消息可见可操作（删除/清空整个队列）
+       * 队列徽章 500ms 延迟显示（避免普通消息闪烁） */}
+      {showPendingBadge && pendingCount > 0 && (
         <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-1.5">
           <div className="flex items-center gap-2 text-xs">
             <Clock className="h-3 w-3 text-amber-400" />
             <span className="text-amber-300">
               队列中 ({pendingCount}) — 当前生成完成后自动发送
             </span>
+            {onClearQueue && pendingCount > 1 && (
+              <button
+                onClick={onClearQueue}
+                className="text-[10px] text-amber-400/70 hover:text-amber-300 underline-offset-2 hover:underline transition-colors"
+                title="清空整个队列"
+              >
+                清空
+              </button>
+            )}
+            <div className="flex-1" />
+            <label
+              className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+              title="多条排队消息合并为一条发送"
+            >
+              <input
+                type="checkbox"
+                checked={mergeEnabled}
+                onChange={onMergeToggle}
+                className="h-3 w-3 cursor-pointer accent-primary"
+              />
+              合并发送
+            </label>
           </div>
           {pendingMessages.length > 0 && (
-            <div className="mt-1 space-y-0.5">
+            <div className="mt-1.5 space-y-1">
               {pendingMessages.map((msg, i) => (
                 <div
                   key={i}
-                  className="truncate pl-5 text-[10px] text-muted-foreground"
+                  className="group flex items-center gap-1.5 rounded bg-amber-500/[0.05] px-2 py-1 text-[11px]"
                 >
-                  {msg}
+                  <span className="shrink-0 text-amber-400/70 font-mono">#{i + 1}</span>
+                  <span className="flex-1 truncate text-foreground/80">{msg}</span>
+                  {onRemoveFromQueue && (
+                    <button
+                      onClick={() => onRemoveFromQueue(i)}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
+                      title="从队列移除该消息"
+                      aria-label="删除该队列消息"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -380,20 +437,6 @@ export function ChatInputArea({
 
         {/* C3c 发送区 */}
         <div className="flex items-center gap-1.5">
-          {/* TASK-0057: 合并发送 checkbox（方案 §3.4） */}
-          <label
-            className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none whitespace-nowrap"
-            title="多条排队消息合并为一条发送"
-          >
-            <input
-              type="checkbox"
-              checked={mergeEnabled}
-              onChange={onMergeToggle}
-              className="h-3 w-3 cursor-pointer accent-primary"
-            />
-            合并发送
-          </label>
-
           {/* 停止按钮 — 仅在流式生成中显示 */}
           {isStreaming && (
             <Button
@@ -420,13 +463,16 @@ export function ChatInputArea({
             </Button>
           )}
 
-          {/* 发送按钮 — WS 未连接或输入为空时禁用 */}
+          {/* 发送按钮 — WS 完全断连或输入为空时禁用；degraded 时可用（消息排队） */}
           <Button
             size="icon"
-            className="h-9 w-9 rounded-full"
+            className={cn(
+              "h-9 w-9 rounded-full",
+              isWsDegraded && "bg-amber-600/80 hover:bg-amber-600 text-amber-100",
+            )}
             onClick={handleSend}
-            disabled={!text.trim() || !isWsConnected}
-            title={!isWsConnected ? "WebSocket 未连接" : undefined}
+            disabled={!text.trim() || (!isWsConnected && !isWsDegraded)}
+            title={!isWsConnected && !isWsDegraded ? "WebSocket 未连接" : isWsDegraded ? "Gateway 繁忙，消息将排队发送" : undefined}
           >
             <Send className="h-4 w-4" />
           </Button>

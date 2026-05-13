@@ -82,6 +82,9 @@ export const GatewayContext = React.createContext<{
   /** WebSocket 是否已连接（由 ChatView 更新，供 Topbar 状态指示） */
   wsConnected: boolean;
   setWsConnected: (v: boolean) => void;
+  /** WS 已连接但 Event Loop 退化（"繁忙"状态） */
+  wsDegraded: boolean;
+  setWsDegraded: (v: boolean) => void;
 }>({
   port: 19789,
   token: "",
@@ -89,6 +92,8 @@ export const GatewayContext = React.createContext<{
   authReady: false,
   wsConnected: false,
   setWsConnected: () => {},
+  wsDegraded: false,
+  setWsDegraded: () => {},
 });
 
 const STORAGE_KEYS = {
@@ -221,6 +226,7 @@ export function AppShell() {
   const [gatewayToken, setGatewayToken] = React.useState<string>("");
   const [gatewayAuthReady, setGatewayAuthReady] = React.useState(false);
   const [wsConnected, setWsConnected] = React.useState(false);
+  const [wsDegraded, setWsDegraded] = React.useState(false);
   const [dccStatus, setDccStatus] = React.useState<{ name: string; connected: boolean }[]>([]);
   const [openclawInstalled, setOpenclawInstalled] = React.useState(true);
   const [showInstallDialog, setShowInstallDialog] = React.useState(false);
@@ -553,7 +559,7 @@ export function AppShell() {
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
-    <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady, wsConnected, setWsConnected }}>
+    <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady, wsConnected, setWsConnected, wsDegraded, setWsDegraded }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* Gateway 启动全屏遮罩 */}
       {gatewayStarting && !openclawInstalled === false && (
@@ -587,6 +593,7 @@ export function AppShell() {
         panelOpen={panelOpen}
         gatewayRunning={gatewayRunning}
         wsConnected={wsConnected}
+        wsDegraded={wsDegraded}
         dccStatus={dccStatus}
         onStartGateway={async () => {
           try {

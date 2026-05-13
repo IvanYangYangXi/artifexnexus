@@ -24,7 +24,7 @@ import { toast } from "@artifex-nexus/ui";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
-  const { port, token, running: gatewayRunning, authReady, setWsConnected } = React.useContext(GatewayContext);
+  const { port, token, running: gatewayRunning, authReady, setWsConnected, setWsDegraded } = React.useContext(GatewayContext);
   const pendingHandledRef = React.useRef(false);
 
   // 当前活跃的 sessionKey
@@ -206,16 +206,39 @@ export function ChatView() {
   const disconnectToastId = React.useRef<string | number | undefined>(undefined);
   // 首次成功连接标志：防止"已重新连接"在首次连接时误报
   const wasEverConnectedRef = React.useRef(false);
-  // degraded toast 5 秒延迟：短暂抖动不弹 toast，持续退化才提示
+  // degraded toast 30 秒延迟：短暂抖动不弹 toast，持续退化才提示
+  // FIX: 5s 太敏感，正常对话期间偶发的 health degraded（不到 5s 恢复）也会弹 toast
   const degradedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const degradedToastShownRef = React.useRef(false);
-  const DEGRADED_DEBOUNCE_MS = 5000;
+  const DEGRADED_DEBOUNCE_MS = 30000;
 
   // 同步 WS 状态到 GatewayContext（供 Topbar 状态指示使用）
   // "degraded" 也是已连接状态（WS 活跃，仅 Event Loop 繁忙），Topbar 应显示"已连接"
+  // v4 修复：wsConnected=false 加 3s 去抖，避免短暂 reconnect（< 3s）让 Topbar 闪黄
+  const wsConnectedDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => {
-    setWsConnected(chat.wsState === "connected" || chat.wsState === "degraded");
-  }, [chat.wsState, setWsConnected]);
+    const isConnected = chat.wsState === "connected" || chat.wsState === "degraded";
+    const isDegraded = chat.wsState === "degraded";
+    setWsDegraded(isDegraded); // degraded 是真实状态，立即同步
+    if (isConnected) {
+      // 连上了 → 立即更新（清除可能正在进行的去抖）
+      if (wsConnectedDebounceRef.current) {
+        clearTimeout(wsConnectedDebounceRef.current);
+        wsConnectedDebounceRef.current = null;
+      }
+      setWsConnected(true);
+    } else {
+      // 断开 → 3s 去抖（短暂重连不报黄）
+      if (wsConnectedDebounceRef.current) clearTimeout(wsConnectedDebounceRef.current);
+      wsConnectedDebounceRef.current = setTimeout(() => {
+        setWsConnected(false);
+        wsConnectedDebounceRef.current = null;
+      }, 3000);
+    }
+    return () => {
+      // unmount 不清理（让去抖有机会完成）
+    };
+  }, [chat.wsState, setWsConnected, setWsDegraded]);
 
   React.useEffect(() => {
     const was = prevWsState.current;
@@ -230,21 +253,47 @@ export function ChatView() {
     if (was === "connected" && now === "disconnected") {
       // 仅在曾经成功连接过后才弹断连 toast（首次启动 wsState 抖动忽略）
       if (!wasEverConnectedRef.current) return;
-      // Gateway 崩溃/断连 → 弹出持久 toast（带重启按钮，不自动消失）
+      // Gateway 崩溃/断连 → 弹出持久 toast（带重启按钮 + 取消按钮）
+      // FIX-BUG1: 之前用 duration:Infinity 且默认 dismissible=false（带 action 时），导致卡片永久无法关闭
+      console.log(`[toast] error: Gateway 连接已断开`);
       disconnectToastId.current = toast.error("Gateway 连接已断开", {
         description: "可能崩溃，点击重启恢复连接",
-        duration: Infinity,
+        duration: 60_000, // 60s 后自动消失，避免永久卡屏
+        dismissible: true, // 允许手动关闭
+        closeButton: true, // 显示 ✕ 按钮
         action: {
           label: "重启 Gateway",
           onClick: () => handleRestartGateway(),
         },
+        cancel: {
+          label: "关闭",
+          onClick: () => {
+            if (disconnectToastId.current) {
+              toast.dismiss(disconnectToastId.current);
+              disconnectToastId.current = undefined;
+            }
+          },
+        },
       });
     } else if (now === "connecting" && disconnectToastId.current) {
-      // 正在重连 → 替换为 loading toast
-      toast.loading("正在重连 Gateway...", { id: disconnectToastId.current });
-    } else if (now === "connected" && disconnectToastId.current) {
-      // 重连成功 → 替换为成功 toast（2s 后消失）
+      // 正在重连 → 替换为 loading toast（保留可关闭）
+      console.log(`[toast] loading: 正在重连 Gateway...`);
+      toast.loading("正在重连 Gateway...", {
+        id: disconnectToastId.current,
+        duration: 30_000,
+        dismissible: true,
+        closeButton: true,
+      });
+    } else if ((now === "connected" || now === "degraded") && disconnectToastId.current) {
+      // 重连成功（含 degraded）→ 强制清理重启卡片
+      // FIX-BUG1: 原代码只处理 connected 不处理 degraded，导致重连后立刻进入 degraded 时卡片不消失
+      console.log(`[toast] success: Gateway 已重新连接 (state=${now})`);
       toast.success("Gateway 已重新连接", { id: disconnectToastId.current, duration: 2000 });
+      // 防御性 dismiss：500ms 后强制移除（即使 success 渲染失败）
+      const idToClear = disconnectToastId.current;
+      setTimeout(() => {
+        if (idToClear) toast.dismiss(idToClear);
+      }, 2500);
       disconnectToastId.current = undefined;
     } else if (now === "connected" && was === "degraded") {
       // degraded → connected：取消待弹 toast
@@ -259,6 +308,7 @@ export function ChatView() {
         degradedTimerRef.current = setTimeout(() => {
           degradedTimerRef.current = null;
           degradedToastShownRef.current = true;
+          console.log(`[toast] warning: Gateway 事件循环繁忙 (延迟=${DEGRADED_DEBOUNCE_MS}ms 持续退化)`);
           disconnectToastId.current = toast.warning("Gateway 事件循环繁忙", {
             description: "消息可能延迟响应，请稍等片刻...",
             duration: 5000,
@@ -266,6 +316,8 @@ export function ChatView() {
           // 3 分钟后允许再次提示
           setTimeout(() => { degradedToastShownRef.current = false; }, 3 * 60 * 1000);
         }, DEGRADED_DEBOUNCE_MS);
+      } else if (degradedTimerRef.current) {
+        console.log(`[toast] degraded debouncing (${Math.round((Date.now() - (prevWsState.current === "degraded" ? 0 : Date.now())) / 1000)}s remaining)`);
       }
     }
 
@@ -278,6 +330,7 @@ export function ChatView() {
   // 手动重启 Gateway
   async function handleRestartGateway() {
     if (disconnectToastId.current) {
+      console.log(`[toast] loading: 正在重启 Gateway...`);
       toast.loading("正在重启 Gateway...", { id: disconnectToastId.current });
     }
     try {
@@ -286,6 +339,7 @@ export function ChatView() {
       await ipc.restartGateway({ port: port });
     } catch (err) {
       console.warn("[ChatView] restart gateway failed:", err);
+      console.log(`[toast] error: 重启 Gateway 失败 err=${String(err)}`);
       toast.error("重启 Gateway 失败", { description: String(err) });
     }
   }
@@ -293,6 +347,7 @@ export function ChatView() {
   // chat.error → toast 通知
   React.useEffect(() => {
     if (chat.error) {
+      console.log(`[toast] error (chat.error): ${chat.error}`);
       toast.error(chat.error, { duration: 5000 });
     }
   }, [chat.error]);
@@ -385,9 +440,12 @@ export function ChatView() {
         canResume={chat.cancelledMessageId !== null && !chat.isStreaming}
         pendingCount={chat.pendingQueue.length}
         pendingMessages={chat.pendingQueue}
+        onRemoveFromQueue={chat.removeFromQueue}
+        onClearQueue={chat.clearQueue}
         sessionFiles={[]}
         onNewSession={() => setNewSessionDialogOpen(true)}
         isWsConnected={chat.wsState === "connected" || chat.wsState === "degraded"}
+        isWsDegraded={chat.wsState === "degraded"}
         mergeEnabled={chat.mergeEnabled}
         onMergeToggle={chat.toggleMerge}
       />
@@ -456,8 +514,8 @@ function PendingSessionBanner({ agentId, model, thinking, onCancel }: PendingSes
 
 // ─── WS 状态浮层横幅 ────────────────────────────────────────────────────────
 //
-// 仅在真正的断连/连接中显示，degraded 由 toast 处理（5s 自动消失 + 3min 冷却）。
-// 浮于消息流上方，不挤占布局空间。样式匹配项目暗色玻璃态设计语言。
+// 连接中 / 断连 / 繁忙 统一在此显示浮层横幅，确保用户能感知 Gateway/WS 的实际状态。
+// degraded 不再仅依赖 toast（5s 后自动消失），同时显示持久横幅。
 
 interface WsStatusBannerProps {
   wsState: "disconnected" | "connecting" | "connected" | "degraded";
@@ -466,37 +524,49 @@ interface WsStatusBannerProps {
 }
 
 function WsStatusBanner({ wsState, gatewayRunning, onRestartGateway }: WsStatusBannerProps) {
-  // connected → 不显示；degraded → 不显示（仅 toast，不持久横幅）
-  if (wsState === "connected" || wsState === "degraded") return null;
+  // connected → 不显示
+  if (wsState === "connected") return null;
 
   const isConnecting = wsState === "connecting";
+  const isDegraded = wsState === "degraded";
   const gwDown = !gatewayRunning && wsState === "disconnected";
 
-  // 连接中/等待连接 → 低关注度信息条（自动消失，不阻塞交互）
-  if (!gwDown) {
+  // Gateway 未运行 → 高关注度横幅（全宽浮层 + 启动按钮）
+  if (gwDown) {
     return (
-      <div className="absolute top-2 left-1/2 z-10 -translate-x-1/2 flex items-center gap-2 rounded-full border border-white/[0.08] bg-card/90 backdrop-blur-md px-3.5 py-1.5 text-xs text-muted-foreground shadow-lg">
-        <span className="flex h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-        <span>
-          {isConnecting ? "正在建立连接..." : "Gateway 运行中，等待 WebSocket 连接..."}
-        </span>
+      <div className="absolute top-2 left-2 right-2 z-10 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-card/95 backdrop-blur-md px-3 py-2 text-xs shadow-lg">
+        <svg className="h-3.5 w-3.5 shrink-0 text-destructive" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+        </svg>
+        <span className="flex-1 text-foreground/80">Gateway 未运行，聊天功能不可用</span>
+        <button
+          onClick={onRestartGateway}
+          className="shrink-0 rounded-md border border-white/[0.10] bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-white/[0.12] hover:text-foreground"
+        >
+          启动 Gateway
+        </button>
       </div>
     );
   }
 
-  // Gateway 未运行 → 高关注度横幅（全宽浮层 + 启动按钮）
+  // WS 已连接但 Event Loop 退化 → 琥珀色"繁忙"横幅
+  if (isDegraded) {
+    return (
+      <div className="absolute top-2 left-1/2 z-10 -translate-x-1/2 flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/[0.08] backdrop-blur-md px-3.5 py-1.5 text-xs shadow-lg">
+        <span className="flex h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.6)]" />
+        <span className="text-amber-400 font-medium">Gateway 繁忙</span>
+        <span className="text-amber-400/60">— 消息将排队等待，请稍候...</span>
+      </div>
+    );
+  }
+
+  // 连接中/等待连接 → 低关注度信息条
   return (
-    <div className="absolute top-2 left-2 right-2 z-10 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-card/95 backdrop-blur-md px-3 py-2 text-xs shadow-lg">
-      <svg className="h-3.5 w-3.5 shrink-0 text-destructive" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
-      </svg>
-      <span className="flex-1 text-foreground/80">Gateway 未运行，聊天功能不可用</span>
-      <button
-        onClick={onRestartGateway}
-        className="shrink-0 rounded-md border border-white/[0.10] bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-white/[0.12] hover:text-foreground"
-      >
-        启动 Gateway
-      </button>
+    <div className="absolute top-2 left-1/2 z-10 -translate-x-1/2 flex items-center gap-2 rounded-full border border-white/[0.08] bg-card/90 backdrop-blur-md px-3.5 py-1.5 text-xs text-muted-foreground shadow-lg">
+      <span className="flex h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+      <span>
+        {isConnecting ? "正在建立连接..." : "Gateway 运行中，等待 WebSocket 连接..."}
+      </span>
     </div>
   );
 }

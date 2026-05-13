@@ -20,6 +20,7 @@ import type {
   GatewayChatEvent,
 } from "./types";
 import { GatewayWebSocket } from "./gateway-ws";
+import type { SendResult } from "./gateway-ws";
 
 // ─── 内存消息缓存（同步，跟 ArtClawToolManager cachedMessages 同思路）────
 // 按 sessionKey 缓存消息数组。切对话时同步存/取，零延迟。
@@ -62,13 +63,16 @@ function persistMessages(sessionKey: string, messages: ChatMessage[]): void {
 export type ChatAction =
   | { type: "ADD_USER_MESSAGE"; text: string }
   | { type: "START_STREAMING"; messageId: string }
-  | { type: "APPEND_DELTA"; text: string }
+  | { type: "APPEND_DELTA"; text: string; targetMessageId?: string }
   | { type: "UPDATE_TOOL_CALL"; toolCallId: string; update: Partial<ToolCall> }
-  | { type: "FINISH_STREAMING" }
+  | { type: "FINISH_STREAMING"; targetMessageId?: string }
+  | { type: "BIND_RUN_ID"; messageId: string; runId: string }
   | { type: "SET_ERROR"; error: string }
   | { type: "STOP" }
   | { type: "ENQUEUE"; text: string }
   | { type: "DEQUEUE" }
+  | { type: "DEQUEUE_BY_TEXT"; text: string }
+  | { type: "DEQUEUE_AT"; index: number }
   | { type: "SET_SESSION"; session: ChatSession }
   | { type: "SET_SESSIONS"; sessions: ChatSession[] }
   | { type: "CLEAR_MESSAGES" }
@@ -90,8 +94,15 @@ export interface ChatServiceState {
 
 // ─── Reducer ───────────────────────────────────────────────────────────────
 
-let msgSeq = 0;
-function genMsgId(): string { msgSeq++; return `msg-${Date.now()}-${msgSeq}`; }
+  let msgSeq = 0;
+  function genMsgId(): string { msgSeq++; return `msg-${Date.now()}-${msgSeq}`; }
+  /** 生成消息追踪 ID，贯穿 sendMessage → sendChat → gateway → 回复全链路 */
+  function genTraceId(): string { msgSeq++; return `tr-${Date.now().toString(36)}-${msgSeq}`; }
+
+  // ─── 埋点：消息发送/接收日志（诊断用）───────────────────────────────
+  function _trace(label: string, traceId: string, detail: string): void {
+    console.log(`[chat] ${label} | trace=${traceId.slice(0,10)} | ${detail}`);
+  }
 
 export function chatReducer(state: ChatServiceState, action: ChatAction): ChatServiceState {
   switch (action.type) {
@@ -99,12 +110,33 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
       return { ...state, messages: [...state.messages, { id: genMsgId(), role: "user", content: action.text, timestamp: new Date().toISOString() }], error: null };
     case "START_STREAMING":
       return { ...state, messages: [...state.messages, { id: action.messageId, role: "assistant", content: "", timestamp: new Date().toISOString(), isStreaming: true }], streamingMessageId: action.messageId, chatState: "streaming" };
-    case "APPEND_DELTA":
-      return { ...state, messages: state.messages.map(m => m.id === state.streamingMessageId ? { ...m, content: m.content + action.text } : m) };
+    case "APPEND_DELTA": {
+      // v4.1.2: 优先用 targetMessageId（按 runId 关联的消息），fallback 到 streamingMessageId
+      const targetId = action.targetMessageId ?? state.streamingMessageId;
+      return { ...state, messages: state.messages.map(m => m.id === targetId ? { ...m, content: m.content + action.text } : m) };
+    }
     case "UPDATE_TOOL_CALL":
       return { ...state, messages: state.messages.map(m => { if (m.id !== state.streamingMessageId) return m; const existing = m.toolCalls ?? []; const idx = existing.findIndex(tc => tc.id === action.toolCallId); const updated = idx >= 0 ? existing.map(tc => tc.id === action.toolCallId ? { ...tc, ...action.update } : tc) : [...existing, { id: action.toolCallId, name: "", status: "running" as const, ...action.update }]; return { ...m, toolCalls: updated }; }), chatState: "tool_executing" };
-    case "FINISH_STREAMING":
-      return { ...state, messages: state.messages.map(m => m.id === state.streamingMessageId ? { ...m, isStreaming: false } : m), streamingMessageId: null, chatState: "idle", cancelledMessageId: null };
+    case "FINISH_STREAMING": {
+      // v4.1.2: 优先用 targetMessageId（按 runId 关联），只 finish 该条；
+      // 没有 targetMessageId 时（兜底）finish 当前 streaming 占位
+      const targetId = action.targetMessageId ?? state.streamingMessageId;
+      const newStreamingId = action.targetMessageId && action.targetMessageId !== state.streamingMessageId
+        ? state.streamingMessageId  // 只 finish 了别的消息，当前 streaming 不变
+        : null;
+      const newChatState = newStreamingId ? state.chatState : "idle";
+      return {
+        ...state,
+        messages: state.messages.map(m => m.id === targetId ? { ...m, isStreaming: false } : m),
+        streamingMessageId: newStreamingId,
+        chatState: newChatState as ChatState,
+        cancelledMessageId: newStreamingId ? state.cancelledMessageId : null,
+      };
+    }
+    case "BIND_RUN_ID": {
+      // 把 runId 绑到指定消息（首次见到该 runId 时调用）
+      return { ...state, messages: state.messages.map(m => m.id === action.messageId ? { ...m, runId: action.runId } : m) };
+    }
     case "SET_ERROR":
       return { ...state, messages: state.messages.map(m => m.id === state.streamingMessageId ? { ...m, isStreaming: false } : m), streamingMessageId: null, chatState: "error", error: action.error };
     case "STOP":
@@ -115,22 +147,79 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "DEQUEUE":
       if (state.pendingQueue.length === 0) return state;
       return { ...state, pendingQueue: state.pendingQueue.slice(1) };
+    case "DEQUEUE_BY_TEXT": {
+      // FIX: 精准移除指定文本（首次出现），不影响其他消息
+      const idx = state.pendingQueue.indexOf(action.text);
+      if (idx < 0) return state;
+      const next = [...state.pendingQueue];
+      next.splice(idx, 1);
+      return { ...state, pendingQueue: next };
+    }
+    case "DEQUEUE_AT": {
+      // 按 index 精准移除（用户操作：删除队列中第 N 条）
+      if (action.index < 0 || action.index >= state.pendingQueue.length) return state;
+      const next = [...state.pendingQueue];
+      next.splice(action.index, 1);
+      return { ...state, pendingQueue: next };
+    }
     case "SET_SESSION":
-      return { ...state, messages: action.session.messages, activeSessionId: action.session.id, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+      // FIX: 切换会话清空 pendingQueue（队列消息属于上一个会话，新会话不应该继承）
+      return { ...state, messages: action.session.messages, activeSessionId: action.session.id, pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     case "SET_SESSIONS":
       return { ...state, sessions: action.sessions };
     case "CLEAR_MESSAGES":
-      return { ...state, messages: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
-    case "RESET_STATE":
-      // Gateway 断连时清理：把所有 isStreaming 的消息标记为完成，避免 UI 卡在流式状态。
-      // 注意：不清 cancelledMessageId，避免破坏 stop() → resume() 链路。
-      // pendingQueue 残留的排队消息在断连后永远无法处理（processQueue 仅在 Gateway final 事件触发），
-      // 必须清理。mergeEnabled 不重置（用户偏好跨重连保留）。
-      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: state.cancelledMessageId };
+      // FIX: 同样清空 pendingQueue
+      return { ...state, messages: [], pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+    case "RESET_STATE": {
+      // Gateway 断连时清理。
+      // v4.1.3 修复：以前只把 isStreaming 置 false 留下空回复占位，UI 永远显示空白消息。
+      // 新策略：
+      //   - 内容为空 + 无 toolCalls 的 streaming 占位 → 直接从 messages 移除（彻底没回复）
+      //   - 同时找到这些占位"前面那条用户消息" → 重新入队等重连后自动重发
+      //   - 有内容/有 toolCalls 的 streaming 占位 → 仅置 isStreaming=false（保留已收到的部分）
+      const newMessages: ChatMessage[] = [];
+      const reEnqueueTexts: string[] = [];
+      for (let i = 0; i < state.messages.length; i++) {
+        const m = state.messages[i];
+        const isEmptyStreaming = m.isStreaming && m.role === "assistant" && !m.content && (!m.toolCalls || m.toolCalls.length === 0);
+        if (isEmptyStreaming) {
+          // 找前一条 user 消息，重新入队
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = state.messages[j];
+            if (prev.role === "user") {
+              reEnqueueTexts.push(prev.content);
+              break;
+            }
+          }
+          // 跳过该空回复占位（不加入 newMessages）
+          continue;
+        }
+        if (m.isStreaming) {
+          newMessages.push({ ...m, isStreaming: false });
+        } else {
+          newMessages.push(m);
+        }
+      }
+      // 把要重新入队的文本加到 pendingQueue 头部（保留原有队列在后）
+      const newPendingQueue = [...reEnqueueTexts, ...state.pendingQueue];
+      if (reEnqueueTexts.length > 0) {
+        console.log(`[chat] RESET_STATE: re-enqueueing ${reEnqueueTexts.length} unanswered user messages`);
+      }
+      return {
+        ...state,
+        messages: newMessages,
+        pendingQueue: newPendingQueue,
+        chatState: "idle",
+        streamingMessageId: null,
+        error: null,
+        cancelledMessageId: state.cancelledMessageId,
+      };
+    }
     case "TOGGLE_MERGE":
       return { ...state, mergeEnabled: !state.mergeEnabled };
     case "LOAD_HISTORY":
-      return { ...state, messages: action.messages, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+      // FIX: 加载历史时清空 pendingQueue
+      return { ...state, messages: action.messages, pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     default:
       return state;
   }
@@ -172,6 +261,15 @@ export function useChatService(options: ChatServiceOptions) {
   /** Ref mirror of state for callbacks that run in stale closures (processQueue, handleGatewayEvent) */
   const stateRef = React.useRef(state);
   stateRef.current = state;
+  /** FIX-BUG3: 用 ref 跟踪 prevDegraded，避免 healthInterval 闭包捕获过期值 */
+  const prevDegradedRef = React.useRef(false);
+  /** v4 重构：processQueue 防重入（同时只有一次 chat.send 在飞） */
+  const sendingRef = React.useRef(false);
+  /** v4.1.2: runId → 对应的 assistant messageId 映射。
+   *  Gateway 多个 runId 事件可能交错，用此 map 保证内容写到正确的消息上。 */
+  const runIdToMsgIdRef = React.useRef<Map<string, string>>(new Map());
+  /** v4.1.2: 每个 runId 累积文本（替代单一 lastTextRef），避免不同 run 互相影响 */
+  const runIdToLastTextRef = React.useRef<Map<string, string>>(new Map());
 
   // ─── 消息变化时自动同步内存缓存 + localStorage ──────────────────────
   // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
@@ -181,6 +279,53 @@ export function useChatService(options: ChatServiceOptions) {
       persistMessages(sessionKeyRef.current, state.messages);
     }
   }, [state.messages, state.streamingMessageId]);
+
+  // v4.1 关键修复：状态机驱动器
+  // 当 chatState 变为 idle 且 pendingQueue 非空 → 自动 processQueue
+  // 这是除 final/onReadyChange 之外的最终防御，确保队列不会卡住
+  React.useEffect(() => {
+    if (state.chatState === "idle" && state.pendingQueue.length > 0 && !sendingRef.current) {
+      console.log(`[chat] auto-driver: chatState=idle + pendingQueue[${state.pendingQueue.length}] → processQueue`);
+      // setTimeout 0 让 React commit 完成
+      const timer = setTimeout(() => processQueue(), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [state.chatState, state.pendingQueue.length]);
+
+  // v4.1 sendingRef 安全网：90 秒超时强制重置（防止异常路径让 sendingRef=true 永久残留 → 队列死锁）
+  React.useEffect(() => {
+    if (!sendingRef.current) return;
+    const timer = setTimeout(() => {
+      if (sendingRef.current) {
+        console.warn(`[chat] sendingRef stuck at true for 90s → force reset`);
+        sendingRef.current = false;
+        // 强制驱动一次队列
+        if (stateRef.current.pendingQueue.length > 0) {
+          processQueue();
+        }
+      }
+    }, 90_000);
+    return () => clearTimeout(timer);
+  }, [state.chatState]);
+
+  // v4.1.3：streaming 超时检测
+  // 如果 START_STREAMING 后 60 秒还没收到任何 chat 事件（content 仍空 + 无 toolCalls），
+  // 认为 Gateway 异常 / 崩溃 → 把对应 user 消息重新入队 + 移除空占位
+  // 触发 RESET_STATE 同款逻辑
+  React.useEffect(() => {
+    const sid = state.streamingMessageId;
+    if (!sid) return;
+    const STREAMING_TIMEOUT_MS = 60_000;
+    const checkTimer = setTimeout(() => {
+      const cur = stateRef.current.messages.find(m => m.id === sid);
+      if (cur && cur.isStreaming && !cur.content && (!cur.toolCalls || cur.toolCalls.length === 0)) {
+        console.warn(`[chat] streaming timeout: msg=${sid.slice(0,10)} 60s no chat event → recover via RESET_STATE`);
+        // 用 RESET_STATE 恢复（移除空占位 + 重新入队前一条 user 消息）
+        dispatch({ type: "RESET_STATE" });
+      }
+    }, STREAMING_TIMEOUT_MS);
+    return () => clearTimeout(checkTimer);
+  }, [state.streamingMessageId]);
 
   // ─── Gateway 连接管理 ─────────────────────────────────────────────────
   // 关键：仅在 gatewayRunning=true 且 authReady=true 时才建 WS，
@@ -218,6 +363,16 @@ export function useChatService(options: ChatServiceOptions) {
       handleGatewayEvent(event);
     });
 
+    // v4 重构：监听 WS ready 状态变化，驱动 pendingQueue
+    // gateway-ws 不再持有队列；ready=true 时 chat-service 主动 processQueue
+    ws.onReadyChange(({ ready, reason }) => {
+      console.log(`[chat] READY-CHANGE ready=${ready} reason=${reason} pendingQueue=${stateRef.current.pendingQueue.length}`);
+      if (ready && stateRef.current.pendingQueue.length > 0 && stateRef.current.chatState === "idle") {
+        console.log(`[chat] READY: triggering processQueue`);
+        queueMicrotask(() => processQueue()); // v4: 异步避免 stale state
+      }
+    });
+
     ws.connect().catch((err) => {
       console.error("[chat-service] gateway-ws connect failed:", err);
     });
@@ -227,9 +382,16 @@ export function useChatService(options: ChatServiceOptions) {
     const healthInterval = setInterval(() => {
       if (cancelled) return;
       const degraded = ws.eventLoopDegraded;
+      const prevDegraded = prevDegradedRef.current; // FIX-BUG3: 用 ref 不用 stale state
       // 仅在状态变化时打日志，避免刷屏
-      if (degraded !== eventLoopDegraded) {
-        console.log(`[chat-service] healthInterval: eventLoopDegraded ${eventLoopDegraded} → ${degraded}, ws.state=${ws.state}`);
+      if (degraded !== prevDegraded) {
+        console.log(`[chat] health: eventLoopDegraded ${prevDegraded} → ${degraded} ws=${ws.state}`);
+        // EventLoop 恢复 → 重试 pendingQueue 中滞留的消息
+        if (prevDegraded && !degraded && stateRef.current.pendingQueue.length > 0) {
+          console.log(`[chat] health: EventLoop recovered, retrying pendingQueue[${stateRef.current.pendingQueue.length}]`);
+          queueMicrotask(() => processQueue()); // v4: 异步触发
+        }
+        prevDegradedRef.current = degraded; // 同步 ref
       }
       setEventLoopDegraded(degraded);
       // P2-8：同步 MCP Bridge 可用性
@@ -258,17 +420,74 @@ export function useChatService(options: ChatServiceOptions) {
     };
   }, [gatewayPort, gatewayToken, gatewayRunning, authReady]);
 
-  // ─── Gateway 事件处理（b5bfb7e 原始逻辑） ─────────────────────────────
+  // ─── Gateway 事件处理（v4.1.2：runId 关联消息） ─────────────────────
+
+  /**
+   * 解析 chat 事件 → 找到/创建对应的 messageId（按 runId 关联）。
+   * 返回 { msgId, isNew }：msgId 为本事件应该写入的消息 ID；isNew=true 表示刚为这个 runId 创建了新占位。
+   */
+  function _resolveTargetMessage(runId: string | undefined, hasContent: boolean): { msgId: string | null; isNew: boolean } {
+    // 无 runId：fallback 用当前 streaming 占位
+    if (!runId) {
+      const cur = stateRef.current.streamingMessageId;
+      if (cur) return { msgId: cur, isNew: false };
+      // 极端：没有当前 streaming 又没 runId → 兜底创建（防御性）
+      if (hasContent) {
+        const newId = genMsgId();
+        console.warn(`[chat] AUTO-STREAM (no runId, no current streaming): id=${newId.slice(0,10)}`);
+        dispatch({ type: "START_STREAMING", messageId: newId });
+        return { msgId: newId, isNew: true };
+      }
+      return { msgId: null, isNew: false };
+    }
+
+    // 有 runId：查 map
+    const existing = runIdToMsgIdRef.current.get(runId);
+    if (existing) return { msgId: existing, isNew: false };
+
+    // 首次见到此 runId：尝试绑到当前 streaming 占位（最常见情况：刚 sendChat 后第一个事件）
+    const curStreaming = stateRef.current.streamingMessageId;
+    if (curStreaming) {
+      // 检查这个 streaming 占位是否还没绑 runId
+      const curMsg = stateRef.current.messages.find(m => m.id === curStreaming);
+      if (curMsg && !curMsg.runId) {
+        runIdToMsgIdRef.current.set(runId, curStreaming);
+        dispatch({ type: "BIND_RUN_ID", messageId: curStreaming, runId });
+        console.log(`[chat] BIND runId=${runId.slice(0,8)} → msg=${curStreaming.slice(0,10)}`);
+        return { msgId: curStreaming, isNew: false };
+      }
+    }
+
+    // 当前 streaming 占位已绑了别的 runId（或无占位）→ 为此 runId 新建占位
+    if (hasContent) {
+      const newId = genMsgId();
+      console.warn(`[chat] AUTO-STREAM for new runId=${runId.slice(0,8)}: id=${newId.slice(0,10)} (current streaming=${curStreaming ?? "none"})`);
+      runIdToMsgIdRef.current.set(runId, newId);
+      dispatch({ type: "START_STREAMING", messageId: newId });
+      dispatch({ type: "BIND_RUN_ID", messageId: newId, runId });
+      return { msgId: newId, isNew: true };
+    }
+
+    return { msgId: null, isNew: false };
+  }
 
   function handleGatewayEvent(event: GatewayChatEvent) {
-    console.debug(`[chat-service] event: state=${event.state} session=${sessionKeyRef.current?.slice(0,12)}...`);
+    const sId = state.streamingMessageId?.slice(0,10) ?? "none";
+    const runIdShort = event.runId?.slice(0,8) ?? "none";
+    _trace("RECV", sId, `state=${event.state} runId=${runIdShort} hasMsg=${!!event.message} msgLen=${event.message?.length??0} hasTool=${!!event.toolCall}`);
     switch (event.state) {
       case "delta": {
+        // 处理文本内容：按 runId 关联到对应消息
         if (event.message) {
-          const lastText = lastTextRef.current;
-          const incremental = event.message.startsWith(lastText) ? event.message.slice(lastText.length) : event.message;
-          lastTextRef.current = event.message;
-          if (incremental) dispatch({ type: "APPEND_DELTA", text: incremental });
+          const { msgId } = _resolveTargetMessage(event.runId, true);
+          if (msgId) {
+            // 累积式增量计算（按 runId 独立）
+            const runKey = event.runId ?? "_no_runid_";
+            const lastText = runIdToLastTextRef.current.get(runKey) ?? "";
+            const incremental = event.message.startsWith(lastText) ? event.message.slice(lastText.length) : event.message;
+            runIdToLastTextRef.current.set(runKey, event.message);
+            if (incremental) dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
+          }
         }
         if (event.toolCall) {
           const tc = event.toolCall;
@@ -289,9 +508,35 @@ export function useChatService(options: ChatServiceOptions) {
           dispatch({ type: "UPDATE_TOOL_CALL", toolCallId: event.toolOutput.toolCallId, update: { output: event.toolOutput.output, status: event.toolOutput.exitCode === 0 ? "done" : "error", durationMs: event.toolOutput.durationMs } });
           break;
         }
-        dispatch({ type: "FINISH_STREAMING" });
-        lastTextRef.current = "";
-        processQueue();
+        // 处理 final.message（gateway 可能跳过 delta 直接发 final 含完整文本）
+        let targetMsgId: string | null = null;
+        if (event.message) {
+          const { msgId } = _resolveTargetMessage(event.runId, true);
+          targetMsgId = msgId;
+          if (msgId) {
+            const runKey = event.runId ?? "_no_runid_";
+            const lastText = runIdToLastTextRef.current.get(runKey) ?? "";
+            const incremental = event.message.startsWith(lastText) ? event.message.slice(lastText.length) : event.message;
+            if (incremental) {
+              console.log(`[chat] final: appending ${incremental.length} chars to msg=${msgId.slice(0,10)} runId=${runIdShort}`);
+              dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
+              runIdToLastTextRef.current.set(runKey, event.message);
+            }
+          }
+        } else {
+          // 无 message 的 final：找 runId 对应消息（仅 finish 该消息，不影响其他 streaming）
+          const { msgId } = _resolveTargetMessage(event.runId, false);
+          targetMsgId = msgId;
+        }
+        // 仅 finish 关联的消息（不无脑清掉 streamingMessageId）
+        dispatch({ type: "FINISH_STREAMING", targetMessageId: targetMsgId ?? undefined });
+        // 清理该 runId 的累积缓存
+        if (event.runId) {
+          runIdToLastTextRef.current.delete(event.runId);
+          runIdToMsgIdRef.current.delete(event.runId);
+        }
+        // v4 修复：reducer commit 是 React batch，setTimeout(0) 等下一个 tick
+        setTimeout(() => processQueue(), 0);
         break;
       }
       case "aborted":
@@ -324,36 +569,123 @@ export function useChatService(options: ChatServiceOptions) {
     // 无效 sessionKey → 崩溃 / WS 断连。
   }
 
+  // ─── v4 重构核心：单一队列 + 单一驱动器 ─────────────────────────────
+  //
+  // 设计原则：
+  // 1. **唯一队列**：chat-service.pendingQueue 是消息排队的唯一来源。gateway-ws 不再持有队列。
+  // 2. **唯一发送函数**：_doSend(text) 只负责发送 → 成功创建 streaming，失败保留消息在队列。
+  // 3. **唯一驱动器**：processQueue() 检查 ready + idle，从 pendingQueue 取头部发送。
+  // 4. **驱动事件**：(a) sendMessage 入队后触发 (b) FINISH_STREAMING (c) WS ready 变化 (d) EventLoop recovered
+  // 5. **防重入**：sendingRef 保证同时只有一次 chat.send 在飞，避免双发。
+
+  /**
+   * v4.1 修订：用户主动发送一条消息。
+   *
+   * 队列管理策略（用户期待）：
+   *   - 队列中的消息**必须可见、可撤回、可删除**（在徽章里展示）
+   *   - 普通对话：当前 idle + WS ready → 直接发送（不入队），用户感知零延迟
+   *   - 生成中 / WS 不 ready → 入队，用户能看到队列中的消息并删除
+   *
+   * UI 期待：
+   *   - 普通发消息不应该闪一下队列徽章
+   *   - 生成中发的消息出现在队列里 + 队列徽章可见可操作
+   *
+   * 注意：
+   *   - 入队的消息**不立即** ADD_USER_MESSAGE（避免对话框重复显示）
+   *   - 直到从队列拉出实际发送时才 ADD_USER_MESSAGE
+   */
   async function sendMessage(text: string): Promise<void> {
     if (!text.trim()) return;
-    if (!sessionKeyRef.current) { dispatch({ type: "SET_ERROR", error: "请先选择一个对话" }); return; }
-    console.log(`[chat-service] sendMessage: session=${sessionKeyRef.current.slice(0,12)}... text=${text.length}B`);
-    if (state.chatState === "sending" || state.chatState === "streaming" || state.chatState === "tool_executing") {
-      console.debug("[chat-service] sendMessage: enqueued (busy state)");
-      dispatch({ type: "ADD_USER_MESSAGE", text }); dispatch({ type: "ENQUEUE", text }); return;
+    if (!sessionKeyRef.current) {
+      dispatch({ type: "SET_ERROR", error: "请先选择一个对话" });
+      return;
     }
-    dispatch({ type: "ADD_USER_MESSAGE", text });
+    const traceId = genTraceId();
     const ws = wsRef.current;
-    // TASK-0057: 移除 isSendReady() 阻断逻辑，仅保留 ws === null 空值守卫。
-    // 所有其他状态（connected/degraded/reconnecting）直接委托给 sendChat() 内部排队。
+    const canSendNow =
+      stateRef.current.chatState === "idle" &&
+      stateRef.current.pendingQueue.length === 0 &&
+      ws !== null && ws.isSendReady();
+    _trace("SEND", traceId, `text="${text.slice(0,50)}" (${text.length}B) chatState=${state.chatState} canSendNow=${canSendNow}`);
+
+    if (canSendNow) {
+      // 直接发送路径：ADD_USER_MESSAGE → _doSend
+      // 不入队，避免徽章闪烁
+      dispatch({ type: "ADD_USER_MESSAGE", text });
+      sendingRef.current = true;
+      _doSend(text, traceId, /*alreadyShown=*/true);
+    } else {
+      // 入队路径：仅 ENQUEUE（不 ADD_USER_MESSAGE，避免对话框重复显示）
+      // 消息会留在队列里，用户可见、可删除；从队列发出时才 ADD_USER_MESSAGE
+      _trace("ENQUEUE", traceId, `chatState=${state.chatState} ws.ready=${ws?.isSendReady()} → enqueue`);
+      dispatch({ type: "ENQUEUE", text });
+      // 触发驱动器（防御：如果 idle 但 ws 未 ready，等 onReadyChange 触发；否则 setTimeout 后会发出）
+      setTimeout(() => processQueue(), 0);
+    }
+  }
+
+  /**
+   * v4.1 修订：实际发送一条消息到 Gateway。
+   *
+   * 调用约定：
+   *   - 调用方必须保证 sendingRef.current === false 之前已设置 true
+   *   - 调用方负责传入 `alreadyShown`：
+   *       - true：消息已 ADD_USER_MESSAGE（直发路径）→ 本函数不再 ADD
+   *       - false：从队列拉出来的（队列路径）→ 本函数 ADD_USER_MESSAGE 显示
+   *   - 队列路径下还要 DEQUEUE_BY_TEXT（成功后从队列移除）
+   *   - 失败：直发路径不入队（已经在对话框显示）；队列路径保留在队列
+   */
+  async function _doSend(text: string, traceId: string, alreadyShown: boolean): Promise<void> {
+    if (!sessionKeyRef.current) {
+      sendingRef.current = false;
+      return;
+    }
+    const ws = wsRef.current;
     if (!ws) {
-      dispatch({ type: "SET_ERROR", error: gatewayRunning ? "连接未建立，请稍等重试" : "Gateway 未启动" });
+      _trace("DO-SEND-ERR", traceId, `ws=null gwRunning=${gatewayRunning}`);
+      sendingRef.current = false;
       return;
     }
-    // TASK-0057: 先调用 sendChat()，成功后再创建占位气泡，消除空假回复（方案 §3.6 修复 A）
     const cfg = selectedConfig.current;
-    const ok = await ws.sendChat({
-      sessionKey: sessionKeyRef.current,
-      message: text,
-      thinking: cfg.thinking,
-    });
-    if (!ok) {
-      dispatch({ type: "SET_ERROR", error: "发送失败或消息已排队，请稍等重试" });
-      return;
+    _trace("DO-SEND", traceId, `text="${text.slice(0,40)}..." alreadyShown=${alreadyShown}`);
+    try {
+      const result: SendResult = await ws.sendChat({
+        sessionKey: sessionKeyRef.current,
+        message: text,
+        thinking: cfg.thinking,
+      });
+      if (!result.ok) {
+        _trace("DO-SEND-FAIL", traceId, `reason=${result.reason}`);
+        if (alreadyShown) {
+          // 直发失败：消息已在对话框显示。需要把它降级到队列里让用户能撤回 + 等驱动事件重试
+          // 注意：消息文本已在 messages[] 中，但用户期望"重试"机制
+          dispatch({ type: "ENQUEUE", text });
+          dispatch({ type: "SET_ERROR", error: "发送失败，已加入队列等重试" });
+        }
+        // 队列路径失败：消息仍在队列里，等下次驱动重试
+        sendingRef.current = false;
+        return;
+      }
+      // 发送成功：
+      _trace("DO-SEND-OK", traceId, alreadyShown ? "START_STREAMING" : "DEQUEUE + ADD + START_STREAMING");
+      if (!alreadyShown) {
+        // 队列路径：从队列移除 + 在对话框显示
+        dispatch({ type: "DEQUEUE_BY_TEXT", text });
+        dispatch({ type: "ADD_USER_MESSAGE", text });
+      }
+      const streamMsgId = genMsgId();
+      dispatch({ type: "START_STREAMING", messageId: streamMsgId });
+      lastTextRef.current = "";
+    } catch (err) {
+      _trace("DO-SEND-EXC", traceId, `exception=${(err as Error).message}`);
+    } finally {
+      sendingRef.current = false;
     }
-    const streamMsgId = genMsgId();
-    dispatch({ type: "START_STREAMING", messageId: streamMsgId });
-    lastTextRef.current = "";
+  }
+
+  /** 直接发送到 Gateway（v4 已废弃；保留 noop 防止外部引用） */
+  async function _sendToGateway(_text: string, _traceId: string): Promise<void> {
+    console.warn("[chat] _sendToGateway is deprecated in v4 refactor; use sendMessage instead");
   }
 
   async function stop(): Promise<void> {
@@ -368,48 +700,130 @@ export function useChatService(options: ChatServiceOptions) {
     if (state.cancelledMessageId) { dispatch({ type: "RESET_STATE" }); await sendMessage("请继续"); }
   }
 
+  /**
+   * v4 重构：唯一的队列驱动器。
+   *
+   * 触发条件：
+   *   - sendMessage 入队后（用户发新消息）
+   *   - FINISH_STREAMING 后（一条对话完成，处理下一条）
+   *   - WS 状态变 connected（重连成功）
+   *   - WS ready 变 true（EventLoop recovered）
+   *
+   * 防止重入：sendingRef 保证同时只有一次 chat.send 在飞。
+   * 防止双发：处理中的消息保留在 pendingQueue，发成功后才 DEQUEUE_BY_TEXT。
+   */
   function processQueue(): void {
+    // 防重入
+    if (sendingRef.current) {
+      console.log(`[chat] processQueue: skipped, sending in flight`);
+      return;
+    }
+
     const currentState = stateRef.current;
+
+    // 队列空 → noop
     if (currentState.pendingQueue.length === 0) return;
 
-    if (currentState.mergeEnabled) {
-      // TASK-0057: 合并发送模式（方案 §3.1）
-      // 读取当前 mergeEnabled 状态（来自 ref，避免 stale closure）
-      // 跳过纯空白消息，将非空白消息按 \n 拼接为一条发送
-      const messages = currentState.pendingQueue.filter(m => m.trim());
-      if (messages.length === 0) {
-        // 队列中仅有空白消息，安全清空
-        for (let i = 0; i < currentState.pendingQueue.length; i++) {
-          dispatch({ type: "DEQUEUE" });
-        }
-        return;
-      }
+    // 当前还在生成中 → 等 FINISH_STREAMING 再处理
+    if (currentState.chatState === "streaming" || currentState.chatState === "tool_executing") {
+      console.log(`[chat] processQueue: chatState=${currentState.chatState}, waiting for FINISH_STREAMING`);
+      return;
+    }
 
-      // 构建第一批：最多 10 条，总长不超过 4096 字符
-      const firstBatch: string[] = [];
-      let charCount = 0;
-      for (const msg of messages) {
-        const sepLen = firstBatch.length > 0 ? 1 : 0; // \n 分隔符
-        if (firstBatch.length >= 10 || (charCount + sepLen + msg.length > 4096 && firstBatch.length > 0)) {
-          break; // 当前批次已满，剩余消息留待下一轮 FINISH_STREAMING
-        }
-        firstBatch.push(msg);
-        charCount += (firstBatch.length > 1 ? 1 : 0) + msg.length;
-      }
+    // WS 不 ready → 等 onReadyChange 再触发
+    const ws = wsRef.current;
+    if (!ws || !ws.isSendReady()) {
+      console.log(`[chat] processQueue: WS not ready (state=${ws?.state}, degraded=${ws?.eventLoopDegraded}), waiting for ready event`);
+      return;
+    }
 
-      // 从队列前端移除第一批消息
-      for (let i = 0; i < firstBatch.length; i++) {
+    // 清理空白消息
+    const validMessages = currentState.pendingQueue.filter(m => m.trim());
+    if (validMessages.length === 0) {
+      console.log(`[chat] processQueue: clearing ${currentState.pendingQueue.length} whitespace-only items`);
+      for (let i = 0; i < currentState.pendingQueue.length; i++) {
         dispatch({ type: "DEQUEUE" });
       }
-      const mergedText = firstBatch.join("\n");
-      console.log(`[chat-service] processQueue: merge mode, sending batch of ${firstBatch.length} msgs (${mergedText.length} chars)`);
-      setTimeout(() => sendMessage(mergedText), 100);
+      return;
+    }
+
+    // 决定本次要发送的文本
+    let textToSend: string;
+    let textsConsumed: string[];
+    if (currentState.mergeEnabled && validMessages.length > 1) {
+      // 合并发送：取队列前 N 条（最多 10 条 / 4096 字符）
+      const batch: string[] = [];
+      let charCount = 0;
+      for (const msg of validMessages) {
+        const sepLen = batch.length > 0 ? 1 : 0;
+        if (batch.length >= 10 || (charCount + sepLen + msg.length > 4096 && batch.length > 0)) break;
+        batch.push(msg);
+        charCount += sepLen + msg.length;
+      }
+      textToSend = batch.join("\n");
+      textsConsumed = batch;
     } else {
-      // TASK-0057: 逐条发送模式（方案 §3.1，现行为）
-      // 每次 FINISH_STREAMING 触发 processQueue 时发送下一条，天然串行
-      const [next] = currentState.pendingQueue;
-      dispatch({ type: "DEQUEUE" });
-      setTimeout(() => sendMessage(next), 100);
+      // 顺序发送：取队列头部一条
+      textToSend = validMessages[0];
+      textsConsumed = [validMessages[0]];
+    }
+
+    const traceId = genTraceId();
+    _trace("PROCESS-Q", traceId, `merge=${currentState.mergeEnabled} sending ${textsConsumed.length}/${validMessages.length} pending=${currentState.pendingQueue.length}`);
+
+    // 标记 sending（防止 onReadyChange / FINISH_STREAMING 触发重入）
+    sendingRef.current = true;
+
+    // 合并模式下：先把被合并的中间消息从队列移除 + ADD_USER_MESSAGE 显示在对话框
+    if (textsConsumed.length > 1) {
+      // 合并：每条原始消息都 ADD_USER_MESSAGE（让对话框看到用户发了哪几条），
+      // 然后从队列移除，textToSend 走 _doSendMerged 发送拼接后的内容
+      for (const t of textsConsumed) {
+        dispatch({ type: "DEQUEUE_BY_TEXT", text: t });
+        dispatch({ type: "ADD_USER_MESSAGE", text: t });
+      }
+      _doSendMerged(textToSend, traceId, textsConsumed);
+    } else {
+      // 单条：保留在队列，_doSend 成功后通过 DEQUEUE_BY_TEXT 移除 + ADD_USER_MESSAGE
+      _doSend(textToSend, traceId, /*alreadyShown=*/false);
+    }
+  }
+
+  /** v4 重构：合并发送的专用路径（消息已 DEQUEUE + ADD_USER_MESSAGE，发成功不需要再操作 messages） */
+  async function _doSendMerged(text: string, traceId: string, originalTexts: string[]): Promise<void> {
+    if (!sessionKeyRef.current) { sendingRef.current = false; return; }
+    const ws = wsRef.current;
+    if (!ws) { sendingRef.current = false; return; }
+    const cfg = selectedConfig.current;
+    _trace("DO-SEND-MERGED", traceId, `text="${text.slice(0,60)}..." len=${text.length} count=${originalTexts.length}`);
+    try {
+      const result: SendResult = await ws.sendChat({
+        sessionKey: sessionKeyRef.current,
+        message: text,
+        thinking: cfg.thinking,
+      });
+      if (!result.ok) {
+        // 合并发送失败：把原始消息逐条重新入队（保留用户原始内容，方便撤回）
+        // 已 ADD_USER_MESSAGE 的对话框消息保持不变，但加错误提示
+        _trace("DO-SEND-MERGED-FAIL", traceId, `reason=${result.reason} → re-enqueue ${originalTexts.length} originals`);
+        for (const t of originalTexts) {
+          dispatch({ type: "ENQUEUE", text: t });
+        }
+        sendingRef.current = false;
+        return;
+      }
+      _trace("DO-SEND-MERGED-OK", traceId, "START_STREAMING");
+      const streamMsgId = genMsgId();
+      dispatch({ type: "START_STREAMING", messageId: streamMsgId });
+      lastTextRef.current = "";
+    } catch (err) {
+      _trace("DO-SEND-MERGED-EXC", traceId, `exception=${(err as Error).message}`);
+      // 异常时也重新入队
+      for (const t of originalTexts) {
+        dispatch({ type: "ENQUEUE", text: t });
+      }
+    } finally {
+      sendingRef.current = false;
     }
   }
 
@@ -477,6 +891,21 @@ export function useChatService(options: ChatServiceOptions) {
     const newVal = !state.mergeEnabled;
     try { localStorage.setItem("artifex_chat:mergeEnabled", String(newVal)); } catch { /* ignore */ }
     dispatch({ type: "TOGGLE_MERGE" });
+    // v4 修复：切换合并 toggle 后立即驱动队列，避免队列卡住等下次发送才解锁
+    queueMicrotask(() => processQueue());
+  }
+
+  /** v4.1：用户从队列中删除一条消息（按 index） */
+  function removeFromQueue(index: number): void {
+    console.log(`[chat] removeFromQueue index=${index} pendingQueue=${stateRef.current.pendingQueue.length}`);
+    dispatch({ type: "DEQUEUE_AT", index });
+  }
+
+  /** v4.1：用户清空整个队列 */
+  function clearQueue(): void {
+    console.log(`[chat] clearQueue pendingQueue=${stateRef.current.pendingQueue.length}`);
+    const cnt = stateRef.current.pendingQueue.length;
+    for (let i = 0; i < cnt; i++) dispatch({ type: "DEQUEUE" });
   }
 
 
@@ -526,6 +955,10 @@ export function useChatService(options: ChatServiceOptions) {
     cancelledMessageId: state.cancelledMessageId, getSessionKey: () => sessionKeyRef.current,
     sendMessage, stop, resume, clearMessages: () => dispatch({ type: "CLEAR_MESSAGES" }),
     switchSession, createNewSession, deleteSession, renameSession, loadHistoryMessages,
+    /** v4.1：从队列中删除一条消息（按 index） */
+    removeFromQueue,
+    /** v4.1：清空队列 */
+    clearQueue,
     /** 更新 ChatControlBar 选中的 Agent/Model/Thinking，影响 chat.send params */
     setSelectedConfig,
     /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */

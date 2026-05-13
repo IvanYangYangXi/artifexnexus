@@ -22,6 +22,8 @@ interface TopbarProps {
   gatewayRunning?: boolean;
   /** WebSocket 是否已连接 */
   wsConnected?: boolean;
+  /** WS 已连接但 Event Loop 退化（Gateway 繁忙） */
+  wsDegraded?: boolean;
   /** DCC MCP Server 连接状态列表 */
   dccStatus?: { name: string; connected: boolean }[];
   onStartGateway?: () => void;
@@ -29,7 +31,7 @@ interface TopbarProps {
 
 export function Topbar({
   onToggleSidebar, onTogglePanel, sidebarHidden, panelOpen,
-  gatewayRunning, wsConnected, dccStatus, onStartGateway,
+  gatewayRunning, wsConnected, wsDegraded, dccStatus, onStartGateway,
 }: TopbarProps) {
   const [showDropdown, setShowDropdown] = React.useState(false);
   // 超过 3 个时折叠为下拉
@@ -82,8 +84,8 @@ export function Topbar({
           <span className="text-muted-foreground">GW</span>
           {/* WebSocket 连接状态 */}
           <span className="text-muted-foreground/50">·</span>
-          <span className={`flex h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : gatewayRunning ? "bg-amber-400 animate-pulse" : "bg-muted-foreground/40"}`} />
-          <span className={wsConnected ? "text-foreground/80" : gatewayRunning ? "text-amber-400" : "text-muted-foreground"}>
+          <span className={`flex h-1.5 w-1.5 rounded-full ${wsDegraded ? "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)] animate-pulse" : wsConnected ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : gatewayRunning ? "bg-amber-400 animate-pulse" : "bg-muted-foreground/40"}`} />
+          <span className={wsDegraded ? "text-amber-400" : wsConnected ? "text-foreground/80" : gatewayRunning ? "text-amber-400" : "text-muted-foreground"}>
             WS
           </span>
           {/* 内联显示 DCC 状态（<=3 个） */}
@@ -109,10 +111,10 @@ export function Topbar({
                     <span className="flex-1 text-right text-muted-foreground">{gatewayRunning ? "运行中" : "未运行"}</span>
                   </div>
                   <div className="flex items-center gap-2 rounded px-2 py-1 text-[11px]">
-                    <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-emerald-400" : gatewayRunning ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${wsDegraded ? "bg-amber-400" : wsConnected ? "bg-emerald-400" : gatewayRunning ? "bg-amber-400" : "bg-muted-foreground/40"}`} />
                     <span className="text-foreground">WebSocket</span>
                     <span className="flex-1 text-right text-muted-foreground">
-                      {wsConnected ? "已连接" : gatewayRunning ? "连接中…" : "未连接"}
+                      {wsDegraded ? "繁忙" : wsConnected ? "已连接" : gatewayRunning ? "连接中…" : "未连接"}
                     </span>
                   </div>
                   {dccStatus!.map((d) => (

@@ -33,10 +33,7 @@ const STARTUP_FAST_RETRY_DELAY = 2_000;
 const PERSISTENT_RETRY_INTERVAL = 30_000;
 
 /** 重连后冷却时间（ms）：在此期间 sendChat 会被阻止，等网关恢复 */
-const RECONNECT_COOLDOWN_MS = 5_000;
-
-/** 断连期间消息队列上限（对齐 clawket：256，我们留 64 给 chat.send） */
-const MAX_PENDING_SENDS = 64;
+const RECONNECT_COOLDOWN_MS = 1_500;
 
 /** 心跳超时（ms）：此时间内未收到任何消息/pong，视为僵尸连接，主动重连 */
 const HEARTBEAT_TIMEOUT_MS = 60_000;
@@ -73,6 +70,9 @@ export type MessageHandler = (event: GatewayChatEvent) => void;
 /** 连接状态回调 */
 export type StateHandler = (state: WsConnectionState) => void;
 
+/** EventLoop 状态变化回调（v4 重构：替代 onQueueDrain，让 chat-service 知道何时驱动队列） */
+export type ReadyHandler = (event: { ready: boolean; reason: string }) => void;
+
 /** 待处理的 RPC 请求 */
 interface PendingRequest {
   resolve: (payload: Record<string, unknown>) => void;
@@ -80,16 +80,18 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-/** 排队的 sendChat 请求（断连/退化期间暂存） */
-interface QueuedChatSend {
-  params: {
-    sessionKey: string;
-    message: string;
-    thinking?: string;
-  };
-  /** 排入时间戳，超时清理用 */
-  queuedAt: number;
-}
+/** sendChat 返回结果。
+ *  v4 重构：删除 queued 三态。gateway-ws 不再持有业务队列，
+ *  所有排队由 chat-service 统一管理。
+ *  reason 用于上层精准处理：
+ *    - not_ready: WS 未连接 / 退化 / 冷却中 → 调用方应入队等待
+ *    - send_error: WS send() 抛错 → 同上
+ *    - ack_timeout: chat.send 60s 内无 ACK → 同上
+ *    - aborted: 主动取消
+ */
+export type SendResult =
+  | { ok: true }
+  | { ok: false; reason: "not_ready" | "send_error" | "ack_timeout" | "no_ws" };
 
 // ─── Gateway WS 客户端 ─────────────────────────────────────────────────────
 
@@ -101,6 +103,7 @@ export class GatewayWebSocket {
   private _pendingRequests: Map<string, PendingRequest> = new Map();
   private _messageHandlers: MessageHandler[] = [];
   private _stateHandlers: StateHandler[] = [];
+  private _readyHandlers: ReadyHandler[] = [];
   private _reqId = 0;
   private _pingTimer: ReturnType<typeof setInterval> | null = null;
   private _reconnectAttempts = 0;
@@ -111,19 +114,24 @@ export class GatewayWebSocket {
   private _reconnectionTime = 0;
 
   /** 网关事件循环是否处于退化状态（从 health 事件解析） */
-  private _eventLoopDegraded = true;
+  private _eventLoopDegraded = false;
+
+  /** FIX-DEGRADED-FLAP: degraded health 事件连续命中计数（去抖：连续 5 次才相信） */
+  private _degradedHitCount = 0;
+  /** 连续多少次 degraded=true 的 health 事件才相信（去抖）。
+   *  health 事件约 2s 一次 → 5 次 = 持续 10 秒高延迟才相信 */
+  private static readonly DEGRADED_CONFIRM_THRESHOLD = 5;
+  /** 真正算 degraded 的 delayMaxMs 阈值（ms）— 低于此值不算（gateway 自身误报）。
+   *  Gateway 默认 1000ms 就报 degraded 太敏感；提到 5000ms 才认为真退化。 */
+  private static readonly DEGRADED_DELAY_THRESHOLD_MS = 5000;
 
   /** 连接建立时间戳（用于启动宽限期：刚连上 15s 内不报 degraded） */
   private _connectionEstablishedAt = 0;
 
-  /** 启动宽限期（ms）：连接建立后这段时间内忽略 Event Loop 退化 */
-  private static readonly STARTUP_GRACE_MS = 3000;
-
-  /** 断连/退化期间暂存的 sendChat 队列（FIFO，重连后回放） */
-  private _pendingSendQueue: QueuedChatSend[] = [];
-
-  /** 回放中标志，防止重复回放 */
-  private _replaying = false;
+  /** 启动宽限期（ms）：连接建立后这段时间内忽略 Event Loop 退化。
+   *  Gateway 冷启动后初始化插件、加载 MCP bridge 等会触发短暂 EventLoop 抖动，
+   *  3s 太短不够；提到 30s 让 gateway 完全稳定下来再相信 health 事件。 */
+  private static readonly STARTUP_GRACE_MS = 30000;
 
   /** 最近一次收到消息/pong 的时间戳（心跳超时检测） */
   private _lastActivityTime = 0;
@@ -174,6 +182,22 @@ export class GatewayWebSocket {
     return () => {
       this._stateHandlers = this._stateHandlers.filter((h) => h !== handler);
     };
+  }
+
+  /** 注册 ready 状态变化处理器（v4 重构：chat-service 监听以驱动队列） */
+  onReadyChange(handler: ReadyHandler): () => void {
+    this._readyHandlers.push(handler);
+    return () => {
+      this._readyHandlers = this._readyHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  /** 触发 ready 变化通知 */
+  private _notifyReadyChange(reason: string): void {
+    const ready = this.isSendReady();
+    this._readyHandlers.forEach((h) => {
+      try { h({ ready, reason }); } catch (err) { console.warn("[gateway-ws] readyHandler threw:", err); }
+    });
   }
 
   // ─── 连接管理 ──────────────────────────────────────────────────────────
@@ -276,7 +300,6 @@ export class GatewayWebSocket {
     this._stopIdleTimer();
     this._idleDisconnected = false;
     this._rejectAllPending(new Error("Client disconnected"));
-    this._pendingSendQueue = [];
     if (this._ws) {
       this._ws.close(1000, "Client disconnect");
       this._ws = null;
@@ -363,73 +386,50 @@ export class GatewayWebSocket {
   /**
    * 发送聊天消息（chat.send RPC）
    *
-   * @returns Promise<boolean> — 是否成功提交
+   * v4 重构：gateway-ws 不再持有队列。
+   * 不可发送时立即返回 not_ready，由 chat-service 入队。
+   *
+   * @returns Promise<SendResult>
    */
   async sendChat(params: {
     sessionKey: string;
     message: string;
     /** 思考强度（off/minimal/low/medium/high/xhigh/adaptive/max），透传到 Gateway chat.send.thinking */
     thinking?: string;
-  }): Promise<boolean> {
+  }): Promise<SendResult> {
     // 重置空闲计时器（用户有操作 → 不再空闲）
     this._resetIdleTimer();
 
-    // 空闲断开 → 唤醒重连
+    // 空闲断开 → 唤醒重连（fire-and-forget），告知调用方 not_ready
     if (this._idleDisconnected) {
       this._idleDisconnected = false;
       console.log("[gateway-ws] Waking from idle disconnect, reconnecting...");
-      // 入队当前消息，触发重连
-      const enqueued = this._enqueueChatSend(params);
-      this.connect(); // fire-and-forget，重连成功后回放队列
-      return enqueued;
+      this.connect(); // fire-and-forget
+      return { ok: false, reason: "not_ready" };
     }
 
-    // 断连/退化/冷却期 → 入队等待重连后回放
+    // 断连/退化/冷却期 → 调用方自己入队
     if (!this.isSendReady()) {
-      return this._enqueueChatSend(params);
+      console.log(`[gateway-ws] sendChat not ready (state=${this._state}, degraded=${this._eventLoopDegraded}, cooldown=${Date.now() - this._reconnectionTime < RECONNECT_COOLDOWN_MS})`);
+      return { ok: false, reason: "not_ready" };
     }
 
     return this._doSendChat(params);
   }
 
-  /**
-   * 将 chat.send 请求入队，等待连接恢复后回放。
-   * 队列上限 64 条，超出后 FIFO 丢弃。
-   */
-  private _enqueueChatSend(params: QueuedChatSend["params"]): boolean {
-    // 丢弃重复压栈（同一个 sessionKey + 相同 message 的连续请求）
-    const last = this._pendingSendQueue[this._pendingSendQueue.length - 1];
-    if (
-      last &&
-      last.params.sessionKey === params.sessionKey &&
-      last.params.message === params.message
-    ) {
-      return false;
-    }
-
-    while (this._pendingSendQueue.length >= MAX_PENDING_SENDS) {
-      const dropped = this._pendingSendQueue.shift();
-      console.warn(
-        `[gateway-ws] sendQueue full (${MAX_PENDING_SENDS}), dropped: sessionKey=${dropped?.params.sessionKey}`,
-      );
-    }
-
-    this._pendingSendQueue.push({
-      params,
-      queuedAt: Date.now(),
-    });
-    console.log(
-      `[gateway-ws] Queued chat.send (state=${this._state}, queueLen=${this._pendingSendQueue.length})`,
-    );
-    return true;
-  }
-
   /** 实际执行 chat.send RPC */
-  private async _doSendChat(params: QueuedChatSend["params"]): Promise<boolean> {
+  private async _doSendChat(params: {
+    sessionKey: string;
+    message: string;
+    thinking?: string;
+  }): Promise<SendResult> {
 
     const startedAt = Date.now();
     const reqId = this._nextReqId();
     const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+
+    const msgPreview = params.message.length > 60 ? params.message.slice(0,60)+"..." : params.message;
+    console.log(`[gw] DO-SEND reqId=${reqId} session=${params.sessionKey.slice(0,12)}... msg="${msgPreview}" len=${params.message.length}`);
 
     const chatParams: Record<string, unknown> = {
       sessionKey: params.sessionKey,
@@ -444,7 +444,7 @@ export class GatewayWebSocket {
       const timeout = setTimeout(() => {
         this._pendingRequests.delete(reqId);
         this._logSlowRpc("chat.send", startedAt, new Error("ACK timeout"));
-        resolve(false);
+        resolve({ ok: false, reason: "ack_timeout" });
       }, ACK_TIMEOUT);
 
       this._pendingRequests.set(reqId, {
@@ -454,12 +454,12 @@ export class GatewayWebSocket {
           // Gateway chat.send ACK: status 可能在 payload 顶层或嵌套
           const status = ackPayload?.status ?? "";
           // 只要没有 error，且收到了响应，就认为成功
-          resolve(true);
+          resolve({ ok: true });
         },
         reject: () => {
           clearTimeout(timeout);
           this._logSlowRpc("chat.send", startedAt, new Error("rejected"));
-          resolve(false);
+          resolve({ ok: false, reason: "send_error" });
         },
         timeout,
       });
@@ -475,7 +475,7 @@ export class GatewayWebSocket {
         console.warn("[gateway-ws] chat.send ws send failed:", err);
         clearTimeout(timeout);
         this._pendingRequests.delete(reqId);
-        resolve(false);
+        resolve({ ok: false, reason: "send_error" });
       }
     });
   }
@@ -754,19 +754,37 @@ export class GatewayWebSocket {
             );
             return;
           }
+          // FIX-DEGRADED-FLAP: 只有 delayMaxMs 真实高于阈值才算 degraded（避免 gateway 自身误报）
+          const delayMs = typeof el.delayMaxMs === "number" ? el.delayMaxMs : 0;
+          const isReallyDegraded = el.degraded === true && delayMs >= GatewayWebSocket.DEGRADED_DELAY_THRESHOLD_MS;
+          // 去抖：连续 N 次命中才确认 degraded；任意一次 false 立即重置
+          if (isReallyDegraded) {
+            this._degradedHitCount++;
+            if (this._degradedHitCount < GatewayWebSocket.DEGRADED_CONFIRM_THRESHOLD) {
+              console.log(
+                `[gateway-ws] health: degraded hit ${this._degradedHitCount}/${GatewayWebSocket.DEGRADED_CONFIRM_THRESHOLD} (delayMs=${delayMs}, debouncing)`,
+              );
+              return;
+            }
+          } else {
+            // 一旦收到非 degraded 或低延迟，立即重置计数
+            if (this._degradedHitCount > 0) {
+              console.log(`[gateway-ws] health: reset degraded hit counter (was ${this._degradedHitCount})`);
+            }
+            this._degradedHitCount = 0;
+          }
           const wasDegraded = this._eventLoopDegraded;
-          this._eventLoopDegraded = el.degraded === true;
+          this._eventLoopDegraded = isReallyDegraded;
           if (wasDegraded !== this._eventLoopDegraded) {
             if (this._eventLoopDegraded) {
               console.warn(
                 `[gateway-ws] Event Loop DEGRADED: reasons=${JSON.stringify(el.reasons)}, delayMaxMs=${el.delayMaxMs}, utilization=${el.utilization}`,
               );
+              this._notifyReadyChange("event_loop_degraded");
             } else {
               console.log("[gateway-ws] Event Loop recovered");
-              // 恢复期间用户可能已排队消息 → 立即回放
-              if (this._pendingSendQueue.length > 0 && this._state === "connected") {
-                this._scheduleQueueReplay();
-              }
+              // v4 重构：通知 chat-service 驱动队列（不再持有 _pendingSendQueue）
+              this._notifyReadyChange("event_loop_recovered");
             }
           }
         }
@@ -781,6 +799,9 @@ export class GatewayWebSocket {
       // chat 事件（文本流）
       if (msg.event === "chat") {
         const payload = msg.payload ?? msg;
+        const state = payload.state ?? "delta";
+        const text = this._extractText(payload.message ?? "");
+        console.log(`[gw] RECV-CHAT state=${state} runId=${payload.runId?.slice(0,8)} textLen=${text.length}`);
         const chatEvent: GatewayChatEvent = {
           state: payload.state ?? "delta",
           message: this._extractText(payload.message ?? ""),
@@ -1061,9 +1082,11 @@ export class GatewayWebSocket {
     if (state === "connected") {
       this._reconnectionTime = Date.now();
       this._connectionEstablishedAt = Date.now();
-      // TASK-0057: 悲观初始化 EventLoop 状态（方案 §3.6 修复 B）。
-      // 重连后默认认为退化，等首次 health 事件确认真实状态后再更新。
-      this._eventLoopDegraded = true;
+      // FIX-BUG4: 重连后乐观初始化（原悲观=true 导致 isSendReady 永远 false，
+      // 用户消息卡在 pendingQueue 不发送）。
+      // 等首次 health 事件确认真实状态；如真退化会立即标记。
+      this._eventLoopDegraded = false;
+      this._degradedHitCount = 0; // 重置去抖计数
       // 清除空闲断开标记（重连成功 = 不再空闲）
       this._idleDisconnected = false;
       // 重置 MCP Bridge 状态（新连接 = 重新评估）
@@ -1071,8 +1094,12 @@ export class GatewayWebSocket {
       this._mcpBridgeAvailable = true;
       // 启动空闲计时器
       this._resetIdleTimer();
-      // 连接恢复后延迟回放排队消息（等冷却期结束 + Event Loop 稳定）
-      this._scheduleQueueReplay();
+      // v4 重构：连接恢复 → 通知 chat-service 驱动队列（延迟到冷却期结束）
+      setTimeout(() => {
+        if (!this._disposed && this._state === "connected") {
+          this._notifyReadyChange("ws_connected");
+        }
+      }, RECONNECT_COOLDOWN_MS + 200);
       // 握手完成：记录耗时
       if (this._handshakeStartedAt > 0) {
         console.log(`[gateway-ws] Handshake complete in ${Date.now() - this._handshakeStartedAt}ms`);
@@ -1081,6 +1108,8 @@ export class GatewayWebSocket {
     }
     if (state === "disconnected") {
       this._eventLoopDegraded = false;
+      // v4 重构：通知 chat-service ready=false（停止驱动队列）
+      this._notifyReadyChange("ws_disconnected");
       // 非空闲断开 → 停止空闲计时器（空闲断开时计时器已被 _onIdleTimeout 处理）
       if (!this._idleDisconnected) {
         this._stopIdleTimer();
@@ -1090,79 +1119,6 @@ export class GatewayWebSocket {
       this._handshakeStartedAt = Date.now();
     }
     this._stateHandlers.forEach((h) => h(state));
-  }
-
-  /**
-   * 回放断连期间排队的所有 sendChat 请求。
-   * 去重：同一个 sessionKey 只保留最后一条。
-   * 冷却期结束后执行，顺序发送（不并发避免压垮 gateway）。
-   */
-  private _scheduleQueueReplay(): void {
-    if (this._replaying || this._pendingSendQueue.length === 0) return;
-    this._replaying = true;
-
-    // 等冷却期结束再回放
-    const remainingCooldown = Math.max(
-      0,
-      RECONNECT_COOLDOWN_MS - (Date.now() - this._reconnectionTime),
-    );
-    setTimeout(async () => {
-      if (this._disposed || this._state !== "connected") {
-        this._replaying = false;
-        return;
-      }
-      await this._replayQueuedSends();
-      this._replaying = false;
-    }, remainingCooldown + 500); // +500ms buffer
-  }
-
-  /** 实际执行队列回放 */
-  private async _replayQueuedSends(): Promise<void> {
-    if (this._pendingSendQueue.length === 0) return;
-
-    const now = Date.now();
-
-    // TASK-0057: 轻量去重（方案 §3.1）
-    // 同一 sessionKey + 完全相同的 message 内容（纯字符串比对）→ 5s 窗口内去重（保留最新一条）
-    // 不同内容的消息全部保留，按时间序逐条回放
-    const dedupKey = (item: QueuedChatSend) => `${item.params.sessionKey}::${item.params.message}`;
-    const deduped: QueuedChatSend[] = [];
-    const seenPos = new Map<string, number>();
-
-    for (const item of this._pendingSendQueue) {
-      // 清理过期队列项（>120s）
-      if (now - item.queuedAt >= 120_000) continue;
-
-      const key = dedupKey(item);
-      const prevIdx = seenPos.get(key);
-      if (prevIdx !== undefined) {
-        const prevItem = deduped[prevIdx];
-        // 5s 窗口内相同内容 → 保留最新一条
-        if (item.queuedAt - prevItem.queuedAt < 5000) {
-          deduped[prevIdx] = item;
-          continue;
-        }
-      }
-      deduped.push(item);
-      seenPos.set(key, deduped.length - 1);
-    }
-
-    if (deduped.length > 0) {
-      console.log(
-        `[gateway-ws] Replaying ${deduped.length} queued sends (deduped from ${this._pendingSendQueue.length})...`,
-      );
-      for (const item of deduped) {
-        if (this._disposed || this._state !== "connected") break;
-        try {
-          await this._doSendChat(item.params);
-        } catch (err) {
-          console.warn(`[gateway-ws] Replay send failed: ${(err as Error).message}`);
-        }
-      }
-      console.log("[gateway-ws] Queue replay complete");
-    }
-
-    this._pendingSendQueue = [];
   }
 
   /** 拒绝所有待处理请求 */

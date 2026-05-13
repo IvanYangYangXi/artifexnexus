@@ -710,14 +710,14 @@ function GatewayTab() {
         if (result?.entries && result.entries.length > 0) {
           // 记录最大 id，下次增量拉取
           lastLogIdRef.current = result.max_id;
-          // 过滤：只保留当次启动后的日志条目
-          const startTs = startedAtRef.current;
-          const filtered = startTs > 0
-            ? result.entries.filter((e: any) => e.ts >= startTs)
-            : result.entries;
+          // FIX-LOGS-STUCK: 不再用 startedAt 过滤 —— 复用旧 Gateway 进程时，
+          // 新 sidecar 写入的 started_at 远晚于实际 Gateway 启动时间，
+          // 缓冲区里的真实日志条目时间戳全部小于 started_at → 全部被过滤 → UI 永远空。
+          // 直接展示缓冲区所有条目即可（gateway_log 自身已按时间排序 + 上限保护）。
+          const filtered = result.entries;
           if (filtered.length === 0) {
             console.log(
-              `[GatewayTab] doPoll: got ${result.entries.length} entries but all filtered (startTs=${startTs}, firstTs=${result.entries[0]?.ts})`,
+              `[GatewayTab] doPoll: got ${result.entries.length} entries (no filter applied)`,
             );
             return;
           }

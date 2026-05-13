@@ -36,6 +36,9 @@ export interface ChatMessage {
   isStreaming?: boolean;
   /** 工具调用列表（仅 assistant 消息） */
   toolCalls?: ToolCall[];
+  /** Gateway 运行 ID（仅 assistant 消息，用于跨事件关联）。
+   *  v4.1.2 新增：避免 Gateway 跨 runId 事件交错时错误 FINISH。 */
+  runId?: string;
 }
 
 // ─── 对话状态机 ────────────────────────────────────────────────────────────
