@@ -94,6 +94,129 @@
    - 根因：keepalive 只在 "connected" 运行；degraded 时停止 → 60s 无活动 → heartbeat timeout 强制重连 → 亮黄灯 → 重连后又 degraded → 死循环
    - 修复：keepalive 条件放宽为 `"connected" || "degraded"`；`sendMessage` 在 degraded 时不阻断，让 `sendChat` 内部排队
    - 影响文件：`ChatView.tsx`（keepalive）、`chat-service.ts`（sendMessage 放行 + 错误文案）
+10. **双队列死循环 — processQueue 重试 + gateway-ws duplicate check**（2026-05-13 修复）：
+   - 现象：消息卡在 chat-service pendingQueue 永远发不出去，后续消息全部积压
+   - 根因：processQueue → sendChat → _enqueueChatSend 入队 gateway-ws → 返回 false → chat-service 保留 → 下次 processQueue 重试 → _enqueueChatSend duplicate check → 再返回 false → 无限循环
+   - 修复：sendChat 改为三态返回 `SendResult = {ok:true} | {ok:false, queued:true} | {ok:false, queued:false}`；queued=true 时 chat-service DEQUEUE（信任 gateway-ws 回放）
+   - 影响文件：`gateway-ws.ts`（SendResult 类型 + _enqueueChatSend/doSendChat 返回值）、`chat-service.ts`（_sendToGateway + _sendQueuedText 三态处理 + handleGatewayEvent auto-START_STREAMING）
+11. **Gateway 队列回放时 chat-service 无感知**（2026-05-13 修复）：
+   - 现象：gateway-ws 回放 queued 消息 → chat 事件到达 → handleGatewayEvent 无 streamingMessageId → delta 文本丢失
+   - 修复：handleGatewayEvent delta 分支自动检测无活跃 stream → dispatch START_STREAMING（自动创建占位）
+   - 影响文件：`chat-service.ts`（handleGatewayEvent）
+12. **WS 状态三态可视化**（2026-05-13 新增）：
+   - GatewayContext 新增 `wsDegraded: boolean` 字段
+   - Topbar：degraded → 琥珀色脉冲 "繁忙"；正常 → 绿色 "已连接"
+   - WsStatusBanner：degraded → 持久琥珀色横幅 "Gateway 繁忙 — 消息将排队等待"
+   - ChatInputArea 发送按钮：degraded 时可用（琥珀色），仅完全断连时禁用
+   - Toast 日志埋点：所有 toast 调用前加 `[toast]` console.log
+13. **重启卡片永驻无法关闭 — duration:Infinity + 默认 dismissible:false**（2026-05-13 修复）：
+   - 现象：Gateway 重启成功后 toast "Gateway 连接已断开，可能崩溃，点击重启恢复连接" 永远在屏幕上无法关闭
+   - 根因：`toast.error(..., {duration: Infinity, action: {...}})` — sonner 带 action 的 toast 默认 dismissible=false；重连成功 → degraded 分支没清 toast id
+   - 修复：duration 60s + dismissible:true + closeButton:true + cancel 关闭按钮；`(connected || degraded)` 都强制 toast.dismiss + 2.5s setTimeout 防御性 dismiss
+   - 影响文件：`ChatView.tsx`
+14. **gateway-ws 回放后 chat-service UI 队列不同步**（2026-05-13 修复）：
+   - 现象：gateway-ws 回放消息后 chat-service.pendingQueue 不出队，UI 永远显示"队列中"
+   - 根因：双队列协作但回放完后 gateway-ws 无回调通知 chat-service
+   - 修复：gateway-ws 新增 `onQueueDrain(handler)` API + `_replayQueuedSends` 每条发送完触发；chat-service 监听 → DEQUEUE + START_STREAMING
+   - 影响文件：`gateway-ws.ts`（QueueDrainHandler 类型 + _queueDrainHandlers + onQueueDrain + _replayQueuedSends 调用）、`chat-service.ts`（ws.onQueueDrain 监听）
+15. **healthInterval stale closure**（2026-05-13 修复）：
+   - 现象：EventLoop 由 degraded 恢复后，pendingQueue 中的消息不会自动 retry
+   - 根因：`prevDegraded = eventLoopDegraded`（state）但 useEffect 没把 eventLoopDegraded 加 deps → 闭包捕获首次 mount 的 false → 永远 prevDegraded === degraded === false → "EventLoop recovered" 分支永不触发
+   - 修复：用 `prevDegradedRef` 替代 state 读取，状态变化时同步 ref
+   - 影响文件：`chat-service.ts`
+16. **重连后 _eventLoopDegraded=true 悲观初始化导致消息全入队**（2026-05-13 修复）：
+   - 现象：Gateway 重启成功后用户发消息全部进入队列，等数十秒才发送
+   - 根因：`_setState("connected")` 设 `_eventLoopDegraded=true`（悲观），需等真实 health 事件（可能 30s+）才变 false → `isSendReady()` 返回 false → 消息入队
+   - 修复：改为乐观初始化 false（如真退化，health 事件会立即标记）；`RECONNECT_COOLDOWN_MS` 5s→1.5s
+   - 影响文件：`gateway-ws.ts`（_eventLoopDegraded 初始 + _setState("connected")）
+17. **processQueue + onQueueDrain 双重发送死循环**（2026-05-13 修复）：
+   - 现象：消息已委托给 gateway-ws 队列，processQueue（EventLoop recovered 触发）会再次发送同一条 → 重复消息 + 队列永不清空
+   - 根因：onQueueDrain 出队 + processQueue 重发是两条独立路径
+   - 修复：新增 `delegatedToGwRef: Set<string>` 标记已委托消息；processQueue filter 跳过；onQueueDrain 后 delete
+   - 附加修复：RESET_STATE 不清 pendingQueue（gateway-ws 仍持有要回放）；SET_SESSION/CLEAR_MESSAGES/LOAD_HISTORY 清空 pendingQueue
+   - 影响文件：`chat-service.ts`
+
+## 收发逻辑核心设计（2026-05-13 v4 重构）
+
+### 单队列单驱动器架构（v4 重构后的最终方案）
+
+**核心原则**：
+1. **唯一队列**：`chat-service.pendingQueue`。`gateway-ws` 不再持有任何队列。
+2. **唯一发送函数**：`_doSend(text)`。唯一从队列移除消息的地方。
+3. **唯一驱动器**：`processQueue()`。
+4. **防重入**：`sendingRef: boolean` 保证同时只有一次 chat.send 在飞。
+
+**状态字段**：
+- `chat-service.pendingQueue: string[]`（reducer 管理）
+- `chat-service.chatState: "idle" | "sending" | "streaming" | "tool_executing" | "error"`（reducer 管理）
+- `chat-service.sendingRef: React.Ref<boolean>`（防重入）
+- `gateway-ws._eventLoopDegraded: boolean`（health 事件解析）
+- `gateway-ws._state: "disconnected" | "connecting" | "handshaking" | "connected"`
+
+### 消息流程
+
+```
+用户输入
+  ↓
+sendMessage(text)
+  → ADD_USER_MESSAGE（UI 立即显示）
+  → ENQUEUE 到 pendingQueue
+  → queueMicrotask(processQueue)
+       ↓
+processQueue()  ← 唯一驱动器
+  检查：sendingRef.current === false
+  检查：pendingQueue.length > 0
+  检查：chatState === "idle"
+  检查：ws.isSendReady() === true
+  ↓ 全部通过
+  sendingRef.current = true
+  textToSend = pendingQueue[0]（或合并模式 join 多条）
+  _doSend(textToSend)
+       ↓
+_doSend()
+  await ws.sendChat(...)
+  成功 → DEQUEUE_BY_TEXT(text) + START_STREAMING
+  失败 → 保留在 pendingQueue（reason 入日志）
+  finally → sendingRef.current = false
+       ↓
+   接收 chat 事件流（delta → APPEND_DELTA → final → FINISH_STREAMING）
+       ↓
+   final 事件 → queueMicrotask(processQueue) → 处理下一条
+```
+
+### 驱动 processQueue 的事件
+1. **sendMessage 入队后**（用户主动发新消息）
+2. **chat 事件 final**（一条对话完成 → FINISH_STREAMING → 触发 processQueue 处理下一条）
+3. **gateway-ws onReadyChange ready=true**（重连成功 / EventLoop recovered）
+4. **healthInterval 检测到 EventLoop recovered**（额外保险）
+
+### gateway-ws → chat-service 的回调
+- `onStateChange(s)`：WS 状态（disconnected/connecting/handshaking/connected）
+- `onReadyChange({ready, reason})`：综合 ready 状态变化（包含 ws_connected/ws_disconnected/event_loop_degraded/event_loop_recovered）
+- `onMessage(event)`：chat / agent / health 事件流
+
+### SendResult 简化
+```ts
+type SendResult =
+  | { ok: true }
+  | { ok: false; reason: "not_ready" | "send_error" | "ack_timeout" | "no_ws" };
+```
+- 不再有 `queued` 三态
+- 调用方（chat-service）拿到 `ok:false` → 消息保留在 pendingQueue，等下次 processQueue 驱动重试
+
+### 关键防御
+- 所有触发 processQueue 的回调都用 `queueMicrotask` 异步包装，避免读 stale state
+- RESET_STATE（disconnected）**不清** pendingQueue（崩溃后重连仍能继续发）
+- SET_SESSION/CLEAR_MESSAGES/LOAD_HISTORY **清空** pendingQueue（切换会话时）
+- _setState("connected") 乐观初始化 _eventLoopDegraded=false（让消息能立即发送）
+
+### 已验证修复的历史 bug（v1-v3 → v4 不再可能复现）
+- ❌ 双队列状态不同步（v4 单队列）
+- ❌ delegatedToGwRef 与 pendingQueue 死锁（v4 删除 delegatedToGwRef）
+- ❌ onQueueDrain 循环 DEQUEUE 误删（v4 删除 onQueueDrain，用 DEQUEUE_BY_TEXT）
+- ❌ 消息发送后队列卡住（v4 sendingRef 防重入 + 单驱动器）
+- ❌ 重启后队列消息不发送（v4 onReadyChange 触发 processQueue）
+- ❌ 重启后跳过队列直接发新消息（v4 sendMessage 强制走 ENQUEUE 路径）
 
 ## 团队结构（2026-05-13）
 
