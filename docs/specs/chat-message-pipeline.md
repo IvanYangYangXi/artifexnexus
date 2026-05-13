@@ -3,7 +3,7 @@ tags: [spec, chat, pipeline, refactor, v4]
 created: 2026-05-13
 updated: 2026-05-14
 status: implemented
-version: v4.1.3
+version: v4.1.7
 ---
 
 # Chat 消息收发管道设计 / Chat Message Pipeline
@@ -301,13 +301,67 @@ ws.onMessage((event) => ...)
 
 **不再有** `onQueueDrain`（v3 设计的产物，v4 不需要）。
 
-### 3.7 关键防御
+### 3.8 关键防御
 
 - 所有触发 `processQueue` 的回调都用 `queueMicrotask` 异步包装，避免读 stale state
 - `RESET_STATE`（disconnected）**不清** pendingQueue（崩溃后重连仍能继续发）
 - `SET_SESSION` / `CLEAR_MESSAGES` / `LOAD_HISTORY` **清空** pendingQueue（切换会话时）
 - `_setState("connected")` 乐观初始化 `_eventLoopDegraded = false`（让消息能立即发送，等 health 事件确认真实状态）
 - `_setState("connected")` 后延迟 `RECONNECT_COOLDOWN_MS + 200ms` 才触发 `_notifyReadyChange("ws_connected")`，避免冷却期内发送
+
+### 3.9 stale runId 错绑修复（v4.1.5 关键 bug）
+
+**症状**：用户连续发消息时偶发空回复 + 回复内容显示在新增的"漂浮"消息里。
+
+**根因**：Gateway 偶发会发出**上一条对话延迟到达的 final 事件**（runId 已从 `runIdToMsgIdRef` 清除）。原代码 `_resolveTargetMessage` 在 runId 不在 map 中时会 fallback 绑到当前 streaming 占位 → 错把 stale final **finish 当前消息** → 用户消息变空 + 真实回复创建新占位。
+
+**修复**：`_resolveTargetMessage(runId, hasContent, eventState)` 新增 `eventState` 参数：
+- `final`/`aborted`/`error` 事件 + runId 不在 map 中 → **直接返回 null**（视为 stale 事件，忽略）
+- 只有 `delta` 事件才允许首次绑定到当前 streaming（`final` 含 message 时仍传 `"delta"`）
+- `final.targetMsgId === null` 时 **不 dispatch FINISH_STREAMING**，不影响当前消息
+
+证据来源：用户提供的 console.log（776 行）第 187-220 行精确暴露此 bug，是 v4 整个排查链的"金牌证据"。
+
+### 3.10 Sidecar 主动操作 Gateway 的审计日志（v4.1.6 新增）
+
+之前 sidecar 用 `logging.getLogger(__name__)` 但**没有配置 handler**，所有 `logger.info/warning` **静默丢失**，无法判断 Gateway 是被主动杀的还是自己崩的。
+
+**修复**：新增 `_audit_log(reason, detail)` 函数（runtime.py），双重写入：
+- `sys.stderr.write()` → `~/.artifexnexus/logs/sidecar-stderr-*.log`
+- 直接 append 到 `~/.artifexnexus/logs/gateway.log` → **与 Gateway 自身日志同文件**，时间线对齐
+- 自动抓取最后 3 层调用栈
+
+**覆盖 sidecar 关闭/强杀 Gateway 的所有 9 条路径**：
+
+| # | 场景 | audit 标签 |
+|---|---|---|
+| 1 | idle 30 分钟超时 | `STOP_GATEWAY:idle_timeout` |
+| 2 | 进程崩溃自动重启 | `GATEWAY_EXITED:detected` + `AUTO_RESTART:starting` |
+| 3 | 复用旧 sidecar 实例 | `FORCE_KILL:stale_sidecar_instance` |
+| 4 | 端口占用孤儿清理 | `FORCE_KILL:orphan_cleanup` |
+| 5 | 手动重启 | `STOP_GATEWAY:rpc_force_restart` |
+| 6 | 手动停止 | `STOP_GATEWAY:rpc_called` |
+| 7 | sidecar 信号退出 | `signal_handler: signum=...` |
+| 8 | sidecar atexit 退出 | `_shutdown_gateway_quietly: KILLING` |
+| 9 | stdin EOF（不杀） | `_shutdown_gateway_quietly: SKIP` |
+
+**事后排查方法**：Gateway 莫名死亡时 `tail -50 ~/.artifexnexus/logs/gateway.log` —
+- 看到 `[sidecar.audit]` → sidecar 主动杀的（看 reason）
+- 没有 audit 但 Gateway 输出突然停止 → Gateway 进程内部 panic（OpenClaw 自身问题）
+
+### 3.11 Keep-alive 移除（v4.1.7）
+
+之前 ChatView 每 2 分钟发 `agent.turn` RPC 保活会话。**实测发现 Gateway 不接受该方法**，每次都返回：
+```
+[ws] ⇄ res ✗ agent.turn 0ms errorCode=INVALID_REQUEST errorMessage=unknown method: agent.turn
+```
+
+**修复**：删除应用层 keep-alive。改为依赖：
+- `gateway-ws._startPing()` — 每 30 秒发 WS `type:"ping"` 帧
+- Gateway 自身 `event=heartbeat` — 约每 10 秒一次
+- Agent 会话进程的常驻由 Gateway 内部生命周期管理
+
+`sendAgentTurn` 保留为空函数 noop，避免外部引用报错。
 
 ---
 
@@ -400,6 +454,10 @@ ws.onMessage((event) => ...)
 - [x] 队列消息接收完后自动发出下一条（无需手动点发送）
 - [x] 多 runId 事件交错 → 各自写到对应消息（无错位）
 - [x] Gateway 假死 60s 无回复 → 消息自动重试（无空白回复）
+- [x] stale runId 的 final 事件 → 忽略（不错绑当前 streaming）— v4.1.5
+- [x] sidecar 主动操作 Gateway → 全部记录到 `~/.artifexnexus/logs/gateway.log`（含调用栈）— v4.1.6
+- [x] WS 长时间无交互不会因 INVALID_REQUEST 噪音 → keep-alive 改为 WS ping 帧 — v4.1.7
+- [x] UI 用户操作（按钮点击/对话框/导航）有日志埋点 — v4.1.5
 
 ---
 
