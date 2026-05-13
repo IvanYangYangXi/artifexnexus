@@ -633,6 +633,8 @@ def start_gateway(
         if _is_current_sidecar_instance(home):
             # 同一 sidecar 实例 → 复用（pump 线程存活，日志可正常拉取）
             _gateway_state.set_running(pid=existing_pid, port=port)
+            # v4.1.8 审计：复用路径也记录（_current_process 仍为 None，health_monitor 改用 PID 检测）
+            _audit_log("START_GATEWAY:reused", f"existing_pid={existing_pid} port={port}")
             return GatewayProcess(
                 pid=existing_pid,
                 port=port,
@@ -753,6 +755,8 @@ def start_gateway(
     _current_process = proc
     _current_openclaw_home = home
     _gateway_state.set_running(pid=proc.pid, port=port)
+    # v4.1.8 审计：每次新启动都记录（区分复用/新进程）
+    _audit_log("START_GATEWAY:new_process", f"pid={proc.pid} port={port}")
 
     # 8.5 初始化空闲计时器（P2-7b）
     report_gateway_activity()
@@ -819,16 +823,29 @@ def _health_monitor_loop() -> None:
         time.sleep(5)
 
         # 只有 sidecar 标记为 running 才监控
-        if _gateway_state.get_info().state != "running":
+        info = _gateway_state.get_info()
+        if info.state != "running":
             continue
 
-        # 检查子进程是否还活着
+        # v4.1.8 关键修复：检查子进程是否还活着
+        # 之前：proc is None 直接 continue → 复用旧 Gateway PID 时永远不监控
+        # 现在：proc is None 时改用 PID 文件 + _is_pid_alive 检测
         proc = _current_process
-        if proc is None:
-            continue
+        is_dead = False
+        exit_code: Any = None
+        check_pid = info.pid
 
-        poll_result = proc.poll()
-        if poll_result is None:
+        if proc is not None:
+            poll_result = proc.poll()
+            is_dead = poll_result is not None
+            exit_code = poll_result
+        elif check_pid is not None:
+            # 复用旧 Gateway 路径：用 PID 检测
+            if not _is_pid_alive(check_pid):
+                is_dead = True
+                exit_code = "unknown(reused-pid)"
+
+        if not is_dead:
             # 进程仍在运行 → 检查空闲超时
             if (
                 _last_gateway_activity > 0
@@ -841,23 +858,23 @@ def _health_monitor_loop() -> None:
                 )
                 _audit_log(
                     "STOP_GATEWAY:idle_timeout",
-                    f"pid={proc.pid} idle_min={idle_min} last_activity={_last_gateway_activity}",
+                    f"pid={check_pid} idle_min={idle_min} last_activity={_last_gateway_activity}",
                 )
                 stop_gateway()
                 # idle 关闭后不设 error，下次 start_gateway 会重新初始化
             continue
 
         # ── 进程已退出 → 崩溃检测 ──
-        exit_code = poll_result
+        dead_pid = proc.pid if proc is not None else check_pid
         logger.warning(
-            "health_monitor: gateway pid=%d 已退出 (exit_code=%s)，触发自动重启",
-            proc.pid,
+            "health_monitor: gateway pid=%s 已退出 (exit_code=%s)，触发自动重启",
+            dead_pid,
             exit_code,
         )
         # v4.1.6 审计：记录 Gateway 进程意外退出（关键事件！）
         _audit_log(
             "GATEWAY_EXITED:detected",
-            f"pid={proc.pid} exit_code={exit_code} reason=process_died_externally",
+            f"pid={dead_pid} exit_code={exit_code} reason=process_died_externally has_proc_obj={proc is not None}",
         )
 
         # 速率限制

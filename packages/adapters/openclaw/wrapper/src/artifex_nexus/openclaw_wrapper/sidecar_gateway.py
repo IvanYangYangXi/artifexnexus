@@ -321,6 +321,15 @@ def handle_gateway_start(req_id: Any, params: dict) -> dict:
             and _runtime._is_pid_alive(info.pid)
         )
 
+        # v4.1.8 审计：force_restart 调用时，无论 Gateway 是否还活着都记录
+        # 之前：Gateway 已死时 already_running=False，不进入 stop 分支，没有 audit log
+        # 现在：force_restart 必记录，区分"杀+重启"和"仅重启（Gateway 已死）"
+        if force_restart:
+            _runtime._audit_log(
+                "RESTART_GATEWAY:rpc_called",
+                f"req_id={req_id} already_running={already_running} state={info.state} pid={info.pid} pid_alive={info.pid is not None and _runtime._is_pid_alive(info.pid)}",
+            )
+
         restarted = False
         if already_running and not force_restart:
             return {
