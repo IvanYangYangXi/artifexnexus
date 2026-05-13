@@ -270,6 +270,17 @@ export function useChatService(options: ChatServiceOptions) {
   const runIdToMsgIdRef = React.useRef<Map<string, string>>(new Map());
   /** v4.1.2: 每个 runId 累积文本（替代单一 lastTextRef），避免不同 run 互相影响 */
   const runIdToLastTextRef = React.useRef<Map<string, string>>(new Map());
+  /** v4.1.10: 每条消息的端到端耗时追踪
+   *  key=runId 或 msgId, value={sentAt, ackAt, firstDeltaAt, finalAt}
+   *  用于打印 "用户体感时间 vs Gateway ACK 时间" 对比 */
+  const msgTimingRef = React.useRef<Map<string, {
+    sentAt: number;
+    ackAt?: number;
+    firstDeltaAt?: number;
+    firstDeltaCharsAt?: number;
+    finalAt?: number;
+    runId?: string;
+  }>>(new Map());
 
   // ─── 消息变化时自动同步内存缓存 + localStorage ──────────────────────
   // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
@@ -507,6 +518,15 @@ export function useChatService(options: ChatServiceOptions) {
         if (event.message) {
           const { msgId } = _resolveTargetMessage(event.runId, true, "delta");
           if (msgId) {
+            // v4.1.10: 记录首次 delta 时间（含字符）— 用户实际看到第一个字的时刻
+            const timing = msgTimingRef.current.get(msgId);
+            if (timing && !timing.firstDeltaCharsAt && event.message.length > 0) {
+              timing.firstDeltaCharsAt = Date.now();
+              timing.runId = event.runId;
+              const firstByteMs = timing.firstDeltaCharsAt - timing.sentAt;
+              const ackToFirstByteMs = timing.ackAt ? timing.firstDeltaCharsAt - timing.ackAt : -1;
+              console.log(`[chat] TIMING msg=${msgId.slice(0,10)} runId=${event.runId?.slice(0,8)} sent→firstByte=${firstByteMs}ms (ack=${timing.ackAt ? timing.ackAt - timing.sentAt : "?"}ms, ack→firstByte=${ackToFirstByteMs}ms)`);
+            }
             // 累积式增量计算（按 runId 独立）
             const runKey = event.runId ?? "_no_runid_";
             const lastText = runIdToLastTextRef.current.get(runKey) ?? "";
@@ -560,6 +580,20 @@ export function useChatService(options: ChatServiceOptions) {
         if (targetMsgId === null) {
           console.log(`[chat] final: ignored stale runId=${runIdShort} (no FINISH dispatched)`);
         } else {
+          // v4.1.10: 打印端到端耗时对比（用户体感时间 vs Gateway ACK 时间）
+          const timing = msgTimingRef.current.get(targetMsgId);
+          if (timing) {
+            timing.finalAt = Date.now();
+            const totalMs = timing.finalAt - timing.sentAt;
+            const ackMs = timing.ackAt ? timing.ackAt - timing.sentAt : -1;
+            const firstByteMs = timing.firstDeltaCharsAt ? timing.firstDeltaCharsAt - timing.sentAt : -1;
+            const streamingMs = timing.firstDeltaCharsAt ? timing.finalAt - timing.firstDeltaCharsAt : -1;
+            console.log(
+              `[chat] TIMING-FINAL msg=${targetMsgId.slice(0,10)} runId=${runIdShort} ` +
+              `total=${totalMs}ms (ack=${ackMs}ms + idle=${firstByteMs - ackMs}ms + streaming=${streamingMs}ms)`,
+            );
+            msgTimingRef.current.delete(targetMsgId);
+          }
           // 仅 finish 关联的消息（不无脑清掉 streamingMessageId）
           dispatch({ type: "FINISH_STREAMING", targetMessageId: targetMsgId });
         }
@@ -686,6 +720,8 @@ export function useChatService(options: ChatServiceOptions) {
     }
     const cfg = selectedConfig.current;
     _trace("DO-SEND", traceId, `text="${text.slice(0,40)}..." alreadyShown=${alreadyShown} session=${sessionKeyRef.current.slice(0,12)}`);
+    // v4.1.10: 记录发送时间，用于端到端耗时对比
+    const sentAt = Date.now();
     let succeeded = false;
     try {
       const result: SendResult = await ws.sendChat({
@@ -693,8 +729,10 @@ export function useChatService(options: ChatServiceOptions) {
         message: text,
         thinking: cfg.thinking,
       });
+      const ackAt = Date.now();
+      const ackMs = ackAt - sentAt;
       if (!result.ok) {
-        _trace("DO-SEND-FAIL", traceId, `reason=${result.reason}`);
+        _trace("DO-SEND-FAIL", traceId, `reason=${result.reason} ackMs=${ackMs}`);
         if (alreadyShown) {
           // 直发失败：消息已在对话框显示。需要把它降级到队列里让用户能撤回 + 等驱动事件重试
           dispatch({ type: "ENQUEUE", text });
@@ -705,7 +743,7 @@ export function useChatService(options: ChatServiceOptions) {
       }
       succeeded = true;
       // 发送成功：
-      _trace("DO-SEND-OK", traceId, alreadyShown ? "START_STREAMING" : "DEQUEUE + ADD + START_STREAMING");
+      _trace("DO-SEND-OK", traceId, `ackMs=${ackMs} ${alreadyShown ? "START_STREAMING" : "DEQUEUE + ADD + START_STREAMING"}`);
       if (!alreadyShown) {
         // 队列路径：从队列移除 + 在对话框显示
         dispatch({ type: "DEQUEUE_BY_TEXT", text });
@@ -717,6 +755,8 @@ export function useChatService(options: ChatServiceOptions) {
       // （前提：上一条消息 final 已到达，map 在 final 处理时本应清掉，但防御为先）
       runIdToMsgIdRef.current.clear();
       runIdToLastTextRef.current.clear();
+      // v4.1.10: 记录消息生命周期时间点
+      msgTimingRef.current.set(streamMsgId, { sentAt, ackAt });
       dispatch({ type: "START_STREAMING", messageId: streamMsgId });
       lastTextRef.current = "";
     } catch (err) {
@@ -854,6 +894,8 @@ export function useChatService(options: ChatServiceOptions) {
     if (!ws) { sendingRef.current = false; return; }
     const cfg = selectedConfig.current;
     _trace("DO-SEND-MERGED", traceId, `text="${text.slice(0,60)}..." len=${text.length} count=${originalTexts.length}`);
+    // v4.1.10: 记录发送时间
+    const sentAt = Date.now();
     let succeeded = false;
     try {
       const result: SendResult = await ws.sendChat({
@@ -861,21 +903,25 @@ export function useChatService(options: ChatServiceOptions) {
         message: text,
         thinking: cfg.thinking,
       });
+      const ackAt = Date.now();
+      const ackMs = ackAt - sentAt;
       if (!result.ok) {
         // 合并发送失败：把原始消息逐条重新入队（保留用户原始内容，方便撤回）
         // 已 ADD_USER_MESSAGE 的对话框消息保持不变，但加错误提示
-        _trace("DO-SEND-MERGED-FAIL", traceId, `reason=${result.reason} → re-enqueue ${originalTexts.length} originals`);
+        _trace("DO-SEND-MERGED-FAIL", traceId, `reason=${result.reason} ackMs=${ackMs} → re-enqueue ${originalTexts.length} originals`);
         for (const t of originalTexts) {
           dispatch({ type: "ENQUEUE", text: t });
         }
         return;
       }
       succeeded = true;
-      _trace("DO-SEND-MERGED-OK", traceId, "START_STREAMING");
+      _trace("DO-SEND-MERGED-OK", traceId, `ackMs=${ackMs} START_STREAMING`);
       const streamMsgId = genMsgId();
       // v4.1.4: 同 _doSend，清除 stale runId 映射
       runIdToMsgIdRef.current.clear();
       runIdToLastTextRef.current.clear();
+      // v4.1.10: 记录消息时间
+      msgTimingRef.current.set(streamMsgId, { sentAt, ackAt });
       dispatch({ type: "START_STREAMING", messageId: streamMsgId });
       lastTextRef.current = "";
     } catch (err) {
