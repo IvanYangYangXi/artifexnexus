@@ -73,6 +73,7 @@ export type ChatAction =
   | { type: "SET_SESSIONS"; sessions: ChatSession[] }
   | { type: "CLEAR_MESSAGES" }
   | { type: "RESET_STATE" }
+  | { type: "TOGGLE_MERGE" }
   | { type: "LOAD_HISTORY"; messages: ChatMessage[] };
 
 export interface ChatServiceState {
@@ -84,6 +85,7 @@ export interface ChatServiceState {
   sessions: ChatSession[];
   activeSessionId: string;
   cancelledMessageId: string | null;
+  mergeEnabled: boolean;
 }
 
 // ─── Reducer ───────────────────────────────────────────────────────────────
@@ -108,6 +110,7 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "STOP":
       return { ...state, messages: state.messages.map(m => m.id === state.streamingMessageId ? { ...m, isStreaming: false } : m), streamingMessageId: null, chatState: "idle", cancelledMessageId: state.streamingMessageId };
     case "ENQUEUE":
+      if (!action.text.trim()) return state;
       return { ...state, pendingQueue: [...state.pendingQueue, action.text] };
     case "DEQUEUE":
       if (state.pendingQueue.length === 0) return state;
@@ -121,7 +124,11 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "RESET_STATE":
       // Gateway 断连时清理：把所有 isStreaming 的消息标记为完成，避免 UI 卡在流式状态。
       // 注意：不清 cancelledMessageId，避免破坏 stop() → resume() 链路。
-      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: state.cancelledMessageId };
+      // pendingQueue 残留的排队消息在断连后永远无法处理（processQueue 仅在 Gateway final 事件触发），
+      // 必须清理。mergeEnabled 不重置（用户偏好跨重连保留）。
+      return { ...state, messages: state.messages.map(m => m.isStreaming ? { ...m, isStreaming: false } : m), pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: state.cancelledMessageId };
+    case "TOGGLE_MERGE":
+      return { ...state, mergeEnabled: !state.mergeEnabled };
     case "LOAD_HISTORY":
       return { ...state, messages: action.messages, chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
     default:
@@ -155,11 +162,16 @@ export function useChatService(options: ChatServiceOptions) {
 
   // Reducer — 初始空消息列表（对话内容由 Gateway 加载）
   const [state, dispatch] = React.useReducer(chatReducer, null, () => {
-    return { chatState: "idle" as ChatState, messages: [], streamingMessageId: null, pendingQueue: [], error: null, sessions: [], activeSessionId: "", cancelledMessageId: null };
+    let mergeEnabled = true;
+    try { const v = localStorage.getItem("artifex_chat:mergeEnabled"); if (v !== null) mergeEnabled = v === "true"; } catch { /* ignore */ }
+    return { chatState: "idle" as ChatState, messages: [], streamingMessageId: null, pendingQueue: [], error: null, sessions: [], activeSessionId: "", cancelledMessageId: null, mergeEnabled };
   });
 
   const lastTextRef = React.useRef("");
   const prevWsStateRef = React.useRef<"disconnected" | "connecting" | "connected" | "degraded">("disconnected");
+  /** Ref mirror of state for callbacks that run in stale closures (processQueue, handleGatewayEvent) */
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
 
   // ─── 消息变化时自动同步内存缓存 + localStorage ──────────────────────
   // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
@@ -206,7 +218,9 @@ export function useChatService(options: ChatServiceOptions) {
       handleGatewayEvent(event);
     });
 
-    ws.connect().catch(() => {});
+    ws.connect().catch((err) => {
+      console.error("[chat-service] gateway-ws connect failed:", err);
+    });
 
     // ── 健康状态轮询：health 事件通过 WS 消息流更新 GatewayWebSocket 内部状态，
     // 这里定时同步到 React state 以驱动 UI 更新。 ──
@@ -247,6 +261,7 @@ export function useChatService(options: ChatServiceOptions) {
   // ─── Gateway 事件处理（b5bfb7e 原始逻辑） ─────────────────────────────
 
   function handleGatewayEvent(event: GatewayChatEvent) {
+    console.debug(`[chat-service] event: state=${event.state} session=${sessionKeyRef.current?.slice(0,12)}...`);
     switch (event.state) {
       case "delta": {
         if (event.message) {
@@ -281,8 +296,14 @@ export function useChatService(options: ChatServiceOptions) {
       }
       case "aborted":
       case "error": {
-        if (event.state === "error") dispatch({ type: "SET_ERROR", error: "AI 响应出错，请重试" });
-        else dispatch({ type: "STOP" });
+        if (event.state === "error") {
+          console.warn(`[chat-service] error event: session=${sessionKeyRef.current?.slice(0,12)}...`);
+          dispatch({ type: "SET_ERROR", error: "AI 响应出错，请重试" });
+        }
+        else {
+          console.log(`[chat-service] aborted: session=${sessionKeyRef.current?.slice(0,12)}...`);
+          dispatch({ type: "STOP" });
+        }
         lastTextRef.current = "";
         break;
       }
@@ -306,32 +327,20 @@ export function useChatService(options: ChatServiceOptions) {
   async function sendMessage(text: string): Promise<void> {
     if (!text.trim()) return;
     if (!sessionKeyRef.current) { dispatch({ type: "SET_ERROR", error: "请先选择一个对话" }); return; }
+    console.log(`[chat-service] sendMessage: session=${sessionKeyRef.current.slice(0,12)}... text=${text.length}B`);
     if (state.chatState === "sending" || state.chatState === "streaming" || state.chatState === "tool_executing") {
+      console.debug("[chat-service] sendMessage: enqueued (busy state)");
       dispatch({ type: "ADD_USER_MESSAGE", text }); dispatch({ type: "ENQUEUE", text }); return;
     }
     dispatch({ type: "ADD_USER_MESSAGE", text });
     const ws = wsRef.current;
-    // STORY-0039-HOTFIX：使用 isSendReady() 替代 ws.state !== "connected"，
-    // 避免在网关重连冷却期 / 事件循环退化期发送消息导致超时。
-    // 但 degraded 时 WS 是连着的，不应阻断发送 — 交给 sendChat 内部排队，
-    // Event Loop 恢复后自动回放（gateway-ws.ts health 事件恢复触发 _scheduleQueueReplay）。
-    if (!ws || !ws.isSendReady()) {
-      if (ws && ws.eventLoopDegraded) {
-        // degraded：不阻断，让 sendChat 排队等待自动回放
-      } else if (ws && ws.state === "connected") {
-        dispatch({ type: "SET_ERROR", error: "Gateway 刚完成重连，请稍等几秒再发送" });
-        return;
-      } else if (gatewayRunning) {
-        dispatch({ type: "SET_ERROR", error: "WebSocket 未连接，Gateway 正在运行中" });
-        return;
-      } else {
-        dispatch({ type: "SET_ERROR", error: "Gateway 未启动，请检查系统面板" });
-        return;
-      }
+    // TASK-0057: 移除 isSendReady() 阻断逻辑，仅保留 ws === null 空值守卫。
+    // 所有其他状态（connected/degraded/reconnecting）直接委托给 sendChat() 内部排队。
+    if (!ws) {
+      dispatch({ type: "SET_ERROR", error: gatewayRunning ? "连接未建立，请稍等重试" : "Gateway 未启动" });
+      return;
     }
-    const streamMsgId = genMsgId();
-    dispatch({ type: "START_STREAMING", messageId: streamMsgId });
-    lastTextRef.current = "";
+    // TASK-0057: 先调用 sendChat()，成功后再创建占位气泡，消除空假回复（方案 §3.6 修复 A）
     const cfg = selectedConfig.current;
     const ok = await ws.sendChat({
       sessionKey: sessionKeyRef.current,
@@ -339,8 +348,12 @@ export function useChatService(options: ChatServiceOptions) {
       thinking: cfg.thinking,
     });
     if (!ok) {
-      dispatch({ type: "SET_ERROR", error: ws.eventLoopDegraded ? "Gateway 繁忙，消息已排队，恢复后自动发送" : "发送失败，请检查 Gateway 状态" });
+      dispatch({ type: "SET_ERROR", error: "发送失败或消息已排队，请稍等重试" });
+      return;
     }
+    const streamMsgId = genMsgId();
+    dispatch({ type: "START_STREAMING", messageId: streamMsgId });
+    lastTextRef.current = "";
   }
 
   async function stop(): Promise<void> {
@@ -356,8 +369,45 @@ export function useChatService(options: ChatServiceOptions) {
   }
 
   function processQueue(): void {
-    if (state.pendingQueue.length > 0) {
-      const [next] = state.pendingQueue;
+    const currentState = stateRef.current;
+    if (currentState.pendingQueue.length === 0) return;
+
+    if (currentState.mergeEnabled) {
+      // TASK-0057: 合并发送模式（方案 §3.1）
+      // 读取当前 mergeEnabled 状态（来自 ref，避免 stale closure）
+      // 跳过纯空白消息，将非空白消息按 \n 拼接为一条发送
+      const messages = currentState.pendingQueue.filter(m => m.trim());
+      if (messages.length === 0) {
+        // 队列中仅有空白消息，安全清空
+        for (let i = 0; i < currentState.pendingQueue.length; i++) {
+          dispatch({ type: "DEQUEUE" });
+        }
+        return;
+      }
+
+      // 构建第一批：最多 10 条，总长不超过 4096 字符
+      const firstBatch: string[] = [];
+      let charCount = 0;
+      for (const msg of messages) {
+        const sepLen = firstBatch.length > 0 ? 1 : 0; // \n 分隔符
+        if (firstBatch.length >= 10 || (charCount + sepLen + msg.length > 4096 && firstBatch.length > 0)) {
+          break; // 当前批次已满，剩余消息留待下一轮 FINISH_STREAMING
+        }
+        firstBatch.push(msg);
+        charCount += (firstBatch.length > 1 ? 1 : 0) + msg.length;
+      }
+
+      // 从队列前端移除第一批消息
+      for (let i = 0; i < firstBatch.length; i++) {
+        dispatch({ type: "DEQUEUE" });
+      }
+      const mergedText = firstBatch.join("\n");
+      console.log(`[chat-service] processQueue: merge mode, sending batch of ${firstBatch.length} msgs (${mergedText.length} chars)`);
+      setTimeout(() => sendMessage(mergedText), 100);
+    } else {
+      // TASK-0057: 逐条发送模式（方案 §3.1，现行为）
+      // 每次 FINISH_STREAMING 触发 processQueue 时发送下一条，天然串行
+      const [next] = currentState.pendingQueue;
       dispatch({ type: "DEQUEUE" });
       setTimeout(() => sendMessage(next), 100);
     }
@@ -371,6 +421,7 @@ export function useChatService(options: ChatServiceOptions) {
       return;
     }
 
+    console.log(`[chat-service] switchSession: ${sessionId.slice(0,12)}...`);
     // 1. 把当前对话的消息存入内存缓存
     const currentKey = sessionKeyRef.current;
     if (currentKey && state.messages.length > 0) {
@@ -401,6 +452,7 @@ export function useChatService(options: ChatServiceOptions) {
 
   function createNewSession(): void {
     const newKey = `agent:${agentId}:session-${Date.now()}`;
+    console.log(`[chat-service] createNewSession: key=${newKey.slice(0,12)}...`);
     sessionKeyRef.current = newKey;
     dispatch({ type: "CLEAR_MESSAGES" });
   }
@@ -408,6 +460,7 @@ export function useChatService(options: ChatServiceOptions) {
   function deleteSession(sessionId: string): void {
     // 从内存缓存清除
     const key = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
+    console.log(`[chat-service] deleteSession: ${key.slice(0,12)}...`);
     messageCache.delete(key);
     // 如果删除的是当前会话，清空消息
     if (sessionKeyRef.current === key) {
@@ -418,6 +471,14 @@ export function useChatService(options: ChatServiceOptions) {
   function renameSession(_sessionId: string, _title: string): void {
     // 未来实现：通过 Gateway API 重命名 session
   }
+
+  /** 切换合并发送开关，持久化到 localStorage（方案 §3.4） */
+  function toggleMerge(): void {
+    const newVal = !state.mergeEnabled;
+    try { localStorage.setItem("artifex_chat:mergeEnabled", String(newVal)); } catch { /* ignore */ }
+    dispatch({ type: "TOGGLE_MERGE" });
+  }
+
 
   // ─── 持久化（已迁移到 Gateway 侧，前端不再管理） ─────────────────────
 
@@ -460,6 +521,7 @@ export function useChatService(options: ChatServiceOptions) {
     chatState: state.chatState, messages: state.messages, sessions: state.sessions,
     activeSessionId: state.activeSessionId, pendingQueue: state.pendingQueue, error: state.error,
     wsState, eventLoopDegraded, mcpBridgeAvailable,
+    mergeEnabled: state.mergeEnabled, toggleMerge,
     isStreaming: state.chatState === "streaming" || state.chatState === "tool_executing",
     cancelledMessageId: state.cancelledMessageId, getSessionKey: () => sessionKeyRef.current,
     sendMessage, stop, resume, clearMessages: () => dispatch({ type: "CLEAR_MESSAGES" }),

@@ -292,7 +292,8 @@ def _is_pid_alive(pid: int) -> bool:
             # Unix: kill -0
             os.kill(pid, 0)
             return True
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.debug("_is_pid_alive: check failed pid=%d: %s", pid, e)
         return False
 
 
@@ -882,7 +883,8 @@ def stop_gateway() -> bool:
             except subprocess.TimeoutExpired:
                 proc.kill()  # SIGKILL
                 proc.wait(timeout=5)
-    except Exception:
+    except Exception as e:
+        logger.warning("stop_gateway graceful shutdown failed for pid=%s, force killing: %s", pid, e, exc_info=True)
         # 强制杀
         _force_kill(pid)
         _wait_pid_dead(pid, 2.0)
@@ -912,8 +914,8 @@ def _force_kill(pid: int) -> None:
             )
         else:
             os.kill(pid, signal.SIGKILL)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_force_kill: failed to kill pid=%d: %s", pid, e)
 
 
 def _list_pids_on_port(port: int) -> list[int]:
@@ -1200,8 +1202,8 @@ def is_running() -> bool:
             cur = _gateway_state.get_info()
             if cur.state != "running" or cur.pid != pid:
                 _gateway_state.set_running(pid=pid, port=port)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("gateway_state.set_running failed in is_running: %s", e, exc_info=True)
         return True
 
     # PID 锁存在但指向的不是 node.exe（孤儿/谎言）→ 主动清理避免下次再误报
@@ -1236,11 +1238,11 @@ def is_running() -> bool:
                 try:
                     _write_pid(home, actual_pid)
                     _gateway_state.set_running(pid=actual_pid, port=port)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("PID write/state sync failed after port probe: %s", e, exc_info=True)
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Port probe failed for port=%s: %s", port, e, exc_info=True)
 
     return False
 
@@ -1259,8 +1261,8 @@ def _get_pid_on_port(port: int) -> int | None:
                 if parts:
                     try:
                         return int(parts[-1])
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        logger.debug("PID parse failed for port %s: %s", port, e)
     except Exception:
         pass
     return None

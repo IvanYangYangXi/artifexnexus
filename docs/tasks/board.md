@@ -41,7 +41,12 @@ tags:
 - [ ] [[STORY-0035-m3-ui-skills-tools]]
 
 ## Done
+- [x] [[TASK-0054-message-queue-fix-spec]]
+- [x] [[TASK-0057-dev-message-queue-fix]]
+- [x] [[TASK-0058-qa-test-message-queue-fix]]
 
+- [x] [[TASK-0055-qa-review-spec]]
+- [x] [[TASK-0056-dev-review-spec]]
 - [x] [[STORY-0034-m3-ui-chat-module]]
 - [x] [[STORY-0033-m3-ui-b-sidebar]]
 - [x] [[STORY-0032-m3-ui-global-layout]]

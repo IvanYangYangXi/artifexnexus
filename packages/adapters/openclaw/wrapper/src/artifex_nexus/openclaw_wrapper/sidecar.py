@@ -920,15 +920,15 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
             gateway_running = False
             try:
                 gateway_running = _runtime.is_running()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("is_running() failed during status fetch: %s", e, exc_info=True)
 
             if gateway_running:
                 # 先做轻量 TCP 探测（快速，无 MCP 协议开销）
                 try:
                     blender_server_running = _mcp_bridge.check_blender_mcp_server_running(timeout=1.0)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("check_blender_mcp_server_running() failed: %s", e, exc_info=True)
 
                 # 如果 TCP 可达，再做 MCP 握手检测
                 if blender_server_running:
@@ -1208,6 +1208,12 @@ def handle_request(request: dict) -> dict:
     try:
         return handler(req_id, params)
     except Exception as e:
+        import traceback
+        sys.stderr.write(
+            f"[sidecar.rpc] handler error: method={method} error={e}\n"
+            f"{traceback.format_exc()}\n"
+        )
+        sys.stderr.flush()
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1241,8 +1247,8 @@ def _shutdown_gateway_quietly() -> None:
             return
         if _runtime.is_running():
             _runtime.stop_gateway()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("stop_gateway failed during exit cleanup: %s", e, exc_info=True)
 
 
 # sidecar 退出原因标记：

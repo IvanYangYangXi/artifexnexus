@@ -561,6 +561,7 @@ def bootstrap(
         )
 
     except Exception as e:
+        logger.exception("bootstrap failed")
         # 失败回滚：删除已创建的目录（仅删除本次创建的）
         for d in reversed(created_dirs):
             try:

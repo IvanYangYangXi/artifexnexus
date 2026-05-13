@@ -7,8 +7,11 @@ On conflict, auto-migrate with +20 step to preserve derived port segment isolati
 详见 docs/specs/openclaw-upstream-survey.md §3 与 openclaw-wrapper-runtime.md §4。
 """
 
+import logging
 import socket
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -90,8 +93,11 @@ def pick_port(
     for i in range(max_tries):
         candidate = preferred + i * step
         if _probe_derived_segment(candidate, host):
+            logger.info("pick_port: selected port %d (attempt %d/%d)", candidate, i + 1, max_tries)
             return candidate
 
+    logger.error("pick_port: all %d candidates unavailable in range %d-%d",
+                 max_tries, preferred, preferred + (max_tries - 1) * step)
     raise RuntimeError(
         f"端口范围 {preferred}–{preferred + (max_tries - 1) * step} "
         f"内无可用端口（含派生段），请手动指定"
@@ -140,9 +146,10 @@ def read_last_port(ports_json_path: str) -> Optional[int]:
         data = json.loads(path.read_text(encoding="utf-8"))
         port = data.get("gateway_port")
         if isinstance(port, int) and 1024 <= port <= 65535:
+            logger.debug("read_last_port: %d from %s", port, path)
             return port
-    except (json.JSONDecodeError, KeyError, ValueError):
-        pass
+    except (json.JSONDecodeError, KeyError, ValueError, OSError) as e:
+        logger.debug("read_last_port: failed to read %s: %s", path, e)
     return None
 
 
@@ -162,3 +169,4 @@ def write_last_port(ports_json_path: str, port: int) -> None:
         "cdp_range": f"{port + 11}-{port + 110}",
     }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.debug("write_last_port: %d -> %s", port, path)

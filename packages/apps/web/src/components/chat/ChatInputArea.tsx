@@ -47,6 +47,10 @@ interface ChatInputAreaProps {
   onNewSession?: () => void;
   /** WebSocket 是否已连接（未连接时禁用发送） */
   isWsConnected?: boolean;
+  /** 合并发送开关状态（方案 §3.4） */
+  mergeEnabled?: boolean;
+  /** 合并发送开关回调 */
+  onMergeToggle?: () => void;
 }
 
 type SendKey = "enter" | "ctrl-enter";
@@ -91,6 +95,8 @@ export function ChatInputArea({
   sessionFiles,
   onNewSession,
   isWsConnected = true,
+  mergeEnabled = true,
+  onMergeToggle,
 }: ChatInputAreaProps) {
   const [text, setText] = React.useState("");
   const [sendKey, setSendKey] = React.useState<SendKey>("enter");
@@ -374,6 +380,20 @@ export function ChatInputArea({
 
         {/* C3c 发送区 */}
         <div className="flex items-center gap-1.5">
+          {/* TASK-0057: 合并发送 checkbox（方案 §3.4） */}
+          <label
+            className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+            title="多条排队消息合并为一条发送"
+          >
+            <input
+              type="checkbox"
+              checked={mergeEnabled}
+              onChange={onMergeToggle}
+              className="h-3 w-3 cursor-pointer accent-primary"
+            />
+            合并发送
+          </label>
+
           {/* 停止按钮 — 仅在流式生成中显示 */}
           {isStreaming && (
             <Button

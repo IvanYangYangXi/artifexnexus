@@ -134,6 +134,7 @@ def _install_unix(
     prefix: Path, version: str, extra_env: dict[str, str] | None = None
 ) -> Iterator[ProgressEvent]:
     """Unix 平台：curl install-cli.sh | bash，逐行解析 NDJSON。"""
+    logger.info("install_unix: prefix=%s version=%s", prefix, version)
     env = os.environ.copy()
     env["OPENCLAW_NO_ONBOARD"] = "1"
     if extra_env:
@@ -142,6 +143,7 @@ def _install_unix(
     bash_cmd = _build_unix_cmd(prefix, version)
 
     # 启动 curl | bash 管道
+    logger.debug("install_unix: spawning curl | bash pipeline")
     curl_proc = subprocess.Popen(
         [
             "curl",
@@ -188,10 +190,14 @@ def _install_unix(
         stderr_data = bash_proc.stderr.read()
 
     if bash_rc != 0 or curl_rc != 0:
+        msg = f"安装失败 (curl={curl_rc}, bash={bash_rc}): {stderr_data[:500]}"
+        logger.error("install_unix: %s", msg)
         yield ProgressEvent(
             phase="error",
-            message=f"安装失败 (curl={curl_rc}, bash={bash_rc}): {stderr_data[:500]}",
+            message=msg,
         )
+    else:
+        logger.info("install_unix: completed successfully")
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +215,11 @@ def _install_windows(
 
     前置条件：系统需已安装 Node.js（npm 可用）。如果不可用，报 E_NODE_MISSING。
     """
+    logger.info("install_windows: prefix=%s version=%s", prefix, version)
     # 检查 npm 是否可用
     npm_path = shutil.which("npm") or shutil.which("npm.cmd")
     if not npm_path:
+        logger.error("install_windows: npm not found")
         yield ProgressEvent(
             phase="error",
             message="未找到 npm。请先安装 Node.js（https://nodejs.org）或使用 WSL。",
@@ -256,11 +264,13 @@ def _install_windows(
         }
         if _is_win:
             _popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        logger.debug("install_windows: spawning npm install -g --prefix %s %s", prefix, install_spec)
         proc = subprocess.Popen(
             [npm_path, "install", "-g", "--prefix", str(prefix), install_spec],
             **_popen_kwargs,
         )
     except OSError as e:
+        logger.error("install_windows: failed to launch npm: %s", e)
         yield ProgressEvent(
             phase="error",
             message=f"无法启动 npm: {e}",
@@ -289,15 +299,18 @@ def _install_windows(
     rc = proc.wait()
 
     if rc != 0:
+        msg = f"npm install 失败 (exit={rc})"
+        logger.error("install_windows: %s", msg)
         yield ProgressEvent(
             phase="error",
-            message=f"npm install 失败 (exit={rc})",
+            message=msg,
         )
         return
 
     # 创建 bin/openclaw.cmd wrapper（模拟 install-cli.sh 的行为）
     _create_windows_wrapper(prefix)
 
+    logger.info("install_windows: completed successfully version=%s", version)
     yield ProgressEvent(
         phase="complete",
         name="openclaw",
@@ -428,9 +441,11 @@ def install_openclaw(
 
     prefix = Path(prefix)
 
+    logger.info("install_openclaw: version=%s prefix=%s idempotent_check=true", version, prefix)
     # 幂等检查：如果 bin/openclaw 已存在且版本匹配，跳过安装
     bin_path = _find_openclaw_bin(prefix)
     if bin_path and _check_version_match(bin_path, version):
+        logger.info("install_openclaw: idempotent skip — version=%s already installed", version)
         yield ProgressEvent(
             phase="complete",
             name="openclaw",
@@ -511,6 +526,7 @@ def get_install_result(
         else:
             code = "E_UNKNOWN"
 
+        logger.error("get_install_result: install failed code=%s msg=%s", code, msg[:200])
         return InstallResult(
             success=False,
             version=version,

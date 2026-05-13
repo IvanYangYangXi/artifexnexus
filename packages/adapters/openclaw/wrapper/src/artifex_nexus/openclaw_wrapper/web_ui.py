@@ -157,12 +157,14 @@ def get_web_url(
             bin_path=bin_path,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
+        logger.warning("web_ui: dashboard spawn timed out after %ds", timeout)
         return WebUrlResult(
             available=False,
             reason=f"openclaw dashboard 命令超时（>{timeout}s）",
         )
     except (OSError, FileNotFoundError) as exc:
+        logger.warning("web_ui: dashboard spawn failed: %s", exc)
         return WebUrlResult(
             available=False,
             reason=f"启动 openclaw dashboard 失败: {exc}",

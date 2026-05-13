@@ -63,8 +63,8 @@ def _get_pid_on_port(port: int) -> int | None:
                         return int(parts[-1])
                     except ValueError:
                         pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_get_pid_on_port(port=%s) failed: %s", port, e, exc_info=True)
     return None
 
 
@@ -234,8 +234,8 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
                 port = DEFAULT_PORT
                 try:
                     port = _bootstrap.get_gateway_port(_get_openclaw_home())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("get_gateway_port failed during status recovery: %s", e, exc_info=True)
                 try:
                     import socket
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -261,8 +261,8 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
                                 started_at=None,
                                 last_error=None,
                             )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("PID/port recovery in gateway status failed: %s", e, exc_info=True)
 
             # 重新读取（可能已被 is_running() 或上面的逻辑更新）
             if recovered:
@@ -274,8 +274,8 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
             if info.state == "running":
                 try:
                     _runtime._start_health_monitor()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("_start_health_monitor() failed after status recovery: %s", e, exc_info=True)
 
         last_log_id = _gateway_log.get_log_buffer().stats()["max_id"]
         return {

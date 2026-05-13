@@ -388,6 +388,8 @@ export function ChatView() {
         sessionFiles={[]}
         onNewSession={() => setNewSessionDialogOpen(true)}
         isWsConnected={chat.wsState === "connected" || chat.wsState === "degraded"}
+        mergeEnabled={chat.mergeEnabled}
+        onMergeToggle={chat.toggleMerge}
       />
 
       {/* 新建对话弹窗 */}

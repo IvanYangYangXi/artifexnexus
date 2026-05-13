@@ -848,14 +848,17 @@ def fetch_remote_models(
             success=False, error=f"HTTP {code}: {str(e)[:200]}"
         )
     except urllib.error.URLError as e:
+        logger.warning("fetch_remote_models: network error url=%s: %s", url, e.reason)
         return FetchRemoteModelsResult(
             success=False, error=f"网络错误: {str(e.reason)[:200]}"
         )
     except TimeoutError:
+        logger.warning("fetch_remote_models: timeout url=%s >%ds", url, timeout)
         return FetchRemoteModelsResult(
             success=False, error=f"请求超时（>{timeout}s）"
         )
     except Exception as e:
+        logger.warning("fetch_remote_models: request failed url=%s: %s", url, e)
         return FetchRemoteModelsResult(
             success=False, error=f"请求异常: {type(e).__name__}: {str(e)[:200]}"
         )

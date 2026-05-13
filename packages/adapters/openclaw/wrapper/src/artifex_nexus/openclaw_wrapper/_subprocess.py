@@ -113,45 +113,56 @@ def find_openclaw_bin(openclaw_home: Path) -> Optional[Path]:
     """
     home = Path(openclaw_home).expanduser().resolve()
     cli_dir = home / "cli"
+    logger.debug("find_openclaw_bin: searching in %s", cli_dir)
     if not cli_dir.exists():
+        logger.debug("find_openclaw_bin: cli_dir does not exist: %s", cli_dir)
         return None
 
     # 1. cli/current symlink
     current_link = cli_dir / "current"
+    logger.debug("find_openclaw_bin: trying symlink %s", current_link)
     if current_link.is_symlink():
         try:
             resolved = current_link.resolve()
             result = _check_vdir(resolved)
             if result:
+                logger.debug("find_openclaw_bin: found via symlink: %s", result)
                 return result
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug("find_openclaw_bin: symlink resolve failed: %s", e)
 
     # 2. cli/current.txt 指针文件（Win 兜底）
     current_txt = cli_dir / "current.txt"
+    logger.debug("find_openclaw_bin: trying current.txt %s", current_txt)
     if current_txt.exists():
         try:
             version_dir_name = current_txt.read_text(encoding="utf-8").strip()
             if version_dir_name:
                 result = _check_vdir(cli_dir / version_dir_name)
                 if result:
+                    logger.debug("find_openclaw_bin: found via current.txt: %s", result)
                     return result
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug("find_openclaw_bin: current.txt read failed: %s", e)
 
     # 3. 扫描 cli/ 下所有版本目录，倒序找首个可用
+    logger.debug("find_openclaw_bin: scanning cli/ directories")
     try:
         versions = sorted(
             [d for d in cli_dir.iterdir() if d.is_dir() and d.name != "current"],
             reverse=True,
         )
-    except OSError:
+    except OSError as e:
+        logger.debug("find_openclaw_bin: cli_dir scan failed: %s", e)
         return None
+    logger.debug("find_openclaw_bin: scanning %d version dirs", len(versions))
     for vdir in versions:
         result = _check_vdir(vdir)
         if result:
+            logger.debug("find_openclaw_bin: found via scan: %s", result)
             return result
 
+    logger.debug("find_openclaw_bin: not found")
     return None
 
 
@@ -274,6 +285,7 @@ def run_openclaw(
     cmd = [str(bp), *cli_args]
     kwargs = popen_kwargs(win_no_window=win_no_window)
 
+    logger.debug("run_openclaw: cmd=%s timeout=%.1fs", " ".join(cmd), timeout)
     return subprocess.run(  # noqa: S603 — args 完全由本仓库代码构造，无 shell 注入
         cmd,
         capture_output=True,

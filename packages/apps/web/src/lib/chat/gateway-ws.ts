@@ -111,13 +111,13 @@ export class GatewayWebSocket {
   private _reconnectionTime = 0;
 
   /** 网关事件循环是否处于退化状态（从 health 事件解析） */
-  private _eventLoopDegraded = false;
+  private _eventLoopDegraded = true;
 
   /** 连接建立时间戳（用于启动宽限期：刚连上 15s 内不报 degraded） */
   private _connectionEstablishedAt = 0;
 
   /** 启动宽限期（ms）：连接建立后这段时间内忽略 Event Loop 退化 */
-  private static readonly STARTUP_GRACE_MS = 15000;
+  private static readonly STARTUP_GRACE_MS = 3000;
 
   /** 断连/退化期间暂存的 sendChat 队列（FIFO，重连后回放） */
   private _pendingSendQueue: QueuedChatSend[] = [];
@@ -421,7 +421,7 @@ export class GatewayWebSocket {
     console.log(
       `[gateway-ws] Queued chat.send (state=${this._state}, queueLen=${this._pendingSendQueue.length})`,
     );
-    return false;
+    return true;
   }
 
   /** 实际执行 chat.send RPC */
@@ -471,7 +471,8 @@ export class GatewayWebSocket {
           method: "chat.send",
           params: chatParams,
         }));
-      } catch {
+      } catch (err) {
+        console.warn("[gateway-ws] chat.send ws send failed:", err);
         clearTimeout(timeout);
         this._pendingRequests.delete(reqId);
         resolve(false);
@@ -550,7 +551,8 @@ export class GatewayWebSocket {
 
       try {
         this._ws!.send(JSON.stringify(payload));
-      } catch {
+      } catch (err) {
+        console.warn("[gateway-ws] abortChat ws send failed:", err);
         clearTimeout(timeout);
         this._pendingRequests.delete(reqId);
         resolve();
@@ -1059,8 +1061,9 @@ export class GatewayWebSocket {
     if (state === "connected") {
       this._reconnectionTime = Date.now();
       this._connectionEstablishedAt = Date.now();
-      // 新连接：重置退化标志（等第一次 health 事件更新，启动宽限期 15s）
-      this._eventLoopDegraded = false;
+      // TASK-0057: 悲观初始化 EventLoop 状态（方案 §3.6 修复 B）。
+      // 重连后默认认为退化，等首次 health 事件确认真实状态后再更新。
+      this._eventLoopDegraded = true;
       // 清除空闲断开标记（重连成功 = 不再空闲）
       this._idleDisconnected = false;
       // 重置 MCP Bridge 状态（新连接 = 重新评估）
@@ -1117,22 +1120,38 @@ export class GatewayWebSocket {
   private async _replayQueuedSends(): Promise<void> {
     if (this._pendingSendQueue.length === 0) return;
 
-    // 去重：每 sessionKey 只保留最后一条
-    const seen = new Map<string, QueuedChatSend>();
-    for (const item of this._pendingSendQueue) {
-      seen.set(item.params.sessionKey, item);
-    }
-    const toReplay = Array.from(seen.values());
-
-    // 清理已过期的队列项（超过 120s）
     const now = Date.now();
-    const fresh = toReplay.filter((item) => now - item.queuedAt < 120_000);
 
-    if (fresh.length > 0) {
+    // TASK-0057: 轻量去重（方案 §3.1）
+    // 同一 sessionKey + 完全相同的 message 内容（纯字符串比对）→ 5s 窗口内去重（保留最新一条）
+    // 不同内容的消息全部保留，按时间序逐条回放
+    const dedupKey = (item: QueuedChatSend) => `${item.params.sessionKey}::${item.params.message}`;
+    const deduped: QueuedChatSend[] = [];
+    const seenPos = new Map<string, number>();
+
+    for (const item of this._pendingSendQueue) {
+      // 清理过期队列项（>120s）
+      if (now - item.queuedAt >= 120_000) continue;
+
+      const key = dedupKey(item);
+      const prevIdx = seenPos.get(key);
+      if (prevIdx !== undefined) {
+        const prevItem = deduped[prevIdx];
+        // 5s 窗口内相同内容 → 保留最新一条
+        if (item.queuedAt - prevItem.queuedAt < 5000) {
+          deduped[prevIdx] = item;
+          continue;
+        }
+      }
+      deduped.push(item);
+      seenPos.set(key, deduped.length - 1);
+    }
+
+    if (deduped.length > 0) {
       console.log(
-        `[gateway-ws] Replaying ${fresh.length} queued sends (deduped from ${this._pendingSendQueue.length})...`,
+        `[gateway-ws] Replaying ${deduped.length} queued sends (deduped from ${this._pendingSendQueue.length})...`,
       );
-      for (const item of fresh) {
+      for (const item of deduped) {
         if (this._disposed || this._state !== "connected") break;
         try {
           await this._doSendChat(item.params);

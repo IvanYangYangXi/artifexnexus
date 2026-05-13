@@ -20,8 +20,8 @@ export function SettingsPage() {
 
   const loadConfig = async () => {
     dispatch({ type: "LOAD_START" });
-    try { const ipc = await getIpc(); const dump = await ipc.dumpOpenClawConfig(); dispatch({ type: "LOAD_SUCCESS", dump }); }
-    catch (e: any) { dispatch({ type: "LOAD_ERROR", message: e.message || String(e) }); }
+    try { const ipc = await getIpc(); const dump = await ipc.dumpOpenClawConfig(); dispatch({ type: "LOAD_SUCCESS", dump }); console.log(`[Settings] config loaded: ${dump?.providers?.length||0} providers`); }
+    catch (e: any) { console.error("[Settings] config load failed:", e); dispatch({ type: "LOAD_ERROR", message: e.message || String(e) }); }
   };
   React.useEffect(() => { loadConfig(); }, []);
 
@@ -46,7 +46,7 @@ export function SettingsPage() {
       dispatch({ type: "RESET_DIRTY" } as any);
       // 重新加载以获取最新状态
       await loadConfig();
-    } catch (e: any) { setSaveMsg(e.message); }
+    } catch (e: any) { console.error("[Settings] config save failed:", e); setSaveMsg(e.message); }
     setSaving(false);
   };
 
@@ -128,7 +128,7 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
       const ipc = await getIpc();
       const r = await ipc.testOpenClawProvider({ providerId: selected.id, modelId: defaultModel, authProfileId: selected.authProfileId });
       setTestResult({ success: r.success, latencyMs: r.latencyMs, error: r.error });
-    } catch (e: any) { setTestResult({ success: false, error: e.message }); }
+    } catch (e: any) { console.warn("[Settings] test connection failed:", e); setTestResult({ success: false, error: e.message }); }
     setTesting(false);
   };
 
@@ -146,7 +146,7 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
       const r = await ipc.fetchRemoteModels({ baseUrl: selected.baseUrl, token, providerId: selected.id });
       if (r.success && r.models?.length) setRemoteModels(r.models);
       else setFetchError(r.error || "未获取到模型");
-    } catch (e: any) { setFetchError(e.message); }
+    } catch (e: any) { console.warn("[Settings] fetch models failed:", e); setFetchError(e.message); }
     setFetchingModels(false);
   };
   const handleImportModels = (ids: string[]) => { if (!selected || !ids.length) return; dispatch({ type: "IMPORT_REMOTE_MODELS", providerId: selected.id, modelIds: ids }); setRemoteModels(null); };

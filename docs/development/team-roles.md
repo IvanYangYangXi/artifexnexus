@@ -65,9 +65,15 @@ STORY: 实现功能X
 │       ├── 问题标注，写入 TASK-A 进展日志或直接反馈
 │       └── review → done（审核通过）
 │
+│
+├── Phase 2.5: 用户终审（QA + 程序均审核通过后）
+│   ├── team-lead 汇总 QA + 程序的审核结论，提交给用户
+│   └── 用户确认 → PM 将 TASK-B、TASK-C 迁到 done
+│       └── 用户不确认 → 打回修改，重新走 Phase 2
+│
 ├── Phase 3: 开发（TASK-B、TASK-C 均 done 后才启动）
 │   └── TASK-D: 开发功能X（owner: 程序）
-│       ├── 审核通过后由 PM 从 done/ 迁回 ready/
+│       ├── 用户确认后由 PM 从 review/ 迁回 ready/
 │       ├── ready → in-progress（程序签收）
 │       ├── 完成后通知 PM + QA
 │       └── review（代码写完，等待测试）
@@ -80,7 +86,10 @@ STORY: 实现功能X
         └── 不通过 → 打回，通知程序修复
 ```
 
-> **关键约束**：Phase 2 两个审核任务全部 done 之前，程序不得启动 Phase 3 开发任务。
+> **关键约束**：
+> - Phase 2 两个审核任务（QA + 程序）均通过后，**必须经用户终审确认**（Phase 2.5），才能将审核任务迁到 done
+> - 用户确认前，程序不得启动 Phase 3 开发任务
+> - **用户终审**：Phase 2 两个审核 all passed 后，必须由用户（人类）最终确认方案方可 mark TASK status=done。Agent 在用户确认前不得将 Phase 2 任务标 done，也不得推进 Phase 3。用户确认后由 team-lead 执行 done 标记。
 
 ## 4. 角色详细定义
 
@@ -96,7 +105,7 @@ STORY: 实现功能X
    - 每个 TASK 必须有明确的 owner（产品经理 / 程序 / QA）
 4. **任务分派**：创建任务后通知对应 owner，并在 `docs/tasks/README.md` 登记索引
 5. **进度跟踪**：定期检查任务状态，推动阻塞项解决
-6. **审核自己的方案**：PM 的方案 TASK 进入 review 后，由 QA + 程序审核；审核通过后 PM 将开发 TASK 迁回 ready，通知程序签收
+6. **审核自己的方案**：PM 的方案 TASK 进入 review 后，由 QA + 程序审核；审核通过后 team-lead 汇总提交用户终审。用户确认后 PM 将审核任务迁 done，将开发 TASK 迁回 ready，通知程序签收
 
 **任务管理铁律**：
 - 创建任务 = 写 `.md` 文件 + 更新 frontmatter + 更新 `README.md` 索引 + 更新 `board.md` Kanban 列

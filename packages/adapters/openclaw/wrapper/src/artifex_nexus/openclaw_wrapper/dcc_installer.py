@@ -335,7 +335,8 @@ def get_dcc_port(dcc: str) -> Dict:
                     except ValueError:
                         pass
         except Exception:
-            pass
+            logger.debug("get_dcc_port: failed to read config for %s, using default port %d",
+                        server_name, default_port, exc_info=True)
 
     return {"port": port, "url": url, "server_name": server_name}
 

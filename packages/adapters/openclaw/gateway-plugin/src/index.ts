@@ -41,6 +41,7 @@ function parseJsonRpcResponse(data: string): Record<string, unknown> | null {
   try {
     return JSON.parse(data);
   } catch {
+    console.warn(`[mcp-bridge] JSON parse failed (raw length=${data.length}, first 200 chars: ${data.slice(0, 200)})`);
     return null;
   }
 }
@@ -142,10 +143,13 @@ class McpWebSocketClient {
             this.pendingRequests.delete(response.id as number);
             if (response.error) {
               const errMsg = (response.error as Record<string, unknown>).message || JSON.stringify(response.error);
+              this.logger.warn(`[mcp-bridge] RPC error from ${this.name}: id=${response.id} error=${errMsg}`);
               handlers.reject(new Error(`MCP error: ${errMsg}`));
             } else {
               handlers.resolve(response.result);
             }
+          } else if (response && response.id) {
+            this.logger.debug(`[mcp-bridge] unmatched response ${this.name}: id=${response.id} (no pending handler)`);
           }
         };
 
@@ -388,6 +392,7 @@ export default function (api: PluginAPI) {
       continue;
     }
     if (serverDef.type !== "websocket" || !serverDef.url) {
+      logger.warn(`[mcp-bridge] Server "${serverName}" has invalid config: type=${serverDef.type} url=${serverDef.url || "(empty)"}, skipping`);
       continue;
     }
     // 预创建 client 引用占位
@@ -430,6 +435,7 @@ export default function (api: PluginAPI) {
           async execute(_id, params) {
             const client = serverClients.get(serverName);
             if (!client || !client.connected) {
+              logger.warn(`[mcp-bridge] tool called against disconnected server: ${serverName}/${tool.name}`);
               return {
                 content: [
                   {
@@ -441,23 +447,30 @@ export default function (api: PluginAPI) {
               };
             }
             try {
+              const startedAt = Date.now();
+              const paramsSize = JSON.stringify(params).length;
+              logger.info(`[mcp-bridge] tool execute: ${serverName}/${tool.name} id=${_id} params=${paramsSize}B`);
               client.stats.toolCallCount++;
               const result = (await client.callTool(tool.name, params)) as Record<string, unknown>;
+              const latency = Date.now() - startedAt;
               if (result && result.content) {
                 const textParts = (result.content as { type: string; text: string }[])
                   .filter((c) => c.type === "text")
                   .map((c) => c.text);
+                logger.info(`[mcp-bridge] tool done: ${serverName}/${tool.name} id=${_id} latency=${latency}ms`);
                 return {
                   content: [
                     { type: "text", text: textParts.join("\n") || JSON.stringify(result) },
                   ],
                 };
               }
+              logger.info(`[mcp-bridge] tool done: ${serverName}/${tool.name} id=${_id} latency=${latency}ms (no text content)`);
               return {
                 content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
               };
             } catch (err) {
               client.stats.toolErrorCount++;
+              logger.error(`[mcp-bridge] tool failed: ${serverName}/${tool.name} id=${_id} error=${(err as Error).message}`);
               return {
                 content: [
                   {
@@ -519,6 +532,7 @@ export default function (api: PluginAPI) {
   // Cleanup
   return {
     async dispose() {
+      logger.info(`[mcp-bridge] dispose: disconnecting ${clients.size} clients`);
       for (const [name, client] of clients) {
         const s = client.stats;
         logger.info(

@@ -107,7 +107,10 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("启动 Tauri 应用失败");
+        .unwrap_or_else(|e| {
+            eprintln!("[tauri] Fatal: failed to build Tauri application: {e}");
+            std::process::exit(1);
+        });
 
     // STORY-0018 hot-fix：监听 RunEvent::ExitRequested / Exit，
     // 在主进程退出前同步停掉 sidecar 管理的 gateway，避免孤儿残留。

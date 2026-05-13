@@ -124,7 +124,7 @@ export function NewSessionDialog({
             return found;
           });
         }
-      } catch {
+      } catch (err) { console.warn("[NewSessionDialog] fetch models failed:", err);
         // 加载失败，使用 localStorage 默认值
       } finally {
         if (!cancelled) setLoading(false);

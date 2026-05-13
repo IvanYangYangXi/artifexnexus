@@ -7,7 +7,7 @@
 
 ## 强约束
 
-1. 遵守 `.ai/rules/` 下所有规则（尤其 `30-agent-behavior.md` 的对齐优先、最小改动原则）。
+1. 遵守 `.ai/rules/` 下所有规则（尤其 `30-agent-behavior.md` 的对齐优先、最小改动原则；以及 `50-logging-standards.md` 的零静默 catch、关键节点必埋点）。
 2. 改架构必先改 `docs/specs/`，再改 `packages/*`。
 3. **不要新增 MCP 工具**——新增能力 = 新增 Skill 包 + `@tool` 函数。
 4. **Skill ≠ Tool**：Skill 是包，Tool 是包内被 `@tool` 装饰的函数。

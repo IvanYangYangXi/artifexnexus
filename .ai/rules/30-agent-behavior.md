@@ -112,8 +112,25 @@
 - [ ] **状态迁移三处同步**（文件位置 / frontmatter.status / board.md 列）已全部完成
 - [ ] **GUI 任务**：UI 结构 spec 已 accepted，再写代码
 - [ ] **多级任务**：parent / children 双向可达，孤儿（无 parent 又非 EPIC）= 0
+- [ ] **日志埋点**：新增/修改的 `try/catch` / `try/except` 块是否都有日志？（禁止空 catch）
+- [ ] **日志埋点**：新增/修改的公共函数是否有关键入口日志？（INFO 级别）
+- [ ] **日志埋点**：新增/修改的外部调用（HTTP/WS/subprocess/文件 I/O）是否有日志？
+- [ ] **日志埋点**：是否存在 `except Exception: pass` 或空 `catch {}`？（必须为零）
+- [ ] **日志埋点**：错误日志是否包含操作名 + 关键参数 + 错误消息？（禁止无上下文日志）
+- [ ] **日志埋点**：状态变更（连接、会话、配置、降级、重连）是否有 INFO 日志？
 
-## 8. OpenClaw 配置文件编码规范（强制）
+## 8. 日志埋点强制规则
+
+> 详见 [[../../docs/specs/logging-spec]] 与 [[50-logging-standards]]
+
+1. **零静默 catch**：任何 `catch` / `except` 块不得为空。最低要求 `logger.debug()` / `console.debug()`。
+2. **公共函数入口**：每个被其他模块调用的函数的**关键路径**必须有 INFO 级别日志。
+3. **外部调用**：HTTP/WS/subprocess/文件 I/O 必须有 DEBUG 以上日志。
+4. **状态变更**：服务启停、连接建立/断开、会话创建/删除、配置变更、功能降级、重连重试必须有 INFO 日志。
+5. **错误先记再传**：必须先 `logger.error()` / `console.error()` 记录，再构建用户可见的响应。
+6. **异步必记**：所有 `async` 函数的关键路径必须日志（异步调用栈难以追踪）。
+
+## 9. OpenClaw 配置文件编码规范（强制）
 
 OpenClaw 的 `openclaw.json` 使用 **UTF-8 无 BOM** 编码。写入中文时必须遵守：
 

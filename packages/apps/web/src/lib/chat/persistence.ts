@@ -48,10 +48,12 @@ function openDB(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
+      console.log(`[persistence] DB opened: ${DB_NAME} v${DB_VERSION}`);
       resolve(request.result);
     };
 
     request.onerror = () => {
+      console.error("[persistence] DB open failed:", request.error);
       dbPromise = null;
       reject(request.error);
     };
@@ -73,8 +75,14 @@ export async function saveSession(session: Omit<ChatSession, "messages">): Promi
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      console.debug(`[persistence] session saved: ${session.id}`);
+      resolve();
+    };
+    tx.onerror = () => {
+      console.error(`[persistence] session save failed: ${session.id}`, tx.error);
+      reject(tx.error);
+    };
   });
 }
 
@@ -89,9 +97,13 @@ export async function loadAllSessions(): Promise<Omit<ChatSession, "messages">[]
     request.onsuccess = () => {
       // 按更新时间倒序
       const sessions = (request.result as Omit<ChatSession, "messages">[]).reverse();
+      console.log(`[persistence] sessions loaded: ${sessions.length}`);
       resolve(sessions);
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      console.error("[persistence] sessions load failed:", request.error);
+      reject(request.error);
+    };
   });
 }
 
@@ -104,8 +116,14 @@ export async function deleteSession(sessionId: string): Promise<void> {
     const tx = db.transaction(STORE_SESSIONS, "readwrite");
     const store = tx.objectStore(STORE_SESSIONS);
     store.delete(sessionId);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      console.debug(`[persistence] session deleted: ${sessionId}`);
+      resolve();
+    };
+    tx.onerror = () => {
+      console.error(`[persistence] session delete failed: ${sessionId}`, tx.error);
+      reject(tx.error);
+    };
   });
 }
 
@@ -136,9 +154,18 @@ export async function saveMessages(
         }
       }
     };
-    clearRequest.onerror = () => reject(clearRequest.error);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    clearRequest.onerror = () => {
+      console.error(`[persistence] message clear failed: ${sessionId}`, clearRequest.error);
+      reject(clearRequest.error);
+    };
+    tx.oncomplete = () => {
+      console.debug(`[persistence] messages saved: ${sessionId} count=${messages.length}`);
+      resolve();
+    };
+    tx.onerror = () => {
+      console.error(`[persistence] message save tx failed: ${sessionId}`, tx.error);
+      reject(tx.error);
+    };
   });
 }
 
@@ -155,9 +182,13 @@ export async function loadMessages(sessionId: string): Promise<ChatMessage[]> {
       const messages = (request.result as (ChatMessage & { sessionId: string })[])
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
         .map(({ sessionId: _sid, ...msg }) => msg as ChatMessage);
+      console.debug(`[persistence] messages loaded: ${sessionId} count=${messages.length}`);
       resolve(messages);
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      console.error(`[persistence] messages load failed: ${sessionId}`, request.error);
+      reject(request.error);
+    };
   });
 }
 
@@ -168,8 +199,15 @@ export async function loadFullSession(sessionId: string): Promise<ChatSession | 
     const tx = db.transaction(STORE_SESSIONS, "readonly");
     const store = tx.objectStore(STORE_SESSIONS);
     const request = store.get(sessionId);
-    request.onsuccess = () => resolve(request.result as Omit<ChatSession, "messages"> | undefined);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const meta = request.result as Omit<ChatSession, "messages"> | undefined;
+      console.debug(`[persistence] full session loaded: ${sessionId} found=${!!meta}`);
+      resolve(meta);
+    };
+    request.onerror = () => {
+      console.error(`[persistence] full session load failed: ${sessionId}`, request.error);
+      reject(request.error);
+    };
   });
 
   if (!sessionMeta) return null;
@@ -195,8 +233,14 @@ async function deleteMessagesBySession(sessionId: string): Promise<void> {
         cursor.continue();
       }
     };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      console.debug(`[persistence] messages deleted for session: ${sessionId}`);
+      resolve();
+    };
+    tx.onerror = () => {
+      console.error(`[persistence] messages delete failed: ${sessionId}`, tx.error);
+      reject(tx.error);
+    };
   });
 }
 
@@ -207,7 +251,8 @@ const ACTIVE_SESSION_KEY = "artifex.chat.activeSessionId";
 export function getActiveSessionId(defaultId = "default"): string {
   try {
     return localStorage.getItem(ACTIVE_SESSION_KEY) ?? defaultId;
-  } catch {
+  } catch (err) {
+    console.warn("[persistence] localStorage read failed for activeSessionId:", err);
     return defaultId;
   }
 }
@@ -215,5 +260,7 @@ export function getActiveSessionId(defaultId = "default"): string {
 export function setActiveSessionId(sessionId: string): void {
   try {
     localStorage.setItem(ACTIVE_SESSION_KEY, sessionId);
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.warn("[persistence] localStorage write failed for activeSessionId:", err);
+  }
 }

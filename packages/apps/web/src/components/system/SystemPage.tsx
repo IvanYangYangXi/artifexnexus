@@ -198,7 +198,7 @@ function InstallerTab() {
           addLog("openclaw", "info", `部署文件校验: ${p.join(" · ")}`);
         }
       } catch { addLog("openclaw", "warn", "部署校验失败"); }
-    } catch {
+    } catch (err) { console.warn("[SystemPage] refresh getOpenClawStatus failed:", err);
       setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: "not-installed" } : it));
       addLog("openclaw", "warn", "OpenClaw 状态查询失败（sidecar 不可用）");
     }
@@ -481,7 +481,7 @@ function StatusBar() {
         try {
           const ocStatus = await ipc.getOpenClawStatus();
           gatewayRunning = ocStatus.gateway_running;
-        } catch {}
+        } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
 
         if (gatewayRunning) {
           // Gateway 运行中：通过 mcp bridge status 检测真实连通性
@@ -494,7 +494,7 @@ function StatusBar() {
               // Gateway 运行但 bridge 没连上 → 检测 MCP Server 是否在监听
               try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
             }
-          } catch {
+          } catch (err) { console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
             try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
           }
         } else {
@@ -510,7 +510,7 @@ function StatusBar() {
       // 部署校验
       const v = await ipc.validateDeployments();
       setDeploy(v);
-    } catch {}
+    } catch (err) { console.warn("[SystemPage] StatusBar.refresh failed:", err); }
   };
 
   React.useEffect(() => { refresh(); }, []);
@@ -670,7 +670,7 @@ function GatewayTab() {
       } else {
         setLiveness("dead");
       }
-    } catch {
+    } catch (err) { console.warn("[SystemPage] GatewayTab.fetchStatus failed:", err);
       // IPC 失败：sidecar 不可用，状态无法获取
       setLiveness("dead");
     }
@@ -886,7 +886,7 @@ function StatusTab() {
       try {
         const ocStatus = await ipc.getOpenClawStatus();
         gatewayRunning = ocStatus.gateway_running;
-      } catch {}
+      } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getOpenClawStatus failed:", err); }
       // Blender
       try {
         const p = await ipc.getDCCPort("blender");
@@ -902,7 +902,7 @@ function StatusTab() {
             } else {
               try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
             }
-          } catch {
+          } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getMCPBridgeStatus failed:", err);
             try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
           }
         } else {
@@ -912,7 +912,7 @@ function StatusTab() {
         items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
       } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
       setDccStatus(items);
-    } catch {}
+    } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC failed:", err); }
   };
 
   React.useEffect(() => { runDeployCheck(); refreshDCC(); }, []);

@@ -246,6 +246,7 @@ class MCPBridgeClient:
             except Exception as e:
                 self._connected = False
                 self._ws = None
+                logger.warning("call_tool: failed tool=%s: %s", tool_name, e)
                 return {
                     "content": [{"type": "text", "text": f"调用异常: {str(e)}"}],
                     "isError": True,

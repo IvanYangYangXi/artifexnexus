@@ -125,8 +125,9 @@ export function ChatControlBar({
             onSwitchSession(target.sessionKey);
           }
         }
-      } catch {
+      } catch (err) {
         // sidecar 不可用时保持空列表
+        console.warn("[ChatControlBar] sessions load failed:", err);
       } finally {
         if (!cancelled) setSessionsLoading(false);
       }
@@ -187,8 +188,9 @@ export function ChatControlBar({
             return found;
           });
         }
-      } catch {
+      } catch (err) {
         // 配置读取失败，保持空
+        console.warn("[ChatControlBar] config dump failed:", err);
       } finally {
         if (!cancelled) setLoading(false);
       }
