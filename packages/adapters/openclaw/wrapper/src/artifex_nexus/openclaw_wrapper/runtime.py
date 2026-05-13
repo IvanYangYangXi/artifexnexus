@@ -210,6 +210,45 @@ def _gateway_log_file(openclaw_home: Path) -> Path:
     return log_dir / "gateway.log"
 
 
+def _audit_log(reason: str, detail: str = "") -> None:
+    """v4.1.6 新增：记录 sidecar 主动操作 gateway 的审计日志。
+
+    同时写入：
+      - sys.stderr（→ sidecar-stderr-*.log）
+      - gateway.log（→ 与 Gateway 自身日志同文件，便于事后排查"谁杀的 gateway"）
+
+    Args:
+        reason: 操作原因（如 "STOP_GATEWAY:idle_timeout", "FORCE_KILL:port_busy"）
+        detail: 额外细节（pid, caller frame 等）
+    """
+    import datetime
+    import traceback as _tb
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    # 抓上一级调用栈（跳过 _audit_log 自身和直接调用方）
+    stack = _tb.extract_stack(limit=4)
+    callers = []
+    for frame in stack[:-1]:  # 排除当前 frame
+        callers.append(f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}")
+    caller_chain = " ← ".join(callers[-3:])  # 取最后 3 层
+    line = f"[sidecar.audit] {ts} {reason} | {detail} | stack={caller_chain}"
+    # 写 stderr（sidecar-stderr-*.log 会捕获）
+    try:
+        sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+    # 写 gateway.log（与 Gateway 自身日志同文件，时间线对齐）
+    home = _current_openclaw_home
+    if home:
+        try:
+            log_file_path = _gateway_log_file(home)
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write(f"{ts} [sidecar.audit] {reason} | {detail}\n")
+                f.flush()
+        except Exception:
+            pass
+
+
 def _sidecar_marker_file(openclaw_home: Path) -> Path:
     """返回 sidecar 实例标记文件（独立于 PID 文件，防复用误判）。"""
     return openclaw_home.parent / "run" / "sidecar.instance"
@@ -611,6 +650,10 @@ def start_gateway(
                     "start_gateway: 强制终止旧 gateway (pid=%s)...",
                     existing_pid,
                 )
+                _audit_log(
+                    "FORCE_KILL:stale_sidecar_instance",
+                    f"existing_pid={existing_pid} reason=different_sidecar_instance_owned_old_gateway",
+                )
                 _force_kill(existing_pid)
                 _wait_pid_dead(existing_pid, SHUTDOWN_TIMEOUT)
                 _clear_pid(home)
@@ -796,6 +839,10 @@ def _health_monitor_loop() -> None:
                     "health_monitor: gateway 已空闲 %.0f 分钟，关闭以节省资源",
                     idle_min,
                 )
+                _audit_log(
+                    "STOP_GATEWAY:idle_timeout",
+                    f"pid={proc.pid} idle_min={idle_min} last_activity={_last_gateway_activity}",
+                )
                 stop_gateway()
                 # idle 关闭后不设 error，下次 start_gateway 会重新初始化
             continue
@@ -806,6 +853,11 @@ def _health_monitor_loop() -> None:
             "health_monitor: gateway pid=%d 已退出 (exit_code=%s)，触发自动重启",
             proc.pid,
             exit_code,
+        )
+        # v4.1.6 审计：记录 Gateway 进程意外退出（关键事件！）
+        _audit_log(
+            "GATEWAY_EXITED:detected",
+            f"pid={proc.pid} exit_code={exit_code} reason=process_died_externally",
         )
 
         # 速率限制
@@ -835,6 +887,10 @@ def _health_monitor_loop() -> None:
                 "health_monitor: 正在自动重启 gateway (第 %d/%d 次)...",
                 _health_monitor_restart_count,
                 _MAX_RESTARTS_PER_WINDOW,
+            )
+            _audit_log(
+                "AUTO_RESTART:starting",
+                f"attempt={_health_monitor_restart_count}/{_MAX_RESTARTS_PER_WINDOW} prev_exit_code={exit_code}",
             )
             _gateway_state.set_errored(
                 f"Gateway 进程退出 (exit_code={exit_code})，正在自动重启 ({_health_monitor_restart_count}/{_MAX_RESTARTS_PER_WINDOW})..."
@@ -886,6 +942,12 @@ def stop_gateway() -> bool:
 
     proc = _current_process
     home = _current_openclaw_home
+
+    # v4.1.6 审计：记录 stop_gateway 调用 + 调用栈
+    _audit_log(
+        "STOP_GATEWAY:called",
+        f"current_pid={proc.pid if proc else None} home={home}",
+    )
 
     if proc is None:
         # 尝试从 PID 文件读取
@@ -944,6 +1006,8 @@ def stop_gateway() -> bool:
 
 def _force_kill(pid: int) -> None:
     """强制终止进程。"""
+    # v4.1.6 审计：记录 force_kill（最危险的操作）
+    _audit_log("FORCE_KILL:called", f"pid={pid}")
     try:
         if _is_windows():
             subprocess.run(
@@ -1174,6 +1238,10 @@ def _cleanup_orphan_gateways(port: int) -> int:
             )
             continue
         logger.info("发现孤儿 openclaw gateway PID=%d 占用端口 %d，清理中…", pid, port)
+        _audit_log(
+            "FORCE_KILL:orphan_cleanup",
+            f"pid={pid} port={port} reason=port_busy_orphan_gateway",
+        )
         _force_kill(pid)
         if _wait_pid_dead(pid, 3.0):
             killed += 1

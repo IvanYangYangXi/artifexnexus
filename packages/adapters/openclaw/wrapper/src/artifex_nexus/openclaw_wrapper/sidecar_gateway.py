@@ -336,6 +336,10 @@ def handle_gateway_start(req_id: Any, params: dict) -> dict:
             }
 
         if already_running and force_restart:
+            _runtime._audit_log(
+                "STOP_GATEWAY:rpc_force_restart",
+                f"method=openclaw.gateway.start force_restart=true req_id={req_id}",
+            )
             _runtime.stop_gateway()
             restarted = True
 

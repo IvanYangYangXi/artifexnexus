@@ -256,6 +256,7 @@ def _handle_openclaw_start(req_id: Any, params: dict) -> dict:
 def _handle_openclaw_stop(req_id: Any, params: dict) -> dict:
     """openclaw.stop RPC：停止 OpenClaw gateway 子进程。"""
     try:
+        _runtime._audit_log("STOP_GATEWAY:rpc_called", f"method=openclaw.stop req_id={req_id}")
         result = _runtime.stop_gateway()
         return {
             "jsonrpc": "2.0",
@@ -1244,8 +1245,22 @@ def _shutdown_gateway_quietly() -> None:
     try:
         if _exit_reason == "eof":
             # stdin EOF = Rust 端重建 sidecar，不杀 gateway
+            try:
+                sys.stderr.write(f"[sidecar.audit] _shutdown_gateway_quietly: SKIP (reason=stdin_eof, gateway 保留给新 sidecar 接管)\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
             return
         if _runtime.is_running():
+            try:
+                sys.stderr.write(f"[sidecar.audit] _shutdown_gateway_quietly: KILLING (exit_reason={_exit_reason})\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
+            _runtime._audit_log(
+                "STOP_GATEWAY:sidecar_exiting",
+                f"exit_reason={_exit_reason}",
+            )
             _runtime.stop_gateway()
     except Exception as e:
         logger.warning("stop_gateway failed during exit cleanup: %s", e, exc_info=True)
@@ -1267,6 +1282,11 @@ def _signal_handler(signum: int, _frame: Any) -> None:
     """
     global _exit_reason
     _exit_reason = "signal"
+    try:
+        sys.stderr.write(f"[sidecar.audit] signal_handler: signum={signum} → exit_reason=signal → killing gateway\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
     _shutdown_gateway_quietly()
     sys.exit(0)
 
