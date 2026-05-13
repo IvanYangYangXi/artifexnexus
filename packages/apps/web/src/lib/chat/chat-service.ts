@@ -302,18 +302,21 @@ export function useChatService(options: ChatServiceOptions) {
     const ws = wsRef.current;
     // STORY-0039-HOTFIX：使用 isSendReady() 替代 ws.state !== "connected"，
     // 避免在网关重连冷却期 / 事件循环退化期发送消息导致超时。
+    // 但 degraded 时 WS 是连着的，不应阻断发送 — 交给 sendChat 内部排队，
+    // Event Loop 恢复后自动回放（gateway-ws.ts health 事件恢复触发 _scheduleQueueReplay）。
     if (!ws || !ws.isSendReady()) {
       if (ws && ws.eventLoopDegraded) {
-        dispatch({ type: "SET_ERROR", error: "Gateway 正在恢复中，请稍后重试..." });
+        // degraded：不阻断，让 sendChat 排队等待自动回放
       } else if (ws && ws.state === "connected") {
         dispatch({ type: "SET_ERROR", error: "Gateway 刚完成重连，请稍等几秒再发送" });
+        return;
       } else if (gatewayRunning) {
-        // Gateway 进程在运行但 WebSocket 未连接 → 区分"gateway 挂了"和"正在建立连接"
         dispatch({ type: "SET_ERROR", error: "WebSocket 未连接，Gateway 正在运行中" });
+        return;
       } else {
         dispatch({ type: "SET_ERROR", error: "Gateway 未启动，请检查系统面板" });
+        return;
       }
-      return;
     }
     const streamMsgId = genMsgId();
     dispatch({ type: "START_STREAMING", messageId: streamMsgId });
@@ -324,7 +327,9 @@ export function useChatService(options: ChatServiceOptions) {
       message: text,
       thinking: cfg.thinking,
     });
-    if (!ok) dispatch({ type: "SET_ERROR", error: "发送失败，请检查 Gateway 状态" });
+    if (!ok) {
+      dispatch({ type: "SET_ERROR", error: ws.eventLoopDegraded ? "Gateway 繁忙，消息已排队，恢复后自动发送" : "发送失败，请检查 Gateway 状态" });
+    }
   }
 
   async function stop(): Promise<void> {

@@ -415,64 +415,75 @@ export default function (api: PluginAPI) {
   };
 
   let totalRegistered = 0;
+  let totalFailed = 0;
 
   for (const [serverName] of serverClients) {
     const knownTools = KNOWN_TOOLS[serverName] || [];
     for (const tool of knownTools) {
       const openclawToolName = `mcp_${serverName}_${tool.name}`;
 
-      api.registerTool({
-        name: openclawToolName,
-        description: `[MCP:${serverName}] ${tool.description}`,
-        parameters: tool.inputSchema,
-        async execute(_id, params) {
-          const client = serverClients.get(serverName);
-          if (!client || !client.connected) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `MCP server "${serverName}" is not connected. Please ensure Blender is running with Artifex Nexus addon enabled.`,
-                },
-              ],
-              isError: true,
-            };
-          }
-          try {
-            client.stats.toolCallCount++;
-            const result = (await client.callTool(tool.name, params)) as Record<string, unknown>;
-            if (result && result.content) {
-              const textParts = (result.content as { type: string; text: string }[])
-                .filter((c) => c.type === "text")
-                .map((c) => c.text);
+      try {
+        api.registerTool({
+          name: openclawToolName,
+          description: `[MCP:${serverName}] ${tool.description}`,
+          parameters: tool.inputSchema,
+          async execute(_id, params) {
+            const client = serverClients.get(serverName);
+            if (!client || !client.connected) {
               return {
                 content: [
-                  { type: "text", text: textParts.join("\n") || JSON.stringify(result) },
+                  {
+                    type: "text",
+                    text: `MCP server "${serverName}" is not connected. Please ensure Blender is running with Artifex Nexus addon enabled.`,
+                  },
                 ],
+                isError: true,
               };
             }
-            return {
-              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            };
-          } catch (err) {
-            client.stats.toolErrorCount++;
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Error calling MCP tool "${tool.name}" on server "${serverName}": ${(err as Error).message}`,
-                },
-              ],
-              isError: true,
-            };
-          }
-        },
-      });
-      totalRegistered++;
+            try {
+              client.stats.toolCallCount++;
+              const result = (await client.callTool(tool.name, params)) as Record<string, unknown>;
+              if (result && result.content) {
+                const textParts = (result.content as { type: string; text: string }[])
+                  .filter((c) => c.type === "text")
+                  .map((c) => c.text);
+                return {
+                  content: [
+                    { type: "text", text: textParts.join("\n") || JSON.stringify(result) },
+                  ],
+                };
+              }
+              return {
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+              };
+            } catch (err) {
+              client.stats.toolErrorCount++;
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Error calling MCP tool "${tool.name}" on server "${serverName}": ${(err as Error).message}`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+          },
+        });
+        totalRegistered++;
+        logger.info(`[mcp-bridge] Registered tool: ${openclawToolName}`);
+      } catch (regErr) {
+        totalFailed++;
+        logger.error(
+          `[mcp-bridge] Failed to register tool "${openclawToolName}": ${(regErr as Error).message}`,
+        );
+      }
     }
   }
 
-  logger.info(`[mcp-bridge] Pre-registered ${totalRegistered} tool(s) synchronously`);
+  logger.info(
+    `[mcp-bridge] Pre-registration complete: ${totalRegistered} registered, ${totalFailed} failed`,
+  );
 
   // --- 后台异步连接（fire-and-forget） ---
   // 连接成功后更新 serverClients 引用，使 execute 可用。

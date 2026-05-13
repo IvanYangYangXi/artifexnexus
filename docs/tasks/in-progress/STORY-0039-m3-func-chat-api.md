@@ -12,6 +12,7 @@ parent: "[[../backlog/EPIC-0003-m3-web-ui-chat]]"
 children:
   - "[[../review/TASK-0051-story39-gateway-stability]]"
   - "[[../review/TASK-0052-gateway-startup-optimization]]"
+  - "[[../review/TASK-0053-dcc-preinput-context]]"
   - "[[../in-progress/TASK-0050-chat-panel-interaction-optimization]]"
 milestone: M3
 related_specs:

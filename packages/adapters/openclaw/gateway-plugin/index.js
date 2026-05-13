@@ -1,3 +1,4 @@
+"use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -78,7 +79,7 @@ var McpWebSocketClient = class {
         const timeout = setTimeout(() => {
           reject(new Error(`Connection to ${this.url} timed out`));
           this.ws?.close();
-        }, 1e4);
+        }, 5e3);
         this.ws.onopen = async () => {
           clearTimeout(timeout);
           this.connected = true;
@@ -275,7 +276,10 @@ function src_default(api) {
     pluginConfig = raw?.plugins?.entries?.["mcp-bridge"]?.config || {};
     configSource = "file";
   } catch (e) {
-    pluginConfig = api.config?.plugins?.["entries"]?.["mcp-bridge"]?.["config"] || {};
+    const plugins = api.config?.plugins;
+    const entries = (plugins ?? {})["entries"];
+    const mcpBridge = entries?.["mcp-bridge"];
+    pluginConfig = mcpBridge?.["config"] || {};
     configSource = "api.config";
     logger.warn(`[mcp-bridge] File read failed (${e.message}), using api.config`);
   }
@@ -314,59 +318,70 @@ function src_default(api) {
     ]
   };
   let totalRegistered = 0;
+  let totalFailed = 0;
   for (const [serverName] of serverClients) {
     const knownTools = KNOWN_TOOLS[serverName] || [];
     for (const tool of knownTools) {
       const openclawToolName = `mcp_${serverName}_${tool.name}`;
-      api.registerTool({
-        name: openclawToolName,
-        description: `[MCP:${serverName}] ${tool.description}`,
-        parameters: tool.inputSchema,
-        async execute(_id, params) {
-          const client = serverClients.get(serverName);
-          if (!client || !client.connected) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `MCP server "${serverName}" is not connected. Please ensure Blender is running with Artifex Nexus addon enabled.`
-                }
-              ],
-              isError: true
-            };
-          }
-          try {
-            client.stats.toolCallCount++;
-            const result = await client.callTool(tool.name, params);
-            if (result && result.content) {
-              const textParts = result.content.filter((c) => c.type === "text").map((c) => c.text);
+      try {
+        api.registerTool({
+          name: openclawToolName,
+          description: `[MCP:${serverName}] ${tool.description}`,
+          parameters: tool.inputSchema,
+          async execute(_id, params) {
+            const client = serverClients.get(serverName);
+            if (!client || !client.connected) {
               return {
                 content: [
-                  { type: "text", text: textParts.join("\n") || JSON.stringify(result) }
-                ]
+                  {
+                    type: "text",
+                    text: `MCP server "${serverName}" is not connected. Please ensure Blender is running with Artifex Nexus addon enabled.`
+                  }
+                ],
+                isError: true
               };
             }
-            return {
-              content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-            };
-          } catch (err) {
-            client.stats.toolErrorCount++;
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Error calling MCP tool "${tool.name}" on server "${serverName}": ${err.message}`
-                }
-              ],
-              isError: true
-            };
+            try {
+              client.stats.toolCallCount++;
+              const result = await client.callTool(tool.name, params);
+              if (result && result.content) {
+                const textParts = result.content.filter((c) => c.type === "text").map((c) => c.text);
+                return {
+                  content: [
+                    { type: "text", text: textParts.join("\n") || JSON.stringify(result) }
+                  ]
+                };
+              }
+              return {
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+              };
+            } catch (err) {
+              client.stats.toolErrorCount++;
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Error calling MCP tool "${tool.name}" on server "${serverName}": ${err.message}`
+                  }
+                ],
+                isError: true
+              };
+            }
           }
-        }
-      });
-      totalRegistered++;
+        });
+        totalRegistered++;
+        logger.info(`[mcp-bridge] Registered tool: ${openclawToolName}`);
+      } catch (regErr) {
+        totalFailed++;
+        logger.error(
+          `[mcp-bridge] Failed to register tool "${openclawToolName}": ${regErr.message}`
+        );
+      }
     }
   }
-  logger.info(`[mcp-bridge] Pre-registered ${totalRegistered} tool(s) synchronously`);
+  logger.info(
+    `[mcp-bridge] Pre-registration complete: ${totalRegistered} registered, ${totalFailed} failed`
+  );
   void (async () => {
     for (const [serverName, serverDef] of Object.entries(servers)) {
       if (serverDef.enabled === false || serverDef.type !== "websocket" || !serverDef.url) {

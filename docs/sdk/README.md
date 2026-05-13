@@ -10,6 +10,7 @@
 | Gateway MCP Bridge | [[mcp-bridge]] | `packages/sdk/mcp-bridge/` | WebSocket→OpenClaw MCP 桥接 |
 | DCC Adapter | [[dcc-adapter]] | `packages/sdk/dcc-adapter/` | DCC 适配层抽象接口 |
 | DCC Registry | [[dcc-registry]] | `apps/desktop/src/features/installer/dccRegistry.ts` | 前端 DCC 操作注册表 |
+| DCC 预输入 | [[dcc-preinput]] | `packages/apps/web/src/lib/chat/dcc-preinput.ts` | 新对话自动发送 DCC 上下文 / 弹出指引 |
 
 ## 注册表速查
 

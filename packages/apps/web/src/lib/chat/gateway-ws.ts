@@ -5,7 +5,7 @@
  * 流程：connect → challenge → handshake → chat.send → receive stream → chat.abort（取消）
  *
  * 关键设计：
- * - 自动重连（指数退避，最大 5 次）
+ * - 自动重连（三阶段：启动快速重试 → 指数退避 → 持久化慢速，永不放弃）
  * - 心跳 ping（30s）
  * - 连接状态管理
  * - 取消支持（同 WS 发送 chat.abort）
@@ -26,6 +26,11 @@ const PING_INTERVAL = 30_000;
 const RECONNECT_BASE_DELAY = 3_000;
 const RECONNECT_MAX_DELAY = 30_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+/** 首次连接（从未连上过）快速重试次数：2s 间隔 × 15 次 = 30s 窗口 */
+const MAX_STARTUP_FAST_RETRIES = 15;
+const STARTUP_FAST_RETRY_DELAY = 2_000;
+/** 所有重试用尽后的持久化重试间隔（永不放弃） */
+const PERSISTENT_RETRY_INTERVAL = 30_000;
 
 /** 重连后冷却时间（ms）：在此期间 sendChat 会被阻止，等网关恢复 */
 const RECONNECT_COOLDOWN_MS = 5_000;
@@ -42,8 +47,10 @@ const SLOW_RPC_LOG_THRESHOLD_MS = 500;
 /** 握手追踪警告阈值（ms）：握手超此值未完成 → warn */
 const HANDSHAKE_TRACK_WARN_MS = 8_000;
 
-/** 空闲断开超时（ms）：10 分钟无交互 → 软断开节省资源，下次 sendChat 自动重连 */
-const IDLE_DISCONNECT_MS = 10 * 60 * 1000;
+/** 空闲断开超时（ms）：30 分钟无交互 → 软断开节省资源，下次 sendChat 自动重连。
+ *  原 10 分钟太短，与 Gateway 自身 WS 超时 + keepalive（2 分间隔）竞争导致频繁重连。
+ *  延长到 30 分钟，让 keepalive 有充足余量。 */
+const IDLE_DISCONNECT_MS = 30 * 60 * 1000;
 
 /** 空闲断开时的 WS close code（非 1000，用于 onclose 区分语义） */
 const IDLE_CLOSE_CODE = 4002;
@@ -171,6 +178,10 @@ export class GatewayWebSocket {
       return this._state === "connected";
     }
 
+    const neverConnected = this._reconnectionTime === 0;
+    console.log(
+      `[gateway-ws] Connecting to ${this._url} (attempt=${this._reconnectAttempts + 1}, neverConnected=${neverConnected})`,
+    );
     this._setState("connecting");
 
     return new Promise((resolve) => {
@@ -463,16 +474,21 @@ export class GatewayWebSocket {
   }
 
   /**
-   * 发送 agentTurn 保持会话常驻（Keep-Alive）。
+   * 发送 agentTurn 保持会话常驻 + WS 连接活跃（Keep-Alive）。
    *
-   * 用于防止 Gateway 因长时间无交互回收 agent 会话进程。
+   * 用于防止 Gateway 因长时间无交互：
+   * (a) 回收 agent 会话进程（冷启动 ~120s）
+   * (b) 关闭 WebSocket 连接（Gateway 自身 WS 空闲超时）
+   *
    * delivery=none 表示 Gateway 不推送响应到任何 WS 客户端，
    * 也不写入消息历史，仅保持 session process 活跃。
    *
-   * 间隔建议 5~10 分钟（Gateway 会话超时通常 >15min）。
+   * 间隔建议 2 分钟（低于 Gateway WS 空闲阈值，留足余量）。
    */
   async sendAgentTurn(sessionKey: string): Promise<void> {
     if (!this._ws || this._state !== "connected") return;
+    // keepalive 也是用户交互的延续：复位空闲计时器，防止被 idle disconnect 误杀
+    this._resetIdleTimer();
     const reqId = this._nextReqId();
     try {
       this._ws.send(JSON.stringify({
@@ -724,6 +740,10 @@ export class GatewayWebSocket {
               );
             } else {
               console.log("[gateway-ws] Event Loop recovered");
+              // 恢复期间用户可能已排队消息 → 立即回放
+              if (this._pendingSendQueue.length > 0 && this._state === "connected") {
+                this._scheduleQueueReplay();
+              }
             }
           }
         }
@@ -922,22 +942,55 @@ export class GatewayWebSocket {
 
   /** 自动重连 */
   private _scheduleReconnect(): void {
-    if (this._disposed || this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    if (this._disposed) return;
+
+    const neverConnected = this._reconnectionTime === 0;
+
+    // 阶段 1：首次连接前 → 快速重试（2s 间隔，覆盖 Gateway 冷启动窗口）
+    if (neverConnected && this._reconnectAttempts < MAX_STARTUP_FAST_RETRIES) {
+      this._cancelReconnect();
+      this._reconnectAttempts++;
+      console.log(
+        `[gateway-ws] Startup fast retry: attempt=${this._reconnectAttempts}/${MAX_STARTUP_FAST_RETRIES}, delay=${STARTUP_FAST_RETRY_DELAY}ms`,
+      );
+      this._reconnectTimer = setTimeout(async () => {
+        if (this._disposed) return;
+        const ok = await this.connect();
+        if (!ok) this._scheduleReconnect();
+      }, STARTUP_FAST_RETRY_DELAY);
       return;
     }
-    this._cancelReconnect();
-    this._reconnectAttempts++;
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY * Math.pow(1.5, this._reconnectAttempts - 1),
-      RECONNECT_MAX_DELAY,
+
+    // 阶段 2：已连过或快速重试用尽 → 指数退避（限 5 次）
+    if (this._reconnectAttempts < MAX_STARTUP_FAST_RETRIES + MAX_RECONNECT_ATTEMPTS) {
+      this._cancelReconnect();
+      this._reconnectAttempts++;
+      const expoAttempt = this._reconnectAttempts - (neverConnected ? MAX_STARTUP_FAST_RETRIES : 0);
+      const delay = Math.min(
+        RECONNECT_BASE_DELAY * Math.pow(1.5, Math.max(0, expoAttempt - 1)),
+        RECONNECT_MAX_DELAY,
+      );
+      console.log(
+        `[gateway-ws] Scheduling reconnect: attempt=${this._reconnectAttempts}, delay=${delay}ms, neverConnected=${neverConnected}`,
+      );
+      this._reconnectTimer = setTimeout(async () => {
+        if (this._disposed) return;
+        const ok = await this.connect();
+        if (!ok) this._scheduleReconnect();
+      }, delay);
+      return;
+    }
+
+    // 阶段 3：所有短周期重试用尽 → 持久化慢速重试（30s 间隔，永不放弃）
+    console.log(
+      `[gateway-ws] All fast retries exhausted (${this._reconnectAttempts} attempts), switching to persistent retry (${PERSISTENT_RETRY_INTERVAL / 1000}s interval)`,
     );
+    this._cancelReconnect();
     this._reconnectTimer = setTimeout(async () => {
       if (this._disposed) return;
       const ok = await this.connect();
-      if (!ok && this._reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        this._scheduleReconnect();
-      }
-    }, delay);
+      if (!ok) this._scheduleReconnect();
+    }, PERSISTENT_RETRY_INTERVAL);
   }
 
   /**
@@ -947,16 +1000,18 @@ export class GatewayWebSocket {
    */
   private _startupRetryCount = 0;
   private static readonly MAX_STARTUP_RETRIES = 10;
-  private static readonly STARTUP_RETRY_DELAY = 2_000;
 
   private _scheduleStartupRetry(): void {
     if (this._disposed || this._startupRetryCount >= GatewayWebSocket.MAX_STARTUP_RETRIES) {
-      // 超出启动重试上限，降级到普通重连
+      // 超出启动重试上限，降级到 _scheduleReconnect（现已支持持久化重试，不会停止）
       if (!this._disposed) this._scheduleReconnect();
       return;
     }
     this._cancelReconnect();
     this._startupRetryCount++;
+    console.log(
+      `[gateway-ws] Gateway start retry (1013): attempt=${this._startupRetryCount}/${GatewayWebSocket.MAX_STARTUP_RETRIES}`,
+    );
     this._reconnectTimer = setTimeout(async () => {
       if (this._disposed) return;
       const ok = await this.connect();
@@ -965,7 +1020,7 @@ export class GatewayWebSocket {
         this._startupRetryCount = 0;
       }
       // 如果仍失败且又收到 1013，onclose 会再次调用 _scheduleStartupRetry
-    }, GatewayWebSocket.STARTUP_RETRY_DELAY);
+    }, STARTUP_FAST_RETRY_DELAY);
   }
 
   /** 取消重连 */

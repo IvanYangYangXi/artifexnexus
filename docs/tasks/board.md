@@ -34,6 +34,7 @@ tags:
 
 - [ ] [[TASK-0051-story39-gateway-stability]]
 - [ ] [[TASK-0052-gateway-startup-optimization]]
+- [ ] [[TASK-0053-dcc-preinput-context]]
 - [ ] [[STORY-0038-m3-ui-desktop-embed]]
 - [ ] [[STORY-0037-m3-ui-settings-right-panel]]
 - [ ] [[STORY-0036-m3-ui-system-module]]

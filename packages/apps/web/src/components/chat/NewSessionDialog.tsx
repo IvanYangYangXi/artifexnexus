@@ -76,16 +76,6 @@ export function NewSessionDialog({
   const [loading, setLoading] = React.useState(false);
   const confirmBtnRef = React.useRef<HTMLButtonElement>(null);
 
-  // 弹窗打开时自动聚焦「创建对话」按钮
-  React.useEffect(() => {
-    if (open) {
-      // 延迟一帧等 Dialog 渲染完成后再聚焦，避免被 Dialog 的默认焦点管理覆盖
-      const raf = requestAnimationFrame(() => {
-        confirmBtnRef.current?.focus();
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  }, [open]);
 
   // 面板打开时拉取 Agent/Model 列表
   React.useEffect(() => {
@@ -160,7 +150,14 @@ export function NewSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="w-[400px]">
+      <DialogContent
+        className="w-[400px]"
+        onOpenAutoFocus={(e) => {
+          // 拦截 Radix 默认聚焦（会聚焦到 Agent Select），改为聚焦确认按钮
+          e.preventDefault();
+          setTimeout(() => confirmBtnRef.current?.focus(), 0);
+        }}
+      >
         <DialogHeader>
           <DialogTitle>新建对话</DialogTitle>
           <DialogDescription>
