@@ -481,36 +481,15 @@ export class GatewayWebSocket {
   }
 
   /**
-   * 发送 agentTurn 保持会话常驻 + WS 连接活跃（Keep-Alive）。
+   * v4.1.7 已废弃：Gateway 不接受 `agent.turn` 方法（INVALID_REQUEST）。
+   * Gateway 自身有 WS heartbeat（每 ~10 秒 event=heartbeat），加上我们的
+   * `_startPing()` 每 30 秒发 type:"ping"，已足够保活。
    *
-   * 用于防止 Gateway 因长时间无交互：
-   * (a) 回收 agent 会话进程（冷启动 ~120s）
-   * (b) 关闭 WebSocket 连接（Gateway 自身 WS 空闲超时）
-   *
-   * delivery=none 表示 Gateway 不推送响应到任何 WS 客户端，
-   * 也不写入消息历史，仅保持 session process 活跃。
-   *
-   * 间隔建议 2 分钟（低于 Gateway WS 空闲阈值，留足余量）。
+   * 保留空函数避免外部引用报错。
    */
-  async sendAgentTurn(sessionKey: string): Promise<void> {
-    if (!this._ws || this._state !== "connected") return;
-    // keepalive 也是用户交互的延续：复位空闲计时器，防止被 idle disconnect 误杀
-    this._resetIdleTimer();
-    const reqId = this._nextReqId();
-    try {
-      this._ws.send(JSON.stringify({
-        type: "req",
-        id: reqId,
-        method: "agent.turn",
-        params: {
-          sessionKey,
-          message: "heartbeat check",
-          delivery: "none",
-        },
-      }));
-    } catch {
-      // 静默忽略（心跳发送失败不影响用户体验）
-    }
+  async sendAgentTurn(_sessionKey: string): Promise<void> {
+    // noop — Gateway 没有 agent.turn 方法；WS ping 帧 + Gateway heartbeat 已经够保活
+    return;
   }
 
   /**

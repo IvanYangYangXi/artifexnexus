@@ -20,6 +20,7 @@ import { ChatInputArea } from "./ChatInputArea";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { RunToolContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
+import { uiLog } from "../../lib/ui-log";
 import { toast } from "@artifex-nexus/ui";
 
 export function ChatView() {
@@ -51,6 +52,7 @@ export function ChatView() {
 
   // ─── 切换对话（纯同步，消息从内存缓存瞬间加载）─────────────────────
   async function handleSwitchSession(sessionKey: string) {
+    uiLog.click("ChatView", "switchSession", { sessionKey: sessionKey.slice(0, 30) });
     if (!sessionKey || sessionKey === "__empty__" || sessionKey === "__new__") {
       return;
     }
@@ -65,6 +67,7 @@ export function ChatView() {
     }
 
     if (chat.isStreaming) {
+      uiLog.state("ChatView", "stopStreamingForSwitch");
       await chat.stop();
     }
 
@@ -83,6 +86,7 @@ export function ChatView() {
   const [sessionsVersion, setSessionsVersion] = React.useState(0);
 
   function handleNewSession(config: { agentId: string; model: string; thinking: string }) {
+    uiLog.dialog("NewSessionDialog", "confirm", { agentId: config.agentId, model: config.model, thinking: config.thinking });
     // 记住从哪个对话来的（用于取消时回退）
     lastRealSessionKeyRef.current = activeSessionKey && activeSessionKey !== "__pending_new__" ? activeSessionKey : lastRealSessionKeyRef.current;
     // 暂存配置，不创建 sessionKey（等第一条消息发送时再创建）
@@ -99,6 +103,7 @@ export function ChatView() {
 
   // ─── 从已有对话切回未发送的新建状态 ─────────────────────────────────
   function handleSwitchToPending() {
+    uiLog.click("ChatView", "switchToPending");
     if (!pendingNewConfigRef.current) return;
     chat.clearMessages();
     setActiveSessionKey("__pending_new__");
@@ -106,6 +111,7 @@ export function ChatView() {
 
   // ─── 取消新建对话，回退到上一个真实对话 ──────────────────────────────
   function handleCancelPending() {
+    uiLog.click("ChatView", "cancelPending");
     pendingNewConfigRef.current = null;
     const fallback = lastRealSessionKeyRef.current;
     if (fallback && fallback.startsWith("agent:")) {
@@ -120,6 +126,7 @@ export function ChatView() {
 
   // ─── 包装 sendMessage：新对话时先创建 sessionKey + 生成标题 ─────────
   function handleSendMessage(text: string) {
+    uiLog.send("ChatView", "userMessage", { textLen: text.length, hasPending: !!pendingNewConfigRef.current, sessionKey: activeSessionKey.slice(0, 30) });
     if (pendingNewConfigRef.current) {
       const config = pendingNewConfigRef.current;
       const newKey = `agent:${config.agentId}:session-${Date.now()}`;
@@ -148,6 +155,7 @@ export function ChatView() {
 
   // ─── 删除对话 ──────────────────────────────────────────────────────────
   function handleDeleteSession(sessionKey: string) {
+    uiLog.click("ChatView", "deleteSession", { sessionKey: sessionKey.slice(0, 30) });
     chat.deleteSession(sessionKey);
     // 如果删除的是当前对话，切换到剩余第一个或弹新建面板
     if (sessionKey === activeSessionKey) {
@@ -329,6 +337,7 @@ export function ChatView() {
 
   // 手动重启 Gateway
   async function handleRestartGateway() {
+    uiLog.click("ChatView", "restartGateway", { port });
     if (disconnectToastId.current) {
       console.log(`[toast] loading: 正在重启 Gateway...`);
       toast.loading("正在重启 Gateway...", { id: disconnectToastId.current });
@@ -337,7 +346,9 @@ export function ChatView() {
       const { getIpc } = await import("../../lib/ipc");
       const ipc = await getIpc();
       await ipc.restartGateway({ port: port });
+      uiLog.state("ChatView", "restartGateway:success");
     } catch (err) {
+      uiLog.error("ChatView", "restartGateway:fail", { err: String(err) });
       console.warn("[ChatView] restart gateway failed:", err);
       console.log(`[toast] error: 重启 Gateway 失败 err=${String(err)}`);
       toast.error("重启 Gateway 失败", { description: String(err) });
@@ -361,26 +372,15 @@ export function ChatView() {
     }
   }, [chat.messages]);
 
-  // ─── 会话 Keep-Alive：每隔 2 分钟发送 agentTurn 保持 Gateway 会话 + WS 长连接 ─
-  // 防止 Gateway 因长时间无用户交互回收 agent 会话进程 / 关闭 WS 连接。
-  // agentTurn 使用 delivery=none 静默执行，不影响消息历史与 UI。
-  // 间隔 2 分钟（原 7 分钟）确保低于 Gateway WS 空闲超时阈值，避免周期性重连。
-  const KEEPALIVE_INTERVAL_MS = 2 * 60 * 1000;
-  React.useEffect(() => {
-    if (!activeSessionKey || activeSessionKey === "__empty__" || activeSessionKey === "__new__" || activeSessionKey === "__pending_new__") return;
-    if (!activeSessionKey.startsWith("agent:")) return;
-    if (chat.wsState !== "connected" && chat.wsState !== "degraded") return;
-
-    console.log(`[ChatView] Keep-alive started for session=${activeSessionKey}, interval=${KEEPALIVE_INTERVAL_MS / 1000}s`);
-    const timer = setInterval(() => {
-      chat.sendAgentTurn(activeSessionKey);
-    }, KEEPALIVE_INTERVAL_MS);
-
-    return () => {
-      console.log(`[ChatView] Keep-alive stopped for session=${activeSessionKey}`);
-      clearInterval(timer);
-    };
-  }, [activeSessionKey, chat.wsState, chat.sendAgentTurn]);
+  // v4.1.7 已废弃：Keep-Alive useEffect
+  //
+  // 之前：每 2 分钟发送 agent.turn RPC 保活会话。
+  // 实测发现 Gateway 不接受 agent.turn 方法，每次都返回 INVALID_REQUEST，
+  // 反而污染 gateway.log（每 2 分钟一条 ws res ✗ agent.turn 错误）。
+  //
+  // 现在：依赖 gateway-ws 的 _startPing()（每 30 秒发 type:"ping" 帧）+
+  // Gateway 自身的 event=heartbeat（约每 10 秒）已经足够保活 WS 连接。
+  // Agent 会话进程的常驻由 Gateway 内部生命周期管理，前端无需干预。
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
