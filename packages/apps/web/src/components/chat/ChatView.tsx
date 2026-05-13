@@ -204,6 +204,8 @@ export function ChatView() {
   // ─── Gateway 连接状态检测（toast 通知，右下角非阻塞）────────────────
   const prevWsState = React.useRef(chat.wsState);
   const disconnectToastId = React.useRef<string | number | undefined>(undefined);
+  // 首次成功连接标志：防止"已重新连接"在首次连接时误报
+  const wasEverConnectedRef = React.useRef(false);
   // degraded toast 5 秒延迟：短暂抖动不弹 toast，持续退化才提示
   const degradedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const degradedToastShownRef = React.useRef(false);
@@ -220,7 +222,14 @@ export function ChatView() {
     const now = chat.wsState;
     prevWsState.current = now;
 
+    // 诊断日志：打印所有 WS 状态转换，方便排查误报
+    if (was !== now) {
+      console.log(`[ChatView] wsState: "${was}" → "${now}" (wasEverConnected=${wasEverConnectedRef.current}, disconnectToastId=${disconnectToastId.current ? "set" : "none"})`);
+    }
+
     if (was === "connected" && now === "disconnected") {
+      // 仅在曾经成功连接过后才弹断连 toast（首次启动 wsState 抖动忽略）
+      if (!wasEverConnectedRef.current) return;
       // Gateway 崩溃/断连 → 弹出持久 toast（带重启按钮，不自动消失）
       disconnectToastId.current = toast.error("Gateway 连接已断开", {
         description: "可能崩溃，点击重启恢复连接",
@@ -258,6 +267,11 @@ export function ChatView() {
           setTimeout(() => { degradedToastShownRef.current = false; }, 3 * 60 * 1000);
         }, DEGRADED_DEBOUNCE_MS);
       }
+    }
+
+    // 标记已连接（用于判别首次/重连）
+    if (now === "connected" || now === "degraded") {
+      wasEverConnectedRef.current = true;
     }
   }, [chat.wsState]);
 

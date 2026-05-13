@@ -213,14 +213,25 @@ export function useChatService(options: ChatServiceOptions) {
     const healthInterval = setInterval(() => {
       if (cancelled) return;
       const degraded = ws.eventLoopDegraded;
+      // 仅在状态变化时打日志，避免刷屏
+      if (degraded !== eventLoopDegraded) {
+        console.log(`[chat-service] healthInterval: eventLoopDegraded ${eventLoopDegraded} → ${degraded}, ws.state=${ws.state}`);
+      }
       setEventLoopDegraded(degraded);
       // P2-8：同步 MCP Bridge 可用性
       const mcpOk = ws.mcpBridgeAvailable;
       setMcpBridgeAvailable(mcpOk);
       // 连上了但事件循环退化 → 显示 degraded 状态
+      const currentWsState = prevWsStateRef.current;
       if (ws.state === "connected" && degraded) {
+        if (currentWsState !== "degraded") {
+          console.log(`[chat-service] healthInterval: wsState "${currentWsState}" → "degraded" (eventLoop degraded)`);
+        }
         setWsState("degraded");
       } else if (ws.state === "connected" && !degraded) {
+        if (currentWsState !== "connected") {
+          console.log(`[chat-service] healthInterval: wsState "${currentWsState}" → "connected" (eventLoop OK)`);
+        }
         setWsState("connected");
       }
     }, 2000);

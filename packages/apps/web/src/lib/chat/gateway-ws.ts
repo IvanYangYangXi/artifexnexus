@@ -113,6 +113,12 @@ export class GatewayWebSocket {
   /** 网关事件循环是否处于退化状态（从 health 事件解析） */
   private _eventLoopDegraded = false;
 
+  /** 连接建立时间戳（用于启动宽限期：刚连上 15s 内不报 degraded） */
+  private _connectionEstablishedAt = 0;
+
+  /** 启动宽限期（ms）：连接建立后这段时间内忽略 Event Loop 退化 */
+  private static readonly STARTUP_GRACE_MS = 15000;
+
   /** 断连/退化期间暂存的 sendChat 队列（FIFO，重连后回放） */
   private _pendingSendQueue: QueuedChatSend[] = [];
 
@@ -731,6 +737,21 @@ export class GatewayWebSocket {
         const payload = msg.payload ?? msg;
         const el = payload.eventLoop as Record<string, unknown> | undefined;
         if (el) {
+          const inGrace = this._connectionEstablishedAt > 0
+            && (Date.now() - this._connectionEstablishedAt) < GatewayWebSocket.STARTUP_GRACE_MS;
+          // 全量记录 health 事件（方便诊断误报）
+          console.log(
+            `[gateway-ws] health: degraded=${el.degraded}, delayMaxMs=${el.delayMaxMs}, ` +
+            `utilization=${el.utilization}, reasons=${JSON.stringify(el.reasons)}, ` +
+            `inGracePeriod=${inGrace}, connAge=${this._connectionEstablishedAt ? Date.now() - this._connectionEstablishedAt : 0}ms`,
+          );
+          if (inGrace && el.degraded === true) {
+            // 启动宽限期内：只 log，不设置退化标志
+            console.log(
+              `[gateway-ws] health: degraded 发生在启动宽限期内，忽略 (剩余 ${GatewayWebSocket.STARTUP_GRACE_MS - (Date.now() - this._connectionEstablishedAt)}ms)`,
+            );
+            return;
+          }
           const wasDegraded = this._eventLoopDegraded;
           this._eventLoopDegraded = el.degraded === true;
           if (wasDegraded !== this._eventLoopDegraded) {
@@ -1037,7 +1058,8 @@ export class GatewayWebSocket {
     this._state = state;
     if (state === "connected") {
       this._reconnectionTime = Date.now();
-      // 新连接：重置退化标志（等第一次 health 事件更新）
+      this._connectionEstablishedAt = Date.now();
+      // 新连接：重置退化标志（等第一次 health 事件更新，启动宽限期 15s）
       this._eventLoopDegraded = false;
       // 清除空闲断开标记（重连成功 = 不再空闲）
       this._idleDisconnected = false;

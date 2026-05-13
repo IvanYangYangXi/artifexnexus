@@ -632,18 +632,41 @@ function GatewayTab() {
       setStatus(s);
 
       // TCP 存活检测：sidecar 报告 running 时，快速验证端口是否真的在监听
-      // 注意：不能用 resp.ok 判活 —— Gateway 的 / 或 /health 可能返回非 200
-      // 只要 fetch 不抛连接错误，就说明端口在监听（TCP 握手成功）
+      // 注意：Tauri WebView 中 fetch 可能因 CORS/混合内容等限制抛出异常
+      // 策略 1：no-cors fetch（不读 body，仅验证 TCP 握手 + HTTP 响应头）
+      // 策略 2：失败时 fallback 到 WebSocket 连接探测
       if (s.state === "running" && s.port) {
+        let alive = false;
+        // 策略 1：no-cors fetch → 只要能拿到响应（即使 opaque），就说明端口在监听
         try {
           await fetch(`http://127.0.0.1:${s.port}/`, {
+            mode: "no-cors",
             signal: AbortSignal.timeout(TCP_PROBE_TIMEOUT),
           });
-          setLiveness("alive");
-        } catch {
-          // fetch 失败（连接拒绝/超时/网络错误）→ 端口不通
-          setLiveness("dead");
+          alive = true;
+        } catch (err: any) {
+          console.warn(
+            `[GatewayTab] fetch liveness 失败: name=${err?.name}, message=${err?.message}, ` +
+            `port=${s.port}, timeout=${TCP_PROBE_TIMEOUT}ms`,
+          );
+          // 策略 2：尝试用 WebSocket 连接探测（OpenClaw Gateway 监听同一端口）
+          try {
+            alive = await new Promise<boolean>((resolve) => {
+              const ws = new WebSocket(`ws://127.0.0.1:${s.port}`);
+              const timer = setTimeout(() => { ws.close(); resolve(false); }, TCP_PROBE_TIMEOUT);
+              ws.onopen = () => { clearTimeout(timer); ws.close(); resolve(true); };
+              ws.onerror = () => { clearTimeout(timer); resolve(false); };
+            });
+            if (alive) {
+              console.log(`[GatewayTab] WS liveness probe 成功 (port=${s.port})`);
+            } else {
+              console.warn(`[GatewayTab] WS liveness probe 也失败 (port=${s.port})`);
+            }
+          } catch (wsErr: any) {
+            console.warn(`[GatewayTab] WS liveness probe 异常: ${wsErr?.message}`);
+          }
         }
+        setLiveness(alive ? "alive" : "dead");
       } else {
         setLiveness("dead");
       }
