@@ -43,6 +43,10 @@ interface ChatInputAreaProps {
   pendingCount: number;
   pendingMessages: string[];
   sessionFiles: SessionFile[];
+  /** 打开新建对话配置面板 */
+  onNewSession?: () => void;
+  /** WebSocket 是否已连接（未连接时禁用发送） */
+  isWsConnected?: boolean;
 }
 
 type SendKey = "enter" | "ctrl-enter";
@@ -85,6 +89,8 @@ export function ChatInputArea({
   pendingCount,
   pendingMessages,
   sessionFiles,
+  onNewSession,
+  isWsConnected = true,
 }: ChatInputAreaProps) {
   const [text, setText] = React.useState("");
   const [sendKey, setSendKey] = React.useState<SendKey>("enter");
@@ -96,6 +102,8 @@ export function ChatInputArea({
   const [promptLabel, setPromptLabel] = React.useState("");
   const [promptText, setPromptText] = React.useState("");
   const [editingPromptId, setEditingPromptId] = React.useState<string | null>(null);
+  const [hoveredPromptId, setHoveredPromptId] = React.useState<string | null>(null);
+  const hideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const { setPreviewFile } = React.useContext(PreviewFileContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
@@ -113,6 +121,13 @@ export function ChatInputArea({
     };
     window.addEventListener("artifex:prefillInput", handler);
     return () => window.removeEventListener("artifex:prefillInput", handler);
+  }, []);
+
+  // 清理 hover 延迟计时器
+  React.useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
   }, []);
 
   const persistPrompts = (prompts: QuickPrompt[]) => {
@@ -155,7 +170,7 @@ export function ChatInputArea({
   };
 
   const handleSend = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || !isWsConnected) return;
     onSend(text);
     setText("");
     textareaRef.current?.focus();
@@ -273,36 +288,60 @@ export function ChatInputArea({
           <Slash className="h-3.5 w-3.5" />
         </Button>
         {/* 快捷输入 */}
-        {quickPrompts.map((p) => (
-          <div key={p.id} className="group relative">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-xs group-hover:pr-12"
-              onClick={() => setText(p.text)}
-            >
-              {p.label}
-            </Button>
-            <div className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity">
+        {quickPrompts.map((p) => {
+          const isHovered = hoveredPromptId === p.id;
+          const handleMouseEnter = () => {
+            if (hideTimerRef.current) {
+              clearTimeout(hideTimerRef.current);
+              hideTimerRef.current = null;
+            }
+            setHoveredPromptId(p.id);
+          };
+          const handleMouseLeave = () => {
+            hideTimerRef.current = setTimeout(() => {
+              setHoveredPromptId(null);
+            }, 250);
+          };
+          return (
+            <div key={p.id} className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+              {/* 编辑/删除浮动栏 — 显示在按钮上方，不影响按钮宽度 */}
+              <div
+                className={cn(
+                  "absolute left-1/2 -translate-x-1/2 bottom-full mb-1 flex items-center gap-0.5 rounded-md border border-border bg-popover px-1 py-0.5 shadow-md transition-opacity duration-150",
+                  isHovered ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+                )}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5"
+                  onClick={() => openEditPrompt(p)}
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                  onClick={() => handleDeletePrompt(p.id)}
+                >
+                  <Trash2 className="h-2.5 w-2.5" />
+                </Button>
+              </div>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-5 w-5"
-                onClick={() => openEditPrompt(p)}
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => {
+                  setText(p.text);
+                  textareaRef.current?.focus();
+                }}
               >
-                <Pencil className="h-2.5 w-2.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 text-muted-foreground hover:text-destructive"
-                onClick={() => handleDeletePrompt(p.id)}
-              >
-                <Trash2 className="h-2.5 w-2.5" />
+                {p.label}
               </Button>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <Button
           variant="ghost"
           size="icon"
@@ -312,7 +351,7 @@ export function ChatInputArea({
           <Plus className="h-3.5 w-3.5" />
         </Button>
         <div className="flex-1" />
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={onNewSession}>
           <Plus className="h-3 w-3" />
           新对话
         </Button>
@@ -335,16 +374,18 @@ export function ChatInputArea({
 
         {/* C3c 发送区 */}
         <div className="flex items-center gap-1.5">
-          {/* 停止按钮 — 始终显示 */}
-          <Button
-            size="icon"
-            variant="destructive"
-            className="h-9 w-9"
-            onClick={onStop}
-            title="停止生成"
-          >
-            <Square className="h-4 w-4 fill-current" />
-          </Button>
+          {/* 停止按钮 — 仅在流式生成中显示 */}
+          {isStreaming && (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9"
+              onClick={onStop}
+              title="停止生成"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          )}
 
           {/* 恢复按钮 — 已停止可恢复时显示 */}
           {!isStreaming && canResume && onResume && (
@@ -359,12 +400,13 @@ export function ChatInputArea({
             </Button>
           )}
 
-          {/* 发送按钮 — 始终显示 */}
+          {/* 发送按钮 — WS 未连接或输入为空时禁用 */}
           <Button
             size="icon"
             className="h-9 w-9 rounded-full"
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={!text.trim() || !isWsConnected}
+            title={!isWsConnected ? "WebSocket 未连接" : undefined}
           >
             <Send className="h-4 w-4" />
           </Button>
