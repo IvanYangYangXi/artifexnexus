@@ -216,11 +216,20 @@ def handle_gateway_status(req_id: Any, _params: dict) -> dict:
 
             if not actually_alive:
                 # 进程已退出但状态未更新 → 修正
+                # v4.1.9 关键修复：这里是 Gateway 崩溃的最早检测点，必须记 audit
+                # 之前 health_monitor 在复用 PID 时盲区，这条路径才是事实上的检测
                 logger.warning(
-                    "gateway_status: state='running' 但进程已死 (pid=%s port=%s)，修正为 stopped",
+                    "gateway_status: state='running' 但进程已死 (pid=%s port=%s)，标记为 errored 触发自动恢复",
                     info.pid, info.port,
                 )
-                _gateway_state.set_stopped()
+                _runtime._audit_log(
+                    "GATEWAY_EXITED:detected_via_status_rpc",
+                    f"pid={info.pid} port={info.port} reason=tcp_probe_failed source=gateway_status_rpc",
+                )
+                # v4.1.9 关键：设为 errored 而不是 stopped
+                # stopped = 用户主动关闭（不应自动重启）
+                # errored = 异常死亡（health_monitor 应触发自动重启）
+                _gateway_state.set_errored("Gateway 进程意外死亡（status RPC 检测）")
                 info = _gateway_state.get_info()
 
         # ── Fallback：单例显示 stopped/errored 但 gateway 可能仍在运行 ──

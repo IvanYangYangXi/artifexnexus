@@ -822,28 +822,38 @@ def _health_monitor_loop() -> None:
     while _health_monitor_started:
         time.sleep(5)
 
-        # 只有 sidecar 标记为 running 才监控
+        # 只有 sidecar 标记为 running 或 errored 才监控
+        # v4.1.9: errored 状态 = Gateway 异常死亡（status_rpc 检测到）→ 触发自动重启
         info = _gateway_state.get_info()
-        if info.state != "running":
+        if info.state == "errored":
+            # 直接进入崩溃恢复路径
+            check_pid = info.pid
+            is_dead = True
+            exit_code = "errored_state"
+            proc = _current_process
+            _audit_log(
+                "GATEWAY_EXITED:health_monitor_picked_up_errored",
+                f"pid={check_pid} state={info.state} last_error={info.last_error}",
+            )
+        elif info.state == "running":
+            # 正常路径：检查子进程是否还活着
+            # v4.1.8 关键修复：proc is None 时改用 PID 文件 + _is_pid_alive 检测
+            proc = _current_process
+            is_dead = False
+            exit_code: Any = None
+            check_pid = info.pid
+
+            if proc is not None:
+                poll_result = proc.poll()
+                is_dead = poll_result is not None
+                exit_code = poll_result
+            elif check_pid is not None:
+                # 复用旧 Gateway 路径：用 PID 检测
+                if not _is_pid_alive(check_pid):
+                    is_dead = True
+                    exit_code = "unknown(reused-pid)"
+        else:
             continue
-
-        # v4.1.8 关键修复：检查子进程是否还活着
-        # 之前：proc is None 直接 continue → 复用旧 Gateway PID 时永远不监控
-        # 现在：proc is None 时改用 PID 文件 + _is_pid_alive 检测
-        proc = _current_process
-        is_dead = False
-        exit_code: Any = None
-        check_pid = info.pid
-
-        if proc is not None:
-            poll_result = proc.poll()
-            is_dead = poll_result is not None
-            exit_code = poll_result
-        elif check_pid is not None:
-            # 复用旧 Gateway 路径：用 PID 检测
-            if not _is_pid_alive(check_pid):
-                is_dead = True
-                exit_code = "unknown(reused-pid)"
 
         if not is_dead:
             # 进程仍在运行 → 检查空闲超时
