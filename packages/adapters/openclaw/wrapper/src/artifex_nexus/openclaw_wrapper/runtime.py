@@ -635,6 +635,10 @@ def start_gateway(
             _gateway_state.set_running(pid=existing_pid, port=port)
             # v4.1.8 审计：复用路径也记录（_current_process 仍为 None，health_monitor 改用 PID 检测）
             _audit_log("START_GATEWAY:reused", f"existing_pid={existing_pid} port={port}")
+            # v4.1.11 关键修复：复用路径也必须启动 health_monitor
+            # 之前漏调 → status_rpc 检测到崩溃 set_errored 后无人接力 → 必须用户手动重启
+            report_gateway_activity()
+            _start_health_monitor()
             return GatewayProcess(
                 pid=existing_pid,
                 port=port,
@@ -924,7 +928,8 @@ def _health_monitor_loop() -> None:
             )
 
             # 复用 start_gateway 的重启逻辑
-            stop_gateway()
+            # v4.1.11: 保留 health_monitor，否则下次崩溃无人接力
+            stop_gateway(keep_health_monitor=True)
             _ = start_gateway(
                 openclaw_home=_current_openclaw_home or Path.home() / ".artifexnexus" / ".openclaw",
             )
@@ -951,7 +956,7 @@ def _wait_pid_dead(pid: int, timeout: float) -> bool:
     return not _is_pid_alive(pid)
 
 
-def stop_gateway() -> bool:
+def stop_gateway(*, keep_health_monitor: bool = False) -> bool:
     """停止 OpenClaw gateway 子进程。
 
     Stop the OpenClaw gateway child process.
@@ -1025,8 +1030,10 @@ def stop_gateway() -> bool:
     _gateway_state.set_stopped()
 
     # 停止后台健康监控（用户主动 stop 不需要自动重启）
+    # v4.1.11: keep_health_monitor=True 时保留监控（崩溃自动恢复路径用）
     global _health_monitor_started
-    _health_monitor_started = False
+    if not keep_health_monitor:
+        _health_monitor_started = False
 
     return True
 
