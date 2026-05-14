@@ -47,7 +47,20 @@ fn resolve_sidecar_path() -> String {
 /// Tauri 应用入口，由 main.rs 调用。
 /// 在此注册所有 Tauri Command 和 Plugin。
 pub fn run() {
+    // ─────────────────────────────────────────────────────────────────
+    // 启动期清理（2026-05-14）：
+    // 杀光所有同名 EXE / 孤儿 sidecar / 占用 19789 的 gateway / 陈旧锁文件。
+    // 实现"启动即单实例 + 干净状态"，避免历史上 EXE 反复卡在"正在检测环境…"。
+    // 详见 sidecar/preflight.rs 顶部注释。
+    // ─────────────────────────────────────────────────────────────────
+    // 先初始化 trace 日志路径（其他 trace_log! 调用才能写到文件）
+    let _ = sidecar::trace::log_file_path();
+    trace_log!("lifecycle", "=== EXE START pid={} ===", std::process::id());
+
+    sidecar::preflight::pre_startup_cleanup();
+
     let sidecar_path = resolve_sidecar_path();
+    trace_log!("lifecycle", "sidecar_path={sidecar_path}");
 
     let manager = SidecarManager::new(sidecar_path);
 
@@ -56,6 +69,7 @@ pub fn run() {
         .manage(Mutex::new(manager) as SidecarState)
         .invoke_handler(tauri::generate_handler![
             commands::echo::echo,
+            commands::frontend_log::frontend_log,
             commands::status::get_status,
             commands::openclaw::openclaw_status,
             commands::openclaw::openclaw_install,
@@ -104,6 +118,10 @@ pub fn run() {
             // 注意：setup 中无法直接访问 State，需要在首次调用时 lazy init
             // DevTools 通过 Cargo.toml features = ["devtools"] 启用，
             // 用户可按 F12 / Ctrl+Shift+I 手动打开
+            //
+            // 2026-05-14：gateway 自动拉起的逻辑放在 sidecar.py 的
+            // _handle_openclaw_status 里（status 检测到 gateway_running=false
+            // 就异步 spawn 一次），不在 Rust 这层做，避免 Mutex 竞争。
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -112,30 +130,38 @@ pub fn run() {
             std::process::exit(1);
         });
 
-    // STORY-0018 hot-fix：监听 RunEvent::ExitRequested / Exit，
-    // 在主进程退出前同步停掉 sidecar 管理的 gateway，避免孤儿残留。
-    //
-    // Why：仅靠 sidecar 自身的 atexit 不够——Tauri 在 release 模式下用
-    // CTRL_BREAK_EVENT 终结子进程组，sidecar 收到信号但 stdout 已关，
-    // 而 gateway 进程是 sidecar 的"孙子"，需要 sidecar 走 stop_gateway
-    // 才能干净地杀（taskkill /T /F + wait_pid_dead）。
-    //
-    // 这里我们在 ExitRequested（用户点关闭窗口）和 Exit（最终退出）
-    // 两个时机都尝试 stop，幂等。Tauri 主进程会等所有 Command 返回再
-    // 真正退出，sidecar 有充足时间收 child（最多 SHUTDOWN_TIMEOUT=5s）。
-    use tauri::{Manager as _, RunEvent};
-    app.run(|app_handle, event| match event {
-        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-            // best-effort：忽略所有错误，主进程必须退出
-            if let Some(state) = app_handle.try_state::<SidecarState>() {
-                if let Ok(mut manager) = state.lock() {
-                    if manager.is_running() {
-                        // 调 sidecar 的 openclaw.stop（等价于 stop_gateway）
-                        let _ = manager.call("openclaw.stop", serde_json::json!({}));
-                    }
-                }
+    // STORY-0018 hot-fix + 2026-05-14 简化：
+    // EXE 退出时无脑清理：先尝试让 sidecar 优雅 stop_gateway（可选），
+    // 再 fallback 到 preflight::post_exit_cleanup() 强杀所有相关进程。
+    // 简单粗暴优于复杂正确——用户原话："流程不要搞太复杂"。
+    // 2026-05-14 简化：EXE 退出**强制立即**结束。
+    // 之前 handler 调 manager.call("openclaw.stop") 会被 Mutex 卡 30s
+    // 导致 EXE 关不掉。现在：
+    //   1. 后台 spawn 一个线程跑 post_exit_cleanup（不阻塞主线程）
+    //   2. 主线程调 app_handle.exit(0) 立即退出 Tauri 进程
+    //   3. 留 1 秒给清理线程，然后无论如何 std::process::exit
+    use tauri::RunEvent;
+    let mut exit_started = false;
+    app.run(move |app_handle, event| {
+        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            if exit_started {
+                return;
             }
+            exit_started = true;
+            trace_log!("lifecycle", "=== EXE EXIT REQUESTED ===");
+            // 后台清理（不阻塞）
+            std::thread::spawn(|| {
+                sidecar::preflight::post_exit_cleanup();
+                trace_log!("lifecycle", "=== EXE EXIT cleanup done ===");
+            });
+            // 主线程立刻让 Tauri 退出
+            app_handle.exit(0);
+            // 双保险：1 秒后强制 std::process::exit
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                trace_log!("lifecycle", "=== EXE EXIT force ===");
+                std::process::exit(0);
+            });
         }
-        _ => {}
     });
 }

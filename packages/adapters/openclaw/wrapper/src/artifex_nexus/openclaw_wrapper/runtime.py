@@ -678,7 +678,10 @@ def start_gateway(
         raise FileNotFoundError(msg)
 
     # 2.5 启动前配置自愈：保证 Control UI 浏览器白名单覆盖当前 port
-    _ensure_control_ui_allowed_origins(bin_path, home, port)
+    # 2026-05-14 砍掉：CLI cold-start ~5s + 8s timeout = 启动多卡 ~13s。
+    # Control UI 是本地 127.0.0.1，浏览器白名单维护并不必要；用户真要用
+    # Control UI 可以在 SystemPage 手动触发。
+    # _ensure_control_ui_allowed_origins(bin_path, home, port)
 
     # 2.6 孤儿清理 + 端口检查：跳过 netstat（中文 Windows 兼容性差），
     #     改用 --force 兜底 + subprocess 5s timeout 保护

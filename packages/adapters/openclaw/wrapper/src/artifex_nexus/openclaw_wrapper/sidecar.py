@@ -317,6 +317,16 @@ def _handle_openclaw_status(req_id: Any, params: dict) -> dict:
         # EPIC-0001 第二批 #2 扩展：Web UI 是否可用（轻量探测：仅查 CLI 是否安装）
         # 详细 URL 探测在 openclaw.web.get_url 中实时执行
         result["web_ui_available"] = _web_ui.is_web_ui_available(Path(openclaw_home))
+
+        # 2026-05-14：响应摘要日志（排查前端拿到了什么）
+        sys.stderr.write(
+            f"[sidecar.status] cli_installed={result.get('cli_installed')} "
+            f"bootstrap_done={result.get('bootstrap_done')} "
+            f"gateway_running={result.get('gateway_running')} "
+            f"pid={result.get('pid')} version={result.get('version')!r}\n"
+        )
+        sys.stderr.flush()
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1328,6 +1338,42 @@ def main() -> None:
         _bootstrap.reset_config_port_if_drifted(_get_openclaw_home())
     except Exception as exc:
         sys.stderr.write(f"[sidecar.boot] port-drift self-heal raised: {exc!r}\n")
+        sys.stderr.flush()
+
+    # ─────────────────────────────────────────────────────────────────
+    # 启动期主动拉起 gateway（2026-05-14 简化）
+    # ─────────────────────────────────────────────────────────────────
+    # 设计：sidecar 是 gateway 的"父亲"，负责把它拉起来；前端只读 status。
+    # 这避免了"前端 → Rust manager.call(start) → Mutex 持锁阻塞 30s"的复杂链路。
+    #
+    # 同步执行（非线程）原因：
+    #   - 此时 stdin loop 还没开始，Tauri 第一个 RPC 还没发，不会超时
+    #   - subprocess.Popen 本身是异步 fork，5-10s 是 OpenClaw CLI 自己的初始化
+    #
+    # 失败也不阻塞：异常被吞掉，主循环照常进入。
+    try:
+        sys.stderr.write("[sidecar.boot] ensuring gateway is running...\n")
+        sys.stderr.flush()
+        _home = _get_openclaw_home()
+        if _runtime.is_running():
+            sys.stderr.write("[sidecar.boot] gateway already running, skip\n")
+            sys.stderr.flush()
+        else:
+            try:
+                _port = _bootstrap.get_gateway_port(_home)
+            except Exception:
+                _port = 19789
+            try:
+                _result = _runtime.start_gateway(_home, _port)
+                sys.stderr.write(
+                    f"[sidecar.boot] gateway started pid={_result.pid} port={_result.port}\n"
+                )
+                sys.stderr.flush()
+            except Exception as _exc:
+                sys.stderr.write(f"[sidecar.boot] gateway start failed: {_exc!r}\n")
+                sys.stderr.flush()
+    except Exception as _exc:
+        sys.stderr.write(f"[sidecar.boot] ensure-gateway top-level exception: {_exc!r}\n")
         sys.stderr.flush()
 
     # 启动调试打点：标记主循环已进入；用于排查 Tauri spawn 模式下

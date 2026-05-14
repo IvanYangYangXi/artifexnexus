@@ -82,6 +82,13 @@
 2. **bin/ 可能是空目录**：入口在 `node_modules/openclaw/openclaw.mjs`
 3. **Gateway 端口固定 19789**：不使用自动迁移（STORY-0039 决策）
 4. **MCP Bridge WebSocket 超时**：连接超时 5s（已修），工具调用超时 30s
+5. **Gateway 内进程重启导致 sidecar 断连**（2026-05-14 发现）：
+   - 现象：Gateway 收到 SIGUSR1 内进程重启后，Python sidecar 与 Tauri 的 stdio 连接断裂，报 "sidecar 不可用"
+   - 修复：kill 所有 sidecar + gateway 进程，手动重启 gateway，重启 Tauri app
+   - sidecar 僵尸进程累积是已知问题（单日可达 56 个日志文件），需定期清理
+6. **OpenClaw `agents.list` 是保护配置**（2026-05-14 发现）：
+   - 不能通过 `config.patch` 修改 `list[].agentRuntime.id, list[].default, list[].id, list[].name, list[].skills, list[].systemPromptOverride` 等
+   - 添加 agent 需直接修改 `openclaw.json` 文件
 5. **WS 延迟可能出现极端方差**（1ms ~ 2384ms），EOF 退出时不杀 gateway
 6. **Gateway 重连后 Event Loop 退化**（2026-05-13 修复）：
    - 现象：重连后 delayMaxMs 可达 30s，heartbeat 需 73s
@@ -244,3 +251,24 @@ type SendResult =
 3. 程序完成后 → SendMessage 通知产品经理 + QA
 4. QA 审查/测试 → 结论（通过/不通过）→ 通知程序 + 产品经理
 5. 产品经理跟踪闭环
+
+## OpenClaw 重装备份恢复关键规则（STORY-0041 补充，2026-05-14）
+
+### 实测目录结构（~/.artifexnexus/.openclaw/）
+- `openclaw.json` 含：models.providers（baseUrl/apiKey/models）、auth.profiles/order、agents.list[]（id/name/workspace/runtime/skills/prompt）、plugins.entries（全部插件）、plugins.entries.mcp-bridge.config.servers
+- Agent 独立工作空间：`workspace/`（默认 agent）+ `workspace-<agent名>/`（额外 agent），含 AGENTS.md / IDENTITY.md / SOUL.md / USER.md / TOOLS.md / HEARTBEAT.md
+- Skills：`workspace/skills/` 整个目录（含 official/team/user 子目录）
+- Auth 双路径：`.openclaw/agents/<id>/agent/auth-profiles.json`（新，CLI 读）+ `state/agents/<id>/agent/auth-profiles.json`（旧，Gateway embedded agent 读）
+- Memory：`state/memory/<agent>.sqlite` + `workspace/memory/`（梦境数据）
+
+### 备份决策
+| 数据 | 备份？ | 原因 |
+|------|--------|------|
+| `plugins/installs.json` | ❌ | OpenClaw `registry --refresh` 自动重建 |
+| `plugin-skills/` | ❌ | 全是 symlink → bundled plugin skills |
+| `cli/` | ❌ | 体积 ~200MB+，安装脚本负责 |
+| `.git/`（workspace 下） | ❌ | 非必要 |
+| `workspace/skills/`（全部） | ✅ | 用户 skill 可能在任意子目录 |
+| `workspace-<agent>/`（人格文件） | ✅ | 不可丢失 |
+| `auth-profiles.json`（双路径） | ✅ | 备份+恢复同时写两个路径 |
+| `models.providers` + `auth.profiles/order` | ✅ | 合并为一条 UI 勾选项 |

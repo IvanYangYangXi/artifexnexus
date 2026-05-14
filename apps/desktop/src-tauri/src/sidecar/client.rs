@@ -1,20 +1,31 @@
 // JSON-RPC 2.0 客户端：通过 stdio 与 Python sidecar 通信。
 //
-// 关键设计：call() 有读取超时保护（默认 30s），防止 sidecar 卡死时
-// read_line 永久阻塞 → 持有 Mutex → tokio 工作线程饥饿 → WebView 黑屏。
+// 2026-05-14 重构：用独立 reader 线程 + mpsc channel 替代 BufReader 轮询。
+//
+// Why（追查 30s 卡顿根因）：
+//   旧实现的 call() 用 `BufReader::fill_buf()` 检查是否有数据，但 fill_buf
+//   在 BufReader 内部 buffer 为空时会调底层 stdout.read()，这是 **Windows
+//   pipe 上的阻塞调用**，没有超时；外层 `Instant::now() >= deadline` 的
+//   检查永远不会被执行 → call() 卡 30s 才超时退出。
+//   sidecar log 显示响应早就写完了（"out: openclaw.config.dump"），但
+//   Rust 这边永远读不到 → 用户看到"sidecar 响应超时"反复出现。
+//
+// 新设计：
+//   spawn 时启动独立 reader 线程持续 read_line，把每行响应通过 mpsc
+//   channel 发给主线程。call() 主线程只做 write stdin + recv_timeout，
+//   永不阻塞在 read 上。
+//
+// 简单清晰，绕开 Windows pipe 的所有怪异行为。
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
 
 /// sidecar RPC 调用超时（秒）。
-/// 超时后 call() 返回错误，触发 SidecarManager 重启 sidecar 进程。
 const CALL_TIMEOUT_SECS: u64 = 30;
-
-/// 超时轮询间隔（毫秒）。
-const POLL_INTERVAL_MS: u64 = 100;
 
 /// JSON-RPC 2.0 请求
 #[derive(Debug, Serialize)]
@@ -51,10 +62,15 @@ struct JsonRpcError {
     data: Option<Value>,
 }
 
-/// Sidecar 客户端：持有子进程句柄、stdin writer、stdout reader。
+/// Sidecar 客户端：持有子进程句柄、stdin writer、stdout 响应 channel。
+///
+/// 设计：spawn 时启动一个独立 reader 线程持续 read_line，每读一行就把字符串
+/// 通过 mpsc channel 发给主线程。call() 主线程只做 write stdin + recv_timeout，
+/// 永不阻塞在 read 上——绕开 Windows pipe 的所有怪异 I/O 行为。
 pub struct SidecarClient {
     stdin: Box<dyn Write + Send>,
-    stdout: BufReader<Box<dyn std::io::Read + Send>>,
+    /// reader 线程发来的响应行（已 trim，无 trailing \n）
+    response_rx: Receiver<Result<String, String>>,
     _child: Child,
     next_id: u64,
 }
@@ -172,19 +188,52 @@ impl SidecarClient {
             .take()
             .ok_or_else(|| "无法获取 sidecar stdout".to_string())?;
 
+        // ─────────────────────────────────────────────────────────────
+        // 启动独立 reader 线程：持续读 sidecar stdout，每行 push 到 channel。
+        // 这样主线程的 call() 不会阻塞在 read 上，超时严格生效。
+        // 线程会在 sidecar 退出（read 返回 Ok(0)）或 broken pipe 时退出。
+        // ─────────────────────────────────────────────────────────────
+        let (tx, response_rx) = mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => {
+                        // EOF：sidecar 已退出
+                        let _ = tx.send(Err("sidecar 进程意外退出（stdout EOF）".to_string()));
+                        break;
+                    }
+                    Ok(_) => {
+                        let trimmed = line.trim_end().to_string();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if tx.send(Ok(trimmed)).is_err() {
+                            // 主线程 SidecarClient 已 drop，线程退出
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("读取 sidecar 响应失败: {e}")));
+                        break;
+                    }
+                }
+            }
+        });
+
         Ok(Self {
             stdin: Box::new(stdin),
-            stdout: BufReader::new(Box::new(stdout)),
+            response_rx,
             _child: child,
             next_id: 1,
         })
     }
 
-    /// 发送 JSON-RPC 请求并等待响应（带超时保护）。
+    /// 发送 JSON-RPC 请求并等待响应（带严格超时保护）。
     ///
-    /// 超时（默认 30s）后返回错误，触发上层 SidecarManager 重启 sidecar。
-    /// 这防止 sidecar 卡死时 read_line 永久阻塞 → 持有 Mutex →
-    /// tokio 工作线程饥饿 → WebView 渲染停止（黑屏 bug）。
+    /// 实现：write stdin → channel.recv_timeout 等 reader 线程发来响应。
+    /// 永不阻塞在底层 read 上 → 30s 超时严格生效。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
@@ -203,56 +252,29 @@ impl SidecarClient {
             .flush()
             .map_err(|e| format!("flush sidecar 失败: {e}"))?;
 
-        // 读取响应（一行 JSON），带超时保护。
-        // Windows 管道不支持 set_read_timeout，用轮询方式：
-        // 每隔 POLL_INTERVAL_MS 检查是否有数据可读，超时则返回错误。
-        let deadline = Instant::now() + Duration::from_secs(CALL_TIMEOUT_SECS);
-        let mut response_line = String::new();
-        loop {
-            // 检查超时
-            if Instant::now() >= deadline {
-                return Err(format!(
-                    "sidecar 响应超时（{}s），方法: {method}",
-                    CALL_TIMEOUT_SECS
-                ));
-            }
-
-            // 尝试读取一行（非阻塞检查 + 阻塞读）
-            // BufReader::fill_buf 在有数据时返回非空切片；
-            // 返回空切片 = EOF（sidecar 已退出）
-            {
-                let buf = self
-                    .stdout
-                    .fill_buf()
-                    .map_err(|e| format!("读取 sidecar 响应失败: {e}"))?;
-                if buf.is_empty() {
-                    // EOF：sidecar 进程已退出
-                    return Err("sidecar 进程意外退出（stdout EOF）".to_string());
+        // 等响应（reader 线程会通过 channel 推过来）。
+        // 注意：因为多 RPC 共享同一个 channel，理论上可能收到非本次请求的响应——
+        // 但 SidecarManager 用 Mutex 串行化所有 call()，前一个 call 必须完成
+        // 才能开始下一个，所以 channel 里不会有"上一次响应"残留。
+        let response_line = self
+            .response_rx
+            .recv_timeout(Duration::from_secs(CALL_TIMEOUT_SECS))
+            .map_err(|e| match e {
+                mpsc::RecvTimeoutError::Timeout => {
+                    format!("sidecar 响应超时（{}s），方法: {method}", CALL_TIMEOUT_SECS)
                 }
-                // 有数据：检查是否包含完整行（\n）
-                let has_newline = buf.contains(&b'\n');
-                // buf 是 &[u8] 引用，不需要显式 drop；编译器会自动管理生命周期
-
-                if has_newline {
-                    // 有完整行，阻塞读取（此时不会阻塞）
-                    self.stdout
-                        .read_line(&mut response_line)
-                        .map_err(|e| format!("读取 sidecar 响应失败: {e}"))?;
-                    break;
+                mpsc::RecvTimeoutError::Disconnected => {
+                    "sidecar reader 线程已退出（sidecar 已死）".to_string()
                 }
-                // 有数据但无换行：等待更多数据到达
-                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
-            }
-        }
+            })?
+            .map_err(|e| e)?; // reader 线程内部 IO 错误
 
         let response: JsonRpcResponse = serde_json::from_str(response_line.trim())
-            .map_err(|e| format!("解析 sidecar 响应失败: {e}"))?;
+            .map_err(|e| format!("解析 sidecar 响应失败: {e} (raw={})", &response_line[..response_line.len().min(200)]))?;
 
         if let Some(error) = response.error {
             // STORY-0039：如果 sidecar 带 data（结构化错误），把 data 序列化成
             // JSON 字符串前缀进错误 message，前端按 `__rpcdata__:` 切出来解析。
-            // 这样前端能识别 kind=port_busy 并弹专门的对话框，同时保持现有
-            // "Tauri invoke 返回 Err(String)" 的单通道契约，不破坏旧命令。
             if let Some(data) = error.data {
                 let data_str = serde_json::to_string(&data)
                     .unwrap_or_else(|_| "{}".to_string());

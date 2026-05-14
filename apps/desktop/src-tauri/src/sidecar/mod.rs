@@ -3,3 +3,5 @@
 
 pub mod client;
 pub mod manager;
+pub mod preflight;
+pub mod trace;
