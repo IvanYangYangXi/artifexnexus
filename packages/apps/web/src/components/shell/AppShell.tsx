@@ -147,10 +147,10 @@ function useBreakpoint() {
   }, []);
   return {
     width,
-    /** ≥1280 全展开 */ isWide: width >= 1280,
-    /** 1024–1279 D 隐藏 */ isMedium: width >= 1024 && width < 1280,
-    /** 768–1023 B 折叠 + D 隐藏 */ isNarrow: width >= 768 && width < 1024,
-    /** <768 B 隐藏 + D 隐藏 */ isMobile: width < 768,
+    /** ≥900 全展开 */ isWide: width >= 900,
+    /** 768–899 D 首次自动隐藏（用户可手动打开） */ isMedium: width >= 768 && width < 900,
+    /** <768 极限窄屏：B 折叠 + D 强制隐藏 */ isNarrow: width < 768,
+    isMobile: width < 768, // 与 narrow 同值，保留兼容
   };
 }
 
@@ -169,6 +169,7 @@ export function AppShell() {
   const [currentModule, setCurrentModule] = React.useState<ModuleId>("chat");
 
   // mount 后从 localStorage 恢复偏好（避免 hydration mismatch）
+  // 同时异步从 ~/.artifexnexus/config/shell.json 读取（Tauri 文件持久化）
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => {
     const sb = window.localStorage.getItem(STORAGE_KEYS.sidebarCollapsed);
@@ -176,6 +177,16 @@ export function AppShell() {
     const po = window.localStorage.getItem(STORAGE_KEYS.panelOpen);
     if (po === "0") setPanelOpen(false);
     setMounted(true);
+
+    // 异步从 .artifexnexus/config/shell.json 恢复（作为补充数据源）
+    (async () => {
+      try {
+        const { readShellConfig } = await import("../../ipc/openclaw");
+        const cfg = await readShellConfig();
+        if (typeof cfg.sidebarCollapsed === "boolean") setSidebarCollapsed(cfg.sidebarCollapsed);
+        if (typeof cfg.panelOpen === "boolean") setPanelOpen(cfg.panelOpen);
+      } catch { /* Tauri 不可用时静默跳过 */ }
+    })();
   }, []);
 
   // 监听全局 nav 事件（子组件通过 dispatchEvent 触发模块切换）
@@ -190,29 +201,35 @@ export function AppShell() {
     return () => window.removeEventListener("nav", handler);
   }, []);
 
-  // 响应式：在窄屏强制折叠 / 隐藏（不覆盖用户偏好，仅在断点变更时一次性）
+  // 用户是否在本会话中手动切换过面板
+  const panelManuallyToggled = React.useRef(false);
+
+  // 响应式：仅在 <768 极限窄屏强制关闭。≥768 完全尊重用户设置 / localStorage。
   const lastBp = React.useRef<string>("");
   React.useEffect(() => {
-    const key = bp.isWide ? "wide" : bp.isMedium ? "medium" : bp.isNarrow ? "narrow" : "mobile";
+    if (!mounted) return; // 等 localStorage 恢复完毕
+    const key = bp.isNarrow || bp.isMobile ? "narrow" : "wide";
     if (lastBp.current === key) return;
     lastBp.current = key;
-    if (bp.isMedium || bp.isNarrow || bp.isMobile) {
-      setPanelOpen(false);
-    }
     if (bp.isNarrow || bp.isMobile) {
+      setPanelOpen(false);
       setSidebarCollapsed(true);
     }
-  }, [bp.isWide, bp.isMedium, bp.isNarrow, bp.isMobile]);
+  }, [bp.isNarrow, bp.isMobile, mounted]);
 
-  // 持久化（仅 mount 后写，避免覆盖未恢复的初值）
+  // 持久化（localStorage + .artifexnexus/config/shell.json 双写）
   React.useEffect(() => {
     if (!mounted) return;
     window.localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed, mounted]);
-  React.useEffect(() => {
-    if (!mounted) return;
     window.localStorage.setItem(STORAGE_KEYS.panelOpen, panelOpen ? "1" : "0");
-  }, [panelOpen, mounted]);
+    // 异步写 .artifexnexus/config/shell.json
+    (async () => {
+      try {
+        const { writeShellConfig } = await import("../../ipc/openclaw");
+        await writeShellConfig({ panelOpen, sidebarCollapsed });
+      } catch { /* Tauri 不可用时静默跳过 */ }
+    })();
+  }, [sidebarCollapsed, panelOpen, mounted]);
 
   // D 区 imperative ref（顶栏按钮调用 expand/collapse）
   const dPanelRef = React.useRef<ImperativePanelHandle>(null);
@@ -430,7 +447,7 @@ export function AppShell() {
               </div>
             </div>
             <div className="text-center">
-              <p className="text-base font-medium text-foreground">Artifex Nexus 正在启动</p>
+              <p className="text-base font-medium text-foreground">artifex-nexus·山雀 正在启动</p>
               <p className="mt-1.5 text-xs text-muted-foreground">{startupPhase}</p>
               <div className="mt-4 flex items-center gap-1.5">
                 <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:0ms]" />
@@ -445,7 +462,7 @@ export function AppShell() {
       {/* A 顶栏 */}
       <Topbar
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-        onTogglePanel={() => { setPanelOpen((v) => !v); }}
+        onTogglePanel={() => { panelManuallyToggled.current = true; setPanelOpen((v) => !v); }}
         sidebarHidden={!showSidebar}
         panelOpen={panelOpen}
         gatewayRunning={gatewayRunning}

@@ -7,4 +7,5 @@ pub mod openclaw;
 pub mod openclaw_config;
 pub mod openclaw_gateway;
 pub mod openclaw_sessions;
+pub mod shell_config;
 pub mod status;

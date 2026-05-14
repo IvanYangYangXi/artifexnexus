@@ -62,7 +62,7 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 | Agent 配置 | **openclaw.json** → `agents.list[]`（id/name/workspace/agentRuntime/skills/systemPromptOverride）+ `agents.defaults`；**文件** → 每个 agent 的独立工作空间 `workspace-<agent名>/` 下的人格文件（AGENTS.md / IDENTITY.md / SOUL.md / USER.md / TOOLS.md / HEARTBEAT.md） | `agents.list[].workspace` 指向对应目录；通过遍历 `agents.list[]` 推导出需要备份的工作空间目录列表 |
 | 插件配置 + Memory | **openclaw.json** → `plugins.entries` 全部条目（browser / file-transfer / memory-core / mcp-bridge 及用户手动启用的其他插件）；**文件** → `state/memory/*.sqlite` + `workspace/memory/`（梦境数据） | `plugins.entries.<pluginId>.enabled` + `.config`；**不备份** `plugins/installs.json`（OpenClaw 可通过 `registry --refresh` 重建） |
 | MCP 服务器配置 | **openclaw.json** → `plugins.entries.mcp-bridge.config.servers` **全部条目**（不限于预装的 blender-editor，用户添加的所有 MCP server 连接全部保留） | `servers.<name>.type`（websocket/stdio）+ `.url` / `.command` + `.enabled` |
-| Skill | **文件** → `workspace/skills/` **整个目录**（含 official / team / user 全部子目录，不区分来源） | skills 目录下每子目录 = 一个 skill；`plugin-skills/` 下是 plugin-bundled skill 的 symlink（无需备份） |
+| Skill | **文件** → `workspace/skills/` **整个目录**（扁平结构，源码端的 official/team/user 分类在安装到 .openclaw 后不存在，每个子目录 = 一个 skill） | `plugin-skills/` 下是 plugin-bundled skill 的 symlink（无需备份） |
 
 输出：`backup-manifest.json`（记录每个备份文件的来源、目标路径、时间戳）
 
@@ -92,10 +92,61 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
   - memory SQLite → 写入 `state/memory/`
   - `workspace/memory/` → 原位复制回去
 - **MCP 服务器配置**（全部 servers，不限于预装条目）→ 合并 `openclaw.json` → `plugins.entries.mcp-bridge.config.servers`
-- **Skill** → 复制 `workspace/skills/` 整个目录回原位（含 official/team/user 全部子目录）
+- **Skill** → 复制 `workspace/skills/` 整个目录回原位（扁平结构，不区分 official/team/user）
 - 验证（`openclaw doctor --json`）→ `openclaw plugins registry --refresh`（重建 `installs.json`）
 - 成功后删除 `backups/<timestamp>/`
 - 重启 Gateway
+
+## 勾选项 → 备份文件/路径 ↔ openclaw.json 字段 完整映射表
+
+以下两张表覆盖了 STORY-0041 的所有实现细节，是 `bootstrap.py` 和 `sidecar.py` 的编码依据。
+
+### 表 A：勾选项 → 备份文件/路径 映射表
+
+| # | 勾选项 | 勾选 key | 备份的文件/路径 | 备份方式 | 恢复方式 |
+|---|--------|----------|----------------|---------|---------|
+| 1 | 供应商配置 + API 凭据 | `preserveProvidersAndAuth` | `{home}/openclaw.json` → `models.providers` + `auth.profiles` + `auth.order` 三个字段的 JSON 快照 | `json.dumps` 到 `backups/<ts>/config-providers-auth.json` | `openclaw config patch` 逐字段写入新 openclaw.json |
+| | | | `{home}/.openclaw/agents/<id>/agent/auth-profiles.json`（CLI 读的新路径） | 文件复制到 `backups/<ts>/auth-new/` | 写回 `.openclaw/agents/<id>/agent/auth-profiles.json` |
+| | | | `{home}/state/agents/<id>/agent/auth-profiles.json`（Gateway 读的旧路径） | 文件复制到 `backups/<ts>/auth-legacy/` | 写回 `state/agents/<id>/agent/auth-profiles.json` |
+| 2 | Agent 配置 + 工作空间 | `preserveAgents` | `{home}/openclaw.json` → `agents.list` + `agents.defaults` 两个字段的 JSON 快照 | `json.dumps` 到 `backups/<ts>/config-agents.json` | `openclaw config patch` 写入新 openclaw.json |
+| | | | `{home}/workspace-<agent名>/` 下人格文件（AGENTS.md / IDENTITY.md / SOUL.md / USER.md / TOOLS.md / HEARTBEAT.md） | 文件复制到 `backups/<ts>/agent-workspaces/<agent名>/` | 原位复制回 `workspace-<agent名>/` |
+| | | | `{home}/workspace/` 下人格文件（同上 6 个文件，默认 agent） | 同上 | 同上 |
+| 3 | 插件配置 + Memory | `preservePluginsAndMemory` | `{home}/openclaw.json` → `plugins.entries` 全部条目的 JSON 快照 | `json.dumps` 到 `backups/<ts>/config-plugins.json` | 合并写入：读新 openclaw.json 的 `plugins.entries`，逐条目补充备份中的条目（新默认已存在的保留默认，新默认没有的从备份追加） |
+| | | | `{home}/state/memory/*.sqlite` | 文件复制到 `backups/<ts>/memory/` | 写回 `state/memory/` |
+| | | | `{home}/workspace/memory/` 整个目录 | 目录复制到 `backups/<ts>/workspace-memory/` | 原位复制回 `workspace/memory/` |
+| 4 | MCP 服务器配置 | `preserveMCPServers` | `{home}/openclaw.json` → `plugins.entries.mcp-bridge.config.servers` 字段的 JSON 快照 | `json.dumps` 到 `backups/<ts>/config-mcp-servers.json` | 合并写入：读新 openclaw.json 的 `plugins.entries.mcp-bridge.config.servers`，用备份中的 servers 替换新默认的 servers（用户添加的全部保留，预装的 blender-editor 按用户配置覆盖） |
+| 5 | Skill | `preserveSkills` | `{home}/workspace/skills/` 整个目录（扁平结构，每个子目录 = 一个 skill） | 目录复制到 `backups/<ts>/skills/` | 原位复制回 `workspace/skills/` |
+
+### 表 B：勾选项 → openclaw.json 字段读写映射表
+
+恢复时，`openclaw.json` 需要按勾选项精确读取和写入对应字段。
+
+| # | 勾选项 | openclaw.json JSON 路径 | 备份时读取 | 恢复时写入策略 | 恢复时写入路径 |
+|---|--------|------------------------|-----------|--------------|--------------|
+| 1 | 供应商配置 + API 凭据 | `models.providers` | ✅ 读取完整对象 | **全量替换**：用备份值覆盖新默认值 | `models.providers` |
+| | | `auth.profiles` | ✅ 读取完整对象 | **全量替换** | `auth.profiles` |
+| | | `auth.order` | ✅ 读取完整对象 | **全量替换** | `auth.order` |
+| 2 | Agent 配置 + 工作空间 | `agents.list` | ✅ 读取完整数组 | **全量替换**（用户 agent 列表完全保留） | `agents.list` |
+| | | `agents.defaults` | ✅ 读取完整对象 | **全量替换** | `agents.defaults` |
+| 3 | 插件配置 + Memory | `plugins.entries` | ✅ 读取完整对象 | **合并策略**：新默认中已有的条目保留，新默认没有的条目从备份追加 | `plugins.entries` |
+| 4 | MCP 服务器配置 | `plugins.entries.mcp-bridge.config.servers` | ✅ 读取完整对象 | **合并策略**：读新 openclaw.json 中的 servers → 用备份中的同名 server 替换/新增 | `plugins.entries.mcp-bridge.config.servers` |
+| | | ⚠️ 与 #3 的关系 | | 如果 #3 已勾选，`plugins.entries` 全量合并已包含 servers → #4 跳过。仅 #4 单独勾选时独立恢复 servers | |
+| 5 | Skill | （无） | — | 不涉及 openclaw.json | — |
+
+### 恢复时字段冲突处理规则
+
+勾选项之间存在字段重叠时，按以下优先级和顺序恢复：
+
+```
+恢复顺序：1 → 2 → 3 → 4 → 5
+
+- #3 和 #4 重叠在 `plugins.entries.mcp-bridge.config.servers`
+  → 两处都勾选时：#3 已处理全部 plugins.entries（含 mcp-bridge），#4 跳过
+  → 仅 #4 勾选时：读当前 openclaw.json 的 plugins.entries → 找到 mcp-bridge 条目 → merge servers
+
+- #1 单独读 `auth.profiles/order` → 不与任何其他勾选项重叠
+- #2 单独读 `agents.list/defaults` → 不与任何其他勾选项重叠
+```
 
 ### 当前 UI 勾选项状态
 
@@ -106,7 +157,7 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 [ ] Agent 配置 + 工作空间                  — Agent 预设、system prompt + 各 agent 独立 workspace 文件
 [x] 插件配置 + Memory                      — 全部启用插件（不限于 4 个核心）+ AI 长期记忆/梦境数据
 [ ] MCP 服务器配置                          — mcp-bridge 下全部外部 MCP server 连接（不限于预装的 blender-editor）
-[ ] Skill                                  — workspace/skills/ 全部 skill（含 official / team / user）
+[ ] Skill                                  — workspace/skills/ 全部 skill（扁平结构，不区分 official/team/user）
 ```
 
 ### 系统页备份恢复子页（新增）

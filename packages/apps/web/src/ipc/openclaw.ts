@@ -615,6 +615,8 @@ export interface SessionSummary {
   modelProvider: string;
   status: string;
   totalTokens: number;
+  /** agent ID（从 sessions.json 所在目录提取，用于前端按 agent 筛选） */
+  agentId?: string;
 }
 
 /** openclaw.sessions.list 返回 */
@@ -663,6 +665,106 @@ export async function getSessionsHistory(args: {
   );
 }
 
+// ── STORY-0041：备份-安装-恢复 ─────────────────────────────────────────────
+
+/** 备份时的保留选项（5 项，Provider+Auth 合并） */
+export interface BackupPreserveOptions {
+  preserveProvidersAndAuth?: boolean;
+  preserveAgents?: boolean;
+  preservePluginsAndMemory?: boolean;
+  preserveMCPServers?: boolean;
+  preserveSkills?: boolean;
+}
+
+/** openclaw.backup 返回 */
+export interface BackupResult {
+  success: boolean;
+  backup_dir: string;
+  timestamp: string;
+  total_size_bytes: number;
+  items: string[];
+  error?: string;
+}
+
+/** openclaw.restore 返回 */
+export interface RestoreResult {
+  success: boolean;
+  message: string;
+  errors?: Array<{ item: string; error: string }> | null;
+  error?: string;
+}
+
+/** 备份列表项 */
+export interface BackupInfo {
+  timestamp: string;
+  size_bytes: number;
+  item_count: number;
+  items: string[];
+  created: number;
+}
+
+/** openclaw.backups.list 返回 */
+export interface BackupsListResult {
+  backups: BackupInfo[];
+}
+
+/** 删除备份返回 */
+export interface BackupDeleteResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/** 备份 OpenClaw 用户数据（Phase 1） */
+export async function backupOpenClaw(
+  preserveOptions: BackupPreserveOptions,
+): Promise<BackupResult> {
+  return invoke<BackupResult>("openclaw_backup", {
+    preserveOptions,
+  });
+}
+
+/** 恢复 OpenClaw 用户数据（Phase 2-3：全新安装 + 恢复） */
+export async function restoreOpenClaw(args: {
+  backupTimestamp: string;
+  preserveOptions: BackupPreserveOptions;
+  version?: string;
+}): Promise<RestoreResult> {
+  return invoke<RestoreResult>("openclaw_restore", {
+    backupTimestamp: args.backupTimestamp,
+    preserveOptions: args.preserveOptions,
+    version: args.version ?? null,
+  });
+}
+
+/** 列出所有备份 */
+export async function listOpenClawBackups(): Promise<BackupsListResult> {
+  return invoke<BackupsListResult>("openclaw_backups_list");
+}
+
+/** 删除指定备份 */
+export async function deleteOpenClawBackup(
+  timestamp: string,
+): Promise<BackupDeleteResult> {
+  return invoke<BackupDeleteResult>("openclaw_backups_delete", { timestamp });
+}
+
 // ── 通用 invoke（仅新 UI 用于少数未封装的命令） ────────────────────────────
 
 export { invoke };
+
+// ── Shell 配置持久化（~/.artifexnexus/config/shell.json） ──────────────────
+
+export interface ShellConfig {
+  panelOpen?: boolean;
+  sidebarCollapsed?: boolean;
+}
+
+export async function readShellConfig(): Promise<ShellConfig> {
+  const raw = await invoke<string>("read_shell_config");
+  return JSON.parse(raw);
+}
+
+export async function writeShellConfig(config: ShellConfig): Promise<void> {
+  await invoke("write_shell_config", { json: JSON.stringify(config) });
+}

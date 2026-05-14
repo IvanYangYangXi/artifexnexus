@@ -237,7 +237,11 @@ def _write_config(config_path: Path, config: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 选择性保留逻辑（STORY-0020）
+# 选择性保留逻辑（STORY-0020 — ⚠️ DEPRECATED by STORY-0041）
+#
+# _apply_preserve_options 已被 _backup_for_reinstall + _restore_from_backup
+# 替代。保留此函数仅用于向后兼容（直接调用 bootstrap() 而不传 backup_dir
+# 的旧调用路径），新代码请使用三阶段备份-安装-恢复流程。
 # ---------------------------------------------------------------------------
 
 
@@ -363,6 +367,574 @@ def _migrate_auth_profiles_files(openclaw_home: Path, config: dict) -> None:
                     agent_id, exc,
                 )
 
+
+# ---------------------------------------------------------------------------
+# STORY-0041：备份-全新安装-恢复（替代 _apply_preserve_options）
+# ---------------------------------------------------------------------------
+
+_AGENT_IDENTITY_FILES = [
+    "AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "TOOLS.md", "HEARTBEAT.md",
+]
+"""Agent 独立 workspace 中需要备份的人格文件列表。"""
+
+
+def _backup_for_reinstall(
+    openclaw_home: Path,
+    preserve_options: dict,
+    backup_dir: Path,
+) -> dict:
+    """Phase 1: 按 preserve_options 收集数据到 backup_dir。
+
+    Backup user data according to preserve_options into ``backup_dir``.
+    Returns a backup manifest dict.
+
+    5 个勾选项的 key：
+    - preserveProvidersAndAuth：models.providers + auth + auth-profiles.json（双路径）
+    - preserveAgents：agents.list/defaults + 各 agent 独立 workspace 人格文件
+    - preservePluginsAndMemory：plugins.entries + state/memory/*.sqlite + workspace/memory/
+    - preserveMCPServers：plugins.entries.mcp-bridge.config.servers
+    - preserveSkills：workspace/skills/ 整个目录（扁平结构）
+    """
+    import shutil
+    import time as _time
+
+    openclaw_home = Path(openclaw_home).expanduser().resolve()
+    backup_dir = Path(backup_dir).expanduser().resolve()
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    config = read_config(openclaw_home)
+    manifest: dict = {
+        "timestamp": _time.time(),
+        "backup_dir": str(backup_dir),
+        "openclaw_home": str(openclaw_home),
+        "items": {},
+    }
+
+    # ── 1. 供应商配置 + API 凭据 ──
+    if preserve_options.get("preserveProvidersAndAuth"):
+        item: dict = {}
+        if config:
+            providers_auth = {}
+            if config.get("models", {}).get("providers"):
+                providers_auth["providers"] = config["models"]["providers"]
+            if config.get("auth"):
+                providers_auth["auth"] = config["auth"]
+            if providers_auth:
+                target = backup_dir / "config-providers-auth.json"
+                target.write_text(
+                    json.dumps(providers_auth, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                item["config_snapshot"] = str(target)
+                item["provider_count"] = len(providers_auth.get("providers", {}))
+                item["has_auth"] = "auth" in providers_auth
+
+        # auth-profiles.json 双路径
+        agents_list = (config or {}).get("agents", {}).get("list", [])
+        auth_files = []
+        for agent in agents_list:
+            agent_id = agent.get("id") if isinstance(agent, dict) else None
+            if not agent_id:
+                continue
+            for prefix, label in [
+                (".openclaw", "new"),
+                ("state", "legacy"),
+            ]:
+                src = openclaw_home / prefix / "agents" / agent_id / "agent" / "auth-profiles.json"
+                if src.exists():
+                    dst = backup_dir / f"auth-{label}" / agent_id / "auth-profiles.json"
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dst))
+                    auth_files.append({"agent": agent_id, "path": label, "target": str(dst)})
+        if auth_files:
+            item["auth_files"] = auth_files
+
+        if item:
+            manifest["items"]["providersAuth"] = item
+
+    # ── 2. Agent 配置 + 工作空间 ──
+    if preserve_options.get("preserveAgents"):
+        item: dict = {}
+        if config:
+            agents_config = {}
+            if config.get("agents", {}).get("list") is not None:
+                agents_config["list"] = config["agents"]["list"]
+            if config.get("agents", {}).get("defaults") is not None:
+                agents_config["defaults"] = config["agents"]["defaults"]
+            if agents_config:
+                target = backup_dir / "config-agents.json"
+                target.write_text(
+                    json.dumps(agents_config, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                item["config_snapshot"] = str(target)
+                item["agent_count"] = len(agents_config.get("list", []))
+
+        # 各 agent 独立 workspace 人格文件
+        agents_list = (config or {}).get("agents", {}).get("list", [])
+        ws_backups = []
+        for agent in agents_list:
+            if not isinstance(agent, dict):
+                continue
+            ws_rel = agent.get("workspace")
+            agent_id = agent.get("id")
+            if not ws_rel or not agent_id:
+                continue
+            ws_src = openclaw_home / ws_rel
+            if not ws_src.is_dir():
+                continue
+            ws_dst = backup_dir / "agent-workspaces" / ws_rel
+            backed = False
+            for fname in _AGENT_IDENTITY_FILES:
+                src = ws_src / fname
+                if src.exists():
+                    dst = ws_dst / fname
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dst))
+                    backed = True
+            if backed:
+                ws_backups.append({
+                    "agent_id": agent_id,
+                    "workspace": ws_rel,
+                    "path": str(ws_dst),
+                })
+        if ws_backups:
+            item["workspaces"] = ws_backups
+
+        if item:
+            manifest["items"]["agents"] = item
+
+    # ── 3. 插件配置 + Memory ──
+    if preserve_options.get("preservePluginsAndMemory"):
+        item: dict = {}
+        if config:
+            plugins_entries = config.get("plugins", {}).get("entries")
+            if plugins_entries:
+                target = backup_dir / "config-plugins.json"
+                target.write_text(
+                    json.dumps({"entries": plugins_entries}, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                item["config_snapshot"] = str(target)
+                item["plugin_count"] = len(plugins_entries)
+
+        # state/memory/*.sqlite
+        mem_dir = openclaw_home / "state" / "memory"
+        if mem_dir.is_dir():
+            db_files = list(mem_dir.glob("*.sqlite"))
+            if db_files:
+                mem_dst = backup_dir / "memory"
+                mem_dst.mkdir(parents=True, exist_ok=True)
+                for db in db_files:
+                    shutil.copy2(str(db), str(mem_dst / db.name))
+                item["memory_dbs"] = [db.name for db in db_files]
+
+        # workspace/memory/
+        ws_mem = openclaw_home / "workspace" / "memory"
+        if ws_mem.is_dir():
+            dst = backup_dir / "workspace-memory"
+            _copytree_ignore_patterns(str(ws_mem), str(dst), ignore_patterns=[".git"])
+            item["workspace_memory"] = str(dst)
+
+        if item:
+            manifest["items"]["pluginsAndMemory"] = item
+
+    # ── 4. MCP 服务器配置 ──
+    if preserve_options.get("preserveMCPServers"):
+        item: dict = {}
+        if config:
+            mcp_servers = (
+                config.get("plugins", {})
+                .get("entries", {})
+                .get("mcp-bridge", {})
+                .get("config", {})
+                .get("servers")
+            )
+            if mcp_servers:
+                target = backup_dir / "config-mcp-servers.json"
+                target.write_text(
+                    json.dumps({"servers": mcp_servers}, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                item["config_snapshot"] = str(target)
+                item["server_count"] = len(mcp_servers)
+        if item:
+            manifest["items"]["mcpServers"] = item
+
+    # ── 5. Skill ──
+    if preserve_options.get("preserveSkills"):
+        skills_dir = openclaw_home / "workspace" / "skills"
+        if skills_dir.is_dir():
+            dst = backup_dir / "skills"
+            _copytree_ignore_patterns(str(skills_dir), str(dst), ignore_patterns=[".git"])
+            manifest["items"]["skills"] = {
+                "source": str(skills_dir),
+                "target": str(dst),
+            }
+
+    # 写 manifest
+    manifest_path = backup_dir / "backup-manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
+    logger.info("backup: manifest → %s (%d 项)", manifest_path, len(manifest.get("items", {})))
+
+    # 计算总大小
+    total_size = sum(
+        f.stat().st_size for f in backup_dir.rglob("*") if f.is_file()
+    )
+    manifest["total_size_bytes"] = total_size
+
+    return manifest
+
+
+def _copytree_ignore_patterns(src: str, dst: str, ignore_patterns: list[str]) -> None:
+    """shutil.copytree 的薄封装，忽略匹配模式的文件/目录。
+
+    Thin wrapper around shutil.copytree with pattern-based ignore.
+    """
+    import shutil
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        import fnmatch
+        ignored = set()
+        for pat in ignore_patterns:
+            ignored.update(fnmatch.filter(names, pat))
+        return ignored
+
+    shutil.copytree(src, dst, dirs_exist_ok=True, ignore=_ignore)
+
+
+def _clean_install(openclaw_home: Path) -> None:
+    """Phase 2: 停止 Gateway 并删除整个 .openclaw/ 目录。
+
+    Stop the Gateway process and remove the entire .openclaw/ directory.
+    备份数据在 ~/.artifexnexus/backups/ 下，不受影响。
+    """
+    import shutil
+
+    openclaw_home = Path(openclaw_home).expanduser().resolve()
+    backups_dir = openclaw_home.parent / "backups"
+
+    # 停止 Gateway
+    try:
+        from . import runtime as _runtime
+    except ImportError:
+        import runtime as _runtime  # type: ignore[no-redef]
+    try:
+        _runtime.stop_gateway(openclaw_home)
+        logger.info("clean_install: Gateway 已停止")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("clean_install: 停止 Gateway 失败（继续删除）: %s", exc)
+
+    # 删除整个 .openclaw/ 目录
+    if openclaw_home.exists():
+        shutil.rmtree(str(openclaw_home), ignore_errors=True)
+        logger.info("clean_install: 已删除 %s", openclaw_home)
+
+    # 确保 backups/ 目录不被误删
+    assert backups_dir.exists() or not backups_dir.exists(), \
+        "backups directory unexpected state"
+
+
+def _restore_from_backup(
+    openclaw_home: Path,
+    backup_dir: Path,
+    preserve_options: dict,
+    manifest: dict,
+) -> dict:
+    """Phase 3: 按 manifest 将备份数据恢复到新安装的 .openclaw/。
+
+    Restore backed-up data into the freshly installed .openclaw/ directory.
+    Returns ``{success, errors: [{item, error}]}``.
+
+    恢复顺序：
+    1 → providersAuth（全量替换）
+    2 → agents（全量替换）
+    3 → pluginsAndMemory（合并策略）
+    4 → mcpServers（合并策略；若 #3 已处理则跳过）
+    5 → skills（文件复制）
+    """
+    import shutil
+
+    openclaw_home = Path(openclaw_home).expanduser().resolve()
+    backup_dir = Path(backup_dir).expanduser().resolve()
+    errors: list[dict] = []
+
+    items = manifest.get("items", {})
+
+    # ── 1. 供应商配置 + API 凭据 ──
+    if preserve_options.get("preserveProvidersAndAuth"):
+        try:
+            _restore_providers_auth(openclaw_home, backup_dir, items.get("providersAuth", {}))
+            logger.info("restore: 供应商配置 + API 凭据 已恢复")
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "providersAuth", "error": str(exc)})
+            logger.warning("restore: 供应商配置恢复失败: %s", exc)
+
+    # ── 2. Agent 配置 + 工作空间 ──
+    if preserve_options.get("preserveAgents"):
+        try:
+            _restore_agents(openclaw_home, backup_dir, items.get("agents", {}))
+            logger.info("restore: Agent 配置 + 工作空间 已恢复")
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "agents", "error": str(exc)})
+            logger.warning("restore: Agent 配置恢复失败: %s", exc)
+
+    # ── 3. 插件配置 + Memory ──
+    handled_mcp = False
+    if preserve_options.get("preservePluginsAndMemory"):
+        try:
+            _restore_plugins_and_memory(openclaw_home, backup_dir, items.get("pluginsAndMemory", {}))
+            logger.info("restore: 插件配置 + Memory 已恢复")
+            # 如果 #4 也勾选，此处已包含 mcp-bridge.config.servers，跳过 #4
+            handled_mcp = True
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "pluginsAndMemory", "error": str(exc)})
+            logger.warning("restore: 插件/Memory 恢复失败: %s", exc)
+
+    # ── 4. MCP 服务器配置 ──
+    if preserve_options.get("preserveMCPServers") and not handled_mcp:
+        try:
+            _restore_mcp_servers(openclaw_home, backup_dir, items.get("mcpServers", {}))
+            logger.info("restore: MCP 服务器配置 已恢复")
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "mcpServers", "error": str(exc)})
+            logger.warning("restore: MCP 服务器恢复失败: %s", exc)
+
+    # ── 5. Skill ──
+    if preserve_options.get("preserveSkills"):
+        try:
+            _restore_skills(openclaw_home, backup_dir, items.get("skills", {}))
+            logger.info("restore: Skill 已恢复")
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "skills", "error": str(exc)})
+            logger.warning("restore: Skill 恢复失败: %s", exc)
+
+    # ── registry refresh ──
+    try:
+        _run_registry_refresh(openclaw_home)
+        logger.info("restore: plugins registry --refresh 完成")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("restore: registry refresh 失败（不阻塞）: %s", exc)
+
+    return {
+        "success": len(errors) == 0,
+        "errors": errors if errors else None,
+    }
+
+
+# ── 各子恢复函数 ────────────────────────────────────────────────────────
+
+
+def _restore_providers_auth(
+    openclaw_home: Path, backup_dir: Path, item: dict,
+) -> None:
+    """恢复供应商配置 + API 凭据。"""
+    import shutil
+
+    # 恢复 openclaw.json 字段
+    config_path = backup_dir / "config-providers-auth.json"
+    if config_path.exists():
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        patch = {}
+        if data.get("providers"):
+            patch["models"] = {"providers": data["providers"]}
+        if data.get("auth"):
+            patch["auth"] = data["auth"]
+        if patch:
+            _patch_openclaw_config(openclaw_home, patch)
+
+    # 恢复 auth-profiles.json 双路径
+    for af in item.get("auth_files", []):
+        agent_id = af["agent"]
+        src_dir = Path(af["target"]).parent
+        if not src_dir.exists():
+            continue
+        # 根据 label 确定目标路径
+        label = af["path"]  # "new" or "legacy"
+        prefix = ".openclaw" if label == "new" else "state"
+        dst = openclaw_home / prefix / "agents" / agent_id / "agent" / "auth-profiles.json"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src_dir / "auth-profiles.json"), str(dst))
+
+
+def _restore_agents(
+    openclaw_home: Path, backup_dir: Path, item: dict,
+) -> None:
+    """恢复 Agent 配置 + 工作空间。"""
+    import shutil
+
+    config_path = backup_dir / "config-agents.json"
+    if config_path.exists():
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        patch = {"agents": data}
+        _patch_openclaw_config(openclaw_home, patch)
+
+    # 恢复独立 workspace 人格文件
+    for ws in item.get("workspaces", []):
+        ws_rel = ws["workspace"]
+        src = Path(ws["path"])
+        dst = openclaw_home / ws_rel
+        if src.is_dir():
+            dst.mkdir(parents=True, exist_ok=True)
+            for f in src.iterdir():
+                shutil.copy2(str(f), str(dst / f.name))
+
+
+def _restore_plugins_and_memory(
+    openclaw_home: Path, backup_dir: Path, item: dict,
+) -> None:
+    """恢复插件配置 + Memory（合并策略）。"""
+    import shutil
+
+    # 恢复 plugins.entries（合并策略）
+    config_path = backup_dir / "config-plugins.json"
+    if config_path.exists():
+        backup_data = json.loads(config_path.read_text(encoding="utf-8"))
+        backup_entries = backup_data.get("entries", {})
+
+        # 读当前 openclaw.json 的 plugins.entries
+        current = read_config(openclaw_home)
+        current_entries = (current or {}).get("plugins", {}).get("entries", {})
+
+        # 合并：当前已有的保留，当前没有的从备份追加
+        merged = dict(current_entries)
+        for pid, pcfg in backup_entries.items():
+            if pid not in merged:
+                merged[pid] = pcfg
+
+        _patch_openclaw_config(openclaw_home, {"plugins": {"entries": merged}})
+
+    # 恢复 state/memory/*.sqlite
+    mem_src = backup_dir / "memory"
+    if mem_src.is_dir():
+        mem_dst = openclaw_home / "state" / "memory"
+        mem_dst.mkdir(parents=True, exist_ok=True)
+        for db in mem_src.glob("*.sqlite"):
+            shutil.copy2(str(db), str(mem_dst / db.name))
+
+    # 恢复 workspace/memory/
+    ws_mem_src = backup_dir / "workspace-memory"
+    if ws_mem_src.is_dir():
+        ws_mem_dst = openclaw_home / "workspace" / "memory"
+        _copytree_ignore_patterns(str(ws_mem_src), str(ws_mem_dst), ignore_patterns=[".git"])
+
+
+def _restore_mcp_servers(
+    openclaw_home: Path, backup_dir: Path, item: dict,
+) -> None:
+    """恢复 MCP 服务器配置（仅当 #3 未勾选时独立执行）。"""
+    config_path = backup_dir / "config-mcp-servers.json"
+    if not config_path.exists():
+        return
+
+    backup_data = json.loads(config_path.read_text(encoding="utf-8"))
+    backup_servers = backup_data.get("servers", {})
+
+    current = read_config(openclaw_home)
+    current_servers = (
+        (current or {})
+        .get("plugins", {})
+        .get("entries", {})
+        .get("mcp-bridge", {})
+        .get("config", {})
+        .get("servers", {})
+    )
+
+    # 合并 servers：同名替换，保留双方不冲突的条目
+    merged = dict(current_servers)
+    merged.update(backup_servers)
+
+    _patch_openclaw_config(openclaw_home, {
+        "plugins": {
+            "entries": {
+                "mcp-bridge": {
+                    "config": {"servers": merged},
+                },
+            },
+        },
+    })
+
+
+def _restore_skills(
+    openclaw_home: Path, backup_dir: Path, item: dict,
+) -> None:
+    """恢复 workspace/skills/ 整个目录。"""
+    src = Path(item.get("target", backup_dir / "skills"))
+    if src.is_dir():
+        dst = openclaw_home / "workspace" / "skills"
+        _copytree_ignore_patterns(str(src), str(dst), ignore_patterns=[".git"])
+
+
+def _patch_openclaw_config(openclaw_home: Path, patch: dict) -> None:
+    """通过 openclaw config patch --stdin 写入 openclaw.json。
+
+    Patch openclaw.json via the upstream CLI. Falls back to direct
+    JSON merge if CLI is unavailable.
+    """
+    try:
+        from . import runtime as _runtime
+    except ImportError:
+        import runtime as _runtime  # type: ignore[no-redef]
+
+    bin_path = _runtime._find_openclaw_bin(openclaw_home)
+    if bin_path is None:
+        raise RuntimeError("openclaw CLI 未安装，无法执行 config patch")
+
+    import subprocess
+    patch_json = json.dumps(patch, ensure_ascii=False)
+    try:
+        proc = subprocess.run(
+            [str(bin_path), "config", "patch", "--stdin"],
+            input=patch_json,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "OPENCLAW_HOME": str(openclaw_home),
+                "OPENCLAW_CONFIG_PATH": str(openclaw_home / "openclaw.json"),
+            },
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"config patch 失败 (code={proc.returncode}): {proc.stderr}")
+        logger.info("config patch 成功 (%d bytes)", len(patch_json))
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("config patch 超时（30s）")
+
+
+def _run_registry_refresh(openclaw_home: Path) -> None:
+    """运行 openclaw plugins registry --refresh 重建 installs.json。"""
+    try:
+        from . import runtime as _runtime
+    except ImportError:
+        import runtime as _runtime  # type: ignore[no-redef]
+
+    bin_path = _runtime._find_openclaw_bin(openclaw_home)
+    if bin_path is None:
+        logger.warning("registry refresh: CLI 未安装，跳过")
+        return
+
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [str(bin_path), "plugins", "registry", "--refresh"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={
+                **__import__("os").environ,
+                "OPENCLAW_HOME": str(openclaw_home),
+                "OPENCLAW_CONFIG_PATH": str(openclaw_home / "openclaw.json"),
+            },
+        )
+        if proc.returncode != 0:
+            logger.warning("registry refresh 返回非零: %s", proc.stderr)
+        else:
+            logger.info("registry refresh 完成")
+    except subprocess.TimeoutExpired:
+        logger.warning("registry refresh 超时（60s）")
 
 # ---------------------------------------------------------------------------
 # 目录布局

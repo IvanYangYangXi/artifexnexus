@@ -423,3 +423,74 @@ pub async fn shell_open_path(
 
     manager.call("shell.open_path", json!({"path": path}))
 }
+
+// ── STORY-0041：备份-安装-恢复 ────────────────────────────────────────────
+
+/// 备份 OpenClaw 用户数据。
+#[tauri::command]
+pub async fn openclaw_backup(
+    sidecar: State<'_, SidecarState>,
+    preserve_options: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.backup", json!({"preserve_options": preserve_options}))
+}
+
+/// 恢复 OpenClaw 用户数据（含全新安装）。
+#[tauri::command]
+pub async fn openclaw_restore(
+    sidecar: State<'_, SidecarState>,
+    backup_timestamp: String,
+    preserve_options: serde_json::Value,
+    version: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({
+        "backup_timestamp": backup_timestamp,
+        "preserve_options": preserve_options,
+    });
+    if let Some(v) = version {
+        params["version"] = json!(v);
+    }
+
+    manager.call("openclaw.restore", params)
+}
+
+/// 列出所有 OpenClaw 备份。
+#[tauri::command]
+pub async fn openclaw_backups_list(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.backups.list", json!({}))
+}
+
+/// 删除指定的 OpenClaw 备份。
+#[tauri::command]
+pub async fn openclaw_backups_delete(
+    sidecar: State<'_, SidecarState>,
+    timestamp: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.backups.delete", json!({"timestamp": timestamp}))
+}

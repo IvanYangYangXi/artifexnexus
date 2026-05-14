@@ -111,7 +111,15 @@ pub fn run() {
             commands::openclaw_gateway::openclaw_gateway_auth_info,
             // STORY-0039 M3：对话列表管理
             commands::openclaw_sessions::openclaw_sessions_list,
-            commands::openclaw_sessions::openclaw_sessions_history
+            commands::openclaw_sessions::openclaw_sessions_history,
+            // STORY-0041：备份-安装-恢复
+            commands::openclaw::openclaw_backup,
+            commands::openclaw::openclaw_restore,
+            commands::openclaw::openclaw_backups_list,
+            commands::openclaw::openclaw_backups_delete,
+
+            commands::shell_config::read_shell_config,
+            commands::shell_config::write_shell_config
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

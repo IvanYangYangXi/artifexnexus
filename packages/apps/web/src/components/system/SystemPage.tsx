@@ -8,7 +8,7 @@
  */
 
 import * as React from "react";
-import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
@@ -141,11 +141,13 @@ export function SystemPage() {
           <TabsList className="h-7">
             <TabsTrigger value="installer" className="h-6 gap-1 text-xs"><Terminal className="h-3 w-3" />安装向导</TabsTrigger>
             <TabsTrigger value="gateway" className="h-6 gap-1 text-xs"><Server className="h-3 w-3" />Gateway</TabsTrigger>
+            <TabsTrigger value="dataman" className="h-6 gap-1 text-xs"><FolderOpen className="h-3 w-3" />数据管理</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
       {tab === "installer" && <InstallerTab />}
       {tab === "gateway" && <GatewayTab />}
+      {tab === "dataman" && <DataManagementTab />}
     </div>
   );
 }
@@ -221,15 +223,18 @@ function InstallerTab() {
 
   const handleInstall = async (id: string) => {
     const item = items.find((it) => it.id === id);
+    let userChecked: Record<string, string> | undefined;
     // OpenClaw 重装确认弹窗（含保留项选择）
     if (item?.state === "installed" && id === "openclaw") {
-      const result = await showForm("重新安装 OpenClaw", [
-        { key: "preserveProviders", label: "保留已配置的供应商（baseUrl、模型列表等）", defaultValue: "true", type: "checkbox" },
-        { key: "preserveAuth", label: "保留鉴权凭据与绑定（API Key 不删）", defaultValue: "true", type: "checkbox" },
-        { key: "preserveAgents", label: "保留 Agent 设置（默认模型、推理偏好等）", defaultValue: "true", type: "checkbox" },
-        { key: "preservePlugins", label: "保留插件自定义配置（memory-core 等）", defaultValue: "true", type: "checkbox" },
-      ], { description: "重装会重新下载 CLI 并刷新基础配置（gateway/端口）。勾选的项目将在重装后自动恢复。", confirmLabel: "确认重装" });
-      if (!result) return;
+      const formResult = await showForm("重新安装 OpenClaw", [
+        { key: "preserveProvidersAndAuth", label: "供应商配置 + API 凭据（baseUrl / API Key / 模型列表）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveAgents", label: "Agent 配置 + 工作空间（Agent 预设 / 独立 workspace 文件）", defaultValue: "true", type: "checkbox" },
+        { key: "preservePluginsAndMemory", label: "插件配置 + Memory（全部启用插件 / AI 长期记忆 / 梦境数据）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveMCPServers", label: "MCP 服务器配置（mcp-bridge 下全部 MCP 连接）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveSkills", label: "Skill（workspace/skills/ 全部 Skill）", defaultValue: "true", type: "checkbox" },
+      ], { description: "重装会备份选定数据 → 全新安装 → 恢复。勾选的项目将在重装后自动恢复，未勾选使用默认配置。", confirmLabel: "确认重装" });
+      if (!formResult) return;
+      userChecked = formResult as Record<string, string>;
     } else if (item?.state === "installed") {
       // 非 OpenClaw 的重装确认
       const ok = await showConfirm(`确认重装 ${item.name}？`, "重装会重新下载/部署组件，当前配置将保留。");
@@ -238,15 +243,75 @@ function InstallerTab() {
     const ipc = await getIpc();
     if (id === "openclaw") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
-      addLog(id, "info", "开始安装 OpenClaw...");
+      
+      // 重装流程：Phase 1 备份 → Phase 2 全新安装 → Phase 3 恢复
+      // 获取 userChecked 的勾选项（即复选框选中对应 key → value 为 "true"）
+      const preserveOptions: Record<string, boolean> = {};
+      if (userChecked) {
+        for (const [key, val] of Object.entries(userChecked)) {
+          if (key.startsWith("preserve")) preserveOptions[key] = val === "true";
+        }
+      }
+      const hasPreserve = Object.values(preserveOptions).some(Boolean);
+
+      if (hasPreserve) {
+        // Phase 1: 备份
+        try {
+          addLog(id, "info", "Phase 1: 备份用户数据...");
+          const backupR = await ipc.backupOpenClaw(preserveOptions);
+          if (!backupR.success) {
+            addLog(id, "error", `备份失败: ${backupR.error || "未知错误"}`);
+          } else {
+            addLog(id, "info", `备份完成 (${backupR.items.length} 项, ${(backupR.total_size_bytes / 1024).toFixed(0)} KB)`);
+            // 保存 timestamp 供 restore 使用
+            (window as any).__openclaw_backup_ts = backupR.timestamp;
+          }
+        } catch (e: any) {
+          addLog(id, "warn", `备份异常: ${e.message}（继续重装）`);
+        }
+      }
+
+      // Phase 2: 安装 CLI
       try {
+        addLog(id, "info", "安装 OpenClaw CLI...");
         const r = await ipc.installOpenClaw("v2026.5.4");
-        if (!r.success) { addLog(id, "error", r.error_message || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it)); return; }
-        addLog(id, "info", "安装完成，初始化配置...");
-        const b = await ipc.bootstrapOpenClaw("v2026.5.4");
-        if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
+        if (!r.success) {
+          addLog(id, "error", r.error_message || "安装失败");
+          setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it));
+          return;
+        }
+        addLog(id, "info", "CLI 安装完成");
+
+        if (hasPreserve) {
+          // Phase 2-3: 全新安装 + 恢复
+          const backupTs = (window as any).__openclaw_backup_ts;
+          if (backupTs) {
+            addLog(id, "info", "Phase 2-3: 全新安装 + 恢复...");
+            const restoreR = await ipc.restoreOpenClaw({
+              backupTimestamp: backupTs,
+              preserveOptions,
+              version: "v2026.5.4",
+            });
+            if (restoreR.success) {
+              addLog(id, "info", "恢复完成");
+            } else {
+              addLog(id, "warn", `部分恢复失败: ${restoreR.errors?.map((e: any) => e.item).join(", ") || restoreR.error}`);
+            }
+          } else {
+            // fallback: no backup timestamp, just bootstrap
+            addLog(id, "info", "初始化配置...");
+            const b = await ipc.bootstrapOpenClaw("v2026.5.4");
+            if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
+          }
+        } else {
+          // 非重装: 普通 bootstrap
+          addLog(id, "info", "初始化配置...");
+          const b = await ipc.bootstrapOpenClaw("v2026.5.4");
+          if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
+        }
+
         addLog(id, "info", "启动 Gateway...");
-        const s = await ipc.startOpenClaw(b.port);
+        const s = await ipc.startOpenClaw();
         if (!s.success) { addLog(id, "error", s.message || "启动失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
         addLog(id, "info", "Gateway 启动成功");
         setItems((prev) => prev.map((it) => {
@@ -953,6 +1018,182 @@ function StatusTab() {
         <div className="mt-2 space-y-1 text-xs text-muted-foreground">
           {deploy ? deploy.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>点击校验按钮检测</div>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 数据管理 Tab（STORY-0041）──────────────────────────────────────────────
+
+const PRESERVE_LABELS: Record<string, string> = {
+  preserveProvidersAndAuth: "供应商配置 + API 凭据",
+  preserveAgents: "Agent 配置 + 工作空间",
+  preservePluginsAndMemory: "插件配置 + Memory",
+  preserveMCPServers: "MCP 服务器配置",
+  preserveSkills: "Skill",
+};
+
+function DataManagementTab() {
+  const [backups, setBackups] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [msg, setMsg] = React.useState("");
+  const [msgType, setMsgType] = React.useState<"info" | "error">("info");
+  const { showConfirm, showForm, DialogUI } = useAppDialog();
+
+  const showMessage = (text: string, type: "info" | "error" = "info") => {
+    setMsg(text);
+    setMsgType(type);
+    setTimeout(() => setMsg(""), 8000);
+  };
+
+  const refreshBackups = async () => {
+    try {
+      const ipc = await getIpc();
+      const r = await ipc.listOpenClawBackups();
+      setBackups(r.backups || []);
+    } catch (e: any) {
+      showMessage(`获取备份列表失败: ${e.message}`, "error");
+    }
+  };
+
+  React.useEffect(() => { refreshBackups(); }, []);
+
+  const handleBackup = async () => {
+    const result = await showForm("备份配置", [
+      { key: "preserveProvidersAndAuth", label: PRESERVE_LABELS.preserveProvidersAndAuth, defaultValue: "true", type: "checkbox" },
+      { key: "preserveAgents", label: PRESERVE_LABELS.preserveAgents, defaultValue: "true", type: "checkbox" },
+      { key: "preservePluginsAndMemory", label: PRESERVE_LABELS.preservePluginsAndMemory, defaultValue: "true", type: "checkbox" },
+      { key: "preserveMCPServers", label: PRESERVE_LABELS.preserveMCPServers, defaultValue: "true", type: "checkbox" },
+      { key: "preserveSkills", label: PRESERVE_LABELS.preserveSkills, defaultValue: "true", type: "checkbox" },
+    ], { confirmLabel: "执行备份" });
+    if (!result) return;
+
+    setLoading(true);
+    try {
+      const options: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(result)) {
+        options[k] = v === "true";
+      }
+      const ipc = await getIpc();
+      const r = await ipc.backupOpenClaw(options);
+      if (r.success) {
+        showMessage(`备份完成 — 时间戳: ${r.timestamp}, ${r.items.length} 项, ${(r.total_size_bytes / 1024).toFixed(0)} KB`);
+        await refreshBackups();
+      } else {
+        showMessage(`备份失败: ${r.error}`, "error");
+      }
+    } catch (e: any) {
+      showMessage(`备份异常: ${e.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestore = async (backup: any) => {
+    const ok = await showConfirm(
+      `从备份 ${backup.timestamp} 恢复？`,
+      `将全新安装 OpenClaw 并恢复以下数据: ${backup.items.map((i: string) => PRESERVE_LABELS[i] || i).join("、")}`
+    );
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      const options: Record<string, boolean> = {};
+      for (const item of backup.items) {
+        options[item] = true;
+      }
+      const ipc = await getIpc();
+      const r = await ipc.restoreOpenClaw({
+        backupTimestamp: backup.timestamp,
+        preserveOptions: options,
+      });
+      if (r.success) {
+        showMessage("恢复完成");
+        await refreshBackups();
+      } else {
+        showMessage(`恢复失败: ${r.errors?.map((e: any) => e.item).join(", ") || r.error}`, "error");
+      }
+    } catch (e: any) {
+      showMessage(`恢复异常: ${e.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (backup: any) => {
+    const ok = await showConfirm(`确认删除备份 ${backup.timestamp}？`, "删除后不可恢复。");
+    if (!ok) return;
+    try {
+      const ipc = await getIpc();
+      const r = await ipc.deleteOpenClawBackup(backup.timestamp);
+      if (r.success) {
+        showMessage(`备份 ${backup.timestamp} 已删除`);
+        await refreshBackups();
+      } else {
+        showMessage(`删除失败: ${r.error}`, "error");
+      }
+    } catch (e: any) {
+      showMessage(`删除异常: ${e.message}`, "error");
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden p-4">
+      <DialogUI />
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm font-medium">数据管理</span>
+        <div className="flex-1" />
+        <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={handleBackup} disabled={loading}>
+          {loading ? "备份中..." : "备份数据"}
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={refreshBackups} disabled={loading}>
+          刷新
+        </Button>
+      </div>
+
+      {msg && (
+        <div className={`mb-3 rounded-lg px-3 py-2 text-xs ${msgType === "error" ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"}`}>
+          {msg}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-auto">
+        {backups.length === 0 ? (
+          <div className="text-center text-xs text-muted-foreground pt-8">
+            暂无备份。点击「备份数据」创建第一个备份。
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {backups.map((b: any) => (
+              <div key={b.timestamp} className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{b.timestamp}</span>
+                  <span className="text-[10px] text-muted-foreground">{formatBytes(b.size_bytes)}</span>
+                  <div className="flex-1" />
+                  <Button variant="outline" size="sm" className="h-5 text-[10px] rounded-full px-2" onClick={() => handleRestore(b)} disabled={loading}>
+                    恢复
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-5 text-[10px] rounded-full px-2 text-red-400" onClick={() => handleDelete(b)} disabled={loading}>
+                    删除
+                  </Button>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {b.items.map((item: string) => (
+                    <span key={item} className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {PRESERVE_LABELS[item] || item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

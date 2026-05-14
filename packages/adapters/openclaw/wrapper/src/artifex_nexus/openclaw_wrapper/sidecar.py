@@ -7,7 +7,9 @@ Methods: ping, get_port, openclaw.install, openclaw.bootstrap, openclaw.start,
          openclaw.upgrade, openclaw.rollback, openclaw.web.get_url,
          openclaw.agent_preset.status, openclaw.agent_preset.reset_default,
          openclaw.config.dump, openclaw.config.patch, openclaw.config.test_provider
-         openclaw.auth.set_token
+         openclaw.auth.set_token,
+         openclaw.backup, openclaw.restore, openclaw.backups.list,
+         openclaw.backups.delete
 
 Lifecycle:
     sidecar 退出（正常 / Tauri 主进程关窗 / SIGTERM）时，必须主动停掉它
@@ -1145,6 +1147,257 @@ def _handle_shell_open_path(req_id: Any, params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# STORY-0041：备份-安装-恢复 RPC
+# ---------------------------------------------------------------------------
+
+
+def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
+    """openclaw.backup RPC：Phase 1 备份用户数据。
+
+    参数：
+        preserve_options (dict): 5 个勾选项键
+            - preserveProvidersAndAuth (bool)
+            - preserveAgents (bool)
+            - preservePluginsAndMemory (bool)
+            - preserveMCPServers (bool)
+            - preserveSkills (bool)
+        openclaw_home (str, 可选): OPENCLAW_HOME 路径
+
+    返回：
+        { success, backup_dir, timestamp, manifest, total_size_bytes, items }
+    """
+    import time as _time
+
+    openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
+    preserve_options = params.get("preserve_options", {})
+    if not preserve_options:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "success": False,
+                "error": "preserve_options 为空，无数据可备份",
+            },
+        }
+
+    timestamp = f"{_time.time():.0f}"
+    backup_dir = Path(openclaw_home).parent / "backups" / timestamp
+
+    try:
+        manifest = _bootstrap._backup_for_reinstall(
+            Path(openclaw_home), preserve_options, backup_dir,
+        )
+        item_keys = sorted(manifest.get("items", {}).keys())
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "success": True,
+                "backup_dir": str(backup_dir),
+                "timestamp": timestamp,
+                "manifest": manifest,
+                "total_size_bytes": manifest.get("total_size_bytes", 0),
+                "items": item_keys,
+            },
+        }
+    except Exception as exc:
+        logger.exception("backup 失败")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": str(exc)},
+        }
+
+
+def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
+    """openclaw.restore RPC：Phase 2-3 全新安装 + 恢复
+
+    参数：
+        backup_timestamp (str): 备份时间戳
+        preserve_options (dict): 要恢复的勾选项
+        openclaw_home (str, 可选): OPENCLAW_HOME 路径
+        version (str, 可选): 版本号
+
+    返回：
+        { success, message, errors[]? }
+    """
+    openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
+    backup_timestamp = params.get("backup_timestamp")
+    preserve_options = params.get("preserve_options", {})
+    version = params.get("version", "v2026.5.4")
+
+    if not backup_timestamp:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": "缺少 backup_timestamp 参数"},
+        }
+
+    backup_dir = Path(openclaw_home).parent / "backups" / backup_timestamp
+    manifest_path = backup_dir / "backup-manifest.json"
+
+    if not manifest_path.exists():
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "success": False,
+                "error": f"备份 {backup_timestamp} 不存在或 manifest 缺失",
+            },
+        }
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": f"manifest 读取失败: {exc}"},
+        }
+
+    try:
+        # Phase 2: 全新安装
+        _bootstrap._clean_install(Path(openclaw_home))
+
+        bootstrap_result = _bootstrap.bootstrap(
+            Path(openclaw_home), version=version,
+        )
+        if not bootstrap_result.success:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "success": False,
+                    "error": f"bootstrap 失败: {bootstrap_result.error_message}",
+                },
+            }
+
+        # Phase 3: 恢复
+        restore_result = _bootstrap._restore_from_backup(
+            Path(openclaw_home), backup_dir, preserve_options, manifest,
+        )
+
+        if restore_result["success"]:
+            # 成功后删除备份
+            import shutil
+            shutil.rmtree(str(backup_dir), ignore_errors=True)
+            logger.info("restore: 已清理备份 %s", backup_timestamp)
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "success": restore_result["success"],
+                "message": "恢复完成" if restore_result["success"] else "部分恢复失败",
+                "errors": restore_result.get("errors"),
+            },
+        }
+    except Exception as exc:
+        logger.exception("restore 失败")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": str(exc)},
+        }
+
+
+def _handle_openclaw_backups_list(req_id: Any, params: dict) -> dict:
+    """openclaw.backups.list RPC：列出所有备份。
+
+    参数：
+        openclaw_home (str, 可选): OPENCLAW_HOME 路径
+
+    返回：
+        { backups: [{timestamp, size_bytes, item_count, items[], created}] }
+    """
+    import time as _time
+
+    openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
+    backups_dir = Path(openclaw_home).parent / "backups"
+
+    if not backups_dir.is_dir():
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"backups": []},
+        }
+
+    backups: list[dict] = []
+    for entry in sorted(backups_dir.iterdir(), reverse=True):
+        if not entry.is_dir():
+            continue
+        manifest_path = entry / "backup-manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            total_size = sum(
+                f.stat().st_size for f in entry.rglob("*") if f.is_file()
+            )
+            backups.append({
+                "timestamp": entry.name,
+                "size_bytes": total_size,
+                "item_count": len(manifest.get("items", {})),
+                "items": sorted(manifest.get("items", {}).keys()),
+                "created": manifest.get("timestamp", 0),
+            })
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("backups.list: 跳过 %s: %s", entry.name, exc)
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {"backups": backups},
+    }
+
+
+def _handle_openclaw_backups_delete(req_id: Any, params: dict) -> dict:
+    """openclaw.backups.delete RPC：删除指定备份。
+
+    参数：
+        timestamp (str): 备份时间戳
+        openclaw_home (str, 可选): OPENCLAW_HOME 路径
+
+    返回：
+        { success, message }
+    """
+    import shutil
+
+    timestamp = params.get("timestamp")
+    if not timestamp:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": "缺少 timestamp 参数"},
+        }
+
+    openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
+    backup_dir = Path(openclaw_home).parent / "backups" / timestamp
+
+    if not backup_dir.is_dir():
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": f"备份 {timestamp} 不存在"},
+        }
+
+    try:
+        shutil.rmtree(str(backup_dir))
+        logger.info("backups.delete: 已删除 %s", backup_dir)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": True, "message": f"备份 {timestamp} 已删除"},
+        }
+    except OSError as exc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": str(exc)},
+        }
+
+
+# ---------------------------------------------------------------------------
 # 方法路由表
 # ---------------------------------------------------------------------------
 
@@ -1196,6 +1449,11 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0039 M3：对话列表管理 — 前端需要列出/恢复 Gateway 对话
     "openclaw.sessions.list": _sidecar_sessions.handle_sessions_list,
     "openclaw.sessions.history": _sidecar_sessions.handle_sessions_history,
+    # STORY-0041：备份-安装-恢复
+    "openclaw.backup": _handle_openclaw_backup,
+    "openclaw.restore": _handle_openclaw_restore,
+    "openclaw.backups.list": _handle_openclaw_backups_list,
+    "openclaw.backups.delete": _handle_openclaw_backups_delete,
 }
 
 
