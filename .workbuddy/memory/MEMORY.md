@@ -57,6 +57,13 @@
   - 多 DCC 合并为一条消息
   - SDK 文档：`[[docs/sdk/dcc-preinput]]`，已注册到 `docs/sdk/README.md`
 
+## session-key SDK（`lib/chat/session-key.ts`）
+
+- **sessionKey 格式**：`agent:{agentId}:{subKey}`（如 `agent:artifex-nexus:session-1715699200000`）
+- **统一解析入口**：所有涉及 sessionKey 解析/构建的代码必须使用 `lib/chat/session-key.ts`，禁止手动 `.split(":")[1]`
+- 核心 API：`parseSessionKey()` / `buildSessionKey()` / `createSessionKey()` / `isSentinel()` / `getCustomTitle()`
+- 哨兵常量：`PENDING_NEW_KEY` / `EMPTY_KEY` / `NEW_KEY`
+
 ## 构建系统
 
 - **Web 前端**：Next.js (`packages/apps/web`)，dev 模式用 `next dev -p 18790 --turbopack`，HMR 自动更新
@@ -257,7 +264,7 @@ type SendResult =
 ### 实测目录结构（~/.artifexnexus/.openclaw/）
 - `openclaw.json` 含：models.providers（baseUrl/apiKey/models）、auth.profiles/order、agents.list[]（id/name/workspace/runtime/skills/prompt）、plugins.entries（全部插件）、plugins.entries.mcp-bridge.config.servers
 - Agent 独立工作空间：`workspace/`（默认 agent）+ `workspace-<agent名>/`（额外 agent），含 AGENTS.md / IDENTITY.md / SOUL.md / USER.md / TOOLS.md / HEARTBEAT.md
-- Skills：`workspace/skills/` 整个目录（含 official/team/user 子目录）
+- Skills：`workspace/skills/` 整个目录（扁平结构，源码端的 official/team/user 分类在安装后不存在）
 - Auth 双路径：`.openclaw/agents/<id>/agent/auth-profiles.json`（新，CLI 读）+ `state/agents/<id>/agent/auth-profiles.json`（旧，Gateway embedded agent 读）
 - Memory：`state/memory/<agent>.sqlite` + `workspace/memory/`（梦境数据）
 
@@ -272,3 +279,12 @@ type SendResult =
 | `workspace-<agent>/`（人格文件） | ✅ | 不可丢失 |
 | `auth-profiles.json`（双路径） | ✅ | 备份+恢复同时写两个路径 |
 | `models.providers` + `auth.profiles/order` | ✅ | 合并为一条 UI 勾选项 |
+
+### 实现状态（2026-05-14）
+- ✅ **bootstrap.py**：`_backup_for_reinstall()` / `_clean_install()` / `_restore_from_backup()` + 5 个子恢复函数
+- ✅ **sidecar.py**：4 个 RPC（backup/restore/backups.list/backups.delete）
+- ✅ **Tauri**：4 个命令 + invoke_handler 注册
+- ✅ **IPC**：TypeScript 接口 + 函数
+- ✅ **前端**：5 项重装勾选项 + 数据管理 tab
+- ✅ **文档**：3 张映射表（勾选项→文件、勾选项→openclaw.json 字段、恢复冲突规则）
+- ⏳ Rust cargo check（后台运行中）
