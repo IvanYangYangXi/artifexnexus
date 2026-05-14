@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-  "productName": "Artifex Nexus",
+  "productName": "artifex-nexus·山雀",
   "version": "0.1.0",
   "identifier": "com.artifex-nexus.desktop",
   "build": {
@@ -12,11 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "Artifex Nexus",
-        "width": 1100,
+        "title": "artifex-nexus·山雀",
+        "width": 1280,
         "height": 750,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

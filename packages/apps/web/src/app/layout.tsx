@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Artifex Nexus",
+  title: "artifex-nexus·山雀",
   description: "The AI-Agent Bridge for Digital Creation",
 };
 
