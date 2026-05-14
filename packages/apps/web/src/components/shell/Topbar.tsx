@@ -14,6 +14,7 @@ import { Bell, Menu, Minus, Play, PanelRight, Search, Square, X } from "lucide-r
 
 import { Button, Input, cn } from "@artifex-nexus/ui";
 import { uiLog } from "../../lib/ui-log";
+import { invoke } from "@tauri-apps/api/core";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -30,59 +31,38 @@ interface TopbarProps {
   onStartGateway?: () => void;
 }
 
-/** 窗口控制按钮（Tauri frameless 模式下使用） */
+/** 窗口控制按钮（通过 Rust command 操作，避免 Next.js bundler 破坏动态 import） */
 function WindowControls() {
   const [isMaximized, setIsMaximized] = React.useState(false);
-  const [available, setAvailable] = React.useState(false);
-
-  React.useEffect(() => {
-    // 检测 Tauri API 是否可用（只在 Tauri WebView 中可用，浏览器中不可用）
-    import("@tauri-apps/api/window").then(() => setAvailable(true)).catch(() => {});
-  }, []);
-
-  const minimize = React.useCallback(async () => {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().minimize();
-    } catch (e) { console.error("[WindowControls] minimize failed:", e); }
-  }, []);
-
-  const toggleMaximize = React.useCallback(async () => {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const w = getCurrentWindow();
-      await w.toggleMaximize();
-      setIsMaximized(await w.isMaximized());
-    } catch (e) { console.error("[WindowControls] toggleMaximize failed:", e); }
-  }, []);
-
-  const close = React.useCallback(async () => {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().close();
-    } catch (e) { console.error("[WindowControls] close failed:", e); }
-  }, []);
 
   // 同步最大化状态
   React.useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const poll = async () => {
       try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const w = getCurrentWindow();
-        const maximized = await w.isMaximized();
-        if (!cancelled) setIsMaximized(maximized);
-        const unlisten = await w.onResized(async () => {
-          if (!cancelled) setIsMaximized(await w.isMaximized());
-        });
-        return () => { unlisten(); };
-      } catch {}
-    })();
-    return () => { cancelled = true; };
+        const state = await invoke<boolean>("window_is_maximized");
+        if (!cancelled) setIsMaximized(state);
+      } catch { /* Tauri 不可用时静默 */ }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+
+  const minimize = React.useCallback(() => {
+    invoke("window_minimize").catch(() => {});
+  }, []);
+
+  const toggleMaximize = React.useCallback(() => {
+    invoke("window_toggle_maximize").catch(() => {});
+  }, []);
+
+  const close = React.useCallback(() => {
+    invoke("window_close").catch(() => {});
   }, []);
 
   return (
-    <div className="flex items-center gap-0.5 -mr-1">
+    <div className="flex items-center gap-0.5 mr-1">
       <button
         onClick={minimize}
         className="inline-flex h-7 w-8 items-center justify-center rounded-sm text-titlebar-foreground/60 hover:bg-white/10 hover:text-titlebar-foreground transition-colors"
@@ -119,10 +99,11 @@ export function Topbar({
   const hasOverflow = dccStatus && dccStatus.length > maxInline;
   return (
     <header
-      className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-titlebar backdrop-blur-xl text-titlebar-foreground select-none [webkit-app-region:drag]"
+      className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-titlebar backdrop-blur-xl text-titlebar-foreground select-none"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* A1 菜单区 */}
-      <div className="flex shrink-0 items-center gap-2 [webkit-app-region:no-drag]">
+      <div className="flex shrink-0 items-center gap-2 pl-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         {sidebarHidden && (
           <Button
             size="icon"
@@ -140,12 +121,12 @@ export function Topbar({
           <img
             src="/shanque_emo.png"
             alt="山雀"
-            className="h-6 w-6 rounded-sm object-contain"
+            className="h-7 w-7 rounded-sm object-contain"
           />
-          <span className="text-sm font-semibold tracking-tight">
+          <span className="text-base font-semibold tracking-tight">
             山雀
           </span>
-          <span className="text-[10px] text-titlebar-foreground/50 tracking-wide -mt-px">
+          <span className="text-[11px] text-titlebar-foreground/50 tracking-wide -mt-px">
             artifex-nexus
           </span>
         </div>
@@ -172,7 +153,7 @@ export function Topbar({
       <div className="hidden flex-1 md:block" />
 
       {/* A3 控制区 */}
-      <div className="flex shrink-0 items-center gap-1.5 [webkit-app-region:no-drag]">
+      <div className="flex shrink-0 items-center gap-1.5" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         {/* 状态指示 */}
         <div className="relative hidden items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium md:flex">
           {/* Gateway 进程状态 */}

@@ -119,7 +119,11 @@ pub fn run() {
             commands::openclaw::openclaw_backups_delete,
 
             commands::shell_config::read_shell_config,
-            commands::shell_config::write_shell_config
+            commands::shell_config::write_shell_config,
+            commands::window_controls::window_minimize,
+            commands::window_controls::window_toggle_maximize,
+            commands::window_controls::window_close,
+            commands::window_controls::window_is_maximized,
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar
