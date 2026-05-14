@@ -22,6 +22,15 @@ import { RunToolContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
 import { uiLog } from "../../lib/ui-log";
 import { toast } from "@artifex-nexus/ui";
+import {
+  buildSessionKey,
+  newSessionSubKey,
+  generateSessionTitle,
+  setCustomTitle,
+  isValidSessionKey,
+  isSentinel,
+  PENDING_NEW_KEY,
+} from "../../lib/chat/session-key";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
@@ -53,15 +62,15 @@ export function ChatView() {
   // ─── 切换对话（纯同步，消息从内存缓存瞬间加载）─────────────────────
   async function handleSwitchSession(sessionKey: string) {
     uiLog.click("ChatView", "switchSession", { sessionKey: sessionKey.slice(0, 30) });
-    if (!sessionKey || sessionKey === "__empty__" || sessionKey === "__new__") {
-      return;
-    }
+    if (!sessionKey) return;
     // 哨兵：切到未发送的新建对话
-    if (sessionKey === "__pending_new__") {
+    if (sessionKey === PENDING_NEW_KEY) {
       handleSwitchToPending();
       return;
     }
-    if (!sessionKey.startsWith("agent:")) {
+    // 其他哨兵 / 非法格式 → 忽略
+    if (isSentinel(sessionKey)) return;
+    if (!isValidSessionKey(sessionKey)) {
       console.warn("[ChatView] 拒绝非法 sessionKey:", sessionKey);
       return;
     }
@@ -84,16 +93,18 @@ export function ChatView() {
   const pendingNewConfigRef = React.useRef<{ agentId: string; model: string; thinking: string } | null>(null);
   /** 用于触发 ChatControlBar 刷新对话列表 */
   const [sessionsVersion, setSessionsVersion] = React.useState(0);
+  /** 用于触发 ChatControlBar 重置 agent 筛选为"全部"（新建对话后） */
+  const [resetFilterVersion, setResetFilterVersion] = React.useState(0);
 
   function handleNewSession(config: { agentId: string; model: string; thinking: string }) {
     uiLog.dialog("NewSessionDialog", "confirm", { agentId: config.agentId, model: config.model, thinking: config.thinking });
     // 记住从哪个对话来的（用于取消时回退）
-    lastRealSessionKeyRef.current = activeSessionKey && activeSessionKey !== "__pending_new__" ? activeSessionKey : lastRealSessionKeyRef.current;
+    lastRealSessionKeyRef.current = activeSessionKey && activeSessionKey !== PENDING_NEW_KEY ? activeSessionKey : lastRealSessionKeyRef.current;
     // 暂存配置，不创建 sessionKey（等第一条消息发送时再创建）
     pendingNewConfigRef.current = config;
     chat.setSelectedConfig(config);
     chat.clearMessages();
-    setActiveSessionKey("__pending_new__");
+    setActiveSessionKey(PENDING_NEW_KEY);
     setNewSessionDialogOpen(false);
     // 持久化选择到 localStorage
     try { localStorage.setItem("artifex.chat.agent", config.agentId); } catch { /* ignore */ }
@@ -106,7 +117,7 @@ export function ChatView() {
     uiLog.click("ChatView", "switchToPending");
     if (!pendingNewConfigRef.current) return;
     chat.clearMessages();
-    setActiveSessionKey("__pending_new__");
+    setActiveSessionKey(PENDING_NEW_KEY);
   }
 
   // ─── 取消新建对话，回退到上一个真实对话 ──────────────────────────────
@@ -114,7 +125,7 @@ export function ChatView() {
     uiLog.click("ChatView", "cancelPending");
     pendingNewConfigRef.current = null;
     const fallback = lastRealSessionKeyRef.current;
-    if (fallback && fallback.startsWith("agent:")) {
+    if (fallback && isValidSessionKey(fallback)) {
       setActiveSessionKey(fallback);
       chat.switchSession(fallback);
       silentLoadHistory(fallback);
@@ -129,7 +140,7 @@ export function ChatView() {
     uiLog.send("ChatView", "userMessage", { textLen: text.length, hasPending: !!pendingNewConfigRef.current, sessionKey: activeSessionKey.slice(0, 30) });
     if (pendingNewConfigRef.current) {
       const config = pendingNewConfigRef.current;
-      const newKey = `agent:${config.agentId}:session-${Date.now()}`;
+      const newKey = buildSessionKey(config.agentId, newSessionSubKey());
       pendingNewConfigRef.current = null;
 
       // 切换为真实 sessionKey
@@ -139,15 +150,14 @@ export function ChatView() {
       chat.setSelectedConfig(config);
 
       // 生成标题：MM/DD HH:mm + 第一条消息前20字
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const timeStr = `${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      const summary = text.length > 20 ? text.slice(0, 20) + "…" : text;
-      const title = `${timeStr} ${summary}`;
-      try { localStorage.setItem(`artifex.session.title:${newKey}`, title); } catch { /* ignore */ }
+      const title = generateSessionTitle(text);
+      setCustomTitle(newKey, title);
 
-      // 发送后触发对话列表刷新
-      setTimeout(() => setSessionsVersion((v) => v + 1), 2000);
+      // 发送后触发对话列表刷新 + 重置筛选为全部
+      setTimeout(() => {
+        setSessionsVersion((v) => v + 1);
+        setResetFilterVersion((v) => v + 1);
+      }, 2000);
     }
 
     chat.sendMessage(text);
@@ -201,8 +211,8 @@ export function ChatView() {
 
   // 初始加载：首次选中对话时从 Gateway 拉历史填充缓存
   React.useEffect(() => {
-    if (!activeSessionKey || activeSessionKey === "__empty__" || activeSessionKey === "__new__" || activeSessionKey === "__pending_new__") return;
-    if (!activeSessionKey.startsWith("agent:")) return;
+    if (!activeSessionKey || isSentinel(activeSessionKey)) return;
+    if (!isValidSessionKey(activeSessionKey)) return;
     if (chat.messages.length > 0) return;
     scrollBehaviorRef.current = "instant";
     chat.switchSession(activeSessionKey);
@@ -407,6 +417,7 @@ export function ChatView() {
         pendingConfig={pendingNewConfigRef.current}
         onCancelPending={handleCancelPending}
         onSwitchToPending={handleSwitchToPending}
+        resetFilterVersion={resetFilterVersion}
       />
 
       {/* C2 消息流（relative 容器承载浮层横幅） */}
@@ -416,7 +427,7 @@ export function ChatView() {
           gatewayRunning={gatewayRunning}
           onRestartGateway={handleRestartGateway}
         />
-        {activeSessionKey === "__pending_new__" && pendingNewConfigRef.current ? (
+        {activeSessionKey === PENDING_NEW_KEY && pendingNewConfigRef.current ? (
           <PendingSessionBanner
             agentId={pendingNewConfigRef.current.agentId}
             model={pendingNewConfigRef.current.model}

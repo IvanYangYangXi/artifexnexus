@@ -21,6 +21,14 @@ import {
   Button,
 } from "@artifex-nexus/ui";
 import type { SessionSummary } from "../../ipc/openclaw";
+import {
+  parseSessionKey,
+  getCustomTitle,
+  isSentinel,
+  PENDING_NEW_KEY,
+  EMPTY_KEY,
+  NEW_KEY,
+} from "../../lib/chat/session-key";
 
 // ─── 思考强度 ──────────────────────────────────────────────────────────────
 
@@ -74,6 +82,8 @@ export interface ChatControlBarProps {
   onCancelPending?: () => void;
   /** 切回未发送的新建对话 */
   onSwitchToPending?: () => void;
+  /** 父组件 +1 时重置 agent filter 为全部（新建对话后触发） */
+  resetFilterVersion?: number;
 }
 
 // ─── 组件 ─────────────────────────────────────────────────────────────────
@@ -91,6 +101,7 @@ export function ChatControlBar({
   pendingConfig,
   onCancelPending,
   onSwitchToPending,
+  resetFilterVersion = 0,
 }: ChatControlBarProps) {
   const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -100,6 +111,23 @@ export function ChatControlBar({
   const [effort, setEffort] = React.useState(() => lsGet(EFFORT_KEY, "adaptive"));
   const [loading, setLoading] = React.useState(false);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
+  /** Agent 筛选（"__all__" = 不过滤，1 个 agent 时隐藏筛选控件） */
+  const [agentFilter, setAgentFilter] = React.useState("__all__");
+  const showAgentFilter = agents.length > 1;
+
+  // agentFilter 引用的 agent 被删除时回退到全部
+  React.useEffect(() => {
+    if (agentFilter !== "__all__" && agents.length > 0 && !agents.find(a => a.id === agentFilter)) {
+      setAgentFilter("__all__");
+    }
+  }, [agents, agentFilter]);
+
+  // 新建对话后由父组件触发：重置为"全部"筛选
+  React.useEffect(() => {
+    if (resetFilterVersion > 0) {
+      setAgentFilter("__all__");
+    }
+  }, [resetFilterVersion]);
 
   // Gateway 运行后通过 sidecar RPC 拉取对话列表
   React.useEffect(() => {
@@ -121,7 +149,7 @@ export function ChatControlBar({
           const saved = lsGet(ACTIVE_SESSION_KEY, "");
           const target = result.sessions.find((s: SessionSummary) => s.sessionKey === saved)
             ?? result.sessions[0];
-          if (target) {
+          if (target && !isSentinel(target.sessionKey)) {
             onSwitchSession(target.sessionKey);
           }
         }
@@ -203,14 +231,14 @@ export function ChatControlBar({
   // ─── 回调 ──────────────────────────────────────────────────────────────
 
   const handleConvChange = (key: string) => {
-    if (key === "__empty__" || !key) {
+    if (key === EMPTY_KEY || !key) {
       return;
     }
-    if (key === "__new__") {
+    if (key === NEW_KEY) {
       onOpenNewSessionDialog();
       return;
     }
-    if (key === "__pending_new__") {
+    if (key === PENDING_NEW_KEY) {
       onSwitchToPending?.();
       return;
     }
@@ -218,19 +246,50 @@ export function ChatControlBar({
     lsSet(ACTIVE_SESSION_KEY, key);
   };
 
-  const selectValue = activeSessionKey === "__pending_new__" ? "__pending_new__" : (activeSessionKey || "__empty__");
-  const isPending = activeSessionKey === "__pending_new__" && !!pendingConfig;
+  const selectValue = activeSessionKey === PENDING_NEW_KEY ? PENDING_NEW_KEY : (activeSessionKey || EMPTY_KEY);
+  const isPending = activeSessionKey === PENDING_NEW_KEY && !!pendingConfig;
+
+  // 按 agentFilter 筛选后的对话列表
+  const filteredSessions = agentFilter === "__all__"
+    ? sessions
+    : sessions.filter(s => {
+        const keyAgentId = parseSessionKey(s.sessionKey)?.agentId;
+        return (keyAgentId ?? s.agentId) === agentFilter;
+      });
 
   const selectPlaceholder =
     sessionsLoading ? "加载中..." :
     !gatewayRunning ? "Gateway 未启动" :
     isPending ? "📝 新对话 (未发送)" :
-    sessions.length === 0 ? "暂无对话" : "选择对话";
+    filteredSessions.length === 0 ? "暂无匹配对话" : "选择对话";
 
   // ─── 渲染 ──────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3">
+      {/* Agent 筛选（仅多 agent 时显示） */}
+      {showAgentFilter && (
+        <Select value={agentFilter} onValueChange={setAgentFilter}>
+          <SelectTrigger className="h-7 w-[110px] gap-1 border-0 bg-transparent text-[11px] shadow-none hover:bg-accent/50">
+            <SelectValue placeholder="全部 Agent">
+              {agentFilter === "__all__" ? "全部 Agent" : agents.find(a => a.id === agentFilter)?.name ?? agentFilter}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部 Agent ({sessions.length})</SelectItem>
+            {agents.map(a => {
+              const count = sessions.filter(s => (parseSessionKey(s.sessionKey)?.agentId ?? s.agentId) === a.id).length;
+              return (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                  <span className="ml-1 text-[10px] text-muted-foreground">({count})</span>
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      )}
+
       {/* 对话列表 */}
       <Select value={selectValue} onValueChange={handleConvChange}>
         <SelectTrigger className="h-7 w-[180px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
@@ -240,58 +299,58 @@ export function ChatControlBar({
           {/* 未发送的新建对话（优先展示） */}
           {pendingConfig && (
             <>
-              <SelectItem value="__pending_new__" className="group">
-                <span className="flex-1 truncate">📝 新对话 (未发送)</span>
-                {onCancelPending && (
-                  <button
-                    className="shrink-0 ml-1 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onCancelPending();
-                    }}
-                    title="取消新建"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
+              <SelectItem value={PENDING_NEW_KEY}>
+                <span className="flex w-full items-center gap-1 min-w-0">
+                  <span className="flex-1 truncate text-left">📝 新对话 (未发送)</span>
+                  {onCancelPending && (
+                    <button
+                      className="shrink-0 p-0.5 rounded text-muted-foreground/40 hover:bg-destructive/20 hover:text-destructive transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onCancelPending();
+                      }}
+                      title="取消新建"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
               </SelectItem>
               <div className="border-t border-border my-1" />
             </>
           )}
-          {!pendingConfig && sessions.length === 0 && (
-            <SelectItem value="__empty__" disabled className="text-muted-foreground">暂无对话</SelectItem>
+          {!pendingConfig && filteredSessions.length === 0 && (
+            <SelectItem value={EMPTY_KEY} disabled className="text-muted-foreground">
+              {agentFilter !== "__all__" ? "该 Agent 暂无对话" : "暂无对话"}
+            </SelectItem>
           )}
-          {sessions.map((s) => {
-            // 优先使用 localStorage 中的自定义标题（格式: "MM/DD HH:mm 摘要"）
-            const localTitle = (() => {
-              try { return localStorage.getItem(`artifex.session.title:${s.sessionKey}`); } catch { return null; }
-            })();
+          {filteredSessions.map((s) => {
+            const localTitle = getCustomTitle(s.sessionKey);
             const displayTitle = localTitle || s.title || s.sessionKey;
             return (
-              <SelectItem key={s.sessionKey} value={s.sessionKey} className="group">
-                <span className="flex-1 truncate">
-                  <span>{displayTitle}</span>
-                  {s.model && <span className="ml-1 text-[10px] text-muted-foreground">{s.model}</span>}
+              <SelectItem key={s.sessionKey} value={s.sessionKey}>
+                <span className="flex items-center justify-between gap-1 w-full min-w-0">
+                  <span className="truncate text-left min-w-0">{displayTitle}</span>
+                  {onDeleteSession && (
+                    <button
+                      className="shrink-0 p-0.5 rounded text-muted-foreground/30 hover:bg-destructive/20 hover:text-destructive transition-colors ml-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onDeleteSession(s.sessionKey);
+                      }}
+                      title="删除对话"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </span>
-                {onDeleteSession && (
-                  <button
-                    className="shrink-0 ml-1 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onDeleteSession(s.sessionKey);
-                    }}
-                    title="删除对话"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
               </SelectItem>
             );
           })}
           <div className="border-t border-border mt-1 pt-1">
-            <SelectItem value="__new__">
+            <SelectItem value={NEW_KEY}>
               <Plus className="mr-1 h-3.5 w-3.5" />新建对话
             </SelectItem>
           </div>

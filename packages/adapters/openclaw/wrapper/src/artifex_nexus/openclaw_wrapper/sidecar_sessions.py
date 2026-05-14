@@ -143,21 +143,37 @@ def handle_sessions_list(req_id: Any, params: dict) -> dict:
     """
     try:
         home = _params_home(params)
-        agent_id = params.get("agent_id", DEFAULT_AGENT_ID)
+        agent_id = params.get("agent_id")
+        # params.get("agent_id") 在 Tauri invoke 传入 null 时返回 None（key 存在但值为 None），
+        # 不会回退到默认值。显式处理 None / "" / "__all__" → 扫描所有 agent 目录。
+        if agent_id in (None, "", "__all__"):
+            agent_id = None  # sentinel: 扫描全部
         offset = max(0, int(params.get("offset", 0)))
         limit = min(MAX_PAGE_SIZE, max(1, int(params.get("limit", DEFAULT_PAGE_SIZE))))
 
-        # 读取 sessions.json
-        raw_sessions = _read_sessions_json(home, agent_id)
-
-        # 提取有效 session 摘要
+        # 读取 sessions.json：单 agent 或全部 agent
         summaries = []
-        for session_key, entry in raw_sessions.items():
-            if not isinstance(entry, dict):
-                continue
-            summary = _extract_session_summary(session_key, entry)
-            if summary and summary.get("hasTranscript"):
-                summaries.append(summary)
+        if agent_id is not None:
+            agent_ids = [agent_id]
+        else:
+            # 扫描所有 agent 目录
+            agents_dir = home / "state" / "agents"
+            agent_ids = []
+            if agents_dir.exists():
+                for d in agents_dir.iterdir():
+                    if d.is_dir() and (d / "sessions" / "sessions.json").exists():
+                        agent_ids.append(d.name)
+
+        for aid in agent_ids:
+            raw_sessions = _read_sessions_json(home, aid)
+            for session_key, entry in raw_sessions.items():
+                if not isinstance(entry, dict):
+                    continue
+                summary = _extract_session_summary(session_key, entry)
+                if summary and summary.get("hasTranscript"):
+                    # 从 sessionKey 提取 agentId（用于前端按 agent 筛选）
+                    summary["agentId"] = aid
+                    summaries.append(summary)
 
         # 按 updatedAt 降序排列（最近活跃的在前）
         summaries.sort(key=lambda s: s["updatedAt"], reverse=True)
