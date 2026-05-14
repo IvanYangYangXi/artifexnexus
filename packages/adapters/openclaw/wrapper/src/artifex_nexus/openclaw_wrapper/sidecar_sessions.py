@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -62,6 +63,55 @@ def _read_sessions_json(home: Path, agent_id: str) -> dict:
         return {}
 
 
+def _extract_first_message_title(session_file: str) -> Optional[str]:
+    """从 transcript .jsonl 文件提取第一条用户消息作为标题。
+
+    仅读取前若干行，找到第一条 role=user 的消息后立即返回。
+    截取前 30 字，超出加 …。
+    """
+    if not session_file:
+        return None
+    try:
+        sf_path = Path(session_file)
+        if not sf_path.exists():
+            return None
+        with open(sf_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("type") != "message":
+                    continue
+                msg = record.get("message", {})
+                if msg.get("role") != "user":
+                    continue
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    text_parts = [
+                        p.get("text", "")
+                        for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    ]
+                    text = " ".join(text_parts)
+                elif isinstance(content, str):
+                    text = content
+                else:
+                    continue
+                if text:
+                    # 去掉 Gateway 自动添加的时间戳前缀（如 "[Thu 2026-05-14 18:15 GMT+8]"）
+                    text = re.sub(r'^\[[A-Z][a-z]{2}\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+GMT[+-]\d+\]\s*', '', text)
+                    if text:
+                        return text[:30] + ("…" if len(text) > 30 else "")
+                break
+    except Exception:
+        pass
+    return None
+
+
 def _extract_session_summary(session_key: str, entry: dict) -> Optional[dict]:
     """从 sessions.json 的单条 entry 提取前端需要的摘要信息。
 
@@ -95,12 +145,15 @@ def _extract_session_summary(session_key: str, entry: dict) -> Optional[dict]:
     parts = session_key.split(":", 2)
     session_name = parts[2] if len(parts) >= 3 else session_key
 
-    # 标题：优先用 session name，后续可从第一条消息推导
+    # 标题：优先从 transcript 第一条用户消息提取，其次用 session name
     title = session_name
-    if title == "main":
+    first_msg_title = _extract_first_message_title(session_file)
+    if first_msg_title:
+        title = first_msg_title
+    elif title == "main":
         title = "主对话"
     elif title.startswith("session-"):
-        # session-<timestamp> 格式，转为时间显示
+        # session-<timestamp> 格式，转为时间显示（兜底）
         try:
             ts = int(title.replace("session-", ""))
             from datetime import datetime
@@ -170,7 +223,7 @@ def handle_sessions_list(req_id: Any, params: dict) -> dict:
                 if not isinstance(entry, dict):
                     continue
                 summary = _extract_session_summary(session_key, entry)
-                if summary and summary.get("hasTranscript"):
+                if summary:
                     # 从 sessionKey 提取 agentId（用于前端按 agent 筛选）
                     summary["agentId"] = aid
                     summaries.append(summary)

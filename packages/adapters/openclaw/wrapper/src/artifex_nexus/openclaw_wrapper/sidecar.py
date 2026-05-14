@@ -687,14 +687,16 @@ def _resolve_stored_token(provider_id: str) -> Optional[str]:
     """从 auth-profiles.json 中读取指定 provider 的已保存 token。
 
     Read stored token from auth-profiles.json for a given provider.
-    查找路径：state/agents/*/agent/auth-profiles.json
+    双路径查找：先 .openclaw/agents/*/agent/auth-profiles.json（新路径），
+    再 state/agents/*/agent/auth-profiles.json（旧路径），以适配上游
+    v2026.5.4+ 的迁移。
     """
-    import glob
     openclaw_home = _get_openclaw_home()
-    pattern = str(openclaw_home / "state" / "agents" / "*" / "agent" / "auth-profiles.json")
-    for filepath in glob.glob(pattern):
+    # 反向迭代：新路径优先（_iter_auth_profiles_files 是先旧后新）
+    files = list(_config_io._iter_auth_profiles_files(openclaw_home))
+    for filepath in reversed(files):
         try:
-            data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+            data = json.loads(filepath.read_text(encoding="utf-8"))
             profiles = data.get("profiles", {})
             for _pid, profile in profiles.items():
                 if not isinstance(profile, dict):

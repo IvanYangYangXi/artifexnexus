@@ -27,6 +27,9 @@ pub struct SessionSummary {
     pub model_provider: String,
     pub status: String,
     pub total_tokens: u64,
+    /// agent ID（来自 sessions.json 所在的 agent 目录名）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 /// openclaw.sessions.list 响应
@@ -60,7 +63,7 @@ pub async fn openclaw_sessions_list(
     }
 
     let params = json!({
-        "agent_id": agent_id.unwrap_or_else(|| "artifex-nexus".to_string()),
+        "agent_id": agent_id,    // None → null，Python 侧收到 null 时扫描全部 agent
         "offset": offset.unwrap_or(0),
         "limit": limit.unwrap_or(20),
     });
@@ -82,6 +85,7 @@ pub async fn openclaw_sessions_list(
                 model_provider: s["modelProvider"].as_str().unwrap_or("").to_string(),
                 status: s["status"].as_str().unwrap_or("").to_string(),
                 total_tokens: s["totalTokens"].as_u64().unwrap_or(0),
+                agent_id: s["agentId"].as_str().map(|v| v.to_string()),
             })
         })
         .collect();

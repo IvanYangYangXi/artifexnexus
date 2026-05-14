@@ -257,6 +257,21 @@ export function ChatControlBar({
         return (keyAgentId ?? s.agentId) === agentFilter;
       });
 
+  // 从活跃对话中提取真实的 Agent/Model（而非 localStorage 偏好）
+  const activeSession = !isSentinel(activeSessionKey)
+    ? sessions.find(s => s.sessionKey === activeSessionKey)
+    : null;
+  const displayAgentId = isPending
+    ? (pendingConfig?.agentId ?? "")
+    : activeSession
+      ? (activeSession.agentId || parseSessionKey(activeSessionKey)?.agentId || "")
+      : agent;
+  const displayModelId = isPending
+    ? (pendingConfig?.model ?? "")
+    : activeSession
+      ? (activeSession.model || "")
+      : model;
+
   const selectPlaceholder =
     sessionsLoading ? "加载中..." :
     !gatewayRunning ? "Gateway 未启动" :
@@ -329,12 +344,16 @@ export function ChatControlBar({
             const localTitle = getCustomTitle(s.sessionKey);
             const displayTitle = localTitle || s.title || s.sessionKey;
             return (
-              <SelectItem key={s.sessionKey} value={s.sessionKey}>
-                <span className="flex items-center justify-between gap-1 w-full min-w-0">
-                  <span className="truncate text-left min-w-0">{displayTitle}</span>
-                  {onDeleteSession && (
+              <SelectItem key={s.sessionKey} value={s.sessionKey} className="pr-8">
+                <span className="block truncate">{displayTitle}</span>
+                {onDeleteSession && (
+                  <span className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-1">
+                    <span
+                      className="w-px h-3 bg-border/50 shrink-0"
+                      aria-hidden="true"
+                    />
                     <button
-                      className="shrink-0 p-0.5 rounded text-muted-foreground/30 hover:bg-destructive/20 hover:text-destructive transition-colors ml-1"
+                      className="shrink-0 p-0.5 rounded text-muted-foreground/20 hover:bg-destructive/15 hover:text-destructive transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -342,10 +361,10 @@ export function ChatControlBar({
                       }}
                       title="删除对话"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                </span>
+                  </span>
+                )}
               </SelectItem>
             );
           })}
@@ -361,19 +380,17 @@ export function ChatControlBar({
 
       {/* ─── Agent / Model / Thinking 只读标签 + [+] 按钮 ─── */}
 
-      {/* Agent 标签 */}
+      {/* Agent 标签 — 来自活跃对话的真实 agent，而非 localStorage 偏好 */}
       <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
-        {isPending ? `Agent: ${pendingConfig!.agentId}` :
-         loading ? "Agent: 加载中..." : gatewayRunning
-          ? `Agent: ${agents.find(a => a.id === agent)?.name ?? agent}`
+        {loading ? "Agent: 加载中..." : gatewayRunning
+          ? `Agent: ${agents.find(a => a.id === displayAgentId)?.name ?? (displayAgentId || "—")}`
           : "Agent: —"}
       </span>
 
-      {/* Model 标签 */}
+      {/* Model 标签 — 来自活跃对话的真实 model */}
       <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
-        {isPending ? `Model: ${pendingConfig!.model}` :
-         loading ? "Model: 加载中..." : gatewayRunning
-          ? `Model: ${models.find(m => m.id === model)?.name ?? model}`
+        {loading ? "Model: 加载中..." : gatewayRunning
+          ? `Model: ${models.find(m => m.id === displayModelId)?.name ?? (displayModelId || "—")}`
           : "Model: —"}
       </span>
 

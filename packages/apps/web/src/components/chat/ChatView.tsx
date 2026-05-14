@@ -182,7 +182,9 @@ export function ChatView() {
       try {
         const { getIpc } = await import("../../lib/ipc");
         const ipc = await getIpc();
-        const result = await ipc.getSessionsHistory({ sessionKey, limit: 50 });
+        const { parseSessionKey } = await import("../../lib/chat/session-key");
+        const agentId = parseSessionKey(sessionKey)?.agentId;
+        const result = await ipc.getSessionsHistory({ sessionKey, agentId, limit: 50 });
         const messages = result?.messages ?? [];
         if (messages.length > 0 && chat.getSessionKey() === sessionKey) {
           chat.loadHistoryMessages(messages);

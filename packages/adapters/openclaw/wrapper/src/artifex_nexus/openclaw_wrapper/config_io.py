@@ -389,31 +389,59 @@ ConfigPatchFn = Callable[[Path, Path, dict], tuple]
 # ---------------------------------------------------------------------------
 
 
+def _iter_auth_profiles_files(openclaw_home: Path):
+    """遍历所有可能的 auth-profiles.json 文件路径（双路径兼容）。
+
+    上游 v2026.5.4+ 正逐步从旧路径 ``state/agents/*/agent/`` 迁移到
+    新路径 ``.openclaw/agents/*/agent/``。过渡期内两个路径都可能存在，
+    本函数同时返回两个路径的匹配文件，确保无论 CLI 写到哪都能读到。
+
+    **顺序**：先旧路径、后新路径——调用方需要后写覆盖先写的模式来实现
+    新路径优先的合并语义。
+
+    Yields:
+        Path: 找到的 auth-profiles.json 文件路径（先旧后新）。
+    """
+    import glob
+    # 旧路径（兼容）
+    old_pattern = str(openclaw_home / "state" / "agents" / "*" / "agent" / "auth-profiles.json")
+    yield from (Path(p) for p in glob.glob(old_pattern))
+    # 新路径（v2026.5.4+ 标准位置），后 yield → 后处理 → 覆盖旧值
+    new_pattern = str(openclaw_home / ".openclaw" / "agents" / "*" / "agent" / "auth-profiles.json")
+    yield from (Path(p) for p in glob.glob(new_pattern))
+
+
 def _merge_stored_tokens(openclaw_home: Path, auth_profiles: dict) -> None:
     """合并 auth-profiles.json 中的 token 到 auth_profiles dict 中。
 
-    上游 v2026.5.4 把凭证存到 state/agents/*/agent/auth-profiles.json，
+    上游 v2026.5.4 把凭证存到 auth-profiles.json（可能在新或旧路径），
     openclaw.json 的 auth.profiles 只有元数据。本函数在 dump 前合并 token 字段，
     使前端能看到"已保存（脱敏）"状态。
+
+    双路径策略：同时扫描 state/agents/ 和 .openclaw/agents/ 两个路径，
+    新路径（.openclaw/）的 token 优先于旧路径（state/），以适配上游迁移方向。
 
     注意：token 会在后续 mask_secrets() 中被脱敏，这里只做合并，不做脱敏。
     """
     if not isinstance(auth_profiles, dict):
         return
-    import glob
-    pattern = str(openclaw_home / "state" / "agents" / "*" / "agent" / "auth-profiles.json")
-    for filepath in glob.glob(pattern):
+    for filepath in _iter_auth_profiles_files(openclaw_home):
         try:
-            data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+            data = json.loads(filepath.read_text(encoding="utf-8"))
             stored_profiles = data.get("profiles", {})
             for profile_id, stored in stored_profiles.items():
                 if not isinstance(stored, dict):
                     continue
                 token_val = stored.get("token", "")
-                if token_val and profile_id in auth_profiles:
-                    # 合并 token 到对应的 auth profile 中
-                    if isinstance(auth_profiles[profile_id], dict):
-                        auth_profiles[profile_id]["token"] = token_val
+                if not token_val:
+                    continue
+                if profile_id not in auth_profiles:
+                    # 此 profile 只在凭证文件中存在（openclaw.json 元数据可能
+                    # 尚未同步 → 在 dict 中创建占位条目）
+                    auth_profiles[profile_id] = {"provider": stored.get("provider", ""), "mode": stored.get("type", "api_key"), "token": token_val}
+                elif isinstance(auth_profiles[profile_id], dict):
+                    # 已有元数据条目 → 仅补充 token（保留原有的 provider/mode）
+                    auth_profiles[profile_id]["token"] = token_val
         except (OSError, json.JSONDecodeError, KeyError):
             continue
 
