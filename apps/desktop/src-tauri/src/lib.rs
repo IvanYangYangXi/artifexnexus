@@ -138,38 +138,27 @@ pub fn run() {
             std::process::exit(1);
         });
 
-    // STORY-0018 hot-fix + 2026-05-14 简化：
-    // EXE 退出时无脑清理：先尝试让 sidecar 优雅 stop_gateway（可选），
-    // 再 fallback 到 preflight::post_exit_cleanup() 强杀所有相关进程。
-    // 简单粗暴优于复杂正确——用户原话："流程不要搞太复杂"。
-    // 2026-05-14 简化：EXE 退出**强制立即**结束。
-    // 之前 handler 调 manager.call("openclaw.stop") 会被 Mutex 卡 30s
-    // 导致 EXE 关不掉。现在：
-    //   1. 后台 spawn 一个线程跑 post_exit_cleanup（不阻塞主线程）
-    //   2. 主线程调 app_handle.exit(0) 立即退出 Tauri 进程
-    //   3. 留 1 秒给清理线程，然后无论如何 std::process::exit
+    // 2026-05-14 简化：EXE 退出**先同步清理再退出**。
+    // 之前用 spawn 线程 + 1s std::process::exit 的方案，问题是清理线程被
+    // 强杀进程时打断（kill sidecar 完成后还没杀 gateway 就被终结），
+    // 导致 gateway node.exe 孤儿留在 19789。
+    //
+    // 现在：主线程**同步**跑 post_exit_cleanup（~1-2s），完成后才 exit。
+    // 用户体验上"窗口立即消失但进程多活 2 秒清理"是可接受的；下次启动时
+    // preflight 也会再清一遍，双保险。
     use tauri::RunEvent;
     let mut exit_started = false;
-    app.run(move |app_handle, event| {
+    app.run(move |_app_handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
             if exit_started {
                 return;
             }
             exit_started = true;
             trace_log!("lifecycle", "=== EXE EXIT REQUESTED ===");
-            // 后台清理（不阻塞）
-            std::thread::spawn(|| {
-                sidecar::preflight::post_exit_cleanup();
-                trace_log!("lifecycle", "=== EXE EXIT cleanup done ===");
-            });
-            // 主线程立刻让 Tauri 退出
-            app_handle.exit(0);
-            // 双保险：1 秒后强制 std::process::exit
-            std::thread::spawn(|| {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                trace_log!("lifecycle", "=== EXE EXIT force ===");
-                std::process::exit(0);
-            });
+            // 同步清理：杀 sidecar / gateway / 端口 / 锁文件
+            sidecar::preflight::post_exit_cleanup();
+            trace_log!("lifecycle", "=== EXE EXIT cleanup done, exiting ===");
+            std::process::exit(0);
         }
     });
 }
