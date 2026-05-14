@@ -2,7 +2,7 @@
 id: STORY-0036
 kind: story
 title: M3-UI-06 · 系统模块 UI（安装向�?+ Gateway + 运行状态）
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

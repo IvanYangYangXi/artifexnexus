@@ -2,7 +2,7 @@
 id: STORY-0032
 kind: story
 title: M3-UI-02 · 全局布局骨架（A/B/C/D 四区域 + 响应式）
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

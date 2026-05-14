@@ -1,12 +1,46 @@
-# STORY-0041: OpenClaw 重装流程重构（备份-全新安装-恢复）
+---
+id: STORY-0041
+kind: story
+title: OpenClaw 重装流程重构（备份-全新安装-恢复）
+status: backlog
+priority: P2
+owner: "@ivan"
+assignee: pair
+estimate: 2d
+created: 2026-05-14
+parent: "[[../backlog/EPIC-0003-m3-web-ui-chat]]"
+milestone: M3
+related_packages:
+  - "packages/adapters/openclaw"
+  - "packages/apps/web"
+  - "apps/desktop"
+tags: [story, openclaw, reinstall, backup, restore, migration, M3]
+---
+
+# STORY-0041 · OpenClaw 重装流程重构（备份-全新安装-恢复）
+
+## 用户故事
+重装 OpenClaw 时能保留用户之前配置的 API Key、Agent 设置、插件和记忆，避免每次重装后手动重新配置。
 
 ## 背景
 
+> **bootstrap.py 是安装/重装脚本**。位于 `packages/adapters/openclaw/wrapper/src/artifex_nexus/openclaw_wrapper/bootstrap.py`，负责初始化 `~/.artifexnexus/.openclaw/` 目录布局、生成 `openclaw.json`、安装默认 agent 预设和 MCP Bridge 插件。
+
 当前重装流程使用"就地合并"策略（`_apply_preserve_options`），存在以下问题：
 
-1. **路径漂移**：OpenClaw v2026.5.4 把 agent state 从 `state/agents/` 迁移到 `.openclaw/agents/`，但保留逻辑只保留了 `openclaw.json` 中的元数据，凭证文件（`auth-profiles.json`）留在旧路径
-2. **残留污染**：旧版本的 rejected config、.bak 文件、漂移端口配置等残留在目录中
-3. **缺少记忆保留**：memory-core 的 SQLite 数据和梦境文件没有保留选项
+1. ~~**路径漂移**~~（✅ v4.2 已修复）：`_migrate_auth_profiles_files()` 已处理 `state/agents/` → `.openclaw/agents/` 迁移，新路径凭证文件正常。旧路径残留可忽略。
+
+2. **残留污染**（❌ 仍存在，2026-05-14 查证）：
+   - 3 个 `.bak` 文件（`openclaw.json.bak` × 2 + `state/cron/jobs.json.bak`）
+   - 8 个 `openclaw.json.rejected.*` 文件（2026-05-11 配置写入密集失败遗留）
+   - bootstrap.py 无任何清理逻辑，每次重装累积更多垃圾
+
+3. **记忆保留**（⚠️ 事实存在但非设计保障，2026-05-14 查证）：
+   - `state/memory/artifex-nexus.sqlite`（720K）和 `workspace/memory/` 梦境数据当前完好
+   - 但仅因为 bootstrap 的 `_create_directory_layout()` 不删已有目录 —— 纯属侥幸
+   - `_apply_preserve_options()` 只合并 `openclaw.json` 配置，**不备份文件级数据**
+   - 如果未来实现"彻底清理"或清理 .bak/rejected 时扫到 memory 目录，数据面临丢失风险
+   - 核心缺失：**主动备份机制**，而非依赖"恰好不删"的隐式行为
 
 ## 设计：三阶段重装
 
@@ -14,27 +48,28 @@
 Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 ```
 
+**核心规则**：先备份到 `~/.artifexnexus/` 下（不在 `.openclaw/` 内），然后**删除整个 `.openclaw/` 目录**，再全新 `bootstrap()`。这样最干净，彻底解决残留污染。
+
 ### Phase 1: BACKUP
 
-备份目标：`~/.artifexnexus/.reinstall-backup/`（不在 `.openclaw/` 内，不会被清理影响）
+备份目标：`~/.artifexnexus/backups/<timestamp>/`（新增备份目录，与 `.openclaw/` 完全隔离）
 
 按勾选项收集：
 
-| 保留项 | 备份的数据源 |
-|--------|-------------|
-| 供应商 (Providers) | `openclaw.json` → `models.providers` 片段 |
-| API 凭据 (Auth) | `openclaw.json` → `auth.profiles` + `auth.order` 片段 **+** `.openclaw/agents/*/agent/auth-profiles.json` **+** `state/agents/*/agent/auth-profiles.json`（兼容旧路径） |
-| Agent 配置 | `openclaw.json` → `agents.defaults` + `agents.list` 片段 |
-| 插件配置 | `openclaw.json` → `plugins.entries` 片段 |
-| 记忆 (Memory) | `state/memory/*.sqlite` + `workspace/memory/`（梦境） |
+| 保留项 | 备份的数据源 | 说明 |
+|--------|-------------|------|
+| 供应商 + API 凭据 | `openclaw.json` → `models.providers` 片段 + `.openclaw/agents/*/agent/auth-profiles.json` | 合并为一条（UI 已实现） |
+| Agent 配置 | `openclaw.json` → `agents.defaults` + `agents.list` 片段 | |
+| 插件配置 + 记忆 | `openclaw.json` → `plugins.entries` 片段 + `state/memory/*.sqlite` + `workspace/memory/` | 合并为一条（UI 已实现） |
 
 输出：`backup-manifest.json`（记录每个备份文件的来源、目标路径、时间戳）
 
 ### Phase 2: CLEAN INSTALL
 
 1. 停止 Gateway
-2. 彻底删除 `.openclaw/` 目录内容（保留 `cli/` 和 `.reinstall-backup/`）
+2. **删除整个 `~/.artifexnexus/.openclaw/` 目录**（不保留任何内容）
 3. 重新 `bootstrap()`（生成全新 openclaw.json + 目录结构）
+4. → 残留污染**自动消除**（.bak / .rejected / 死 run/ 全部随目录删除）
 
 ### Phase 3: RESTORE
 
@@ -42,21 +77,36 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 
 - providers/auth → `openclaw config patch` 写入新 `openclaw.json`
 - `auth-profiles.json` → 写入 `.openclaw/agents/<id>/agent/`（新路径）
-- memory SQLite → 写入 `state/memory/` 或 `.openclaw/memory/`
+- memory SQLite → 写入 `state/memory/`
 - `workspace/memory/` → 原位复制回去
 - 验证（`openclaw doctor --json`）
-- 成功后删除 `.reinstall-backup/`
+- 成功后删除 `backups/<timestamp>/`
 - 重启 Gateway
 
-### 新增 UI 勾选项
+### 当前 UI 勾选项状态
+
+已实现，插件配置和记忆合并为一条：
 
 ```
-[x] 供应商配置（Provider）    — baseUrl、协议、模型列表
-[x] API 凭据（Auth）         — API Key / Token
-[ ] Agent 配置               — Agent 预设、system prompt
-[ ] 插件配置                 — MCP Bridge、Browser 等
-[x] 记忆（Memory）           — AI 长期记忆、梦境整理数据  ← 新增
+[x] 供应商配置 + API 凭据（Provider + Auth）  — baseUrl、API Key、模型列表
+[ ] Agent 配置                                — Agent 预设、system prompt
+[x] 插件配置 + Memory                         — MCP Bridge + AI 长期记忆/梦境数据
 ```
+
+### 系统页备份恢复子页（新增）
+
+除了重装时的自动备份恢复，在系统页新增「数据管理」子页，提供手动操作：
+
+| 功能 | 说明 |
+|------|------|
+| **备份配置** | 手动导出 providers / auth / agent / plugins 到 `~/.artifexnexus/backups/` |
+| **恢复配置** | 从已有 backup 恢复配置到当前 `.openclaw/` |
+| **备份记忆** | 手动导出 memory SQLite + 梦境数据 |
+| **恢复记忆** | 从已有 backup 恢复记忆数据 |
+| **列出备份** | 查看所有 backup 的时间戳、大小、包含项 |
+| **删除备份** | 清理旧备份释放空间 |
+
+子页通过 Tauri IPC → sidecar RPC → bootstrap.py 的函数调用实现。
 
 ## 数据布局参考（v2026.5.4 实测）
 
@@ -79,7 +129,67 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 └── cli/v2026.5.4/                             # CLI 安装（不清理）
 ```
 
-## 涉及文件
+## 解决方案
+
+### 方案 A：残留污染清理
+
+在 `bootstrap.py` 新增 `_cleanup_residual_files(openclaw_home)` 函数，重装时自动调用：
+
+```
+重装时（preserve_options 非空时）自动清理：
+  ✅ *.bak                    → 删除所有 .bak 文件
+  ✅ *.rejected.*             → 删除所有 rejected 配置
+  ✅ run/ 目录                → 清理空目录（ports.json / gateway.pid 等死文件）
+  ✅ state/cron/jobs.json.bak → 删除
+
+不清理：
+  ❌ cli/                     → CLI 安装目录
+  ❌ state/memory/            → 记忆数据
+  ❌ workspace/memory/        → 梦境数据
+  ❌ openclaw.json            → 当前配置
+```
+
+**实现要点**：
+- 清理前打印报告：列出将删除的文件清单
+- 日志输出 `[cleanup] removed N residual files (X .bak + Y .rejected + Z stale)`
+- 放在 `bootstrap()` 流程 Step 3（读旧配置之后、生成新配置之前）
+
+### 方案 B：记忆显式备份
+
+在 `bootstrap.py` 新增 `_backup_memory()` / `_restore_memory()`，增强 `preserve_options`：
+
+```
+preserve_options 新增：
+  preserveMemory: bool   → 是否保留 AI 长期记忆数据
+
+Phase 1: BACKUP
+  → _backup_memory() 将以下数据打包到 ~/.artifexnexus/.reinstall-backup/memory/
+    ├── state/memory/artifex-nexus.sqlite    # memory-core SQLite（~720KB）
+    ├── workspace/memory/.dreams/            # 梦境 corpus + events
+    └── workspace/memory/dreaming/           # 梦境整理输出
+
+Phase 3: RESTORE
+  → _restore_memory() 原位写回
+    ├── state/memory/*.sqlite   → state/memory/
+    ├── workspace/memory/       → workspace/memory/
+    └── 验证 SQLite 完整性（sqlite3 打开检查无 corrupt）
+
+失败处理：
+  - 备份失败 → 报告但继续安装（记忆丢失可接受，config 丢失不可接受）
+  - 恢复失败 → 报告 + 保留 backup 供手动恢复
+  - 安装成功 → 删除 backup 目录
+```
+
+**与现有行为的区别**：
+
+| | 当前（隐式） | 方案 B（显式） |
+|---|---|---|
+| memory SQLite | 因 bootstrap 不删目录幸存 | 主动备份 → 安装后恢复 |
+| 梦境数据 | 同上 | 同上 |
+| 保障级别 | 侥幸，未来可能被清理逻辑误伤 | 显式设计，有 backup-manifest 追踪 |
+| 清理重装兼容 | ❌ 如果 clean install 真的删目录，数据丢失 | ✅ cleanup 先备份，再清理，再恢复 |
+
+**实现量估算**：`_backup_memory()` ~30 行 + `_restore_memory()` ~40 行 + UI 勾选项 1 个 toggle
 
 - `packages/adapters/openclaw/wrapper/src/artifex_nexus/openclaw_wrapper/bootstrap.py` — 重构 `bootstrap()` + 新增 `backup_for_reinstall()` / `restore_from_backup()`
 - `packages/apps/web/src/components/settings/` — 重装 UI 增加"记忆"勾选项
@@ -88,45 +198,14 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 
 ## 优先级
 
-M3 后期 / M4 前期。当前已通过手动复制 `auth-profiles.json` 到新路径临时解决。
+M3 后期 / M4 前期。当前阻塞问题：
+- **残留污染**为首要解决项（每次重装累积 .bak + .rejected 垃圾）
+- **记忆显式备份**次之（当前靠隐式行为幸存，非长期方案）
+- 路径漂移已在 v4.2 通过 `_migrate_auth_profiles_files()` 解决
 
 ## 附加问题（同 STORY 一起解决）
 
-### A. 对话反应延迟 ~85s（Pi 运行时会话唤醒问题）
-
-**症状**：每条消息从发送到首次 thinking 开始要 75-85 秒。后续 LLM 推理只需 6-14 秒。
-
-**根因**：Agent 配置了 `agentRuntime: { id: "pi" }`，但没有显式设置 heartbeat 间隔。Pi 运行时在会话空闲后进入低功耗轮询模式，新消息需要等待一个轮询周期才被拾取。
-
-**延迟分解**：
-```
-85 秒总延迟
-├── ~75-78s → 会话唤醒 / 通道路由 / 上下文准备（首次 LLM 调用前）
-├── ~14s   → 首轮 reasoning/thinking（LLM 推理）
-├── ~7s    → 后续工具调用 + thinking
-```
-
-**修复方案**：在 `openclaw.json` 的 `agents.defaults` 或 agent 配置中缩短心跳间隔：
-```json
-{
-  "agents": {
-    "defaults": {
-      "heartbeat": {
-        "every": "15 seconds"
-      }
-    }
-  }
-}
-```
-
-**补充发现**（2026-05-12 00:47）：实际延迟 ~10s 更可能是 **Control UI 设备认证超时回退** 导致：
-- 客户端发 `connect` RPC 时未传 `device` 字段
-- Gateway `dangerouslyDisableDeviceAuth: true` 跳过了 device auth
-- 但客户端/Gateway 内部可能仍有 10s 超时回退逻辑
-- 修复方向：connect params 中传 `device: null` 告知 Gateway 无需 device auth
-- 已在 `gateway-ws.ts` 中加入 `device: null`，待验证是否消除延迟
-
-### B. 模型/Provider 信息存储方式优化
+### 模型/Provider 信息存储方式优化
 
 **当前问题**：
 - 前端 Settings UI 使用 `auth.profiles` + `auth.order` + 独立 `auth-profiles.json` 的复杂多文件方式存储 API Key
@@ -149,3 +228,27 @@ M3 后期 / M4 前期。当前已通过手动复制 `auth-profiles.json` 到新�
 
 - STORY-0039：Chat/Gateway 连接问题（触发发现本问题）
 - STORY-0020：原始 preserve 逻辑实现
+
+## 查证记录（2026-05-14）
+
+### 路径漂移 — ✅ 已修复
+
+```
+旧路径: state/agents/artifex-nexus/agent/auth-profiles.json
+  内容: provider "custom-default"（旧命名，已过时）
+
+新路径: .openclaw/agents/artifex-nexus/agent/auth-profiles.json
+  内容: provider "netease-codemaker-default"（当前有效）
+```
+
+`bootstrap.py:_migrate_auth_profiles_files()` 使用 `shutil.copy2` 迁移，旧文件未自动删除但不影响功能。
+
+### 残留污染 — ❌ 仍存在
+
+实测环境残留文件清单：
+```
+openclaw.json.bak                                          # 1
+.openclaw/openclaw.json.bak                                # 2
+state/cron/jobs.json.bak                                   # 3
+openclaw.json.rejected.2026-05-11T12-48-06-592Z            # 4
+openclaw.json.rejected.2026-05-11T12-48-1

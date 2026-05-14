@@ -2,14 +2,14 @@
 id: TASK-0052
 kind: task
 title: Gateway 启动延迟优化 · 插件裁剪 + MCP Bridge 异步化 + 端口隔离
-status: review
+status: done
 priority: P0
 owner: "@ivan"
 assignee: pair
 estimate: 2d
 created: 2026-05-13
 updated: 2026-05-13
-parent: "[[../in-progress/STORY-0039-m3-func-chat-api]]"
+parent: "[[STORY-0039-m3-func-chat-api]]"
 milestone: M3
 related_specs: []
 related_packages:

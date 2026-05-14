@@ -2,7 +2,7 @@
 id: STORY-0038
 kind: story
 title: M3-UI-08 · Desktop 内嵌 Web UI + M0 回填
-status: review
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair

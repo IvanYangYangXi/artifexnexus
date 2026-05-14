@@ -25,22 +25,20 @@ tags:
 
 ## In Progress
 
-- [ ] [[STORY-0039-m3-func-chat-api]]
-- [ ] [[TASK-0050-chat-panel-interaction-optimization]]
-
 
 
 ## Review
 
-- [ ] [[TASK-0051-story39-gateway-stability]]
-- [ ] [[TASK-0052-gateway-startup-optimization]]
-- [ ] [[TASK-0053-dcc-preinput-context]]
-- [ ] [[STORY-0038-m3-ui-desktop-embed]]
-- [ ] [[STORY-0037-m3-ui-settings-right-panel]]
-- [ ] [[STORY-0036-m3-ui-system-module]]
-- [ ] [[STORY-0035-m3-ui-skills-tools]]
-
 ## Done
+- [x] [[STORY-0039-m3-func-chat-api]]
+- [x] [[TASK-0050-chat-panel-interaction-optimization]]
+- [x] [[TASK-0051-story39-gateway-stability]]
+- [x] [[TASK-0052-gateway-startup-optimization]]
+- [x] [[TASK-0053-dcc-preinput-context]]
+- [x] [[STORY-0038-m3-ui-desktop-embed]]
+- [x] [[STORY-0037-m3-ui-settings-right-panel]]
+- [x] [[STORY-0036-m3-ui-system-module]]
+- [x] [[STORY-0035-m3-ui-skills-tools]]
 - [x] [[TASK-0054-message-queue-fix-spec]]
 - [x] [[TASK-0057-dev-message-queue-fix]]
 - [x] [[TASK-0058-qa-test-message-queue-fix]]

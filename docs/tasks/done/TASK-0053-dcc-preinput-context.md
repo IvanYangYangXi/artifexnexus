@@ -2,14 +2,14 @@
 id: TASK-0053
 kind: task
 title: 新对话预输入 · DCC MCP 上下文
-status: review
+status: done
 priority: P2
 owner: "@ivan"
 assignee: ai
 estimate: 0.5d
 created: 2026-05-13
 updated: 2026-05-13
-parent: "[[../in-progress/STORY-0039-m3-func-chat-api]]"
+parent: "[[STORY-0039-m3-func-chat-api]]"
 milestone: M3
 related_specs:
   - "[[../../sdk/dcc-preinput]]"

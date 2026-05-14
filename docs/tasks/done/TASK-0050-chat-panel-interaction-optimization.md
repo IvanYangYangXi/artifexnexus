@@ -2,13 +2,13 @@
 id: TASK-0050
 kind: task
 title: Chat 面板交互优化 — 新对话/停止/配置状态显示/对话删除
-status: completed
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair
 estimate: 4h
 created: 2026-05-13
-parent: "[[../ready/STORY-0039-m3-func-chat-api]]"
+parent: "[[STORY-0039-m3-func-chat-api]]"
 milestone: M3
 related_specs:
   - "[[../../specs/ui/web-chat-structure]]"

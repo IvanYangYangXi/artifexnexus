@@ -2,7 +2,7 @@
 id: STORY-0039
 kind: story
 title: M3-FUNC-01 · Chat 功能接线（API + WebSocket 流式）
-status: in-progress
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair
@@ -10,10 +10,10 @@ estimate: 2d
 created: 2026-05-10
 parent: "[[../backlog/EPIC-0003-m3-web-ui-chat]]"
 children:
-  - "[[../review/TASK-0051-story39-gateway-stability]]"
-  - "[[../review/TASK-0052-gateway-startup-optimization]]"
-  - "[[../review/TASK-0053-dcc-preinput-context]]"
-  - "[[../in-progress/TASK-0050-chat-panel-interaction-optimization]]"
+  - "[[TASK-0051-story39-gateway-stability]]"
+  - "[[TASK-0052-gateway-startup-optimization]]"
+  - "[[TASK-0053-dcc-preinput-context]]"
+  - "[[TASK-0050-chat-panel-interaction-optimization]]"
 milestone: M3
 related_specs:
   - "[[../../specs/ui/web-chat-structure]]"

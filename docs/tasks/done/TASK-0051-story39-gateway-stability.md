@@ -2,14 +2,14 @@
 id: TASK-0051
 kind: task
 title: Gateway 稳定性修复 · Clawket 架构对标
-status: review
+status: done
 priority: P0
 owner: "@ivan"
 assignee: pair
 estimate: 1.5d
 created: 2026-05-13
 updated: 2026-05-13
-parent: "[[../in-progress/STORY-0039-m3-func-chat-api]]"
+parent: "[[STORY-0039-m3-func-chat-api]]"
 milestone: M3
 related_specs: []
 related_packages:
