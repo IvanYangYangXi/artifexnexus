@@ -121,9 +121,13 @@ export class GatewayWebSocket {
   /** 连续多少次 degraded=true 的 health 事件才相信（去抖）。
    *  health 事件约 2s 一次 → 5 次 = 持续 10 秒高延迟才相信 */
   private static readonly DEGRADED_CONFIRM_THRESHOLD = 5;
+  /** v5: 恢复确认计数 — 退出 degraded 也需要连续 N 次 healthy 事件，防止抖动闪烁。 */
+  private _healthyHitCount = 0;
+  private static readonly HEALTHY_CONFIRM_THRESHOLD = 3;
   /** 真正算 degraded 的 delayMaxMs 阈值（ms）— 低于此值不算（gateway 自身误报）。
-   *  Gateway 默认 1000ms 就报 degraded 太敏感；提到 5000ms 才认为真退化。 */
-  private static readonly DEGRADED_DELAY_THRESHOLD_MS = 5000;
+   *  Gateway 默认 1000ms 就报 degraded 太敏感。
+   *  v5: 提到 20000ms — 低于 20s 的延迟不影响用户收发消息，标记为 degraded 反而让 UI 一直黄闪。 */
+  private static readonly DEGRADED_DELAY_THRESHOLD_MS = 20000;
 
   /** 连接建立时间戳（用于启动宽限期：刚连上 15s 内不报 degraded） */
   private _connectionEstablishedAt = 0;
@@ -733,11 +737,14 @@ export class GatewayWebSocket {
             );
             return;
           }
-          // FIX-DEGRADED-FLAP: 只有 delayMaxMs 真实高于阈值才算 degraded（避免 gateway 自身误报）
+          // v5: 对称去抖 — 进入 AND 退出 degraded 都需要连续确认，防止单次抖动导致 UI 闪烁。
           const delayMs = typeof el.delayMaxMs === "number" ? el.delayMaxMs : 0;
           const isReallyDegraded = el.degraded === true && delayMs >= GatewayWebSocket.DEGRADED_DELAY_THRESHOLD_MS;
-          // 去抖：连续 N 次命中才确认 degraded；任意一次 false 立即重置
+          const wasDegraded = this._eventLoopDegraded;
+
           if (isReallyDegraded) {
+            // 当前事件报告退化
+            this._healthyHitCount = 0; // 重置恢复计数
             this._degradedHitCount++;
             if (this._degradedHitCount < GatewayWebSocket.DEGRADED_CONFIRM_THRESHOLD) {
               console.log(
@@ -745,15 +752,36 @@ export class GatewayWebSocket {
               );
               return;
             }
-          } else {
-            // 一旦收到非 degraded 或低延迟，立即重置计数
-            if (this._degradedHitCount > 0) {
-              console.log(`[gateway-ws] health: reset degraded hit counter (was ${this._degradedHitCount})`);
+            // 连续 N 次退化 → 进入 degraded 状态
+            if (!wasDegraded) {
+              this._eventLoopDegraded = true;
+              console.warn(
+                `[gateway-ws] Event Loop DEGRADED: reasons=${JSON.stringify(el.reasons)}, delayMaxMs=${el.delayMaxMs}, utilization=${el.utilization}`,
+              );
+              this._notifyReadyChange("event_loop_degraded");
             }
-            this._degradedHitCount = 0;
+          } else {
+            // 当前事件报告健康
+            this._degradedHitCount = 0; // 重置退化计数
+            if (wasDegraded) {
+              // 当前处于 degraded → 需要连续 N 次健康才退出
+              this._healthyHitCount++;
+              if (this._healthyHitCount < GatewayWebSocket.HEALTHY_CONFIRM_THRESHOLD) {
+                console.log(
+                  `[gateway-ws] health: healthy hit ${this._healthyHitCount}/${GatewayWebSocket.HEALTHY_CONFIRM_THRESHOLD} (delayMs=${delayMs}, recovering)`,
+                );
+                return;
+              }
+              // 连续 N 次健康 → 退出 degraded 状态
+              this._eventLoopDegraded = false;
+              this._healthyHitCount = 0;
+              console.log("[gateway-ws] Event Loop recovered");
+              this._notifyReadyChange("event_loop_recovered");
+            } else {
+              // 本身就是健康状态，维持即可
+              this._healthyHitCount = 0;
+            }
           }
-          const wasDegraded = this._eventLoopDegraded;
-          this._eventLoopDegraded = isReallyDegraded;
           if (wasDegraded !== this._eventLoopDegraded) {
             if (this._eventLoopDegraded) {
               console.warn(
