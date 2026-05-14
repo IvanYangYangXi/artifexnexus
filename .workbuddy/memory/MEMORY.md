@@ -1,5 +1,12 @@
 # Artifex Nexus 项目记忆
 
+## 设计原则（重要）
+
+- **配置覆盖原则**：sidecar 只在**安装时**写入默认配置（`bootstrap.py` 的 default config），运行时**不强制重写**用户已存在的配置。
+  - 用户在 `~/.artifexnexus/.openclaw/openclaw.json` 的修改应被尊重
+  - 如发现某个默认配置有 bug（如 `memory-core.dreaming.enabled=true` 导致崩溃），**正确做法**是注释掉 bootstrap.py 的写入代码，让 OpenClaw 用其自身默认值，**不要**在 sidecar 启动时强制改写用户配置
+  - 旧版本残留的有问题配置需要用户手动改或重装
+
 ## 关键架构
 
 - **Tauri Desktop App**：嵌入 Next.js `out/` 产物作为前端

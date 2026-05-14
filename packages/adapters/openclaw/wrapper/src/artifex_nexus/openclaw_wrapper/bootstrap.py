@@ -180,13 +180,26 @@ def _generate_default_config(
             "entries": {
                 "browser": {"enabled": True},
                 "file-transfer": {"enabled": True},
-                "memory-core": {
-                    "config": {
-                        "dreaming": {
-                            "enabled": True,
-                        }
-                    }
-                },
+                # v4.2.0 治本修复：移除 memory-core dreaming 默认开启
+                # 之前在安装时写入 dreaming.enabled=true，希望默认开启梦境记忆固化。
+                # 但实测发现 dreaming 在用户对话期间会并发启动 2 个额外 LLM 调用
+                # （dreaming-narrative-light + dreaming-narrative-rem）
+                # → 3 个 model_call 同时占 EventLoop → CPU 100% +
+                # eventLoopDelay 飙到 6000-7000ms → Node.js 进程被
+                # Windows 系统资源压力静默杀死（无 panic / 无 stderr）
+                # 这是 Gateway 反复崩溃的根本原因。
+                #
+                # OpenClaw 默认 dreaming 不开启 → 这里不再写入 memory-core 配置，
+                # 让 OpenClaw 自然使用默认值。用户如想开启，可手动改 openclaw.json。
+                # 旧版本残留 dreaming.enabled=true 的用户需手动改回 false（或重装）。
+                #
+                # "memory-core": {
+                #     "config": {
+                #         "dreaming": {
+                #             "enabled": True,
+                #         }
+                #     }
+                # },
                 "mcp-bridge": {
                     "enabled": True,
                     "config": {
