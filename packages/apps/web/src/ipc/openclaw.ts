@@ -572,6 +572,11 @@ export async function validateDeployments(): Promise<DeployValidationResult> {
   return invoke<DeployValidationResult>("openclaw_deploy_validate");
 }
 
+/** 修复（重新部署）指定部署项 */
+export async function repairDeployment(depId: string): Promise<{ success: boolean; error?: string; message?: string }> {
+  return invoke("openclaw_deploy_repair", { depId });
+}
+
 // ── Sidecar 状态 ───────────────────────────────────────────────────────────
 
 /** sidecar 运行状态（对齐 apps/desktop/src/ipc/status.ts） */

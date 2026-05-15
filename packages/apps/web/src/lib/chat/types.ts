@@ -94,10 +94,12 @@ export interface ChatSendParams {
 /** Gateway chat 事件（WebSocket 接收） */
 export interface GatewayChatEvent {
   state: "delta" | "final" | "aborted" | "error";
-  /** 累积文本 */
+  /** 累积文本（error 状态时为错误描述） */
   message: string;
   /** 运行 ID */
   runId?: string;
+  /** 原始错误详情（来自 Gateway 的 rawError 字段，如 "429 status code (no body)"） */
+  rawError?: string;
   /** 工具调用信息（Anthropic 风格 content blocks） */
   messageBlocks?: GatewayMessageBlock[];
   /** Tool 调用生命周期事件（来自 event=agent, stream=item, kind=tool） */

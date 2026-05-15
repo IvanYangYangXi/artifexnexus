@@ -198,6 +198,30 @@ function InstallerTab() {
           if (sum.corrupted > 0) p.push(`⚠️ ${sum.corrupted} 损坏`);
           if (sum.missing > 0) p.push(`❌ ${sum.missing} 缺失`);
           addLog("openclaw", "info", `部署文件校验: ${p.join(" · ")}`);
+          // 有损坏/缺失时，逐条输出明细
+          for (const d of v.deployments ?? []) {
+            const label = d.id;
+            const ver = d.currentVersion ? ` (v${d.currentVersion})` : "";
+            if (d.status === "corrupted") {
+              const files = d.corrupted_files ?? [];
+              if (files.length > 0) {
+                for (const f of files) addLog("openclaw", "warn", `  ⚠️ 损坏: ${label}/${f}${ver} — ${d.details}`);
+              } else {
+                addLog("openclaw", "warn", `  ⚠️ 损坏: ${label}${ver} — ${d.details}`);
+              }
+            }
+            if (d.status === "missing") {
+              const files = d.missing_files ?? [];
+              if (files.length > 0) {
+                for (const f of files) addLog("openclaw", "warn", `  ❌ 缺失: ${label}/${f}${ver}`);
+              } else {
+                addLog("openclaw", "warn", `  ❌ 缺失: ${label}${ver} — ${d.details}`);
+              }
+            }
+            if (d.status === "outdated") {
+              addLog("openclaw", "info", `  🔄 可更新: ${label}${ver} → v${d.sourceVersion}`);
+            }
+          }
         }
       } catch { addLog("openclaw", "warn", "部署校验失败"); }
     } catch (err) { console.warn("[SystemPage] refresh getOpenClawStatus failed:", err);
@@ -545,7 +569,7 @@ function InstallerTab() {
       {/* 底部：运行状态 + 可调高度日志 */}
       <div className="shrink-0 border-t border-white/[0.06]">
         {/* 运行状态摘要 */}
-        <StatusBar />
+        <StatusBar addLog={addLog} />
         {/* 日志头部 */}
         <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground border-t border-white/[0.04]">
           <span>日志</span><span className="flex-1" /><button className="hover:text-foreground" onClick={() => setLogs([])}>清空</button>
@@ -559,10 +583,11 @@ function InstallerTab() {
 
 // ─── 运行状态摘要栏 ─────────────────────────────────────────────────────────
 
-function StatusBar() {
+function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], msg: string) => void }) {
   const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[]>([]);
   const [deploy, setDeploy] = React.useState<any>(null);
   const [sidecarPort, setSidecarPort] = React.useState<number | null>(null);
+  const [repairing, setRepairing] = React.useState(false);
 
   const refresh = async () => {
     try {
@@ -613,6 +638,27 @@ function StatusBar() {
 
   React.useEffect(() => { refresh(); }, []);
 
+  const repairAll = async () => {
+    if (!deploy?.deployments) return;
+    setRepairing(true);
+    const ipc = await getIpc();
+    const damaged = deploy.deployments.filter(
+      (d: any) => d.status === "corrupted" || d.status === "missing"
+    );
+    if (damaged.length === 0) { setRepairing(false); return; }
+    for (const d of damaged) {
+      try {
+        const r = await ipc.repairDeployment(d.id);
+        if (r.success) addLog("openclaw", "info", `🛠️ 已修复: ${d.id}`);
+        else addLog("openclaw", "error", `🛠️ 修复失败: ${d.id} — ${r.error}`);
+      } catch (err: any) {
+        addLog("openclaw", "error", `🛠️ 修复失败: ${d.id} — ${err}`);
+      }
+    }
+    setRepairing(false);
+    refresh();
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-[11px]">
       <span className="text-muted-foreground">运行状态:</span>
@@ -627,6 +673,12 @@ function StatusBar() {
         <span className="text-muted-foreground">
           · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.outdated ?? 0}🔄 {deploy.summary?.corrupted ?? 0}⚠️ {deploy.summary?.missing ?? 0}❌
         </span>
+      )}
+      {(deploy?.summary?.corrupted ?? 0) + (deploy?.summary?.missing ?? 0) > 0 && (
+        <Button variant="outline" size="sm" className="h-5 text-[11px] rounded-full text-amber-400 border-amber-400/30"
+          disabled={repairing} onClick={repairAll}>
+          {repairing ? "修复中…" : "修复"}
+        </Button>
       )}
       <span className="text-muted-foreground">· Sidecar 端口 {sidecarPort ?? 19789}</span>
       <div className="flex-1" />

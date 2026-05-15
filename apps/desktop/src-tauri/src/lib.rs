@@ -99,6 +99,8 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_port_set,
             // STORY-0030 M2：部署文件校验
             commands::openclaw::openclaw_deploy_validate,
+            // STORY-0030 M2：部署文件修复
+            commands::openclaw::openclaw_deploy_repair,
             // STORY-0033 M3：Shell 打开路径
             commands::openclaw::shell_open_path,
             // STORY-0018 T3：Gateway 状态控制面板

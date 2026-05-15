@@ -27,6 +27,51 @@ import type { SendResult } from "./gateway-ws";
 // Gateway history 仅作为后台静默刷新源，不阻塞 UI。
 const messageCache = new Map<string, ChatMessage[]>();
 
+// ─── AI 错误信息解析（将 Gateway 原始错误映射为用户可理解的中文提示）────
+
+/**
+ * 解析 AI 调用错误，返回带具体原因的用户提示。
+ *
+ * 匹配规则（按优先级）：
+ * - 429 → API 配额/速率超限，请稍后重试或更换 Key
+ * - 403 → API Key 无效或已过期
+ * - 401 → API Key 鉴权失败
+ * - 500/502/503 → 服务端异常
+ * - timeout / ETIMEDOUT → 请求超时
+ * - 其他 → 保留 Gateway 原文（不再用笼统的"AI 响应出错"）
+ */
+function parseAiErrorMessage(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  // 429: 速率限制 / 配额耗尽
+  if (lower.includes("429") || lower.includes("rate limit")) {
+    return "API 配额/速率超限（429），请稍后重试或更换 API Key";
+  }
+  // 403: Key 过期 / 无权访问
+  if (lower.includes("403") || lower.includes("forbidden")) {
+    return "API Key 无效或已过期（403），请检查并更新 Key";
+  }
+  // 401: 鉴权失败
+  if (lower.includes("401") || lower.includes("unauthorized")) {
+    return "API Key 鉴权失败（401），请检查 Key 是否正确";
+  }
+  // 5xx: 服务端异常
+  if (/\b5\d{2}\b/.test(raw)) {
+    const code = raw.match(/\b(5\d{2})\b/)?.[1] ?? "5xx";
+    return `AI 服务端异常（${code}），请稍后重试`;
+  }
+  // 超时
+  if (lower.includes("timeout") || lower.includes("etimedout")) {
+    return "AI 请求超时，请检查网络后重试";
+  }
+  // 如果 Gateway 给了有意义的错误信息，直接用
+  if (raw.length > 10) {
+    return `AI 响应出错：${raw.slice(0, 120)}`;
+  }
+  // 兜底
+  return "AI 响应出错，请重试";
+}
+
 // ─── localStorage 持久化（P1-4：防页面刷新/崩溃丢失消息） ──────────
 const LS_PREFIX = "artifex_chat:";
 const MAX_PERSISTED_MESSAGES = 200;
@@ -609,8 +654,10 @@ export function useChatService(options: ChatServiceOptions) {
       case "aborted":
       case "error": {
         if (event.state === "error") {
-          console.warn(`[chat-service] error event: session=${sessionKeyRef.current?.slice(0,12)}...`);
-          dispatch({ type: "SET_ERROR", error: "AI 响应出错，请重试" });
+          // 优先用 rawError（含 HTTP 状态码），其次用 message
+          const raw = event.rawError || event.message || "";
+          console.warn(`[chat-service] error event: session=${sessionKeyRef.current?.slice(0,12)}... raw="${raw.slice(0,200)}"`);
+          dispatch({ type: "SET_ERROR", error: parseAiErrorMessage(raw) });
         }
         else {
           console.log(`[chat-service] aborted: session=${sessionKeyRef.current?.slice(0,12)}...`);

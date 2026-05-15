@@ -689,13 +689,19 @@ def _record_deployment(
     source: str,
     target: str,
     source_version: str,
+    *,
+    scan_dir: Optional[str] = None,
 ) -> None:
     """安装后记录部署项到 manifest。
 
     Record a deployment entry in deploy-manifest.json after install.
-    """
-    src_dir = Path(source)
-    files = _scan_dir_files(src_dir)
+
+    scan_dir 用于指定文件扫描目录。默认为 source（源码路径），但
+    gateway-mcp-bridge 等只拷贝部分文件的场景应设为 target（目标路径），
+    避免 manifest 记录源码目录中未拷贝到目标的 toolchain 文件（如
+    node_modules、src、dist 等）。"""
+    scan_path = Path(scan_dir) if scan_dir else Path(source)
+    files = _scan_dir_files(scan_path)
 
     manifest = _read_deploy_manifest()
 
@@ -872,6 +878,43 @@ def validate_all_deployments() -> List[dict]:
     return results
 
 
+def repair_deployment(dep_id: str) -> dict:
+    """修复指定部署项（重新部署以同步 manifest 与磁盘文件）。
+
+    Repair a single deployment entry — re-deploy to sync manifest with disk.
+    当前支持: gateway-mcp-bridge（重新拷贝 + 以 target 目录重录 manifest）。
+    """
+    if dep_id == "gateway-mcp-bridge":
+        return install_gateway_mcp_bridge()
+
+    manifest = _read_deploy_manifest()
+    dep = next((d for d in manifest.get("deployments", []) if d.get("id") == dep_id), None)
+    if dep is None:
+        return {"success": False, "error": f"未找到部署项: {dep_id}"}
+
+    target_dir = Path(dep.get("target", ""))
+    source_dir = Path(dep.get("source", ""))
+    if not source_dir.exists():
+        return {"success": False, "error": f"源目录不存在: {source_dir}"}
+
+    method = dep.get("method", "copy")
+    if method == "copy":
+        try:
+            # 清理目标后重新拷贝
+            if target_dir.exists():
+                if os.path.isdir(str(target_dir)):
+                    shutil.rmtree(str(target_dir))
+                else:
+                    os.unlink(str(target_dir))
+            shutil.copytree(str(source_dir), str(target_dir), ignore=_get_ignore_patterns_for_shutil())
+        except Exception as e:
+            return {"success": False, "error": f"复制失败: {e}"}
+        _record_deployment(dep_id, str(source_dir), str(target_dir), _get_source_version(source_dir), scan_dir=str(target_dir))
+        return {"success": True, "message": f"{dep_id} 已修复（{method}）", "target": str(target_dir)}
+
+    return {"success": False, "error": f"不支持的部署方法: {method}"}
+
+
 # ── Gateway MCP Bridge 插件部署 ──────────────────────────────────────────
 
 def _get_gateway_plugin_src_dir() -> Path:
@@ -986,10 +1029,11 @@ def install_gateway_mcp_bridge() -> Dict:
 
     logger.info(f"mcp-bridge 插件部署成功 ({method}): {target_dir}")
 
-    # 记录部署清单
+    # 记录部署清单 —— scan_dir=target_dir 只记录实际拷贝到目标的文件
+    # （不记录源码中的 node_modules / src / dist 等 toolchain 文件）
     source_version = _get_source_version(Path(src_dir))
     try:
-        _record_deployment("gateway-mcp-bridge", src_dir, target_dir, source_version)
+        _record_deployment("gateway-mcp-bridge", src_dir, target_dir, source_version, scan_dir=target_dir)
     except Exception as e:
         logger.warning(f"部署清单记录失败（不阻断安装）: {e}")
 

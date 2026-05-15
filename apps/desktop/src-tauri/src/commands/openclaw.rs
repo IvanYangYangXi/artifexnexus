@@ -409,6 +409,21 @@ pub async fn openclaw_deploy_validate(
     manager.call("openclaw.deploy.validate", json!({}))
 }
 
+/// 修复（重新部署）指定部署项，同步 manifest 与磁盘文件。
+#[tauri::command]
+pub async fn openclaw_deploy_repair(
+    sidecar: State<'_, SidecarState>,
+    dep_id: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.deploy.repair", json!({"dep_id": dep_id}))
+}
+
 /// 在操作系统中打开文件/目录/URL。
 ///
 /// STORY-0033 M3：B 区域自定义连接点击打开。

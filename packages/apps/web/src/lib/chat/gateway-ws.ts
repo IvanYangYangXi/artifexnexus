@@ -813,6 +813,7 @@ export class GatewayWebSocket {
           state: payload.state ?? "delta",
           message: this._extractText(payload.message ?? ""),
           runId: payload.runId,
+          rawError: typeof payload.rawError === "string" ? payload.rawError : undefined,
         };
         this._messageHandlers.forEach((h) => h(chatEvent));
       }

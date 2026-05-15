@@ -1136,6 +1136,28 @@ def _handle_openclaw_deploy_validate(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_deploy_repair(req_id: Any, params: dict) -> dict:
+    """openclaw.deploy.repair RPC：修复指定部署项（重新部署以同步 manifest）。
+
+    参数：
+        dep_id (str): 部署项 ID（如 "gateway-mcp-bridge"）
+    """
+    dep_id = params.get("dep_id")
+    if not dep_id:
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: dep_id"},
+        }
+    try:
+        result = _dcc_installer.repair_deployment(dep_id)
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_shell_open_path(req_id: Any, params: dict) -> dict:
     """shell.open_path RPC：在操作系统中打开文件/目录/URL。
 
@@ -1517,6 +1539,7 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
     # STORY-0029 T2：全局部署校验
     "openclaw.deploy.validate": _handle_openclaw_deploy_validate,
+    "openclaw.deploy.repair": _handle_openclaw_deploy_repair,
     # STORY-0033 M3：Shell 打开路径（文件夹/文件/URL）
     "shell.open_path": _handle_shell_open_path,
     # STORY-0018 T2：Gateway 状态控制面板（实现在 sidecar_gateway.py）
