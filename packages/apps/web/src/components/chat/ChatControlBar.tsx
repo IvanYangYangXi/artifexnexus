@@ -363,27 +363,29 @@ export function ChatControlBar({
             const textTitle = localTitle || s.title || s.sessionKey;
             const displayTitle = `${datePrefix} ${textTitle}`;
             return (
-              <SelectItem key={s.sessionKey} value={s.sessionKey} className="pr-8">
-                <span className="block truncate">{displayTitle}</span>
-                {onDeleteSession && (
-                  <span className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-1">
-                    <span
-                      className="w-px h-3 bg-border/50 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <button
-                      className="shrink-0 p-0.5 rounded text-muted-foreground/20 hover:bg-destructive/15 hover:text-destructive transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onDeleteSession(s.sessionKey);
-                      }}
-                      title="删除对话"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                )}
+              <SelectItem key={s.sessionKey} value={s.sessionKey}>
+                <span className="flex w-full items-center min-w-0 gap-1.5">
+                  <span className="truncate flex-1">{displayTitle}</span>
+                  {onDeleteSession && (
+                    <>
+                      <span
+                        className="w-px h-3 bg-border/50 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <button
+                        className="shrink-0 p-0.5 rounded text-muted-foreground/20 hover:bg-destructive/15 hover:text-destructive transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onDeleteSession(s.sessionKey);
+                        }}
+                        title="删除对话"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </span>
               </SelectItem>
             );
           })}
