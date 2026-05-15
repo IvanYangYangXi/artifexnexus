@@ -6,6 +6,7 @@
   - 用户修改应被尊重；bug 修复方式应注释 bootstrap 写入代码而非运行时强制改写。
 - **sessionKey 格式**：`agent:{agentId}:{subKey}`，统一使用 `lib/chat/session-key.ts` 解析，禁止手动 `.split(":")`。
 - **构建命令**：`pnpm -C apps/desktop tauri build`（包含 Next.js build 作为 beforeBuildCommand），不能用 `pnpm build`。
+- **Gateway WebSocket client ID**：必须使用 `openclaw-control-ui`（OpenClaw v2026.5.4 CLIENT_IDS 白名单只有 `webchat-ui` / `openclaw-control-ui`），**不可**用 `artifex-nexus-control-ui`。
 
 ## 关键架构
 

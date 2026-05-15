@@ -654,7 +654,7 @@ export class GatewayWebSocket {
     if (!this._ws) return;
 
     // Gateway client 白名单（来自 OpenClaw client-info.ts）：
-    // client.id 枚举：webchat-ui | artifex-nexus-control-ui | cli | node-host | webchat | ...
+    // client.id 枚举：webchat-ui | openclaw-control-ui | cli | node-host | webchat | ...
     // client.mode 枚举：webchat | cli | ui | backend | node | probe | test
     //
     // 参考 artclaw_bridge gateway_client.py _handshake()：
@@ -666,7 +666,7 @@ export class GatewayWebSocket {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "artifex-nexus-control-ui",
+        id: "openclaw-control-ui",
         displayName: "Artifex Nexus",
         version: "0.1.0",
         platform: "win32",
@@ -689,7 +689,7 @@ export class GatewayWebSocket {
       params,
     });
 
-    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=artifex-nexus-control-ui`);
+    console.log(`[gateway-ws] Sending connect: id=${reqId}, clientId=openclaw-control-ui`);
     this._ws.send(payload);
   }
 
