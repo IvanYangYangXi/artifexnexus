@@ -1,7 +1,7 @@
 ---
 tags: [spec, ui, web, chat, structure, M3]
 created: 2026-05-09
-updated: 2026-05-09
+updated: 2026-05-15
 status: draft
 ---
 
@@ -831,7 +831,8 @@ Skill 和 Tool 使用同一套 `ItemCard` / `ItemListRow` 组件，通过 props 
 |------|------|
 | 分组头 | Skill 名称，可展开/折叠 |
 | Tool 行 | 图标 + 函数名 + `[▶ 运行]` 按钮 |
-| 点击名称/运行 | 右侧 D 面板展开 Tool 参数输入表单 + 执行按钮 |
+| 点击名称 | D5 上下文预览区切换到 `tool-detail` |
+| 点击 [▶ 运行] | D5 上下文预览区切换到 `tool-run` |
 | 右键 | 上下文菜单（收藏/查看详情） |
 
 ### D4：资源管理器
@@ -859,29 +860,94 @@ Skill 和 Tool 使用同一套 `ItemCard` / `ItemListRow` 组件，通过 props 
 | 点击文件夹 | 展开/折叠 |
 | 与 Skill 关联 | 资源管理器中的文件夹对应 Skill，可快速定位 |
 
-### D5：文件预览
+### D5：上下文预览区（Context Preview）
+
+D5 是一个**事件驱动的上下文预览容器**。自身不展示分页 UI，内容由外部事件触发切换。
 
 ```
+无事件时（默认）：
 ┌──────────────────────────┐
-│ ▼ 文件预览                │
+│ ▼ 上下文预览              │
 ├──────────────────────────┤
-│ 📄 manifest.json         │  ← 当前预览文件名
+│                          │
+│   选择文件 / Tool / 资源   │
+│   以在此预览              │
+│                          │
+└──────────────────────────┘
+
+事件触发后（以 Tool 详情为例）：
+┌──────────────────────────┐
+│ ▼ 上下文预览              │
+├──────────────────────────┤
+│ Tool 详情                 │  ← 当前上下文标题（由渲染器提供）
 │ ─────────────────────────│
-│ {                        │
-│   "name": "blender-...", │
-│   "version": "1.2.0",   │
-│   "tools": [...]         │
-│ }                        │
+│ 名称: create_cube         │
+│ 所属 Skill: blender-...  │
+│ 参数: size, location     │
+│ [▶ 运行]  [📌 收藏]      │
 └──────────────────────────┘
 ```
 
-| 元素 | 说明 |
+#### 工作原理
+
+```
+外部组件触发事件                    D5 内部
+─────────────────                  ────────
+D3 Tool 列表 click Tool    ──→   识别 kind="tool-detail"
+D3 运行按钮 click          ──→   识别 kind="tool-run"
+D4 资源管理器 click 文件    ──→   识别 kind="file-preview"
+C3 文件区 click 文件       ──→   识别 kind="file-preview"
+... (后续扩展)             ──→   识别 kind="3d" / "video" / ...
+```
+
+D5 内部维护一个 **渲染器注册表（Renderer Registry）**：
+
+```typescript
+// 概念：kind → React 组件
+type PreviewKind = "file-preview" | "tool-detail" | "tool-run" | "3d" | "video" | ...;
+
+interface PreviewContext {
+  kind: PreviewKind;
+  title: string;          // 面板标题区显示的文本
+  payload: unknown;       // 渲染器需要的任意数据
+}
+```
+
+| 机制 | 说明 |
 |------|------|
-| 文件名 | 当前预览的文件路径/名称 |
-| 内容区 | 根据文件类型渲染 |
-| 支持格式 | `.md` → Markdown 渲染；`.py`/`.json`/`.ts` → 语法高亮；`.png`/`.jpg` → 图片缩略图 |
-| 无选中时 | 灰字提示"在资源管理器或会话文件中选择文件以预览" |
-| 联动 C3-文件区 | 点击 C3-文件区的文件条目 → D5 自动定位并预览 |
+| **触发** | 外部组件调用 `previewContext.set({ kind, title, payload })` |
+| **路由** | D5 根据 `kind` 查注册表 → 找到对应渲染器组件 |
+| **切换** | 每次 set 直接替换当前内容（无动画、无历史栈） |
+| **无事件** | 显示默认占位提示 |
+
+#### 已定义 kind 及渲染器
+
+| kind | 触发源 | 渲染内容 |
+|------|--------|---------|
+| `file-preview` | D4 资源管理器 / C3 文件区 点击文件 | 根据文件类型：`.md` Markdown 渲染、`.py/.json/.ts` 语法高亮、`.png/.jpg` 图片 |
+| `tool-detail` | D3 Tool 列表点击 Tool 名 | Tool 名称、所属 Skill、参数列表、`[▶ 运行]` `[📌 收藏]` 按钮 |
+| `tool-run` | D3 Tool 列表点击 `[▶ 运行]` / Tool 详情页内点击运行 | 参数输入表单 + `[执行]` 按钮 + 执行结果区域 |
+
+后续扩展（不创建占位，需要时再加 kind + 渲染器）：
+- `3d` — 3D 模型预览（glTF / OBJ）
+- `video` — 视频播放器
+- `image` — 大图预览（区别于 file-preview 的内联缩略图）
+
+#### 上下文 API（PreviewContext）
+
+```typescript
+// 通过 React Context 暴露，全局可用
+interface PreviewContextValue {
+  /** 当前预览内容，null = 无事件 */
+  content: PreviewContent | null;
+  /** 触发预览切换 */
+  setPreview: (content: PreviewContent) => void;
+  /** 清空预览，回到默认占位 */
+  clearPreview: () => void;
+}
+```
+
+AppShell 层持有 `PreviewContext.Provider`，D3/D4/C3 等组件通过 `useContext(PreviewContext)` 获取 `setPreview` 来触发切换。D5 读取 `content` 并路由到对应渲染器。
 
 ---
 
@@ -923,9 +989,10 @@ Chat ─────────── 对话界面（默认入口）
 | B3 设置齿轮 | 设置模块 | 点击 |
 | D1 最近使用 Tool | Chat 输入框 @提及 | 点击 |
 | D1 最近使用 Skill | 技能模块 Skill 详情 | 点击 |
-| D3 Tool 列表 | Chat 输入框 @提及 | 点击 |
-| D4 资源管理器 | D5 文件预览 | 点击文件 |
-| C3-文件区 文件条目 | D5 文件预览 | 点击 |
+| D3 Tool 列表 点击名称 | D5 上下文预览 `tool-detail` | 点击 |
+| D3 Tool 列表 点击运行 | D5 上下文预览 `tool-run` | 点击 |
+| D4 资源管理器 | D5 上下文预览 `file-preview` | 点击文件 |
+| C3-文件区 文件条目 | D5 上下文预览 `file-preview` | 点击 |
 | C-SYS2-G-d OpenClaw Web UI | 系统浏览器打开 | Gateway 运行时 |
 | Chat 工具卡片 Tool 名 | 技能模块 Tool 详情 | 点击 |
 
@@ -1009,7 +1076,8 @@ sequenceDiagram
 - [ ] C-Chat 可输入消息并显示 mock 回复
 - [ ] C-Chat 对话控制栏功能可操作
 - [ ] C2-A-c 工具执行卡片：≥3 个工具时默认折叠，可展开
-- [ ] C3-文件区：显示对话中操作的文件，点击联动 D5 预览
+- [ ] C3-文件区：显示对话中操作的文件，点击联动 D5 `file-preview`
+- [ ] D5 上下文预览区：渲染器注册表 + PreviewContext API + file-preview / tool-detail / tool-run 三种渲染器
 - [ ] C3-钉选区：@提及 后显示标签，可取消
 - [ ] C3a @提及 弹出选择器：搜索 + 选中插入
 - [ ] C3a [+ 新对话] 按钮可用
@@ -1029,8 +1097,7 @@ sequenceDiagram
 - [ ] C-设置 分类导航可切换，模型/认证/Agent 内容与原功能一致
 - [ ] D 区域可隐藏/显示，整体宽度可拖拽
 - [ ] D 各面板可独立折叠/展开，面板间高度可拖拽
-- [ ] D4 资源管理器点击文件联动 D5 预览
-- [ ] D5 与 C3-文件区联动：点击会话文件 → D5 预览
+- [ ] D4 资源管理器点击文件联动 D5 `file-preview`
 - [ ] Desktop .exe 加载 Web UI 后功能无回退
 - [ ] `pnpm -C packages/apps/web build` 通过
 - [ ] `pnpm -C apps/desktop tauri build` 通过

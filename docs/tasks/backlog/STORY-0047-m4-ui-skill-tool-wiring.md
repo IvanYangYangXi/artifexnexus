@@ -46,6 +46,18 @@ tags: [story, ui, skill, tool, tauri, invoke, M4, M5]
 - [ ] `ToolCard.tsx`：运行/收藏按钮接真实 API
 - [ ] 操作后自动刷新列表（乐观更新 + 静默重取）
 
+### 上下文预览区 D5（事件驱动）
+- [ ] `RightPanel.tsx` D5 重构为事件驱动上下文预览容器
+  - 无可见分页 UI，内容由 `PreviewContext` 事件触发切换
+  - 内部维护渲染器注册表（`kind → React.Component`）
+- [ ] `AppShell.tsx` 新增 `PreviewContext.Provider`
+  - 暴露 `setPreview({ kind, title, payload })` / `clearPreview()` / `content`
+- [ ] D3 Tool 列表点击 Tool 名 → D5 显示 `tool-detail` 渲染器
+- [ ] D3 Tool 列表点击 [▶ 运行] → D5 显示 `tool-run` 渲染器
+- [ ] D4 资源管理器 / C3 文件区点击文件 → D5 显示 `file-preview` 渲染器
+- [ ] D1/D2 接真实 API（`skill-api.list()` / 最近使用基于实际调用记录）
+- [ ] D2 钉选按钮改为调 `skillApi.pin/unpin` 持久化
+
 ### 容错
 - [ ] sidecar 未启动时显示明确错误提示，不白屏
 - [ ] 单个操作失败不影响列表渲染
@@ -61,12 +73,15 @@ tags: [story, ui, skill, tool, tauri, invoke, M4, M5]
 | `packages/apps/web/src/app/skills/page.tsx` | 已存在（改 mock→API） | **低** |
 | `packages/apps/web/src/components/skills/SkillCard.tsx` | 已存在（改按钮接线） | **低** |
 | `packages/apps/web/src/components/skills/ToolCard.tsx` | 已存在（改按钮接线） | **低** |
+| `packages/apps/web/src/components/shell/RightPanel.tsx` | 已存在（D5 重构 + D2/D3 接线） | **中** |
+| `packages/apps/web/src/components/shell/AppShell.tsx` | 已存在（+PreviewContext Provider） | **低** |
 
 ## 关键适配
 
 - `invoke("skill_list", { filters })` → Rust `#[tauri::command] fn skill_list()` → `manager.call("skill.list", ...)`
 - TypeScript `SkillAPI` / `ToolAPI` 接口定义与 v2 方案 §1.3 完全对齐
 - 通信链路：Browser → Tauri IPC → Rust → stdio JSON-RPC → Python sidecar
+- D5 上下文预览：事件驱动、kind → 渲染器注册表、无可见分页 UI。设计详见 `[[../../specs/ui/web-chat-structure]]` §8 D5
 
 ## 依赖
 - → EPIC-0004（父，Skill UI）；→ EPIC-0005（Tool UI）

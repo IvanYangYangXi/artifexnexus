@@ -183,6 +183,8 @@ export interface ToolAPI {
 | U3 | `packages/apps/web/src/app/skills/page.tsx` | 现有（修改） | ~+100 | **低** | 替换 mock → 真实 API |
 | U4 | `packages/apps/web/src/components/skills/SkillCard.tsx` | 现有（修改） | ~+50 | **低** | 操作按钮接真实 API |
 | U5 | `packages/apps/web/src/components/skills/ToolCard.tsx` | 现有（修改） | ~+50 | **低** | 操作按钮接真实 API |
+| U6 | `packages/apps/web/src/components/shell/RightPanel.tsx` | 现有（修改） | ~+200 | **中** | D5 重构为上下文预览容器（事件驱动 + 渲染器注册表）；D2/D3 接真实 API |
+| U7 | `packages/apps/web/src/components/shell/AppShell.tsx` | 现有（修改） | ~+30 | **低** | 新增 `PreviewContext.Provider` 全局暴露 `setPreview` / `clearPreview` |
 
 ---
 
