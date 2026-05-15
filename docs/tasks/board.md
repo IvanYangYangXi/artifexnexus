@@ -10,8 +10,14 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
-- [ ] [[STORY-0040-m3-func-modules-api]]
 - [ ] [[EPIC-0004-m4-skill-system]]
+- [ ] [[STORY-0042-m4-sdk-decorator-manifest]]
+- [ ] [[STORY-0043-m4-sdk-hub-registry]]
+- [ ] [[STORY-0044-m4-sdk-installer-loader]]
+- [ ] [[STORY-0045-m5-sdk-tool-registry]]
+- [ ] [[STORY-0046-m4-rpc-skill-tool]]
+- [ ] [[STORY-0047-m4-ui-skill-tool-wiring]]
+- [ ] [[STORY-0048-m4-migration-skill-tool]]
 - [ ] [[EPIC-0005-m5-tool-system]]
 - [ ] [[EPIC-0006-m6-memory-system]]
 - [ ] [[EPIC-0007-m7-multi-dcc-inapp-chat]]
@@ -30,6 +36,7 @@ tags:
 ## Review
 
 ## Done
+- [x] [[STORY-0040-m3-func-modules-api]] *(已拆解覆盖，不复执行 → 2026-05-15)*
 - [x] [[STORY-0039-m3-func-chat-api]]
 - [x] [[TASK-0050-chat-panel-interaction-optimization]]
 - [x] [[TASK-0051-story39-gateway-stability]]

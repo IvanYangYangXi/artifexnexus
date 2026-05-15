@@ -25,6 +25,7 @@ import {
   parseSessionKey,
   getCustomTitle,
   isSentinel,
+  formatSessionDate,
   PENDING_NEW_KEY,
   EMPTY_KEY,
   NEW_KEY,
@@ -194,15 +195,19 @@ export function ChatControlBar({
           });
         }
 
-        // 从配置中提取 models（字段名: providers，每个 provider 有 models 数组）
+        // 从配置中提取 models —— 统一用 ``provider/modelId`` 格式，避免同名模型
+        // 在不同供应商下混淆（如 custom/gpt-4 vs openai/gpt-4）。
+        // name 同样带 provider 前缀，便于下拉菜单清晰显示。
         const providers = (config as any)?.providers ?? {};
         const modelList: Array<{ id: string; name: string }> = [];
-        for (const [_providerId, provider] of Object.entries(providers)) {
+        for (const [providerId, provider] of Object.entries(providers)) {
           const p = provider as any;
           if (Array.isArray(p?.models)) {
             for (const m of p.models) {
               if (m?.id) {
-                modelList.push({ id: m.id, name: m.name ?? m.id });
+                const fqId = `${providerId}/${m.id}`;
+                const baseName = m.name ?? m.id;
+                modelList.push({ id: fqId, name: `${providerId}/${baseName}` });
               }
             }
           }
@@ -210,7 +215,14 @@ export function ChatControlBar({
         if (modelList.length > 0) {
           setModels(modelList);
           setModel((prev) => {
-            if (modelList.find((m: { id: string }) => m.id === prev)) return prev;
+            // 兼容旧 localStorage 的裸 id（如 "deepseek-v4-pro"），尝试匹配后缀
+            const exactMatch = modelList.find((m) => m.id === prev);
+            if (exactMatch) return prev;
+            const suffixMatch = modelList.find((m) => m.id.split("/").pop() === prev);
+            if (suffixMatch) {
+              lsSet(MODEL_KEY, suffixMatch.id);
+              return suffixMatch.id;
+            }
             const found = modelList[0].id;
             lsSet(MODEL_KEY, found);
             return found;
@@ -271,6 +283,11 @@ export function ChatControlBar({
     : activeSession
       ? (activeSession.model || "")
       : model;
+  // 模型 id 在不同位置可能带 ``provider/`` 前缀（如 ``custom/deepseek-v4-pro``）
+  // 也可能是裸 id（如 ``deepseek-v4-pro``）。统一剥前缀做匹配 + 兜底显示。
+  const displayModelBareId = displayModelId.includes("/")
+    ? displayModelId.split("/").pop() || displayModelId
+    : displayModelId;
 
   const selectPlaceholder =
     sessionsLoading ? "加载中..." :
@@ -342,7 +359,9 @@ export function ChatControlBar({
           )}
           {filteredSessions.map((s) => {
             const localTitle = getCustomTitle(s.sessionKey);
-            const displayTitle = localTitle || s.title || s.sessionKey;
+            const datePrefix = formatSessionDate(s.createdAt || s.updatedAt);
+            const textTitle = localTitle || s.title || s.sessionKey;
+            const displayTitle = `${datePrefix} ${textTitle}`;
             return (
               <SelectItem key={s.sessionKey} value={s.sessionKey} className="pr-8">
                 <span className="block truncate">{displayTitle}</span>
@@ -390,7 +409,7 @@ export function ChatControlBar({
       {/* Model 标签 — 来自活跃对话的真实 model */}
       <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
         {loading ? "Model: 加载中..." : gatewayRunning
-          ? `Model: ${models.find(m => m.id === displayModelId)?.name ?? (displayModelId || "—")}`
+          ? `Model: ${models.find(m => m.id === displayModelBareId || m.id === displayModelId)?.name ?? (displayModelBareId || "—")}`
           : "Model: —"}
       </span>
 

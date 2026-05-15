@@ -136,7 +136,7 @@ const config = await ipc.dumpOpenClawConfig();
 
 1. **思考强度（effort）关联发送** — 当前 ChatControlBar 选择了 effort 但没传给 `chat.send` RPC
 2. **Agent/Model 关联对话** — 对话列表显示了 model 信息，但切换 Agent/Model 后发消息没有指定 agent/model（Gateway 会用 session 绑定的默认值）
-3. **新消息后对话列表标题更新** — 首条用户消息应更新对话标题
+3. **新消息后对话列表标题更新** — ✅ 已实现：ChatView 首条消息时调用 `generateSessionTitle()` → `setCustomTitle()`，ChatControlBar 渲染时统一添加 `MM-DD HH:mm` 日期前缀
 4. **发送消息后对话列表刷新** — 新建对话发送首条消息后，对话列表应该出现新条目
 
 ### 中优先级

@@ -21,10 +21,13 @@ Lifecycle:
 
 import atexit
 import json
+import logging
 import signal
 import sys
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # 早期启动打点 #0：捕获 import 链失败前的最早时刻；任何 ImportError 都会让
 # 这一行先落到 sidecar-stderr-<pid>.log，避免"日志空白 = sidecar 黑死"。
@@ -122,9 +125,22 @@ def _handle_openclaw_install(req_id: Any, params: dict) -> dict:
         { success, version, prefix, bin_path, events[], error_code?, error_message? }
         其中 events[] 为安装过程中的进度事件列表，每条包含 { phase, message, percent }。
     """
+    logger.info("[sidecar] openclaw.install 请求, version=%s", params.get("version", "v2026.5.4"))
     version = _get_version(params)
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
     prefix = params.get("prefix")
+
+    # ── 安全网：安装/重装前先对整个 .openclaw/ 做容错全量快照 ──
+    # 独立路径 ~/.artifexnexus/full-snapshots/<ts>/，永久保留（保留最近 3 份）
+    try:
+        snap = _bootstrap.create_full_snapshot(Path(openclaw_home))
+        if snap.get("snapshot_dir"):
+            logger.info(
+                "[sidecar] full snapshot ready: %s (files=%d, skipped=%d)",
+                snap["snapshot_dir"], snap.get("file_count", 0), snap.get("skipped_count", 0),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[sidecar] full snapshot 失败（继续安装）: %s", exc)
 
     # 收集所有进度事件
     events: list[dict] = []
@@ -176,6 +192,7 @@ def _handle_openclaw_bootstrap(req_id: Any, params: dict) -> dict:
     返回：
         { success, created_dirs, config_path, token_generated, port }
     """
+    logger.info("[sidecar] openclaw.bootstrap 请求, version=%s", params.get("version", "v2026.5.4"))
     version = _get_version(params)
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
     preferred_port = params.get("port", 19789)
@@ -518,6 +535,11 @@ def _handle_openclaw_config_patch(req_id: Any, params: dict) -> dict:
     参数：
         patch (dict): 给上游 ``openclaw config patch --stdin`` 的 JSON
         extrasPatch (dict, 可选): wrapper extras 增量
+        replacePaths (list[str], 可选): 让指定 dot/bracket 路径**整体替换**
+            而非递归 merge。前端"删除 provider / model"应传：
+            - patch 里给被删父路径一个不含被删项的新值（或 null 删 key）
+            - replacePaths 加该父路径（如 ``["models.providers"]`` 或
+              ``["models.providers.custom.models"]``）
         openclaw_home (str, 可选)
 
     返回：
@@ -526,6 +548,13 @@ def _handle_openclaw_config_patch(req_id: Any, params: dict) -> dict:
     openclaw_home = Path(params.get("openclaw_home", str(_get_openclaw_home())))
     patch_payload = params.get("patch", {})
     extras_patch = params.get("extrasPatch")
+    replace_paths = params.get("replacePaths") or None
+    if replace_paths is not None and not isinstance(replace_paths, list):
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "replacePaths 必须是 string[] 或省略"},
+        }
 
     if not isinstance(patch_payload, dict):
         return {
@@ -537,7 +566,9 @@ def _handle_openclaw_config_patch(req_id: Any, params: dict) -> dict:
     try:
         bin_path = _resolve_openclaw_bin(openclaw_home)
         result = _config_io.patch_config(
-            bin_path, openclaw_home, patch_payload, extras_patch=extras_patch
+            bin_path, openclaw_home, patch_payload,
+            extras_patch=extras_patch,
+            replace_paths=replace_paths,
         )
         return {
             "jsonrpc": "2.0",
@@ -1168,6 +1199,7 @@ def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
     返回：
         { success, backup_dir, timestamp, manifest, total_size_bytes, items }
     """
+    logger.info("[sidecar] openclaw.backup 请求, options=%s", list(params.get("preserve_options", {}).keys()))
     import time as _time
 
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
@@ -1182,6 +1214,21 @@ def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
             },
         }
 
+    # ── 安全网：备份前同时做一次整个 .openclaw/ 的容错全量快照 ──
+    # 独立路径，永久保留（保留最近 3 份）。即使后续 restore 删了选择性备份目录也不丢
+    full_snapshot_info: dict | None = None
+    try:
+        full_snapshot_info = _bootstrap.create_full_snapshot(Path(openclaw_home))
+        if full_snapshot_info.get("snapshot_dir"):
+            logger.info(
+                "[sidecar] full snapshot ready: %s (files=%d, skipped=%d)",
+                full_snapshot_info["snapshot_dir"],
+                full_snapshot_info.get("file_count", 0),
+                full_snapshot_info.get("skipped_count", 0),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[sidecar] full snapshot 失败（继续备份）: %s", exc)
+
     timestamp = f"{_time.time():.0f}"
     backup_dir = Path(openclaw_home).parent / "backups" / timestamp
 
@@ -1190,6 +1237,7 @@ def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
             Path(openclaw_home), preserve_options, backup_dir,
         )
         item_keys = sorted(manifest.get("items", {}).keys())
+        skipped = manifest.get("skipped", []) or []
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1200,6 +1248,9 @@ def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
                 "manifest": manifest,
                 "total_size_bytes": manifest.get("total_size_bytes", 0),
                 "items": item_keys,
+                "skipped_count": len(skipped),
+                "skipped": skipped[:20],  # 截断避免响应过大
+                "full_snapshot": full_snapshot_info,  # 安全网快照位置
             },
         }
     except Exception as exc:
@@ -1223,6 +1274,7 @@ def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
     返回：
         { success, message, errors[]? }
     """
+    logger.info("[sidecar] openclaw.restore 请求, ts=%s, version=%s", params.get("backup_timestamp"), params.get("version", "v2026.5.4"))
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
     backup_timestamp = params.get("backup_timestamp")
     preserve_options = params.get("preserve_options", {})
@@ -1257,12 +1309,40 @@ def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
             "result": {"success": False, "error": f"manifest 读取失败: {exc}"},
         }
 
+    import shutil
+
+    openclaw_home_path = Path(openclaw_home).expanduser().resolve()
+    backup_dir_resolved = Path(backup_dir).expanduser().resolve()
+
     try:
+        # ── 安全网快照已由 backup handler 在备份阶段创建（位于
+        # ~/.artifexnexus/full-snapshots/）。此处不再重复创建。 ──
+
         # Phase 2: 全新安装
-        _bootstrap._clean_install(Path(openclaw_home))
+        _bootstrap._clean_install(openclaw_home_path)
+
+        # 全量重装 CLI（匹配目标版本，替换被 _clean_install 删除的旧 CLI）
+        cli_prefix = openclaw_home_path / "cli" / version
+        cli_events = list(_installer.install_openclaw(
+            version=version,
+            prefix=str(cli_prefix),
+            openclaw_home=str(openclaw_home_path),
+        ))
+        cli_result = _installer.get_install_result(
+            cli_events, prefix=cli_prefix, version=version,
+        )
+        if not cli_result.success:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "success": False,
+                    "error": f"CLI 安装失败: {cli_result.error_message or '未知错误'}",
+                },
+            }
 
         bootstrap_result = _bootstrap.bootstrap(
-            Path(openclaw_home), version=version,
+            openclaw_home_path, version=version,
         )
         if not bootstrap_result.success:
             return {
@@ -1276,13 +1356,12 @@ def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
 
         # Phase 3: 恢复
         restore_result = _bootstrap._restore_from_backup(
-            Path(openclaw_home), backup_dir, preserve_options, manifest,
+            openclaw_home_path, backup_dir_resolved, preserve_options, manifest,
         )
 
         if restore_result["success"]:
-            # 成功后删除备份
-            import shutil
-            shutil.rmtree(str(backup_dir), ignore_errors=True)
+            # 成功后删除选择性备份 + 安全网
+            shutil.rmtree(str(backup_dir_resolved), ignore_errors=True)
             logger.info("restore: 已清理备份 %s", backup_timestamp)
 
         return {

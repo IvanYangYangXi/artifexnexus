@@ -105,23 +105,31 @@ export function NewSessionDialog({
           });
         }
 
-        // 提取 models
+        // 提取 models —— 统一用 ``provider/modelId`` 格式，避免同名模型
+        // 在不同供应商下混淆（如 custom/gpt-4 vs openai/gpt-4）。
         const providers = (config as any)?.providers ?? {};
         const modelList: Array<{ id: string; name: string }> = [];
-        for (const [, provider] of Object.entries(providers)) {
+        for (const [providerId, provider] of Object.entries(providers)) {
           const p = provider as any;
           if (Array.isArray(p?.models)) {
             for (const m of p.models) {
-              if (m?.id) modelList.push({ id: m.id, name: m.name ?? m.id });
+              if (m?.id) {
+                const fqId = `${providerId}/${m.id}`;
+                const baseName = m.name ?? m.id;
+                modelList.push({ id: fqId, name: `${providerId}/${baseName}` });
+              }
             }
           }
         }
         if (modelList.length > 0) {
           setModels(modelList);
           setModel((prev) => {
-            if (modelList.find((m) => m.id === prev)) return prev;
-            const found = modelList[0].id;
-            return found;
+            // 兼容旧 localStorage 的裸 id
+            const exactMatch = modelList.find((m) => m.id === prev);
+            if (exactMatch) return prev;
+            const suffixMatch = modelList.find((m) => m.id.split("/").pop() === prev);
+            if (suffixMatch) return suffixMatch.id;
+            return modelList[0].id;
           });
         }
       } catch (err) { console.warn("[NewSessionDialog] fetch models failed:", err);

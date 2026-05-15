@@ -347,24 +347,63 @@ def _run_config_get(
         return None
 
 
+def _patch_path_exists(patch: Any, dot_path: str) -> bool:
+    """检查 dot/bracket 路径在 patch 里是否真有值。
+
+    OpenClaw CLI 校验 ``--replace-path`` 时要求该路径必须在 patch 中出现，
+    否则报 ``--replace-path X did not match any value in the input patch``。
+    本函数用于在 spawn CLI 前过滤掉 patch 里不存在的 replace_paths。
+
+    支持简单点路径（``a.b.c``）；不实现 bracket 语法（够用即可）。
+    """
+    if not isinstance(dot_path, str) or not dot_path:
+        return False
+    parts = [p for p in dot_path.split(".") if p]
+    cur: Any = patch
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return False
+    return True
+
+
 def _run_config_patch(
     openclaw_bin: Path,
     openclaw_home: Path,
     patch: dict,
     timeout: float = CONFIG_TIMEOUT,
+    *,
+    replace_paths: Optional[list[str]] = None,
 ) -> tuple[bool, Optional[str]]:
     """``openclaw config patch --stdin``；返回 ``(success, error?)``。
 
     error 含 stderr 前 500 字符（剔除可能的 secret 行）。
+
+    Args:
+        replace_paths: 可选；传给 ``--replace-path <path>``（可重复），
+            让指定 dot/bracket 路径下的 object/array **整体替换**而非递归 merge。
+            用于"删除 provider / 删除 model"等需要真删的场景。
+            **会自动过滤掉 patch 中不存在的路径**，避免 OpenClaw 报
+            "did not match any value in the input patch"。
 
     Note: v2026.5.4 的 ``config patch`` **不支持** ``--strict-json`` 选项
     （历史 spike 笔记里写过、实际 CLI 没实现），无脑加上会 ``unknown option``
     退出 1 → 整条 patch 失败。stdin 走的本来就是 JSON5，schema validate +
     atomic write 已经默认开启，``--strict-json`` 是冗余约束。
     """
+    cli_args = ["config", "patch", "--stdin"]
+    if replace_paths:
+        # 关键防御：CLI 严格校验 replace-path 必须在 patch 里有对应值。
+        # strip_unchanged_secrets 等剔除逻辑可能让某些路径凭空消失（如 provider
+        # 重命名后旧 id 不在 patch 里）。这里按 patch 实际结构过滤一次，避免
+        # CLI 报"did not match any value in the input patch"误杀整个 patch。
+        for p in replace_paths:
+            if p and _patch_path_exists(patch, p):
+                cli_args.extend(["--replace-path", p])
     try:
         proc = _sp.run_openclaw(
-            ["config", "patch", "--stdin"],
+            cli_args,
             openclaw_home,
             bin_path=openclaw_bin,
             timeout=timeout,
@@ -381,7 +420,7 @@ def _run_config_patch(
 
 # 测试可注入回调
 ConfigGetFn = Callable[[Path, Path, str], Any]
-ConfigPatchFn = Callable[[Path, Path, dict], tuple]
+ConfigPatchFn = Callable[..., tuple]
 
 
 # ---------------------------------------------------------------------------
@@ -411,20 +450,41 @@ def _iter_auth_profiles_files(openclaw_home: Path):
     yield from (Path(p) for p in glob.glob(new_pattern))
 
 
-def _merge_stored_tokens(openclaw_home: Path, auth_profiles: dict) -> None:
-    """合并 auth-profiles.json 中的 token 到 auth_profiles dict 中。
+def _merge_stored_tokens(openclaw_home: Path, auth_profiles: dict, providers: Optional[dict] = None) -> None:
+    """把 token 合并进 auth_profiles dict（前端用于显示"已保存"状态）。
 
-    上游 v2026.5.4 把凭证存到 auth-profiles.json（可能在新或旧路径），
-    openclaw.json 的 auth.profiles 只有元数据。本函数在 dump 前合并 token 字段，
-    使前端能看到"已保存（脱敏）"状态。
+    Inject token values into ``auth_profiles[<id>].token`` so the frontend can
+    display "saved" badges and masked previews.
 
-    双路径策略：同时扫描 state/agents/ 和 .openclaw/agents/ 两个路径，
-    新路径（.openclaw/）的 token 优先于旧路径（state/），以适配上游迁移方向。
+    单源策略（2026-05-15 收敛后）：
+    - **主要来源**：``openclaw.json::models.providers.<provider>.apiKey``
+      （artifex 单源凭据存储）。通过 ``auth_profiles[*].provider`` 反查对应
+      provider 的 ``apiKey`` 字段。
+    - **历史兼容**：若 ``auth-profiles.json``（已废弃）仍存在，仍合并其 token，
+      让用户在迁移前能继续看到旧凭据状态。新写入永远走 ``models.providers.<id>.apiKey``。
 
-    注意：token 会在后续 mask_secrets() 中被脱敏，这里只做合并，不做脱敏。
+    注意：token 会在后续 mask_secrets() 中被脱敏，这里只做合并。
     """
     if not isinstance(auth_profiles, dict):
         return
+
+    # 主路径：从 providers.<id>.apiKey 反查（与 set_auth_token 单源一致）
+    if isinstance(providers, dict):
+        for profile_id, profile in auth_profiles.items():
+            if not isinstance(profile, dict):
+                continue
+            if profile.get("token"):
+                continue  # 已有则跳过
+            provider_id = profile.get("provider")
+            if not provider_id:
+                continue
+            provider_cfg = providers.get(provider_id)
+            if isinstance(provider_cfg, dict):
+                api_key = provider_cfg.get("apiKey")
+                if isinstance(api_key, str) and api_key:
+                    profile["token"] = api_key
+
+    # 历史兼容路径：auth-profiles.json（已废弃但仍读，便于迁移期）
     for filepath in _iter_auth_profiles_files(openclaw_home):
         try:
             data = json.loads(filepath.read_text(encoding="utf-8"))
@@ -436,11 +496,8 @@ def _merge_stored_tokens(openclaw_home: Path, auth_profiles: dict) -> None:
                 if not token_val:
                     continue
                 if profile_id not in auth_profiles:
-                    # 此 profile 只在凭证文件中存在（openclaw.json 元数据可能
-                    # 尚未同步 → 在 dict 中创建占位条目）
                     auth_profiles[profile_id] = {"provider": stored.get("provider", ""), "mode": stored.get("type", "api_key"), "token": token_val}
-                elif isinstance(auth_profiles[profile_id], dict):
-                    # 已有元数据条目 → 仅补充 token（保留原有的 provider/mode）
+                elif isinstance(auth_profiles[profile_id], dict) and not auth_profiles[profile_id].get("token"):
                     auth_profiles[profile_id]["token"] = token_val
         except (OSError, json.JSONDecodeError, KeyError):
             continue
@@ -494,11 +551,10 @@ def dump_config(
         agent_defaults = getter(openclaw_bin, home, "agents.defaults") or {}
         agent_list = getter(openclaw_bin, home, "agents.list") or []
 
-    # Bug #1 修复：合并 auth-profiles.json 中的 token 到 auth_profiles
-    # 上游 v2026.5.4 把凭证单独存到 state/agents/*/agent/auth-profiles.json，
-    # openclaw.json 中的 auth.profiles 只有元数据（mode/provider），没有 token。
-    # 需要合并 token 字段（脱敏后），让前端能看到"已保存"状态。
-    _merge_stored_tokens(home, auth_profiles)
+    # 把 token 合并进 auth_profiles 给前端展示。
+    # 主路径：从 models.providers.<id>.apiKey 反查（artifex 单源策略）
+    # 历史兼容：若 auth-profiles.json 仍存在则也读（迁移期）
+    _merge_stored_tokens(home, auth_profiles, providers if isinstance(providers, dict) else None)
 
     extras = read_extras(home)
 
@@ -524,15 +580,24 @@ def patch_config(
     *,
     extras_patch: Optional[dict] = None,
     config_patch_fn: Optional[ConfigPatchFn] = None,
+    replace_paths: Optional[list[str]] = None,
 ) -> PatchResult:
     """把面板修改 patch 到 OpenClaw + extras。
 
     1. 从 patch 中剔除"用户未改的 secret 字段"（避免把 ``*`` 串写回 OpenClaw）
-    2. 调用 ``openclaw config patch --stdin``
+    2. 调用 ``openclaw config patch --stdin``（可选 ``--replace-path``）
     3. 若 ``extras_patch`` 给出，深合并写回 ``state/artifex-nexus-extras.json``
 
     extras_patch 与 patch 物理隔离：上游不收的字段（``displayName`` / ``notes``）
     走 extras，避免被 schema validate 拒绝。
+
+    Args:
+        replace_paths: 让指定路径**整体替换**而非递归 merge。前端"删除 provider /
+            删除 model" 应同时设：
+            - patch 里把要删的子路径设为 ``null``（OpenClaw 语义：null 删 key）
+              **或**直接给一个不含被删项的新值
+            - replace_paths 加上父路径（如 ``"models.providers"`` /
+              ``"models.providers.custom.models"``），让 CLI 整体替换数组/对象
     """
     patcher: ConfigPatchFn = config_patch_fn or _run_config_patch
     home = Path(openclaw_home).expanduser().resolve()
@@ -546,7 +611,12 @@ def patch_config(
 
     # 仅当 cleaned 非空时才调 patch（剔除完可能成空 dict）
     if cleaned:
-        ok, err = patcher(openclaw_bin, home, cleaned)
+        # 调用方传了 replace_paths 时透传给 patcher（向后兼容旧 patcher 签名）
+        try:
+            ok, err = patcher(openclaw_bin, home, cleaned, replace_paths=replace_paths)
+        except TypeError:
+            # 旧 patcher 不支持 replace_paths kwarg，回退到无替换调用
+            ok, err = patcher(openclaw_bin, home, cleaned)
         if not ok:
             return PatchResult(success=False, validate_error=err)
 
@@ -730,22 +800,24 @@ def set_auth_token(
     expires_in: Optional[str] = None,
     paste_token_fn: Optional[SetAuthTokenFn] = None,
 ) -> SetAuthTokenResult:
-    """把 API token 写到上游 ``auth-profiles.json``（凭证）+ ``openclaw.json`` 元数据。
+    """把 API token 直接写入 ``openclaw.json`` 的 ``models.providers.<provider>.apiKey``。
 
-    Set a provider API token by spawning ``openclaw models auth paste-token``,
-    which atomically updates both ``auth-profiles.json`` and ``openclaw.json``.
+    Set a provider API token via direct write to ``openclaw.json``. Bypasses
+    OpenClaw's ``auth-profiles.json`` mechanism entirely.
 
-    设计要点（见 docs/specs/openclaw-settings-panel.md v2-post-spike-fix）：
-    - 凭证**不走** ``openclaw config patch``：上游 v2026.5.4 已把
-      ``auth.profiles.<id>`` schema 收敛为纯元数据 + ``additionalProperties: false``
-    - Token **永不出 argv**：通过 stdin 喂 CLI prompt
-    - 若 ``token`` 是脱敏占位（全 ``*`` 串）→ 拒绝并返回错误
-      （前端应该在 patch 前判定，sidecar 不替前端做静默 noop）
+    设计决策（2026-05-15 收敛）：
+    - **单源原则**：所有 API key 类凭据存 ``openclaw.json`` 的 ``models.providers.<id>.apiKey``，
+      不再写 ``auth-profiles.json``。OpenClaw 的 ``resolveUsableCustomProviderApiKey``
+      优先级最高（ADR），命中即返回不再查 store
+    - 不再 spawn ``openclaw models auth paste-token``（该命令会写 auth-profiles.json）
+    - **OAuth provider 暂不支持**（GitHub Copilot 等）：将来需要时单独引入新路径，
+      不复用 legacy auth-profiles.json
+    - ``profile_id`` / ``expires_in`` 参数保留（向前兼容），但当前实现忽略
+    - Token 永不出 argv，仅写入文件
+    - 脱敏占位（全 ``*`` 串）会被拒绝
     """
     if not provider:
         return SetAuthTokenResult(success=False, error="provider 必填")
-    if not profile_id:
-        return SetAuthTokenResult(success=False, error="profile_id 必填")
     if not isinstance(token, str) or not token:
         return SetAuthTokenResult(success=False, error="token 必填且为非空字符串")
     if is_masked_value(token):
@@ -755,15 +827,47 @@ def set_auth_token(
             error="token 是脱敏占位（全 * 串），拒绝写入；前端应仅在用户输入新值时调用",
         )
 
-    runner = paste_token_fn or _run_paste_token
     home = Path(openclaw_home).expanduser().resolve()
+    config_path = home / "openclaw.json"
+    if not config_path.exists():
+        return SetAuthTokenResult(
+            success=False, profile_id=profile_id,
+            error=f"openclaw.json 不存在: {config_path}",
+        )
 
-    ok, err = runner(
-        openclaw_bin, home, provider, profile_id, token, expires_in=expires_in
-    )
-    if not ok:
-        return SetAuthTokenResult(success=False, profile_id=profile_id, error=err)
-    return SetAuthTokenResult(success=True, profile_id=profile_id)
+    # 读 → 改 → 原子写
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return SetAuthTokenResult(
+            success=False, profile_id=profile_id,
+            error=f"读 openclaw.json 失败: {exc}",
+        )
+
+    models = cfg.setdefault("models", {})
+    providers_node = models.setdefault("providers", {})
+    if provider not in providers_node or not isinstance(providers_node[provider], dict):
+        # 没找到 provider → 创建空骨架（避免 schema 拒绝）
+        providers_node[provider] = {"baseUrl": "", "models": []}
+    providers_node[provider]["apiKey"] = token
+    # 关键：声明 auth: "api-key"，让 OpenClaw 的 shouldPreferExplicitConfigApiKeyAuth
+    # 走"直读 cfg.models.providers.<id>.apiKey"路径，不去查 auth-profiles.json。
+    # 否则非 custom provider（如 deepseek）会绕过 apiKey 字段去找 profile store。
+    if not providers_node[provider].get("auth"):
+        providers_node[provider]["auth"] = "api-key"
+
+    try:
+        tmp = config_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        import os as _os
+        _os.replace(str(tmp), str(config_path))
+    except OSError as exc:
+        return SetAuthTokenResult(
+            success=False, profile_id=profile_id,
+            error=f"写 openclaw.json 失败: {exc}",
+        )
+
+    return SetAuthTokenResult(success=True, profile_id=profile_id or f"{provider}-default")
 
 
 # ---------------------------------------------------------------------------

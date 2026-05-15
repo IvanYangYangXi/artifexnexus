@@ -60,6 +60,10 @@ export interface SettingsState {
   } | null;
   /** 最近一次保存错误 */
   lastSaveError: string | null;
+
+  /** 从 openclaw.json 加载时的原始 provider ID 集合，
+   *  用于检测 provider 增删（决定是否需要 --replace-path） */
+  originalProviderIds: string[];
 }
 
 export type SettingsAction =
@@ -92,6 +96,7 @@ export type SettingsAction =
       error: string | null;
     }
   | { type: "RESET_DIRTY" }
+  | { type: "MARK_DIRTY" }
   | { type: "IMPORT_REMOTE_MODELS"; providerId: string; modelIds: string[] }
   | { type: "UPDATE_AGENT_PRESET"; agentId: string; patch: Record<string, any> };
 
@@ -122,6 +127,7 @@ export function createInitialState(): SettingsState {
     testing: false,
     lastTest: null,
     lastSaveError: null,
+    originalProviderIds: [],
   };
 }
 
@@ -167,6 +173,7 @@ export function dumpToState(dump: OpenClawConfigDump): {
   authProfiles: AuthProfileForm[];
   defaultAgent: DefaultAgentForm;
   agentPresets: any[];
+  originalProviderIds: string[];
 } {
   const providerExtras = asObject(asObject(dump.extras).providerExtras);
   const authExtras = asObject(asObject(dump.extras).authExtras);
@@ -271,7 +278,9 @@ export function dumpToState(dump: OpenClawConfigDump): {
     };
   });
 
-  return { providers, authProfiles, defaultAgent, agentPresets };
+  return { providers, authProfiles, defaultAgent, agentPresets,
+    originalProviderIds: providers.map((p) => p.id),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +290,12 @@ export function dumpToState(dump: OpenClawConfigDump): {
 interface BuiltPatch {
   patch: Record<string, unknown>;
   extrasPatch: Record<string, unknown>;
+  /** 让 ``openclaw config patch`` 整体替换的路径（用于支持"删除"语义）。
+   * - 删 provider / 删 model：包含 ``models.providers``（替换整个 providers 对象）
+   * - 删 agent / 删 auth profile：包含 ``agents.list`` / ``auth.profiles``
+   * 默认始终带 ``models.providers`` + ``auth.profiles`` + ``auth.order`` +
+   * ``agents.list``，因为我们每次保存都发完整的 list（删除后 list 少一项）。 */
+  replacePaths: string[];
 }
 
 /** 解析 customHeadersJson 字符串到 object；失败返回 null（让上层标错） */
@@ -374,8 +389,12 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
     });
 
     // provider 顶层只放 schema 接受的键
+    // 关键：始终带上 auth: "api-key"，让 OpenClaw 的
+    // shouldPreferExplicitConfigApiKeyAuth 能直读 apiKey 字段，
+    // 不去查已废弃的 auth-profiles.json。
     providersOut[p.id] = {
       baseUrl: p.baseUrl,
+      auth: "api-key",
       models: modelsOut,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
@@ -449,6 +468,17 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
     return entry;
   });
 
+  // 用 null 标记被删除的 provider：OpenClaw "null deletes a path"，无需 --replace-path。
+  // 这样保留了 model 内 apiKey 等非编辑字段不被整体替换清空。
+  const currentProviderIds = new Set(state.providers.map((p: any) => p.id));
+  const deletedProviderIds = (state.originalProviderIds ?? [])
+    .filter((id) => !currentProviderIds.has(id));
+  for (const deletedId of deletedProviderIds) {
+    if (!providersOut[deletedId]) {
+      providersOut[deletedId] = null;
+    }
+  }
+
   const patch: Record<string, unknown> = {
     models: { providers: providersOut },
     auth: {
@@ -467,7 +497,26 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
     ...(Object.keys(modelExtras).length > 0 ? { modelExtras } : {}),
   };
 
-  return { patch, extrasPatch };
+  // replacePaths：只用于 auth/agents 等"必须整体替换的整列表字段"。
+  // models.providers **永不整体替换**：provider 删除通过 null 值表达（OpenClaw
+  // 会合并删除），provider 增/改通过标准 merge。这样 ``apiKey`` 等只由
+  // set_auth_token 写入的字段不会被 config patch 误清。
+  const replacePaths: string[] = [
+    "auth.profiles",
+    "auth.order",
+  ];
+  if (agentsList.length > 0) {
+    replacePaths.push("agents.list");
+  }
+  // 每个 provider 的 models 数组需要 --replace-path，否则 OpenClaw 拒绝删模型。
+  // （之前因为跟 models.providers 粗路径冲突被移除，现在 models.providers 已不在 replacePaths 中）
+  for (const pid of Object.keys(providersOut)) {
+    if (providersOut[pid] !== null && (providersOut[pid] as any)?.models) {
+      replacePaths.push(`models.providers.${pid}.models`);
+    }
+  }
+
+  return { patch, extrasPatch, replacePaths };
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +606,7 @@ export function settingsReducer(
       return { ...createInitialState(), load: { kind: "loading" } };
 
     case "LOAD_SUCCESS": {
-      const { providers, authProfiles, defaultAgent, agentPresets } = dumpToState(action.dump);
+      const { providers, authProfiles, defaultAgent, agentPresets, originalProviderIds } = dumpToState(action.dump);
       return {
         ...createInitialState(),
         load: { kind: "ready" },
@@ -565,6 +614,7 @@ export function settingsReducer(
         authProfiles,
         defaultAgent,
         agentPresets,
+        originalProviderIds,
         selectedProviderId: providers[0]?.id ?? null,
         selectedAuthId: authProfiles[0]?.id ?? null,
       };
@@ -770,6 +820,9 @@ export function settingsReducer(
 
     case "RESET_DIRTY":
       return { ...state, dirty: false };
+
+    case "MARK_DIRTY":
+      return markDirty(state);
 
     case "IMPORT_REMOTE_MODELS": {
       // 把远端获取到的 modelIds 合并到指定 provider 的 models 列表中

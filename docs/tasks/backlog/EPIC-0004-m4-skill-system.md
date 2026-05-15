@@ -8,15 +8,19 @@ owner: "@ivan"
 assignee: pair
 estimate: 3w
 created: 2026-05-04
-updated: 2026-05-04
+updated: 2026-05-15
 parent: "[[../../vision/roadmap]]"
 milestone: M4
 related_adr: [0003, 0004]
 related_specs:
   - "[[../../specs/skill-system]]"
+related_docs:
+  - "[[../../research/artclaw-tool-manager-replication-plan-v2]]"
 related_packages:
   - "packages/platform/skill"
   - "packages/apps/web"
+  - "apps/desktop"
+  - "packages/adapters/openclaw/wrapper"
 tags: [epic, skill, M4]
 ---
 
@@ -43,8 +47,14 @@ tags: [epic, skill, M4]
 
 ## 子节点（STORY 列表）
 
-- [ ] 待 align 展开
+- [ ] [[STORY-0042-m4-sdk-decorator-manifest]] · @tool 装饰器 + Manifest + Version (2d)
+- [ ] [[STORY-0043-m4-sdk-hub-registry]] · SkillHub + Registry + Conflict (2d)
+- [ ] [[STORY-0044-m4-sdk-installer-loader]] · SkillInstaller + Loader + Config (2d)
+- [ ] [[STORY-0046-m4-rpc-skill-tool]] · Sidecar RPC：Skill/Tool 方法 (1.5d)
+- [ ] [[STORY-0047-m4-ui-skill-tool-wiring]] · Web UI 接线 (2d)
+- [ ] [[STORY-0048-m4-migration-skill-tool]] · Skill/Tool 内容迁移 (1.5d)
 
 ## 进展日志
 
+- 2026-05-15 align 完成：子节点已按 v2 复刻方案展开为 6 个 STORY
 - 2026-05-04 created

@@ -91,7 +91,8 @@ pub async fn openclaw_install(
         "version": version.unwrap_or_else(|| "v2026.5.4".to_string()),
     });
 
-    manager.call("openclaw.install", params)
+    // CLI 安装/解压可能耗时数分钟（npm tarball ~200MB），用 600s 超时
+    manager.call_with_timeout("openclaw.install", params, 600)
 }
 
 /// Bootstrap 初始化。
@@ -114,7 +115,8 @@ pub async fn openclaw_bootstrap(
         params["preserve_options"] = opts;
     }
 
-    manager.call("openclaw.bootstrap", params)
+    // bootstrap 写入大量配置 + 拷贝 official skills，可能 30-60s，给 120s
+    manager.call_with_timeout("openclaw.bootstrap", params, 120)
 }
 
 /// 启动 OpenClaw gateway。
@@ -438,7 +440,7 @@ pub async fn openclaw_backup(
         manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
     }
 
-    manager.call("openclaw.backup", json!({"preserve_options": preserve_options}))
+    manager.call_with_timeout("openclaw.backup", json!({"preserve_options": preserve_options}), 300)
 }
 
 /// 恢复 OpenClaw 用户数据（含全新安装）。
@@ -463,7 +465,8 @@ pub async fn openclaw_restore(
         params["version"] = json!(v);
     }
 
-    manager.call("openclaw.restore", params)
+    // restore 含安全网备份 + clean_install + CLI 全量重装 + bootstrap + 选择性恢复，给 600s
+    manager.call_with_timeout("openclaw.restore", params, 600)
 }
 
 /// 列出所有 OpenClaw 备份。

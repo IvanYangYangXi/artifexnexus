@@ -243,7 +243,17 @@ function InstallerTab() {
     const ipc = await getIpc();
     if (id === "openclaw") {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
-      
+      setOpenclawStatus((prev) => prev ? { ...prev, gateway_running: false } : null);
+
+      // ★ 重装第一步：停 Gateway（释放文件锁 + 停止 health monitor）
+      // 所有后续步骤（backup/clean_install/bootstrap）不再各自停 gateway
+      try {
+        await ipc.stopOpenClaw();
+        addLog(id, "info", "Gateway 已停止");
+      } catch (e: any) {
+        addLog(id, "warn", `停止 Gateway 失败: ${typeof e === "string" ? e : (e?.message || String(e))}`);
+      }
+
       // 重装流程：Phase 1 备份 → Phase 2 全新安装 → Phase 3 恢复
       // 获取 userChecked 的勾选项（即复选框选中对应 key → value 为 "true"）
       const preserveOptions: Record<string, boolean> = {};
@@ -262,49 +272,72 @@ function InstallerTab() {
           if (!backupR.success) {
             addLog(id, "error", `备份失败: ${backupR.error || "未知错误"}`);
           } else {
-            addLog(id, "info", `备份完成 (${backupR.items.length} 项, ${(backupR.total_size_bytes / 1024).toFixed(0)} KB)`);
+            // 全量安全网快照信息
+            const snap = backupR.full_snapshot;
+            if (snap?.snapshot_dir) {
+              addLog(id, "info", `安全网快照: ${snap.snapshot_dir.split(/[\\/]/).slice(-2).join("/")} (${snap.file_count} 文件, ${((snap.total_size_bytes ?? 0) / 1024).toFixed(0)} KB)`);
+            }
+            const skipNote = (backupR.skipped_count ?? 0) > 0
+              ? `, 跳过 ${backupR.skipped_count} 个被锁文件`
+              : "";
+            addLog(id, "info", `备份完成 (${backupR.items.length} 项, ${(backupR.total_size_bytes / 1024).toFixed(0)} KB${skipNote})`);
+            // 把跳过的文件展开打印（最多 5 条）
+            if (backupR.skipped && backupR.skipped.length) {
+              for (const s of backupR.skipped.slice(0, 5)) {
+                addLog(id, "warn", `跳过: ${s.path.split(/[\\/]/).slice(-3).join("/")} (${s.error.split(":")[0]})`);
+              }
+              if (backupR.skipped.length > 5) {
+                addLog(id, "warn", `…还有 ${backupR.skipped.length - 5} 个文件跳过`);
+              }
+            }
             // 保存 timestamp 供 restore 使用
             (window as any).__openclaw_backup_ts = backupR.timestamp;
           }
         } catch (e: any) {
-          addLog(id, "warn", `备份异常: ${e.message}（继续重装）`);
+          const msg = typeof e === "string" ? e : (e?.message || String(e || "未知错误"));
+          addLog(id, "warn", `备份异常: ${msg}（继续重装）`);
         }
       }
 
-      // Phase 2: 安装 CLI
       try {
-        addLog(id, "info", "安装 OpenClaw CLI...");
-        const r = await ipc.installOpenClaw("v2026.5.4");
-        if (!r.success) {
-          addLog(id, "error", r.error_message || "安装失败");
-          setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it));
-          return;
-        }
-        addLog(id, "info", "CLI 安装完成");
-
         if (hasPreserve) {
-          // Phase 2-3: 全新安装 + 恢复
+          // Phase 2-3: 安全网 → 删除 → CLI 全量重装 → bootstrap → 选择性恢复
           const backupTs = (window as any).__openclaw_backup_ts;
           if (backupTs) {
-            addLog(id, "info", "Phase 2-3: 全新安装 + 恢复...");
+            addLog(id, "info", "Phase 2-3: 全量重装 CLI + 全新安装 + 恢复...");
             const restoreR = await ipc.restoreOpenClaw({
               backupTimestamp: backupTs,
               preserveOptions,
               version: "v2026.5.4",
             });
+            delete (window as any).__openclaw_backup_ts;
             if (restoreR.success) {
               addLog(id, "info", "恢复完成");
             } else {
               addLog(id, "warn", `部分恢复失败: ${restoreR.errors?.map((e: any) => e.item).join(", ") || restoreR.error}`);
             }
           } else {
-            // fallback: no backup timestamp, just bootstrap
+            // fallback: 备份失败 → 普通安装 CLI + bootstrap
+            addLog(id, "info", "安装 OpenClaw CLI...");
+            const r = await ipc.installOpenClaw("v2026.5.4");
+            if (!r.success) {
+              addLog(id, "error", r.error_message || "安装失败");
+              setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it));
+              return;
+            }
             addLog(id, "info", "初始化配置...");
             const b = await ipc.bootstrapOpenClaw("v2026.5.4");
             if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }
           }
         } else {
-          // 非重装: 普通 bootstrap
+          // 非重装: 安装 CLI + 普通 bootstrap
+          addLog(id, "info", "安装 OpenClaw CLI...");
+          const r = await ipc.installOpenClaw("v2026.5.4");
+          if (!r.success) {
+            addLog(id, "error", r.error_message || "安装失败");
+            setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error_message || undefined } : it));
+            return;
+          }
           addLog(id, "info", "初始化配置...");
           const b = await ipc.bootstrapOpenClaw("v2026.5.4");
           if (!b.success) { addLog(id, "error", "初始化失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); return; }

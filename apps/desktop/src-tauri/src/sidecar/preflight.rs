@@ -153,7 +153,7 @@ fn list_pids_by_name(name: &str) -> Vec<u32> {
 ///
 /// 不能用 kill_processes_by_name("python.exe")，因为系统上可能跑着别的 Python
 /// 脚本（如 mcp_bridge、artclaw_stdio_bridge 等），不能误伤。
-fn kill_python_sidecars() {
+pub(super) fn kill_python_sidecars() {
     #[cfg(windows)]
     {
         // wmic ... get ProcessId,CommandLine /format:csv

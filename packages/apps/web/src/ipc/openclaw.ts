@@ -205,14 +205,23 @@ export async function dumpOpenClawConfig(): Promise<OpenClawConfigDump> {
   return invoke<OpenClawConfigDump>("openclaw_config_dump");
 }
 
-/** 写入 OpenClaw 设置（patch 透传到 `openclaw config patch --stdin`） */
+/** 写入 OpenClaw 设置（patch 透传到 `openclaw config patch --stdin`）。
+ *
+ * @param replacePaths 可选；让指定 dot/bracket 路径下的 object/array **整体替换**
+ *   而非递归 merge。前端"删除 provider / 删除 model"应：
+ *   - patch 里给被删父路径一个不含被删项的新值
+ *   - 同时把该父路径加进 replacePaths（如 `["models.providers"]` 或
+ *     `["models.providers.custom.models"]`）
+ */
 export async function patchOpenClawConfig(
   patch: Record<string, unknown>,
   extrasPatch?: Record<string, unknown>,
+  replacePaths?: string[],
 ): Promise<OpenClawConfigPatchResult> {
   return invoke<OpenClawConfigPatchResult>("openclaw_config_patch", {
     patch,
     extrasPatch: extrasPatch ?? null,
+    replacePaths: replacePaths && replacePaths.length > 0 ? replacePaths : null,
   });
 }
 
@@ -683,6 +692,19 @@ export interface BackupResult {
   timestamp: string;
   total_size_bytes: number;
   items: string[];
+  /** 单文件失败数（被锁/无权限） */
+  skipped_count?: number;
+  skipped?: Array<{ path: string; error: string }>;
+  /** 整个 .openclaw/ 的安全网快照（永久保留，最多 3 份） */
+  full_snapshot?: {
+    success: boolean;
+    snapshot_dir?: string | null;
+    timestamp?: string;
+    file_count?: number;
+    skipped_count?: number;
+    total_size_bytes?: number;
+    skipped_full_snapshot?: boolean;
+  } | null;
   error?: string;
 }
 

@@ -235,6 +235,18 @@ impl SidecarClient {
     /// 实现：write stdin → channel.recv_timeout 等 reader 线程发来响应。
     /// 永不阻塞在底层 read 上 → 30s 超时严格生效。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.call_with_timeout(method, params, CALL_TIMEOUT_SECS)
+    }
+
+    /// 同 ``call``，但允许调用方指定自定义超时（秒）。
+    ///
+    /// 用于已知慢调用（CLI 下载/解压、文件树重建等）避免被默认 30s 误杀。
+    pub fn call_with_timeout(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout_secs: u64,
+    ) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -258,10 +270,10 @@ impl SidecarClient {
         // 才能开始下一个，所以 channel 里不会有"上一次响应"残留。
         let response_line = self
             .response_rx
-            .recv_timeout(Duration::from_secs(CALL_TIMEOUT_SECS))
+            .recv_timeout(Duration::from_secs(timeout_secs))
             .map_err(|e| match e {
                 mpsc::RecvTimeoutError::Timeout => {
-                    format!("sidecar 响应超时（{}s），方法: {method}", CALL_TIMEOUT_SECS)
+                    format!("sidecar 响应超时（{}s），方法: {method}", timeout_secs)
                 }
                 mpsc::RecvTimeoutError::Disconnected => {
                     "sidecar reader 线程已退出（sidecar 已死）".to_string()

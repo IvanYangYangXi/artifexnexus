@@ -100,11 +100,19 @@ export function setCustomTitle(sessionKey: string, title: string): void {
   }
 }
 
-/** 生成新建对话的默认标题：MM/DD HH:mm + 首条消息前20字 */
+/** 生成新建对话的标题文本（首条消息前30字，不含日期前缀）。
+ *
+ * 日期前缀（MM-DD HH:mm）由 ChatControlBar 在渲染时从 session.createdAt 统一添加，
+ * 确保 dev 模式与 EXE 模式标题格式一致。
+ */
 export function generateSessionTitle(firstMessage: string): string {
-  const now = new Date();
+  const summary = firstMessage.length > 30 ? firstMessage.slice(0, 30) + "…" : firstMessage;
+  return summary;
+}
+
+/** 将 Unix 毫秒时间戳格式化为 "MM-DD HH:mm"（给对话列表标题前缀用） */
+export function formatSessionDate(tsMs: number): string {
+  const d = new Date(tsMs);
   const pad = (n: number) => String(n).padStart(2, "0");
-  const timeStr = `${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const summary = firstMessage.length > 20 ? firstMessage.slice(0, 20) + "…" : firstMessage;
-  return `${timeStr} ${summary}`;
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

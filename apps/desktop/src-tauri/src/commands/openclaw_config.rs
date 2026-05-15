@@ -83,11 +83,15 @@ pub async fn openclaw_config_dump(
 /// 写 patch + extras_patch（apiKey 若是脱敏占位会在 sidecar 端剔除）。
 ///
 /// `patch` 与 `extras_patch` 都是任意 JSON object，前端按 spec §6 构造。
+/// `replace_paths` 列表里的每个 dot/bracket 路径会作为 ``--replace-path`` 透传给
+/// 上游 ``openclaw config patch``，让该路径下的 object/array **整体替换**而非
+/// 递归 merge —— 用于"删除 provider / 删除 model" 等需要真删的场景。
 #[tauri::command]
 pub async fn openclaw_config_patch(
     sidecar: State<'_, SidecarState>,
     patch: Value,
     extras_patch: Option<Value>,
+    replace_paths: Option<Vec<String>>,
 ) -> Result<OpenClawConfigPatchResponse, String> {
     let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
     if !manager.is_running() {
@@ -97,6 +101,11 @@ pub async fn openclaw_config_patch(
     let mut params = json!({ "patch": patch });
     if let Some(ep) = extras_patch {
         params["extrasPatch"] = ep;
+    }
+    if let Some(rp) = replace_paths {
+        if !rp.is_empty() {
+            params["replacePaths"] = json!(rp);
+        }
     }
     let result = manager.call("openclaw.config.patch", params)?;
 

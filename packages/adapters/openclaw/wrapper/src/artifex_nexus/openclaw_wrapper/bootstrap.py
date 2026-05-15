@@ -320,52 +320,14 @@ def _apply_preserve_options(
     return result
 
 
-def _migrate_auth_profiles_files(openclaw_home: Path, config: dict) -> None:
-    """重装时迁移 auth-profiles.json 到上游 CLI 期望的新路径。
+def _migrate_auth_profiles_files(openclaw_home: Path, config: dict) -> None:  # pragma: no cover
+    """[废弃 2026-05-15] 不再迁移 auth-profiles.json。
 
-    Migrate auth-profiles.json from legacy ``state/agents/<id>/agent/``
-    to the new ``<OPENCLAW_HOME>/.openclaw/agents/<id>/agent/`` path
-    that OpenClaw v2026.5.4+ expects.
-
-    上游 v2026.5.4 把 agent 凭证存储从 ``OPENCLAW_HOME/state/agents/`` 迁移到了
-    ``OPENCLAW_HOME/.openclaw/agents/``。如果 preserve 恢复了 auth 配置但凭证文件
-    仍在旧路径，CLI 的 ``infer model run`` / Gateway 查 API key 时会报
-    "No API key found for provider X"。
-
-    本函数在 bootstrap 的 preserve 流程末尾调用，做 best-effort 迁移。
-
-    Args:
-        openclaw_home: OPENCLAW_HOME 路径。
-        config: 已合并的配置（用于提取 agent id 列表）。
+    Deprecated: API key 已收敛到 ``openclaw.json::models.providers.<id>.apiKey``，
+    legacy ``auth-profiles.json`` 不再被 sidecar 写入或读取。函数保留为空
+    stub 仅为兼容旧调用方。
     """
-    agents_list = config.get("agents", {}).get("list", [])
-    if not agents_list:
-        return
-
-    for agent in agents_list:
-        agent_id = agent.get("id") if isinstance(agent, dict) else None
-        if not agent_id:
-            continue
-
-        # 旧路径：state/agents/<id>/agent/auth-profiles.json
-        old_path = openclaw_home / "state" / "agents" / agent_id / "agent" / "auth-profiles.json"
-        # 新路径：.openclaw/agents/<id>/agent/auth-profiles.json
-        new_path = openclaw_home / ".openclaw" / "agents" / agent_id / "agent" / "auth-profiles.json"
-
-        if old_path.exists() and not new_path.exists():
-            try:
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                import shutil
-                shutil.copy2(str(old_path), str(new_path))
-                logger.info(
-                    "preserve: 迁移 auth-profiles.json → %s（agent=%s）",
-                    new_path, agent_id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "preserve: 迁移 auth-profiles.json 失败（agent=%s）: %s",
-                    agent_id, exc,
-                )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +370,9 @@ def _backup_for_reinstall(
         "backup_dir": str(backup_dir),
         "openclaw_home": str(openclaw_home),
         "items": {},
+        "skipped": [],  # 被锁/无权限的单文件，记录但不中断
     }
+    skipped: list[dict] = manifest["skipped"]
 
     # ── 1. 供应商配置 + API 凭据 ──
     if preserve_options.get("preserveProvidersAndAuth"):
@@ -429,25 +393,11 @@ def _backup_for_reinstall(
                 item["provider_count"] = len(providers_auth.get("providers", {}))
                 item["has_auth"] = "auth" in providers_auth
 
-        # auth-profiles.json 双路径
-        agents_list = (config or {}).get("agents", {}).get("list", [])
-        auth_files = []
-        for agent in agents_list:
-            agent_id = agent.get("id") if isinstance(agent, dict) else None
-            if not agent_id:
-                continue
-            for prefix, label in [
-                (".openclaw", "new"),
-                ("state", "legacy"),
-            ]:
-                src = openclaw_home / prefix / "agents" / agent_id / "agent" / "auth-profiles.json"
-                if src.exists():
-                    dst = backup_dir / f"auth-{label}" / agent_id / "auth-profiles.json"
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(src), str(dst))
-                    auth_files.append({"agent": agent_id, "path": label, "target": str(dst)})
-        if auth_files:
-            item["auth_files"] = auth_files
+        # 注：自 2026-05-15 收敛后，API key 全部写到 openclaw.json 的
+        # ``models.providers.<id>.apiKey`` 字段（已包含在 config-providers-auth.json）。
+        # auth-profiles.json 不再被 sidecar 写入或读取，所以**不再备份**。
+        # 历史 auth-profiles.json 文件（如有）由 full-snapshot 安全网兜底保留，
+        # 用户可手工恢复但不会被自动 restore 流程触碰。
 
         if item:
             manifest["items"]["providersAuth"] = item
@@ -476,10 +426,22 @@ def _backup_for_reinstall(
         for agent in agents_list:
             if not isinstance(agent, dict):
                 continue
-            ws_rel = agent.get("workspace")
+            ws_field = agent.get("workspace")
             agent_id = agent.get("id")
-            if not ws_rel or not agent_id:
+            if not ws_field or not agent_id:
                 continue
+            # ``workspace`` 字段可能是相对路径（"workspace" / "workspace-twelve"）
+            # 也可能历史遗留为绝对路径。统一规范化为相对 openclaw_home 的相对路径
+            # —— 这样 backup_dir / "agent-workspaces" / ws_rel 才能落到备份目录里
+            ws_path = Path(ws_field)
+            if ws_path.is_absolute():
+                try:
+                    ws_rel = str(ws_path.resolve().relative_to(openclaw_home))
+                except ValueError:
+                    logger.warning("backup: agent %s 的 workspace=%s 不在 openclaw_home 之内，跳过", agent_id, ws_field)
+                    continue
+            else:
+                ws_rel = str(ws_path)
             ws_src = openclaw_home / ws_rel
             if not ws_src.is_dir():
                 continue
@@ -490,8 +452,11 @@ def _backup_for_reinstall(
                 if src.exists():
                     dst = ws_dst / fname
                     dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(src), str(dst))
-                    backed = True
+                    ok, err = _safe_copy_file(src, dst)
+                    if ok:
+                        backed = True
+                    else:
+                        skipped.append({"path": str(src), "error": err or "unknown"})
             if backed:
                 ws_backups.append({
                     "agent_id": agent_id,
@@ -525,16 +490,83 @@ def _backup_for_reinstall(
             if db_files:
                 mem_dst = backup_dir / "memory"
                 mem_dst.mkdir(parents=True, exist_ok=True)
+                copied_dbs: list[str] = []
                 for db in db_files:
-                    shutil.copy2(str(db), str(mem_dst / db.name))
-                item["memory_dbs"] = [db.name for db in db_files]
+                    target = mem_dst / db.name
+                    # SQLite 优先用在线 backup API（跨进程一致性快照，绕过文件锁）
+                    if _sqlite_backup(db, target):
+                        copied_dbs.append(db.name)
+                        continue
+                    # 回退普通拷贝
+                    ok, err = _safe_copy_file(db, target)
+                    if ok:
+                        copied_dbs.append(db.name)
+                    else:
+                        skipped.append({"path": str(db), "error": err or "unknown"})
+                item["memory_dbs"] = copied_dbs
 
-        # workspace/memory/
+        # workspace/memory/（默认 agent）
         ws_mem = openclaw_home / "workspace" / "memory"
         if ws_mem.is_dir():
             dst = backup_dir / "workspace-memory"
-            _copytree_ignore_patterns(str(ws_mem), str(dst), ignore_patterns=[".git"])
+            _copytree_ignore_patterns(str(ws_mem), str(dst), ignore_patterns=[".git"], skipped=skipped)
             item["workspace_memory"] = str(dst)
+
+        # workspace-<agent>/memory/（各 agent 独立 workspace 的梦境数据）
+        agents_for_mem = (config or {}).get("agents", {}).get("list", [])
+        ws_mem_backups: list[dict] = []
+        for agent in agents_for_mem:
+            if not isinstance(agent, dict):
+                continue
+            ws_field = agent.get("workspace")
+            if not ws_field or not agent.get("id"):
+                continue
+            # 同上：把绝对路径规范化为相对路径
+            ws_path_obj = Path(ws_field)
+            if ws_path_obj.is_absolute():
+                try:
+                    ws_rel = str(ws_path_obj.resolve().relative_to(openclaw_home))
+                except ValueError:
+                    continue
+            else:
+                ws_rel = str(ws_path_obj)
+            ws_mem_src = openclaw_home / ws_rel / "memory"
+            if ws_mem_src.is_dir():
+                ws_mem_dst = backup_dir / "agent-workspace-memory" / ws_rel / "memory"
+                _copytree_ignore_patterns(
+                    str(ws_mem_src), str(ws_mem_dst), ignore_patterns=[".git"], skipped=skipped,
+                )
+                ws_mem_backups.append({
+                    "agent_id": agent["id"],
+                    "workspace": ws_rel,
+                    "path": str(ws_mem_dst),
+                })
+        if ws_mem_backups:
+            item["agent_workspace_memory"] = ws_mem_backups
+
+        # state/agents/<id>/sessions/ + .openclaw/agents/<id>/sessions/（各 agent 对话历史，双路径）
+        agents_for_sessions = (config or {}).get("agents", {}).get("list", [])
+        session_backups: list[dict] = []
+        for agent in agents_for_sessions:
+            if not isinstance(agent, dict):
+                continue
+            agent_id = agent.get("id")
+            if not agent_id:
+                continue
+            for prefix, label in [("state", "legacy"), (".openclaw", "new")]:
+                sessions_src = openclaw_home / prefix / "agents" / agent_id / "sessions"
+                if sessions_src.is_dir() and any(sessions_src.iterdir()):
+                    sessions_dst = backup_dir / "agent-sessions" / label / agent_id / "sessions"
+                    _copytree_ignore_patterns(
+                        str(sessions_src), str(sessions_dst), ignore_patterns=[".git"], skipped=skipped,
+                    )
+                    session_backups.append({
+                        "agent_id": agent_id,
+                        "path": str(sessions_dst),
+                        "prefix": prefix,
+                    })
+        if session_backups:
+            item["agent_sessions"] = session_backups
 
         if item:
             manifest["items"]["pluginsAndMemory"] = item
@@ -566,7 +598,7 @@ def _backup_for_reinstall(
         skills_dir = openclaw_home / "workspace" / "skills"
         if skills_dir.is_dir():
             dst = backup_dir / "skills"
-            _copytree_ignore_patterns(str(skills_dir), str(dst), ignore_patterns=[".git"])
+            _copytree_ignore_patterns(str(skills_dir), str(dst), ignore_patterns=[".git"], skipped=skipped)
             manifest["items"]["skills"] = {
                 "source": str(skills_dir),
                 "target": str(dst),
@@ -588,21 +620,241 @@ def _backup_for_reinstall(
     return manifest
 
 
-def _copytree_ignore_patterns(src: str, dst: str, ignore_patterns: list[str]) -> None:
-    """shutil.copytree 的薄封装，忽略匹配模式的文件/目录。
+def create_full_snapshot(
+    openclaw_home: Path,
+    snapshots_root: Path | None = None,
+    max_keep: int = 3,
+) -> dict:
+    """对整个 ``.openclaw/`` 目录做一次容错的全量快照（"安全网"备份）。
 
-    Thin wrapper around shutil.copytree with pattern-based ignore.
+    Take a tolerant full snapshot of the entire .openclaw/ directory before any
+    destructive operation (install/reinstall/restore). This is the **last-line
+    safety net** — if everything else fails, the user can manually restore from
+    here.
+
+    设计要点：
+    - 排除 ``cli/`` （CLI 重新下载即可，~200MB+）
+    - 排除 ``.git/``
+    - 排除 ``state/browser/`` （Chromium 用户数据太大，且每次都会变）
+    - 用 ``_copytree_ignore_patterns`` 容错，被锁文件计入 ``skipped``，不抛
+    - 独立放在 ``~/.artifexnexus/full-snapshots/<ts>/``，**不**随重装清理
+    - 自动保留最近 ``max_keep`` 份，删除更早的
+
+    Args:
+        openclaw_home: ``~/.artifexnexus/.openclaw/``
+        snapshots_root: 默认 ``openclaw_home.parent / "full-snapshots"``
+        max_keep: 保留最近 N 份（默认 3）
+
+    Returns:
+        dict: ``{success, snapshot_dir, timestamp, file_count, skipped_count, total_size_bytes}``
+            ``snapshot_dir = None`` 表示 .openclaw/ 不存在或没东西可备
+    """
+    import time as _time
+
+    openclaw_home = Path(openclaw_home).expanduser().resolve()
+    if snapshots_root is None:
+        snapshots_root = openclaw_home.parent / "full-snapshots"
+    snapshots_root = Path(snapshots_root).expanduser().resolve()
+
+    if not openclaw_home.exists():
+        logger.info("create_full_snapshot: %s 不存在，跳过", openclaw_home)
+        return {"success": True, "snapshot_dir": None, "skipped_full_snapshot": True}
+
+    timestamp = f"{_time.time():.0f}"
+    snapshot_dir = snapshots_root / timestamp
+
+    # 用 os.walk 手动拷贝，跳过 cli / .git / state/browser
+    excluded_dirs = {"cli", ".git"}
+    excluded_relpaths = {Path("state") / "browser"}
+
+    skipped: list[dict] = []
+    file_count = 0
+
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    for root, dirs, files in os.walk(openclaw_home):
+        rel = Path(root).relative_to(openclaw_home)
+        # 顶层排除目录
+        if rel == Path("."):
+            dirs[:] = [d for d in dirs if d not in excluded_dirs]
+        # 路径前缀排除（state/browser）
+        dirs[:] = [
+            d for d in dirs
+            if not any(rel / d == ex or (rel / d).is_relative_to(ex) for ex in excluded_relpaths)
+        ]
+        target_dir = snapshot_dir / rel
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            skipped.append({"path": str(target_dir), "error": str(exc)})
+            continue
+        for fname in files:
+            ok, err = _safe_copy_file(Path(root) / fname, target_dir / fname)
+            if ok:
+                file_count += 1
+            else:
+                skipped.append({"path": str(Path(root) / fname), "error": err or "unknown"})
+
+    # 写 snapshot manifest（方便后续恢复或诊断）
+    total_size = sum(
+        f.stat().st_size for f in snapshot_dir.rglob("*") if f.is_file()
+    )
+    manifest = {
+        "type": "full-snapshot",
+        "timestamp": float(timestamp),
+        "openclaw_home": str(openclaw_home),
+        "snapshot_dir": str(snapshot_dir),
+        "file_count": file_count,
+        "skipped_count": len(skipped),
+        "skipped": skipped[:50],  # 截断
+        "total_size_bytes": total_size,
+        "excluded_dirs": sorted(excluded_dirs),
+        "excluded_relpaths": [str(p) for p in excluded_relpaths],
+    }
+    (snapshot_dir / "snapshot-manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
+    logger.info(
+        "create_full_snapshot: %s 完成 (files=%d, skipped=%d, size=%d KB)",
+        snapshot_dir, file_count, len(skipped), total_size // 1024,
+    )
+
+    # 清理旧 snapshot（保留最近 max_keep 份）
+    try:
+        all_snaps = sorted(
+            (p for p in snapshots_root.iterdir() if p.is_dir() and p.name.replace(".", "").isdigit()),
+            key=lambda p: float(p.name),
+            reverse=True,
+        )
+        for old in all_snaps[max_keep:]:
+            try:
+                import shutil
+                shutil.rmtree(str(old), ignore_errors=True)
+                logger.info("create_full_snapshot: 已清理旧快照 %s", old)
+            except OSError as exc:
+                logger.warning("create_full_snapshot: 清理旧快照失败 %s: %s", old, exc)
+    except OSError as exc:
+        logger.warning("create_full_snapshot: 列出快照目录失败: %s", exc)
+
+    return {
+        "success": True,
+        "snapshot_dir": str(snapshot_dir),
+        "timestamp": timestamp,
+        "file_count": file_count,
+        "skipped_count": len(skipped),
+        "total_size_bytes": total_size,
+    }
+
+
+def _sqlite_backup(src: Path, dst: Path) -> bool:
+    """用 sqlite3 在线 backup API 把 ``src`` 快照到 ``dst``。
+
+    SQLite online backup API works **even if another process has the source DB
+    open** — including when that process holds a write lock. This is the
+    canonical way to back up a live SQLite database. Returns ``True`` on
+    success; ``False`` to let caller fall back to file-level copy.
+
+    Falls back silently for non-SQLite-format files or any sqlite error
+    (corrupt, encrypted, version mismatch, etc.).
+    """
+    import sqlite3
+
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        # 用只读 URI + immutable 安全打开（不会拿写锁，不会修改源）
+        # immutable=1 告诉 sqlite "源不会变"，避免它尝试创建 -journal/-wal
+        uri = f"file:{src.as_posix()}?mode=ro&immutable=1"
+        with sqlite3.connect(uri, uri=True, timeout=2.0) as src_conn, \
+                sqlite3.connect(str(dst), timeout=5.0) as dst_conn:
+            src_conn.backup(dst_conn)
+        logger.info("backup: sqlite online backup ok %s", src.name)
+        return True
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("backup: sqlite online backup 失败 %s: %s（回退到文件拷贝）", src, exc)
+        return False
+
+
+def _safe_copy_file(src: Path, dst: Path) -> tuple[bool, str | None]:
+    """容错单文件拷贝。Windows 下若文件被独占锁占用 (WinError 32)，
+    退一步尝试以共享读模式 (FILE_SHARE_READ|WRITE|DELETE) 打开后流式复制；
+    全部失败时返回 (False, error_msg)，**不抛异常**，让上层把失败计入 manifest。
+
+    Tolerant single-file copy. On Windows, ``shutil.copy2`` (=> CopyFile2) fails
+    with ERROR_SHARING_VIOLATION (32) when the source is held with an exclusive
+    lock (e.g. SQLite WAL writer, jsonl appender). We then fall back to an
+    explicit ``open(..., 'rb')`` which Python 3 maps to ``CreateFileW`` with
+    ``FILE_SHARE_READ|WRITE|DELETE`` — succeeding for most "shared write"
+    cases. Returns ``(success, err_msg)``; never raises.
     """
     import shutil
 
-    def _ignore(directory: str, names: list[str]) -> set[str]:
-        import fnmatch
-        ignored = set()
-        for pat in ignore_patterns:
-            ignored.update(fnmatch.filter(names, pat))
-        return ignored
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dst))
+        return True, None
+    except (OSError, PermissionError) as exc:
+        # 回退：手动 open + read + write，绕过 CopyFile2 的共享语义限制
+        try:
+            with open(src, "rb") as fr, open(dst, "wb") as fw:
+                while True:
+                    chunk = fr.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    fw.write(chunk)
+            # 复制 mtime/atime（best-effort）
+            try:
+                st = src.stat()
+                os.utime(dst, (st.st_atime, st.st_mtime))
+            except OSError:
+                pass
+            logger.info("backup: copy fallback ok %s (orig err: %s)", src.name, exc)
+            return True, None
+        except (OSError, PermissionError) as exc2:
+            logger.warning("backup: copy 仍失败 %s: %s", src, exc2)
+            return False, f"{type(exc2).__name__}: {exc2}"
 
-    shutil.copytree(src, dst, dirs_exist_ok=True, ignore=_ignore)
+
+def _copytree_ignore_patterns(
+    src: str,
+    dst: str,
+    ignore_patterns: list[str],
+    skipped: list[dict] | None = None,
+) -> None:
+    """shutil.copytree 的薄封装，忽略匹配模式的文件/目录。
+
+    Thin wrapper around shutil.copytree with pattern-based ignore.
+    单文件失败不会中断整个 copytree —— 失败项追加到可选的 ``skipped`` 列表。
+    """
+    import fnmatch
+
+    src_path = Path(src)
+    dst_path = Path(dst)
+    if not src_path.is_dir():
+        return
+
+    def _is_ignored(name: str) -> bool:
+        for pat in ignore_patterns:
+            if fnmatch.fnmatch(name, pat):
+                return True
+        return False
+
+    for root, dirs, files in os.walk(src_path):
+        # 过滤被忽略的目录（in-place 修改，让 os.walk 不下钻）
+        dirs[:] = [d for d in dirs if not _is_ignored(d)]
+        rel = Path(root).relative_to(src_path)
+        target_dir = dst_path / rel
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            if skipped is not None:
+                skipped.append({"path": str(target_dir), "error": str(exc)})
+            continue
+        for fname in files:
+            if _is_ignored(fname):
+                continue
+            ok, err = _safe_copy_file(Path(root) / fname, target_dir / fname)
+            if not ok and skipped is not None:
+                skipped.append({"path": str(Path(root) / fname), "error": err or "unknown"})
 
 
 def _clean_install(openclaw_home: Path) -> None:
@@ -622,7 +874,7 @@ def _clean_install(openclaw_home: Path) -> None:
     except ImportError:
         import runtime as _runtime  # type: ignore[no-redef]
     try:
-        _runtime.stop_gateway(openclaw_home)
+        _runtime.stop_gateway()
         logger.info("clean_install: Gateway 已停止")
     except Exception as exc:  # noqa: BLE001
         logger.warning("clean_install: 停止 Gateway 失败（继续删除）: %s", exc)
@@ -633,8 +885,8 @@ def _clean_install(openclaw_home: Path) -> None:
         logger.info("clean_install: 已删除 %s", openclaw_home)
 
     # 确保 backups/ 目录不被误删
-    assert backups_dir.exists() or not backups_dir.exists(), \
-        "backups directory unexpected state"
+    if not backups_dir.exists():
+        logger.warning("clean_install: backups/ 目录不存在，可能已被手动删除")
 
 
 def _restore_from_backup(
@@ -743,43 +995,84 @@ def _restore_providers_auth(
         if data.get("auth"):
             patch["auth"] = data["auth"]
         if patch:
-            _patch_openclaw_config(openclaw_home, patch)
+            _patch_or_write_config(openclaw_home, patch)
 
-    # 恢复 auth-profiles.json 双路径
-    for af in item.get("auth_files", []):
-        agent_id = af["agent"]
-        src_dir = Path(af["target"]).parent
-        if not src_dir.exists():
-            continue
-        # 根据 label 确定目标路径
-        label = af["path"]  # "new" or "legacy"
-        prefix = ".openclaw" if label == "new" else "state"
-        dst = openclaw_home / prefix / "agents" / agent_id / "agent" / "auth-profiles.json"
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src_dir / "auth-profiles.json"), str(dst))
+    # auth-profiles.json 自 2026-05-15 起不再恢复（已收敛到 openclaw.json）。
+    # 保留 manifest 中 ``auth_files`` 字段的兼容读取（仅日志），不做实际拷贝。
+    if item.get("auth_files"):
+        logger.info(
+            "restore: 跳过 %d 个 auth-profiles.json 文件（已废弃，token 在 openclaw.json）",
+            len(item["auth_files"]),
+        )
 
 
 def _restore_agents(
     openclaw_home: Path, backup_dir: Path, item: dict,
 ) -> None:
-    """恢复 Agent 配置 + 工作空间。"""
-    import shutil
+    """恢复 Agent 配置 + 工作空间。
 
+    注意：``agents.list`` 是 OpenClaw 的保护配置字段，``config patch --stdin``
+    会拒绝写入。所以这里**直接读 openclaw.json → 替换 agents 字段 → 写回**，
+    绕过 CLI patch 接口。
+    """
     config_path = backup_dir / "config-agents.json"
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        patch = {"agents": data}
-        _patch_openclaw_config(openclaw_home, patch)
+        # 直写：read → replace agents → write
+        oc_config_path = openclaw_home / "openclaw.json"
+        if oc_config_path.exists():
+            try:
+                current = json.loads(oc_config_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                raise RuntimeError(f"读取 openclaw.json 失败: {exc}") from exc
+        else:
+            current = {}
+        # 用备份的 agents 字段全量替换（list/defaults 都来自备份）
+        if "agents" not in current or not isinstance(current.get("agents"), dict):
+            current["agents"] = {}
+        if data.get("list") is not None:
+            current["agents"]["list"] = data["list"]
+        if data.get("defaults") is not None:
+            current["agents"]["defaults"] = data["defaults"]
+        # 原子写入：先写临时文件再 rename
+        tmp = oc_config_path.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(current, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(str(tmp), str(oc_config_path))
+        logger.info("restore: agents 直写 openclaw.json 成功 (%d agents)", len(data.get("list", [])))
 
     # 恢复独立 workspace 人格文件
     for ws in item.get("workspaces", []):
         ws_rel = ws["workspace"]
+        # ws_rel 是相对 openclaw_home 的路径（修复后），但若 manifest 来自旧版本可能仍是绝对的
+        ws_rel_path = Path(ws_rel)
+        if ws_rel_path.is_absolute():
+            # 老 manifest：尝试从绝对路径中提取 openclaw_home 之后的部分
+            try:
+                ws_rel_path = ws_rel_path.resolve().relative_to(openclaw_home)
+            except ValueError:
+                logger.warning("restore: workspace=%s 不在 openclaw_home 之内，跳过", ws_rel)
+                continue
         src = Path(ws["path"])
-        dst = openclaw_home / ws_rel
+        # 修正：旧 manifest path 字段可能是源路径（绝对，等于 ws_src）
+        # 检查 path 是否在 backup_dir 之内，否则用约定路径替代
+        try:
+            Path(src).resolve().relative_to(backup_dir.resolve())
+            src_in_backup = True
+        except ValueError:
+            src_in_backup = False
+        if not src_in_backup:
+            src = backup_dir / "agent-workspaces" / ws_rel_path
+        dst = openclaw_home / ws_rel_path
         if src.is_dir():
             dst.mkdir(parents=True, exist_ok=True)
             for f in src.iterdir():
-                shutil.copy2(str(f), str(dst / f.name))
+                if f.is_file():
+                    ok, err = _safe_copy_file(f, dst / f.name)
+                    if not ok:
+                        logger.warning("restore: workspace 文件 %s 拷贝失败: %s", f, err)
 
 
 def _restore_plugins_and_memory(
@@ -804,7 +1097,7 @@ def _restore_plugins_and_memory(
             if pid not in merged:
                 merged[pid] = pcfg
 
-        _patch_openclaw_config(openclaw_home, {"plugins": {"entries": merged}})
+        _patch_or_write_config(openclaw_home, {"plugins": {"entries": merged}})
 
     # 恢复 state/memory/*.sqlite
     mem_src = backup_dir / "memory"
@@ -814,11 +1107,26 @@ def _restore_plugins_and_memory(
         for db in mem_src.glob("*.sqlite"):
             shutil.copy2(str(db), str(mem_dst / db.name))
 
-    # 恢复 workspace/memory/
+    # 恢复 workspace/memory/（默认 agent）
     ws_mem_src = backup_dir / "workspace-memory"
     if ws_mem_src.is_dir():
         ws_mem_dst = openclaw_home / "workspace" / "memory"
         _copytree_ignore_patterns(str(ws_mem_src), str(ws_mem_dst), ignore_patterns=[".git"])
+
+    # 恢复 workspace-<agent>/memory/（各 agent 独立 workspace 的梦境数据）
+    for mem_info in item.get("agent_workspace_memory", []):
+        src = Path(mem_info["path"])
+        dst = openclaw_home / mem_info["workspace"] / "memory"
+        if src.is_dir():
+            _copytree_ignore_patterns(str(src), str(dst), ignore_patterns=[".git"])
+
+    # 恢复 state/agents/<id>/sessions/ + .openclaw/agents/<id>/sessions/（双路径）
+    for sess_info in item.get("agent_sessions", []):
+        src = Path(sess_info["path"])
+        prefix = sess_info.get("prefix", "state")  # 旧 manifest 兼容：默认 state
+        dst = openclaw_home / prefix / "agents" / sess_info["agent_id"] / "sessions"
+        if src.is_dir():
+            _copytree_ignore_patterns(str(src), str(dst), ignore_patterns=[".git"])
 
 
 def _restore_mcp_servers(
@@ -846,7 +1154,7 @@ def _restore_mcp_servers(
     merged = dict(current_servers)
     merged.update(backup_servers)
 
-    _patch_openclaw_config(openclaw_home, {
+    _patch_or_write_config(openclaw_home, {
         "plugins": {
             "entries": {
                 "mcp-bridge": {
@@ -865,6 +1173,46 @@ def _restore_skills(
     if src.is_dir():
         dst = openclaw_home / "workspace" / "skills"
         _copytree_ignore_patterns(str(src), str(dst), ignore_patterns=[".git"])
+
+
+def _patch_or_write_config(openclaw_home: Path, patch: dict) -> None:
+    """优先用 ``openclaw config patch --stdin``，失败则回退到直写 openclaw.json。
+
+    Patch via the upstream CLI when possible (preserves backups, validates
+    schema). Falls back to direct deep-merge + atomic write when CLI is
+    unavailable (e.g. CLI still installing) or the field is "protected" by
+    upstream (e.g. ``agents.list``).
+    """
+    try:
+        _patch_openclaw_config(openclaw_home, patch)
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.info("config patch 失败 → 回退直写: %s", exc)
+
+    oc_config_path = openclaw_home / "openclaw.json"
+    if oc_config_path.exists():
+        try:
+            current = json.loads(oc_config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(f"读取 openclaw.json 失败: {exc}") from exc
+    else:
+        current = {}
+
+    def _deep_merge(dst: dict, src: dict) -> None:
+        for k, v in src.items():
+            if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                _deep_merge(dst[k], v)
+            else:
+                dst[k] = v
+
+    _deep_merge(current, patch)
+    tmp = oc_config_path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(current, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(str(tmp), str(oc_config_path))
+    logger.info("config 直写成功 (patch keys: %s)", list(patch.keys()))
 
 
 def _patch_openclaw_config(openclaw_home: Path, patch: dict) -> None:
@@ -1100,10 +1448,9 @@ def bootstrap(
         if old_config and preserve_options:
             config = _apply_preserve_options(config, old_config, preserve_options)
 
-        # 5b. 迁移 auth-profiles.json 凭证文件到新路径
-        # 上游 v2026.5.4+ 改用 .openclaw/agents/ 目录，旧文件在 state/agents/ 下
-        if preserve_options and preserve_options.get("preserveAuth"):
-            _migrate_auth_profiles_files(openclaw_home, config)
+        # 注：自 2026-05-15 收敛后，不再迁移 auth-profiles.json
+        # （API key 全部存 openclaw.json::models.providers.<id>.apiKey）。
+        # 历史 auth-profiles.json 文件保留在原位但不再被读写。
 
         # 6. 写入 openclaw.json
         config_path = openclaw_home / "openclaw.json"

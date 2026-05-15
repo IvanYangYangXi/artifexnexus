@@ -496,33 +496,33 @@ export function AppShell() {
           </div>
         )}
 
-        {/* C + D 区 — 用 ResizablePanelGroup，D 隐藏时只剩 C */}
+        {/* C + D 区 — ContentArea 始终挂载避免状态丢失，D 面板条件渲染 */}
         <div className="h-full min-w-0 flex-1" suppressHydrationWarning>
-          {panelOpen ? (
-            <ResizablePanelGroup
-              direction="horizontal"
-              autoSaveId="artifex.shell.cd"
-              className="h-full w-full"
-            >
-              <ResizablePanel defaultSize={70} minSize={30}>
-                <ContentArea module={currentModule} />
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                ref={dPanelRef}
-                defaultSize={30}
-                minSize={18}
-                maxSize={50}
-                collapsible
-                collapsedSize={0}
-                onCollapse={() => setPanelOpen(false)}
-              >
-                <RightPanel />
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          ) : (
-            <ContentArea module={currentModule} />
-          )}
+          <ResizablePanelGroup
+            direction="horizontal"
+            autoSaveId="artifex.shell.cd"
+            className="h-full w-full"
+          >
+            <ResizablePanel defaultSize={70} minSize={30}>
+              <ContentArea module={currentModule} />
+            </ResizablePanel>
+            {panelOpen && (
+              <>
+                <ResizableHandle withHandle />
+                <ResizablePanel
+                  ref={dPanelRef}
+                  defaultSize={30}
+                  minSize={18}
+                  maxSize={50}
+                  collapsible
+                  collapsedSize={0}
+                  onCollapse={() => setPanelOpen(false)}
+                >
+                  <RightPanel />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </div>
       </div>
 

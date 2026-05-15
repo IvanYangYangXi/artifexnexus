@@ -54,6 +54,9 @@ impl SidecarManager {
         }
         self.restart_times.push(now);
 
+        // 启动前强制清理所有旧 sidecar 进程，避免僵尸阻塞 stdio
+        super::preflight::kill_python_sidecars();
+
         let env_vars = self.fs_layout.sidecar_env_strings();
         trace_log!("sidecar.start", "spawning sidecar (path={})", self.sidecar_path);
         let client = SidecarClient::spawn(&self.sidecar_path, &env_vars)?;
@@ -64,12 +67,9 @@ impl SidecarManager {
 
     /// 发送 JSON-RPC 请求。
     ///
-    /// 2026-05-14 大幅简化：
-    /// - 不再"超时/IO 失败时自动重启 sidecar"。多线 Tauri command 共享 Mutex，
-    ///   旧实现重启 sidecar 会让其他正在等响应的线程报"sidecar 重启后仍不可用"，
-    ///   制造级联混乱，而 sidecar 现实中很少崩溃。
-    /// - sidecar 死了/卡了 → 报错让前端看见 → 用户重启 EXE → preflight 清理。
-    /// - 简单粗暴优于"复杂的自动恢复"。
+    /// 2026-05-15：`start()` 内建自动清理旧 sidecar 僵尸进程（`kill_python_sidecars`），
+    /// 不再需要用户重启 EXE。但 `call()` 本身仍不做自动重启——超时/IO 失败时直接报错，
+    /// 由上层命令决定是否重试 `start()` → `call()`。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let client = self
             .client
@@ -83,6 +83,37 @@ impl SidecarManager {
         trace_log!("rpc", "→ {method}");
 
         match client.call(method, params) {
+            Ok(result) => {
+                trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
+                Ok(result)
+            }
+            Err(e) => {
+                trace_log!("rpc", "✗ {method} FAIL ({}ms): {e}", t0.elapsed().as_millis());
+                Err(e)
+            }
+        }
+    }
+
+    /// 同 ``call``，但允许调用方为本次 RPC 指定自定义超时（秒）。
+    /// 用于已知慢调用：CLI 下载/解压、全量 restore 等。
+    pub fn call_with_timeout(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout_secs: u64,
+    ) -> Result<Value, String> {
+        let client = self
+            .client
+            .as_mut()
+            .ok_or_else(|| {
+                trace_log!("rpc", "FAIL method={method} reason=sidecar_未启动");
+                "sidecar 未启动".to_string()
+            })?;
+
+        let t0 = Instant::now();
+        trace_log!("rpc", "→ {method} timeout={}s", timeout_secs);
+
+        match client.call_with_timeout(method, params, timeout_secs) {
             Ok(result) => {
                 trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
                 Ok(result)

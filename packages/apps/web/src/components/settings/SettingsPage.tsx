@@ -30,18 +30,22 @@ export function SettingsPage() {
     if (issues.length > 0) { setSaveMsg(`校验: ${issues.slice(0,3).map((i:any)=>`${i.field} ${i.message}`).join("; ")}`); return; }
     setSaving(true);
     try {
-      const { patch, extrasPatch } = buildPatchFromState(state);
+      const { patch, extrasPatch, replacePaths } = buildPatchFromState(state);
       const ipc = await getIpc();
-      const r = await ipc.patchOpenClawConfig(patch, extrasPatch);
+      const r = await ipc.patchOpenClawConfig(patch, extrasPatch, replacePaths);
       if (!r.success) { setSaveMsg(r.validateError || "保存失败"); return; }
-      // 如果用户输入了新 API Key，通过 setOpenClawAuthToken 写入
-      const pk = (window as any).__pendingApiKey;
-      if (pk?.token && pk.provider) {
-        // profileId 必须传递，否则 sidecar 无法定位写入目标
-        const profileId = pk.profileId || `${pk.provider}-default`;
-        await ipc.setOpenClawAuthToken({ token: pk.token, provider: pk.provider, profileId });
-        delete (window as any).__pendingApiKey;
+      // 如果用户输入了新 API Key（多个 provider 都可能有），逐个写入
+      // pendingApiKeys 结构：{ [providerId]: { token, provider, profileId? } }
+      const pkMap = ((window as any).__pendingApiKeys ?? {}) as Record<string, { token: string; provider: string; profileId?: string }>;
+      for (const pk of Object.values(pkMap)) {
+        if (pk?.token && pk.provider) {
+          const profileId = pk.profileId || `${pk.provider}-default`;
+          await ipc.setOpenClawAuthToken({ token: pk.token, provider: pk.provider, profileId });
+        }
       }
+      delete (window as any).__pendingApiKeys;
+      // 清理旧版兼容字段（避免遗留状态）
+      delete (window as any).__pendingApiKey;
       setSaveMsg("已保存");
       dispatch({ type: "RESET_DIRTY" } as any);
       // 重新加载以获取最新状态
@@ -110,6 +114,17 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
   const [testResult, setTestResult] = React.useState<{ success: boolean; latencyMs?: number; error?: string } | null>(null);
 
   const selected = state.providers.find((p) => p.id === state.selectedProviderId);
+
+  // 切换 provider 时，从 pending map 恢复该 provider 之前输入的 key（如果有），
+  // 同时清掉"覆盖模式"，避免误以为旧 key 还在编辑。
+  React.useEffect(() => {
+    if (!selected) return;
+    const w = window as any;
+    const pending = w.__pendingApiKeys?.[selected.id];
+    setNewApiKey(pending?.token ?? "");
+    setOverrideApiKey(false);
+    setTestResult(null);
+  }, [selected?.id]);
   const authProfile = selected?.authProfileId ? state.authProfiles.find((a) => a.id === selected.authProfileId) : undefined;
   // API Key 被 mask_secrets 脱敏，dump 返回 *** 串。如果 authProfile 存在且 token 非空（含***脱敏），显示脱敏提示
   const hasAuthProfile = !!authProfile;
@@ -174,11 +189,17 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
               {isTokenMasked && !overrideApiKey ? (
                 <>
                   <Input className="h-8 flex-1 text-xs font-mono text-muted-foreground" value="••••••••（已保存）" readOnly />
-                  <Button variant="outline" size="sm" className="h-7 text-[11px] rounded-full shrink-0" onClick={()=>setOverrideApiKey(true)}>覆盖</Button>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] rounded-full shrink-0" onClick={()=>setOverrideApiKey(true)}>修改</Button>
                 </>
               ) : (isTokenMasked && overrideApiKey) || (!isTokenMasked && !hasRealToken) ? (
                 <>
-                  <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
+                  <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{
+                    setNewApiKey(e.target.value);
+                    const w = window as any;
+                    w.__pendingApiKeys = w.__pendingApiKeys || {};
+                    w.__pendingApiKeys[selected.id] = {token:e.target.value, provider:selected.id, profileId:authProfile?.id};
+                    dispatch({ type: "MARK_DIRTY" });
+                  }} />
                   <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
                   {overrideApiKey && <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={()=>{setOverrideApiKey(false);setNewApiKey("");}}>取消</Button>}
                 </>
@@ -186,7 +207,13 @@ function ProvidersTab({ state, dispatch }: { state: SettingsState; dispatch: Rea
                 <Input className="h-8 flex-1 text-xs font-mono" type={showApiKey?"text":"password"} value={authProfile?.apiKey||""} readOnly />
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={()=>setShowApiKey(!showApiKey)}>{showApiKey?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</Button>
               </>) : (
-                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{setNewApiKey(e.target.value);(window as any).__pendingApiKey={token:e.target.value,provider:selected.id,profileId:authProfile?.id};}} />
+                <Input className="h-8 flex-1 text-xs font-mono" type="password" placeholder="输入新 API Key（保存时写入）" value={newApiKey} onChange={e=>{
+                  setNewApiKey(e.target.value);
+                  const w = window as any;
+                  w.__pendingApiKeys = w.__pendingApiKeys || {};
+                  w.__pendingApiKeys[selected.id] = {token:e.target.value, provider:selected.id, profileId:authProfile?.id};
+                  dispatch({ type: "MARK_DIRTY" });
+                }} />
               )}
             </div>
             {!hasAuthProfile && <div className="mt-1 text-[11px] text-amber-400">此 Provider 尚未关联凭据，请先通过模板创建或手动添加</div>}

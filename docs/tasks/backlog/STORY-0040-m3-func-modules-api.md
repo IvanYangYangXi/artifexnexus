@@ -2,7 +2,7 @@
 id: STORY-0040
 kind: story
 title: M3-FUNC-02 · 技能/系统/设置模块功能接线
-status: backlog
+status: done
 priority: P1
 owner: "@ivan"
 assignee: pair
@@ -52,3 +52,19 @@ tags: [story, skills, system, settings, api, M3]
 ## 非范围
 - Skill 市场/远程分发
 - Workflow 功能
+
+---
+
+## 关闭备注（2026-05-15）
+
+**标记 done，不复执行。**
+
+该 STORY 原定 M3 阶段接线，其范围已被后续 STORY 完全覆盖：
+
+| 原范围 | 现在归属 | 状态 |
+|--------|----------|------|
+| 技能模块（Skill/Tool 列表/安装/启停/钉选/收藏/运行） | **STORY-0047**（M4-UI-01） | backlog |
+| 系统模块（Gateway 启停/日志/状态） | STORY-0018（Gateway 状态面板） | done |
+| 设置模块（模型/认证/Agent 读写） | STORY-0015（OpenClaw 设置面板） | done |
+
+原所属 EPIC-0003 其余 STORY（0031-0039）均已完成，本 STORY 留作记录不执行。

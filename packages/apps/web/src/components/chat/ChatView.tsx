@@ -149,7 +149,7 @@ export function ChatView() {
       chat.switchSession(newKey);
       chat.setSelectedConfig(config);
 
-      // 生成标题：MM/DD HH:mm + 第一条消息前20字
+      // 生成标题文本（日期前缀由 ChatControlBar 渲染时统一添加）
       const title = generateSessionTitle(text);
       setCustomTitle(newKey, title);
 
