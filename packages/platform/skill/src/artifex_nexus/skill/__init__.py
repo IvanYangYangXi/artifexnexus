@@ -76,6 +76,16 @@ from .installer import (
     SyncResult,
 )
 
+# ── Phase 5: nexus_tool — STORY-0045 ─────────────────────────────────────
+from .nexus_tool import (
+    NexusToolData,
+    NexusToolInstaller,
+    NexusToolRegistry,
+    NexusToolResult,
+    ScannedNexusTool,
+    scan_nexus_tools,
+)
+
 __all__ = [
     # decorator
     "skill_tool",
@@ -127,6 +137,13 @@ __all__ = [
     "SyncResult",
     "PublishResult",
     "SkillConfig",
+    # Phase 5: nexus_tool
+    "NexusToolRegistry",
+    "NexusToolInstaller",
+    "NexusToolData",
+    "NexusToolResult",
+    "ScannedNexusTool",
+    "scan_nexus_tools",
 ]
 
 __version__ = "0.1.0"

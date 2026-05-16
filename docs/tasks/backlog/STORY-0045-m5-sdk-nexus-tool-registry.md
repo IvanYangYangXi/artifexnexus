@@ -2,13 +2,13 @@
 id: STORY-0045
 kind: story
 title: M5-SDK-01 · NexusToolRegistry + NexusToolInstaller
-status: backlog
+status: ready
 priority: P2
 owner: "@ivan"
 assignee: pair
 estimate: 2d
 created: 2026-05-15
-updated: 2026-05-15
+updated: 2026-05-16
 parent: "[[../backlog/EPIC-0005-m5-nexus-tool-system]]"
 milestone: M5
 related_adr: [0003]
@@ -27,22 +27,22 @@ Nexus-Tool 可独立于 Skill 进行发现、查询、创建、删除和发布�
 ## 验收标准
 
 ### NexusToolRegistry
-- [ ] `NexusToolRegistry` 类：复制自 ToolManager `services/nexus_tool_service.py` + `services/nexus_tool_scanner.py`
-- [ ] `list_tools(filters)` 返回所有已注册 Nexus-Tool（分页）
-- [ ] `get_tool_detail(id)` 返回 Nexus-Tool 详情
-- [ ] `enable_tool(id)` / `disable_tool(id)` Nexus-Tool 启停
-- [ ] `run_nexus_tool(id, args)` 调用 Nexus-Tool 函数并返回 `NexusToolResult`
-- [ ] `search_tools(query)` 模糊搜索
-- [ ] `NexusToolEntry` 中间扫描结果 dataclass
+- [x] `NexusToolRegistry` 类：复制自 ToolManager `services/nexus_tool_service.py` + `services/nexus_tool_scanner.py`
+- [x] `list_nexus_tools(filters)` 返回所有已注册 Nexus-Tool（分页）
+- [x] `get_nexus_tool(id)` 返回 Nexus-Tool 详情
+- [x] `enable_nexus_tool(id)` / `disable_nexus_tool(id)` Nexus-Tool 启停
+- [x] `run_nexus_tool(id, args)` 调用 Nexus-Tool 函数并返回 `NexusToolResult`
+- [x] `search_nexus_tools(query)` 模糊搜索
+- [x] `NexusToolEntry` 中间扫描结果 dataclass（实现为 `ScannedNexusTool`）
 
 ### NexusToolInstaller
-- [ ] `NexusToolInstaller` 类：从 ToolManager `services/nexus_tool_service.py` 拆出安装/发布逻辑
-- [ ] `create_tool(name, source_path, manifest)` 从源路径注册新 Nexus-Tool 到 `~/.artifexnexus/nexus-tools/`
-- [ ] `update_tool(id, updates)` 修改 Nexus-Tool 元数据
-- [ ] `delete_tool(id)` 删除 Nexus-Tool 注册
-- [ ] `publish_tool(id, target_layer)` 发布 Nexus-Tool 到指定 layer
-- [ ] `pin_tool(id)` / `unpin_tool(id)` 写入配置
-- [ ] `favorite_tool(id)` / `unfavorite_tool(id)` 写入配置
+- [x] `NexusToolInstaller` 类：从 ToolManager `services/nexus_tool_service.py` 拆出安装/发布逻辑
+- [x] `create_nexus_tool(name, source_path, manifest)` 从源路径注册新 Nexus-Tool 到 `~/.artifexnexus/nexus-tools/`
+- [x] `update_nexus_tool(id, updates)` 修改 Nexus-Tool 元数据
+- [x] `delete_nexus_tool(id)` 删除 Nexus-Tool 注册
+- [x] `publish_nexus_tool(id, target_layer)` 发布 Nexus-Tool 到指定 layer
+- [x] `pin_nexus_tool(id)` / `unpin_nexus_tool(id)` 写入配置
+- [x] `favorite_nexus_tool(id)` / `unfavorite_nexus_tool(id)` 写入配置
 
 ## 源文件对照
 
@@ -68,6 +68,40 @@ Nexus-Tool 可独立于 Skill 进行发现、查询、创建、删除和发布�
 - Sidecar RPC 注册（→ STORY-0046）
 - Nexus-Tool 市场/远程分发
 - Memory 管理
+- 触发器系统（→ M6+）
+
+## 实现笔记（2026-05-16）
+
+### 文件结构
+采用子包 `nexus_tool/`（非扁平 `.py`），与 `hub/`、`decorator/` 模式一致：
+```
+nexus_tool/
+├── __init__.py    (28 行) — 公共 API
+├── models.py      (75 行) — ScannedNexusTool, NexusToolData, NexusToolResult
+├── scanner.py     (156 行) — scan_nexus_tools()
+├── registry.py    (263 行) — NexusToolRegistry
+└── installer.py   (300 行) — NexusToolInstaller
+```
+
+### 命名铁律
+- 所有类名：`NexusTool*`（不是 `Tool*`）
+- 所有方法名：`*_nexus_tool()` / `*_nexus_tools()`
+- 所有 RPC 方法：`nexus-tool.*`
+- 路径：`~/.artifexnexus/nexus-tools/`
+- 零裸 `tool` 出现
+
+### SkillConfig 扩展
+`core/skill_config.py` 新增 `nexus_tools` 段（12 个方法）：
+`enable/disable/pin/unpin/favorite/unfavorite` + 对应的 `is_*/get_*` 查询。
+
+### 设计决策
+- `run_nexus_tool` 保留为 SDK 方法，**不从 Sidecar RPC 暴露**（前端 [▶ 运行] 应触发 DCC 内 run_python）
+- DCC 绑定工具禁止本地 subprocess 执行（返回明确错误）
+- Pin/Favorite 复用 SkillConfig（统一 `skills.json`），不新建配置类
+- 触发器暂不迁移（依赖独立事件引擎）
+
+### 测试
+13 项功能测试通过：创建/扫描/列表/详情/搜索/启停/置顶/收藏/更新/运行/删除/刷新。
 
 ## ⚠️ PM 标注（2026-05-16）：`run_nexus_tool` 执行路径待确认
 

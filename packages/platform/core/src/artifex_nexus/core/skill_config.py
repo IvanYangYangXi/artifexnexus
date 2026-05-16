@@ -160,3 +160,91 @@ class SkillConfig:
     def get_favorites(self) -> Set[str]:
         """获取所有收藏 Skill 名称集合。"""
         return set(self._data.get("favorites", []))
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Nexus-Tool: enable / disable
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _nexus_tools_data(self) -> Dict[str, List[str]]:
+        """获取 nexus_tools 段（懒初始化）。"""
+        return self._data.setdefault("nexus_tools", {})
+
+    def is_nexus_tool_disabled(self, nexus_tool_id: str) -> bool:
+        """检查 Nexus-Tool 是否被禁用。"""
+        return nexus_tool_id in self._nexus_tools_data().get("disabled", [])
+
+    def enable_nexus_tool(self, nexus_tool_id: str) -> None:
+        """启用 Nexus-Tool（从禁用列表移除）。"""
+        nt = self._nexus_tools_data()
+        disabled = nt.setdefault("disabled", [])
+        if nexus_tool_id in disabled:
+            disabled.remove(nexus_tool_id)
+            self._save()
+
+    def disable_nexus_tool(self, nexus_tool_id: str) -> None:
+        """禁用 Nexus-Tool（添加到禁用列表）。"""
+        nt = self._nexus_tools_data()
+        disabled = nt.setdefault("disabled", [])
+        if nexus_tool_id not in disabled:
+            disabled.append(nexus_tool_id)
+            self._save()
+
+    def get_disabled_nexus_tools(self) -> Set[str]:
+        """获取所有被禁用的 Nexus-Tool ID 集合。"""
+        return set(self._nexus_tools_data().get("disabled", []))
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Nexus-Tool: pin / unpin
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def is_nexus_tool_pinned(self, nexus_tool_id: str) -> bool:
+        """检查 Nexus-Tool 是否已置顶。"""
+        return nexus_tool_id in self._nexus_tools_data().get("pinned", [])
+
+    def pin_nexus_tool(self, nexus_tool_id: str) -> None:
+        """置顶 Nexus-Tool。"""
+        nt = self._nexus_tools_data()
+        pinned = nt.setdefault("pinned", [])
+        if nexus_tool_id not in pinned:
+            pinned.append(nexus_tool_id)
+            self._save()
+
+    def unpin_nexus_tool(self, nexus_tool_id: str) -> None:
+        """取消置顶 Nexus-Tool。"""
+        nt = self._nexus_tools_data()
+        pinned = nt.setdefault("pinned", [])
+        if nexus_tool_id in pinned:
+            pinned.remove(nexus_tool_id)
+            self._save()
+
+    def get_pinned_nexus_tools(self) -> Set[str]:
+        """获取所有置顶 Nexus-Tool ID 集合。"""
+        return set(self._nexus_tools_data().get("pinned", []))
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Nexus-Tool: favorite / unfavorite
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def is_nexus_tool_favorite(self, nexus_tool_id: str) -> bool:
+        """检查 Nexus-Tool 是否已收藏。"""
+        return nexus_tool_id in self._nexus_tools_data().get("favorites", [])
+
+    def favorite_nexus_tool(self, nexus_tool_id: str) -> None:
+        """收藏 Nexus-Tool。"""
+        nt = self._nexus_tools_data()
+        favorites = nt.setdefault("favorites", [])
+        if nexus_tool_id not in favorites:
+            favorites.append(nexus_tool_id)
+            self._save()
+
+    def unfavorite_nexus_tool(self, nexus_tool_id: str) -> None:
+        """取消收藏 Nexus-Tool。"""
+        nt = self._nexus_tools_data()
+        favorites = nt.setdefault("favorites", [])
+        if nexus_tool_id in favorites:
+            favorites.remove(nexus_tool_id)
+            self._save()
+
+    def get_favorite_nexus_tools(self) -> Set[str]:
+        """获取所有收藏 Nexus-Tool ID 集合。"""
+        return set(self._nexus_tools_data().get("favorites", []))
