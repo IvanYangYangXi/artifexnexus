@@ -53,7 +53,7 @@ def _load_categories_json() -> dict:
 def _builtin_fallback() -> dict:
     """内置 fallback（categories.json 不可用时的最小保证）。"""
     return {
-        "software": ["universal", "unreal", "blender"],
+        "software": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui"],
         "risk_level": ["low", "medium", "high", "critical"],
         "category": ["scene", "asset", "material", "lighting", "render",
                      "blueprint", "animation", "ui",

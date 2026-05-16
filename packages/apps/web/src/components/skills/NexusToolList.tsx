@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, PinOff, Pin } from "lucide-react";
+import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, PinOff, Pin, Info } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
+import { PreviewContext } from "../shell/AppShell";
 import {
   nexusToolList, nexusToolEnable, nexusToolDisable,
   nexusToolPin, nexusToolUnpin, nexusToolFavorite, nexusToolUnfavorite,
@@ -31,6 +32,8 @@ export function NexusToolList() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
+
+  const { setPreview } = React.useContext(PreviewContext);
 
   const loadTools = React.useCallback(async () => {
     try {
@@ -60,6 +63,15 @@ export function NexusToolList() {
   }, [loadTools]);
 
   const isBusy = (id: string) => actionLoading.has(id);
+
+  /** 点击工具名/图标 → 在 D5 面板打开详情 */
+  const handleToolClick = React.useCallback((tool: NexusToolItem) => {
+    setPreview({
+      kind: "nexus-tool-detail",
+      title: tool.name,
+      data: { toolId: tool.id, toolName: tool.name },
+    });
+  }, [setPreview]);
 
   const filtered = tools
     .filter((t) => {
@@ -130,7 +142,8 @@ export function NexusToolList() {
             <ItemCard key={tool.id} viewMode={viewMode}
               icon={<DCCIcon software={tool.target_dccs?.[0] || ""} />}
               title={tool.name}
-              source={{ label: SOURCE_LABELS[tool.source] || tool.source, color: SOURCE_COLORS[tool.source] || "" }}
+              onTitleClick={() => handleToolClick(tool)}
+              source={{ label: (SOURCE_LABELS as Record<string, string>)[tool.source] || tool.source, color: SOURCE_COLORS[tool.source] || "" }}
               status={{
                 label: tool.is_enabled ? "已启用" : "已禁用",
                 color: tool.is_enabled ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
@@ -142,6 +155,11 @@ export function NexusToolList() {
                 <span>·</span><span>{tool.target_dccs?.join(", ") || "通用"}</span>
               </>}
               actions={<>
+                <Button variant="ghost" size="icon" className="h-7 w-7"
+                  onClick={() => handleToolClick(tool)}
+                  title="查看详情">
+                  <Info className="h-3.5 w-3.5" />
+                </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs"
                   onClick={() => doAction(tool.id, () => nexusToolRun(tool.id))}
                   disabled={isBusy(tool.id)}>
@@ -177,12 +195,12 @@ export function NexusToolList() {
 function DCCIcon({ software }: { software: string }) {
   const colors: Record<string, string> = {
     blender: "bg-orange-500/20 text-orange-400", maya: "bg-cyan-500/20 text-cyan-400",
-    max: "bg-yellow-500/20 text-yellow-400", unreal: "bg-sky-500/20 text-sky-400",
+    "3ds_max": "bg-yellow-500/20 text-yellow-400", unreal_engine: "bg-sky-500/20 text-sky-400",
     houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400",
     general: "bg-muted text-muted-foreground",
   };
   const icons: Record<string, string> = {
-    blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G",
+    blender: "B", maya: "M", "3ds_max": "3", unreal_engine: "U", houdini: "H", comfyui: "C", general: "G",
   };
   const key = software?.toLowerCase() || "";
   return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[key] || "bg-muted text-muted-foreground"}`}>

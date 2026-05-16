@@ -156,14 +156,14 @@ _DCC_VERSION_SCAN_PATHS: Dict[str, str] = {
     ),
     # M7 接入：
     # "maya": os.path.join(os.path.expanduser("~"), "Documents", "maya"),
-    # "max": os.path.join(os.environ.get("LOCALAPPDATA", ""), "Autodesk", "3dsMax"),
+    # "3ds_max": os.path.join(os.environ.get("LOCALAPPDATA", ""), "Autodesk", "3dsMax"),
 }
 
 # DCC 插件安装路径模板（key = dcc_id）
 _DCC_ADDON_PATH_TEMPLATES: Dict[str, str] = {
     "blender": "{base}/{version}/scripts/addons/",
     # "maya": "{base}/{version}/scripts/",
-    # "max": "{base}/{version}/ENU/scripts/",
+    # "3ds_max": "{base}/{version}/ENU/scripts/",
 }
 
 
@@ -171,7 +171,7 @@ def find_dcc_versions(dcc: str) -> List[str]:
     """扫描本机已安装的 DCC 版本（通用接口）。
 
     Args:
-        dcc: DCC 标识，如 "blender" / "maya" / "max"
+        dcc: DCC 标识，如 "blender" / "maya" / "3ds_max"
 
     Returns:
         降序排列的版本号列表
@@ -291,7 +291,7 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
 _DCC_DEFAULT_PORTS: Dict[str, int] = {
     "blender": 18083,
     # "maya": 18084,
-    # "max": 18085,
+    # "3ds_max": 18085,
 }
 
 

@@ -117,15 +117,15 @@ const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
   { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
   { id: "blender", name: "Blender", iconKey: "blender", state: "pending", expandable: true, children: [] },
-  { id: "unreal", name: "Unreal Engine", iconKey: "unreal", state: "pending", expandable: true, children: [{ label: "UE 5.4 主项目", version: "5.4.2", installPath: "C:\\Program Files\\Epic Games\\UE_5.4", projectPath: "D:\\Proj\\MyGame", scriptPath: "<install>/plugins/unreal/init.py", state: "pending" }] },
-  { id: "max", name: "3ds Max", iconKey: "max", state: "pending", expandable: true, children: [{ label: "3ds Max 2024", version: "2024.2", installPath: "C:\\Program Files\\Autodesk\\3ds Max 2024", projectPath: "", scriptPath: "<install>/plugins/max/init.ms", state: "pending" }] },
+  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [{ label: "UE 5.4 主项目", version: "5.4.2", installPath: "C:\\Program Files\\Epic Games\\UE_5.4", projectPath: "D:\\Proj\\MyGame", scriptPath: "<install>/plugins/unreal_engine/init.py", state: "pending" }] },
+  { id: "3ds_max", name: "3ds Max", iconKey: "3ds_max", state: "pending", expandable: true, children: [{ label: "3ds Max 2024", version: "2024.2", installPath: "C:\\Program Files\\Autodesk\\3ds Max 2024", projectPath: "", scriptPath: "<install>/plugins/3ds_max/init.ms", state: "pending" }] },
   { id: "maya", name: "Maya", iconKey: "maya", state: "pending", expandable: true, children: [] },
   { id: "comfyui", name: "ComfyUI", iconKey: "comfyui", state: "unavailable", expandable: true, comingSoon: true, children: [] },
 ];
 
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
-const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal: "U", max: "3", maya: "M", comfyui: "C" };
+const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal_engine: "U", "3ds_max": "3", maya: "M", comfyui: "C" };
 
 // StyleE 玻璃常量
 const GLASS = "rounded-[16px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]";
@@ -410,7 +410,7 @@ function InstallerTab() {
     if (!installPath) {
       if (parentId === "blender") installPath = `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
       else if (parentId === "maya") installPath = `~/Documents/maya/${version}/scripts/`;
-      else if (parentId === "max") installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
+      else if (parentId === "3ds_max") installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
     }
     const label = `${dccName} ${version}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
@@ -447,7 +447,7 @@ function InstallerTab() {
     if (!defaultPath && child.version) {
       if (parentId === "blender") defaultPath = `%APPDATA%/Blender Foundation/Blender/${child.version}/scripts/addons/`;
       else if (parentId === "maya") defaultPath = `~/Documents/maya/${child.version}/scripts/`;
-      else if (parentId === "max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${child.version}/ENU/scripts/`;
+      else if (parentId === "3ds_max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${child.version}/ENU/scripts/`;
     }
     const result = await showForm(`编辑「${child.label}」`, [
       { key: "version", label: "版本号", defaultValue: child.version, placeholder: "如 5.1" },
@@ -461,7 +461,7 @@ function InstallerTab() {
     if (!computedPath && newVersion) {
       if (parentId === "blender") computedPath = `%APPDATA%/Blender Foundation/Blender/${newVersion}/scripts/addons/`;
       else if (parentId === "maya") computedPath = `~/Documents/maya/${newVersion}/scripts/`;
-      else if (parentId === "max") computedPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion}/ENU/scripts/`;
+      else if (parentId === "3ds_max") computedPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion}/ENU/scripts/`;
     }
     const newLabel = `${item?.name ?? parentId} ${newVersion}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? {

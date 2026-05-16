@@ -154,7 +154,7 @@ class NexusToolInstaller:
                 if "manifest" in kwargs and isinstance(kwargs["manifest"], dict):
                     m = kwargs["manifest"]
                     safe_keys = (
-                        "inputs", "outputs", "presets", "defaultFilters",
+                        "inputs", "outputs", "presets", "triggers", "defaultFilters",
                         "implementation", "agentHint",
                     )
                     for k in safe_keys:

@@ -5,6 +5,8 @@
  *
  * 对齐 docs/specs/ui/web-chat-structure.md §8
  * 所有面板内容区使用 ScrollFade 组件（滚动 + 底部过渡光晕）
+ *
+ * STORY-0048: D1-D3 接入真实 API，D5 接入 ToolDetailPanel。
  */
 
 import * as React from "react";
@@ -18,6 +20,7 @@ import {
   Puzzle,
   RefreshCw,
   Wrench,
+  Loader2,
 } from "lucide-react";
 
 import {
@@ -27,33 +30,85 @@ import {
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { PreviewFileContext, PreviewContext, PinnedSkillsContext, RunToolContext } from "./AppShell";
-
-const RECENT_ITEMS = [
-  { kind: "skill" as const, name: "blender-modeling" },
-  { kind: "tool" as const, name: "create_cube" },
-  { kind: "tool" as const, name: "set_material" },
-  { kind: "skill" as const, name: "ue-blueprint" },
-];
-
-const SKILLS = [
-  { name: "blender-modeling", version: "v1.2", enabled: true },
-  { name: "ue-blueprint", version: "v0.9", enabled: true },
-  { name: "image-gen", version: "v2.0", enabled: false },
-];
-
-const TOOL_GROUPS = [
-  {
-    skill: "blender-modeling",
-    tools: ["create_cube", "set_material", "delete_object"],
-  },
-  { skill: "ue-blueprint", tools: ["create_actor", "compile_blueprint"] },
-];
+import { ToolDetailPanel } from "../skills/ToolDetailPanel";
+import {
+  type SkillItem,
+  skillList,
+} from "../../lib/skill/skill-api";
+import {
+  type NexusToolItem,
+  nexusToolList,
+  nexusToolRun,
+} from "../../lib/nexus-tool/nexus-tool-api";
+import { DCC_LABELS } from "../../lib/skillsMock";
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
-  const { preview } = React.useContext(PreviewContext);
+  const { preview, setPreview, clearPreview } = React.useContext(PreviewContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
   const { runTool } = React.useContext(RunToolContext);
+
+  // ─── 真实 API：Skill 列表 ─────────────────────────────────────────
+  const [skills, setSkills] = React.useState<SkillItem[]>([]);
+  const [skillsLoading, setSkillsLoading] = React.useState(true);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const result = await skillList({ limit: 50 });
+        setSkills(result.items);
+      } catch { /* sidecar 不可用时静默 */ }
+      finally { setSkillsLoading(false); }
+    })();
+  }, []);
+
+  // ─── 真实 API：Tool 列表 ──────────────────────────────────────────
+  const [tools, setTools] = React.useState<NexusToolItem[]>([]);
+  const [toolsLoading, setToolsLoading] = React.useState(true);
+  const loadTools = React.useCallback(async () => {
+    try {
+      setToolsLoading(true);
+      const result = await nexusToolList({ limit: 200 });
+      setTools(result.items);
+    } catch { /* sidecar 不可用时静默 */ }
+    finally { setToolsLoading(false); }
+  }, []);
+  React.useEffect(() => { loadTools(); }, [loadTools]);
+
+  // ─── Tool 分组（按 source → target_dccs 聚合）────────────────────
+  const toolGroups = React.useMemo(() => {
+    const map = new Map<string, NexusToolItem[]>();
+    tools.forEach((t) => {
+      const key = (t.target_dccs?.[0]) || "通用";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    });
+    return Array.from(map.entries()).map(([dcc, items]) => ({ dcc, items }));
+  }, [tools]);
+
+  const handleToolClick = React.useCallback((tool: NexusToolItem) => {
+    setPreview({
+      kind: "nexus-tool-detail",
+      title: tool.name,
+      data: { toolId: tool.id, toolName: tool.name },
+    });
+  }, [setPreview]);
+
+  const handleToolRunFromPanel = React.useCallback(async (tool: NexusToolItem) => {
+    try {
+      const result = await nexusToolRun(tool.id);
+      setPreview({
+        kind: "nexus-tool-run-result",
+        title: `运行结果: ${tool.name}`,
+        data: { ...result, toolId: tool.id },
+      });
+    } catch (e) {
+      setPreview({
+        kind: "nexus-tool-run-result",
+        title: `运行失败: ${tool.name}`,
+        data: { success: false, error: String(e), toolId: tool.id },
+      });
+    }
+  }, [setPreview]);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
       <CollapsiblePanelGroup autoSaveId="artifex.shell.dpanel">
@@ -63,31 +118,40 @@ export function RightPanel() {
           order={1}
           title="最近使用"
           icon={<Clock className="h-3 w-3" />}
-          badge={RECENT_ITEMS.length}
+          badge={tools.filter(t => t.use_count > 0).length || undefined}
           defaultSize={20}
           minSize={10}
           actions={
-            <Button size="icon" variant="ghost" className="h-5 w-5" aria-label="刷新">
+            <Button size="icon" variant="ghost" className="h-5 w-5" aria-label="刷新" onClick={loadTools}>
               <RefreshCw className="h-3 w-3" />
             </Button>
           }
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            <ul className="space-y-px py-1 text-xs">
-              {RECENT_ITEMS.map((it, i) => (
-                <li
-                  key={i}
-                  className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
-                >
-                  {it.kind === "skill" ? (
-                    <Puzzle className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <Wrench className="h-3 w-3 text-muted-foreground" />
-                  )}
-                  <span className="truncate">{it.name}</span>
-                </li>
-              ))}
-            </ul>
+            {toolsLoading ? (
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+              </div>
+            ) : (
+              <ul className="space-y-px py-1 text-xs">
+                {tools.filter(t => t.use_count > 0).slice(0, 10).map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
+                    onClick={() => handleToolClick(t)}
+                  >
+                    <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="truncate">{t.name}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                      {t.use_count}次
+                    </span>
+                  </li>
+                ))}
+                {tools.filter(t => t.use_count > 0).length === 0 && (
+                  <li className="px-2 py-2 text-muted-foreground">暂无使用记录</li>
+                )}
+              </ul>
+            )}
           </ScrollFade>
         </CollapsiblePanel>
 
@@ -97,41 +161,50 @@ export function RightPanel() {
           order={2}
           title="Skill 列表"
           icon={<Puzzle className="h-3 w-3" />}
-          badge={SKILLS.length}
+          badge={skills.length || undefined}
           defaultSize={25}
           minSize={10}
           defaultOpen={false}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            <ul className="space-y-px py-1 text-xs">
-              {SKILLS.map((s) => (
-                <li
-                  key={s.name}
-                  className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
-                >
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
-                  />
-                  <span className="truncate">{s.name}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {s.version}
-                  </span>
-                  <div className="flex-1" />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() => togglePin(s.name)}
+            {skillsLoading ? (
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+              </div>
+            ) : (
+              <ul className="space-y-px py-1 text-xs">
+                {skills.map((s) => (
+                  <li
+                    key={s.name}
+                    className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
                   >
-                    {pinnedSkills.includes(s.name) ? (
-                      <PinOff className="h-3 w-3 text-amber-400" />
-                    ) : (
-                      <Pin className="h-3 w-3" />
-                    )}
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
+                    />
+                    <span className="truncate">{s.display_name || s.name}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {s.version}
+                    </span>
+                    <div className="flex-1" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() => togglePin(s.name)}
+                    >
+                      {pinnedSkills.includes(s.name) ? (
+                        <PinOff className="h-3 w-3 text-amber-400" />
+                      ) : (
+                        <Pin className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </li>
+                ))}
+                {skills.length === 0 && !skillsLoading && (
+                  <li className="px-2 py-2 text-muted-foreground">暂无 Skill</li>
+                )}
+              </ul>
+            )}
           </ScrollFade>
         </CollapsiblePanel>
 
@@ -141,41 +214,51 @@ export function RightPanel() {
           order={3}
           title="Tool 列表"
           icon={<Wrench className="h-3 w-3" />}
-          badge={TOOL_GROUPS.reduce((s, g) => s + g.tools.length, 0)}
+          badge={tools.length || undefined}
           defaultSize={25}
           minSize={10}
           defaultOpen={false}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            <div className="py-1 text-xs">
-              {TOOL_GROUPS.map((g) => (
-                <div key={g.skill} className="mb-1">
-                  <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {g.skill}
-                  </div>
-                  <ul className="space-y-px">
-                    {g.tools.map((t) => (
-                      <li
-                        key={t}
-                        className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
-                      >
-                        <Wrench className="h-3 w-3 text-muted-foreground" />
-                        <span className="truncate">{t}</span>
-                        <div className="flex-1" />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => runTool(t)}
+            {toolsLoading ? (
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+              </div>
+            ) : (
+              <div className="py-1 text-xs">
+                {toolGroups.map((g) => (
+                  <div key={g.dcc} className="mb-1">
+                    <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {DCC_LABELS[g.dcc as keyof typeof DCC_LABELS] || g.dcc}
+                    </div>
+                    <ul className="space-y-px">
+                      {g.items.map((t) => (
+                        <li
+                          key={t.id}
+                          className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
+                          onClick={() => handleToolClick(t)}
                         >
-                          <Play className="h-3 w-3" />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
+                          <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{t.name}</span>
+                          <div className="flex-1" />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={(e) => { e.stopPropagation(); runTool(t.name); }}
+                          >
+                            <Play className="h-3 w-3" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {tools.length === 0 && !toolsLoading && (
+                  <div className="px-2 py-2 text-muted-foreground">暂无 Tool</div>
+                )}
+              </div>
+            )}
           </ScrollFade>
         </CollapsiblePanel>
 
@@ -196,7 +279,7 @@ export function RightPanel() {
           </ScrollFade>
         </CollapsiblePanel>
 
-        {/* D5 上下文预览（STORY-0047） */}
+        {/* D5 上下文预览（STORY-0047 + ToolDetailPanel） */}
         <CollapsiblePanel
           id="preview"
           order={5}
@@ -208,7 +291,7 @@ export function RightPanel() {
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             {preview ? (
-              <PreviewRenderer payload={preview} />
+              <PreviewRenderer payload={preview} onClose={clearPreview} runTool={runTool} />
             ) : previewFile ? (
               <div className="px-3 py-2">
                 <div className="mb-1 text-[10px] text-muted-foreground">
@@ -221,7 +304,7 @@ export function RightPanel() {
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
                 <FileText className="h-4 w-4" />
-                <p>点击 Nexus-Tool 名或文件以预览</p>
+                <p>点击 Nexus-Tool 名以查看详情</p>
               </div>
             )}
           </ScrollFade>
@@ -232,7 +315,11 @@ export function RightPanel() {
 }
 
 /** D5 预览渲染器 — kind → 渲染组件注册表 */
-function PreviewRenderer({ payload }: { payload: { kind: string; title: string; data: unknown } }) {
+function PreviewRenderer({ payload, onClose, runTool }: {
+  payload: { kind: string; title: string; data: unknown };
+  onClose: () => void;
+  runTool: (toolName: string) => void;
+}) {
   if (payload.kind === "nexus-tool-run-result") {
     const data = payload.data as Record<string, unknown> | undefined;
     return (
@@ -249,24 +336,16 @@ function PreviewRenderer({ payload }: { payload: { kind: string; title: string; 
   }
 
   if (payload.kind === "nexus-tool-detail") {
-    const data = payload.data as Record<string, unknown> | undefined;
-    return (
-      <div className="px-3 py-2 text-xs space-y-2">
-        <div className="font-medium text-sm">{payload.title}</div>
-        {data?.description && <p className="text-muted-foreground">{String(data.description)}</p>}
-        <div className="flex flex-wrap gap-1">
-          {data?.target_dccs && (data.target_dccs as string[]).map((d: string) => (
-            <span key={d} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{d}</span>
-          ))}
-        </div>
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[200px]">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </div>
-    );
+    const data = payload.data as { toolId: string; toolName: string } | undefined;
+    if (!data?.toolId) return <FallbackPreview payload={payload} />;
+    return <ToolDetailPanel toolId={data.toolId} onRun={runTool} compact />;
   }
 
   // fallback: raw JSON
+  return <FallbackPreview payload={payload} />;
+}
+
+function FallbackPreview({ payload }: { payload: { kind: string; title: string; data: unknown } }) {
   return (
     <pre className="overflow-x-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed">
       {JSON.stringify(payload, null, 2)}

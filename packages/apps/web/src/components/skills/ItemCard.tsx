@@ -22,6 +22,8 @@ export interface ItemCardProps {
   selected?: boolean;
   onSelect?: () => void;
   viewMode: "card" | "list";
+  /** 标题/图标区域点击回调（打开详情面板） */
+  onTitleClick?: () => void;
 }
 
 export function ItemCard(props: ItemCardProps) {
@@ -35,7 +37,7 @@ export function ItemCard(props: ItemCardProps) {
 // 布局: S-a/S-b/S-e/S-f → S-d → S-g → S-c
 
 function ItemCardView({
-  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect,
+  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick,
 }: ItemCardProps) {
   return (
     <div
@@ -50,12 +52,20 @@ function ItemCardView({
           <input type="checkbox" checked={selected} onChange={onSelect}
             className="mt-0.5 h-3.5 w-3.5 rounded border-border" />
         )}
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-base">
+        <div
+          className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-base", onTitleClick && "cursor-pointer hover:bg-muted/70 transition-colors")}
+          onClick={onTitleClick}
+        >
           {icon}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold">{title}</span>
+            <span
+              className={cn("truncate text-sm font-semibold", onTitleClick && "cursor-pointer hover:text-primary/80 transition-colors")}
+              onClick={onTitleClick}
+            >
+              {title}
+            </span>
             {titleBadge && (
               <Badge variant="secondary" className="text-[10px]">{titleBadge.label}</Badge>
             )}
@@ -94,7 +104,7 @@ function ItemCardView({
 // 布局: □+S-a+S-b+S-e+S-f + S-g 第一行 → S-d+S-c 第二行
 
 function ItemListRow({
-  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect,
+  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick,
 }: ItemCardProps) {
   return (
     <div className={cn(
@@ -107,10 +117,16 @@ function ItemListRow({
           <input type="checkbox" checked={selected} onChange={onSelect}
             className="h-3.5 w-3.5 rounded border-border" />
         )}
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted/50 text-xs">
+        <div
+          className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted/50 text-xs", onTitleClick && "cursor-pointer hover:bg-muted/70 transition-colors")}
+          onClick={onTitleClick}
+        >
           {icon}
         </div>
-        <span className="truncate text-xs font-semibold">{title}</span>
+        <span
+          className={cn("truncate text-xs font-semibold", onTitleClick && "cursor-pointer hover:text-primary/80 transition-colors")}
+          onClick={onTitleClick}
+        >{title}</span>
         {titleBadge && (
           <Badge variant="secondary" className="text-[9px]">{titleBadge.label}</Badge>
         )}

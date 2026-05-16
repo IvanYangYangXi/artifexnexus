@@ -68,7 +68,7 @@
         "type": "object",
         "required": ["software"],
         "properties": {
-          "software": { "type": "string", "enum": ["unreal", "blender"] },
+          "software": { "type": "string", "enum": ["unreal_engine", "blender"] },
           "mcp_port": { "type": "integer", "default": 8080 },
           "auto_start": { "type": "boolean", "default": false }
         }

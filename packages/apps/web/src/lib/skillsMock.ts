@@ -5,7 +5,7 @@
 
 export type SkillStatus = "installed" | "not_installed" | "update_available" | "disabled";
 export type SkillSource = "official" | "marketplace" | "user";
-export type DCC = "blender" | "maya" | "max" | "unreal" | "houdini" | "comfyui" | "general";
+export type DCC = "blender" | "maya" | "3ds_max" | "unreal_engine" | "houdini" | "comfyui" | "general";
 export type ImplType = "skill_wrapper" | "script" | "composite";
 
 export interface MockSkill {
@@ -42,8 +42,8 @@ export interface MockTool {
 export const DCC_LABELS: Record<DCC, string> = {
   blender: "Blender",
   maya: "Maya",
-  max: "3ds Max",
-  unreal: "Unreal",
+  "3ds_max": "3ds Max",
+  unreal_engine: "Unreal Engine",
   houdini: "Houdini",
   comfyui: "ComfyUI",
   general: "通用",
@@ -78,7 +78,7 @@ export const MOCK_SKILLS: MockSkill[] = [
   {
     id: "sk-2", name: "ue-blueprint", version: "v0.9.0",
     description: "Unreal Engine 蓝图操作工具，支持创建/编辑蓝图节点、编译蓝图、管理变量",
-    source: "official", status: "installed", targetDCCs: ["unreal"],
+    source: "official", status: "installed", targetDCCs: ["unreal_engine"],
     author: "Artifex Team", modifiedDate: "2026-05-06", favorited: false,
   },
   {
@@ -96,7 +96,7 @@ export const MOCK_SKILLS: MockSkill[] = [
   {
     id: "sk-5", name: "my-custom-tools", version: "v0.1.0",
     description: "个人自定义工具集，包含常用脚本和快捷操作",
-    source: "user", status: "disabled", targetDCCs: ["blender", "unreal"],
+    source: "user", status: "disabled", targetDCCs: ["blender", "unreal_engine"],
     author: "我", modifiedDate: "2026-05-05", favorited: false,
   },
   {
@@ -133,14 +133,14 @@ export const MOCK_TOOLS: MockTool[] = [
     id: "t-4", name: "create_actor", skillName: "ue-blueprint", skillId: "sk-2",
     description: "在 Unreal 关卡中创建 Actor，支持指定类和位置",
     source: "official", status: "installed", implType: "skill_wrapper",
-    targetDCCs: ["unreal"], author: "Artifex Team", version: "v0.9.0",
+    targetDCCs: ["unreal_engine"], author: "Artifex Team", version: "v0.9.0",
     modifiedDate: "2026-05-06", triggerCount: 3, triggerTypes: ["事件", "定时", "手动"], favorited: false,
   },
   {
     id: "t-5", name: "compile_blueprint", skillName: "ue-blueprint", skillId: "sk-2",
     description: "编译指定的蓝图，检查错误并输出编译日志",
     source: "official", status: "installed", implType: "composite",
-    targetDCCs: ["unreal"], author: "Artifex Team", version: "v0.9.0",
+    targetDCCs: ["unreal_engine"], author: "Artifex Team", version: "v0.9.0",
     modifiedDate: "2026-05-06", triggerCount: 1, triggerTypes: ["手动"], favorited: false,
   },
   {

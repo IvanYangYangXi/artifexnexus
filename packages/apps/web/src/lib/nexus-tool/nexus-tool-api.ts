@@ -9,6 +9,50 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
+export interface NexusToolParam {
+  id: string;
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  description?: string;
+  options?: string[];
+}
+
+export interface NexusToolOutput {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface NexusToolPreset {
+  id: string;
+  name: string;
+  values: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface NexusToolTrigger {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trigger: {
+    type: string;
+    event: string;
+    dcc: string;
+  };
+  execution: {
+    mode: string;
+  };
+  useDefaultFilters: boolean;
+}
+
+export interface NexusToolImplementation {
+  type: string;
+  entry: string;
+  function: string;
+}
+
 export interface NexusToolItem {
   id: string;
   name: string;
@@ -26,7 +70,17 @@ export interface NexusToolItem {
   author: string;
   created_at: string;
   updated_at: string;
+  /** manifest 详情 — ToolDetailPanel 的 Info/Params/Presets/Triggers 数据源 */
+  inputs?: NexusToolParam[];
+  outputs?: NexusToolOutput[];
+  presets?: NexusToolPreset[];
+  triggers?: NexusToolTrigger[];
+  default_filters?: Record<string, unknown>;
+  implementation?: NexusToolImplementation;
 }
+
+/** nexus-tool.detail 返回的完整数据（同 NexusToolItem，保证必有 manifest 字段） */
+export type NexusToolDetail = NexusToolItem;
 
 export interface NexusToolListResult {
   items: NexusToolItem[];
@@ -82,6 +136,10 @@ export interface NexusToolUpdateOptions {
   target_dccs?: string[];
   implementation_type?: string;
   manifest?: Record<string, unknown>;
+  /** 快捷字段：预设列表（会合并到 manifest.presets） */
+  presets?: NexusToolPreset[];
+  /** 快捷字段：触发器列表（会合并到 manifest.triggers） */
+  triggers?: NexusToolTrigger[];
 }
 
 export interface NexusToolPublishOptions {
@@ -97,9 +155,9 @@ export async function nexusToolList(filters?: NexusToolListFilters): Promise<Nex
   return invoke<NexusToolListResult>("nexus_tool_list", { params: filters ?? {} });
 }
 
-/** 详情 */
-export async function nexusToolDetail(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_detail", { params: { id } });
+/** 详情（含完整 manifest：inputs / outputs / presets / triggers） */
+export async function nexusToolDetail(id: string): Promise<NexusToolDetail> {
+  return invoke<NexusToolDetail>("nexus_tool_detail", { params: { id } });
 }
 
 /** 创建 */
@@ -162,6 +220,16 @@ export async function nexusToolBatch(operation: string, ids: string[]): Promise<
   return invoke<NexusToolBatchResult>("nexus_tool_batch", { params: { operation, ids } });
 }
 
+/** 保存预设列表到 manifest */
+export async function nexusToolSavePresets(id: string, presets: NexusToolPreset[]): Promise<NexusToolItem> {
+  return invoke<NexusToolItem>("nexus_tool_update", { params: { id, presets } });
+}
+
+/** 保存触发器列表到 manifest */
+export async function nexusToolSaveTriggers(id: string, triggers: NexusToolTrigger[]): Promise<NexusToolItem> {
+  return invoke<NexusToolItem>("nexus_tool_update", { params: { id, triggers } });
+}
+
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
 
 export const NexusToolAPI = {
@@ -179,6 +247,8 @@ export const NexusToolAPI = {
   publish: nexusToolPublish,
   run: nexusToolRun,
   batch: nexusToolBatch,
+  savePresets: nexusToolSavePresets,
+  saveTriggers: nexusToolSaveTriggers,
 };
 
 export type NexusToolAPIType = typeof NexusToolAPI;

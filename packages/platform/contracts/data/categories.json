@@ -3,7 +3,7 @@
   "description": "Artifex Nexus Skill/Nexus-Tool 分类与标签 — 唯一数据源。前后端共享，manifest.schema.json 和 pydantic 模型均从此读取。",
   "software": [
     "universal",
-    "unreal",
+    "unreal_engine",
     "blender",
     "maya",
     "3ds_max",
@@ -36,7 +36,7 @@
   "display": {
     "software": {
       "universal": "通用",
-      "unreal": "Unreal Engine",
+      "unreal_engine": "Unreal Engine",
       "blender": "Blender",
       "maya": "Maya",
       "3ds_max": "3ds Max",

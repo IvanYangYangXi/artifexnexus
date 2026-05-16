@@ -17,11 +17,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List
 
-from ._rpc_helpers import (
-    _get_nt_registry, _get_nt_installer,
-    _ok, _err, _err_invalid_params,
-    _nt_data_to_dict,
-)
+try:
+    from ._rpc_helpers import (
+        _get_nt_registry, _get_nt_installer,
+        _ok, _err, _err_invalid_params,
+        _nt_data_to_dict,
+    )
+except ImportError:
+    from _rpc_helpers import (  # type: ignore[no-redef]
+        _get_nt_registry, _get_nt_installer,
+        _ok, _err, _err_invalid_params,
+        _nt_data_to_dict,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +127,19 @@ def _handle_nexus_tool_update(req_id: Any, params: dict) -> dict:
         for key in ("name", "description", "version", "target_dccs", "implementation_type", "manifest"):
             if key in params:
                 kwargs[key] = params[key]
+
+        # presets / triggers 快捷字段 → 包装进 manifest
+        # 前端 savePresets/saveTriggers 仅传快捷 key，不传完整 manifest。
+        # 两个字段可以独立发送或同时发送；先处理 presets 后处理 triggers，
+        # 确保同时发送时两者都合并到 manifest 中。
+        if "presets" in params:
+            if "manifest" not in kwargs:
+                kwargs["manifest"] = {}
+            kwargs["manifest"]["presets"] = params["presets"]
+        if "triggers" in params:
+            if "manifest" not in kwargs:
+                kwargs["manifest"] = {}
+            kwargs["manifest"]["triggers"] = params["triggers"]
 
         ntd = installer.update_nexus_tool(nexus_tool_id, **kwargs)
         if ntd is None:
@@ -337,9 +357,9 @@ def _handle_nexus_tool_batch(req_id: Any, params: dict) -> dict:
 _DCC_TO_MCP_SERVER: dict[str, str] = {
     "blender": "blender-editor",
     "maya": "maya-primary",
-    "unreal": "unreal-editor",
+    "unreal_engine": "unreal-editor",
     "houdini": "houdini-primary",
-    "max": "max-primary",
+    "3ds_max": "max-primary",
     "comfyui": "comfyui-primary",
 }
 
@@ -426,7 +446,10 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
             )
 
             try:
-                from .mcp_bridge import MCPBridgeClient
+                try:
+                    from .mcp_bridge import MCPBridgeClient
+                except ImportError:
+                    from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
                 bridge = MCPBridgeClient.get_instance()
                 if not bridge.is_connected:
                     connected = bridge.connect()

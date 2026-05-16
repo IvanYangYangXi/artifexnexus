@@ -136,8 +136,13 @@ def _entry_to_dict(entry: Any) -> dict:
 
 
 def _nt_data_to_dict(ntd: Any) -> dict:
-    """将 NexusToolData 转为可序列化的 dict。"""
-    return {
+    """将 NexusToolData 转为可序列化的 dict。
+
+    包含 manifest 中的 inputs / outputs / presets / triggers / defaultFilters，
+    供前端 ToolDetailPanel 的 参数/预设/触发器 标签页使用。
+    """
+    manifest: dict = getattr(ntd, "manifest", None) or {}
+    result = {
         "id": ntd.id,
         "name": ntd.name,
         "description": ntd.description,
@@ -154,7 +159,15 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "author": getattr(ntd, "author", ""),
         "created_at": getattr(ntd, "created_at", ""),
         "updated_at": getattr(ntd, "updated_at", ""),
+        # manifest 详情字段（ToolDetailPanel 需要）
+        "inputs": manifest.get("inputs", []),
+        "outputs": manifest.get("outputs", []),
+        "presets": manifest.get("presets", []),
+        "triggers": manifest.get("triggers", []),
+        "default_filters": manifest.get("defaultFilters", {}),
+        "implementation": manifest.get("implementation", {}),
     }
+    return result
 
 
 def _skill_tool_info_to_dict(sti: Any) -> dict:

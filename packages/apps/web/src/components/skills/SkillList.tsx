@@ -216,11 +216,11 @@ export function SkillList() {
 function DCCIcon({ software }: { software: string }) {
   const colors: Record<string, string> = {
     blender: "bg-orange-500/20 text-orange-400", maya: "bg-cyan-500/20 text-cyan-400",
-    max: "bg-yellow-500/20 text-yellow-400", unreal: "bg-sky-500/20 text-sky-400",
+    "3ds_max": "bg-yellow-500/20 text-yellow-400", unreal_engine: "bg-sky-500/20 text-sky-400",
     houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400",
   };
   const icons: Record<string, string> = {
-    blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C",
+    blender: "B", maya: "M", "3ds_max": "3", unreal_engine: "U", houdini: "H", comfyui: "C",
   };
   const key = software?.toLowerCase() || "";
   return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[key] || "bg-muted text-muted-foreground"}`}>

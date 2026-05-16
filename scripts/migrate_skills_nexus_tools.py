@@ -35,7 +35,7 @@ SKILLS_DST = PROJECT_ROOT / "skills"
 # ── software 字段映射：artclaw_bridge → categories.json ──────────────────────
 
 SOFTWARE_MAP = {
-    "unreal_engine": "unreal",
+    "unreal_engine": "unreal_engine",
     "universal": "universal",
     "blender": "blender",
     "maya": "maya",
@@ -102,7 +102,7 @@ def _infer_software_from_path(skill_dir_name: str, parent_dcc: str) -> str:
     """从目录路径推断 software 字段。"""
     dcc_dir = parent_dcc  # e.g., 'unreal', 'comfyui', 'universal'
     dcc_map = {
-        "unreal": "unreal",
+        "unreal": "unreal_engine",
         "blender": "blender",
         "maya": "maya",
         "max": "3ds_max",
@@ -330,12 +330,12 @@ def verify():
     if pycache_count > 0:
         errors.append(f"仍有 {pycache_count} 个 __pycache__ 目录")
 
-    # 检查 software 字段无 "unreal_engine"
+    # 检查 software 字段不在合法枚举中
     for mf in SKILLS_DST.rglob("manifest.json"):
         with open(mf, "r", encoding="utf-8") as f:
             data = json.load(f)
         sw = data.get("software", "")
-        if sw not in {"universal", "unreal", "blender", "maya", "3ds_max", "houdini", "comfyui"}:
+        if sw not in {"universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui"}:
             errors.append(f"{mf}: software='{sw}' 不在合法枚举中")
 
     if errors:

@@ -15,7 +15,7 @@
     "license": { "type": "string" },
     "software": {
       "type": "string",
-      "enum": ["universal", "unreal", "blender", "maya", "3ds_max", "houdini"],
+      "enum": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui"],
       "description": "目标 DCC 软件类型。与 contracts/data/categories.json §software 同步。"
     },
     "software_version": {

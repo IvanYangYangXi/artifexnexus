@@ -102,7 +102,7 @@ def matches_skill(
         2. 如果 manifest 有 ``software_version``，当前版本必须在范围内
 
     :param manifest: SkillManifest 实例或 dict。
-    :param current_software: 当前 DCC 软件标识，如 ``"unreal"``。
+    :param current_software: 当前 DCC 软件标识，如 ``"unreal_engine"``。
     :param current_version: 当前软件版本字符串，如 ``"5.4.1"``。
     :return: True 表示匹配。
     """
@@ -212,9 +212,9 @@ class SkillRegistry:
     使用示例::
 
         registry = SkillRegistry(hub)
-        matches = registry.find_matching("material_editor", "unreal", "5.4.1")
+        matches = registry.find_matching("material_editor", "unreal_engine", "5.4.1")
         results = registry.search("material")
-        best = registry.get_best_for_software("my_skill", "unreal", "5.4.1")
+        best = registry.get_best_for_software("my_skill", "unreal_engine", "5.4.1")
     """
 
     def __init__(self, hub: SkillHub) -> None:

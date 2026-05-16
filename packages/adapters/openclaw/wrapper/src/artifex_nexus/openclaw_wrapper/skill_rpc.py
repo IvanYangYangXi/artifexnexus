@@ -16,11 +16,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List
 
-from ._rpc_helpers import (
-    _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
-    _ok, _err, _err_invalid_params,
-    _entry_to_dict, _config_prefs_for_skill,
-)
+try:
+    from ._rpc_helpers import (
+        _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
+        _ok, _err, _err_invalid_params,
+        _entry_to_dict, _config_prefs_for_skill,
+    )
+except ImportError:
+    from _rpc_helpers import (  # type: ignore[no-redef]
+        _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
+        _ok, _err, _err_invalid_params,
+        _entry_to_dict, _config_prefs_for_skill,
+    )
 
 logger = logging.getLogger(__name__)
 
