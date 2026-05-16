@@ -11,7 +11,6 @@ tags:
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
 - [ ] [[EPIC-0004-m4-skill-system]]
-- [ ] [[STORY-0048-m4-migration-skill-nexus-tool]]
 - [ ] [[EPIC-0005-m5-nexus-tool-system]]
 - [ ] [[EPIC-0006-m6-memory-system]]
 - [ ] [[EPIC-0007-m7-multi-dcc-inapp-chat]]
@@ -37,6 +36,7 @@ tags:
 ## Review
 
 ## Done
+- [x] [[STORY-0048-m4-migration-skill-nexus-tool]]
 - [x] [[STORY-0040-m3-func-modules-api]] *(已拆解覆盖，不复执行 → 2026-05-15)*
 - [x] [[STORY-0039-m3-func-chat-api]]
 - [x] [[TASK-0050-chat-panel-interaction-optimization]]

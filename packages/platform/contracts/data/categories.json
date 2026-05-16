@@ -1,18 +1,38 @@
 {
   "$schema": "https://artifexnexus.dev/schemas/categories.schema.json",
   "description": "Artifex Nexus Skill/Nexus-Tool 分类与标签 — 唯一数据源。前后端共享，manifest.schema.json 和 pydantic 模型均从此读取。",
-
-  "software": ["universal", "unreal", "blender", "maya", "3ds_max", "houdini"],
-
-  "risk_level": ["low", "medium", "high", "critical"],
-
-  "category": [
-    "scene", "asset", "material", "lighting", "render",
-    "blueprint", "animation", "ui",
-    "utils", "integration", "workflow",
-    "modeling", "rigging", "fx", "compositing"
+  "software": [
+    "universal",
+    "unreal",
+    "blender",
+    "maya",
+    "3ds_max",
+    "houdini",
+    "comfyui"
   ],
-
+  "risk_level": [
+    "low",
+    "medium",
+    "high",
+    "critical"
+  ],
+  "category": [
+    "scene",
+    "asset",
+    "material",
+    "lighting",
+    "render",
+    "blueprint",
+    "animation",
+    "ui",
+    "utils",
+    "integration",
+    "workflow",
+    "modeling",
+    "rigging",
+    "fx",
+    "compositing"
+  ],
   "display": {
     "software": {
       "universal": "通用",
@@ -20,7 +40,8 @@
       "blender": "Blender",
       "maya": "Maya",
       "3ds_max": "3ds Max",
-      "houdini": "Houdini"
+      "houdini": "Houdini",
+      "comfyui": "ComfyUI"
     },
     "risk_level": {
       "low": "低风险",

@@ -1,0 +1,22 @@
+{
+  "manifest_version": "1.0",
+  "name": "ue5_architecture",
+  "display_name": "Ue5 Architecture",
+  "description": "UE5.6/UE5.7 architecture planning and module boundary design for Unreal projects. Use when requests involve module layout, Build.cs dependencies, reflection exposure strategy, Public/Private API boundaries, naming conventions, and preventing circular dependencies.",
+  "version": "1.0.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "unreal",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "skill_tools": [
+    {
+      "name": "ue5_architecture",
+      "description": "UE5.6/UE5.7 architecture planning and module boundary design for Unreal projects. Use when requests involve module layout, Build.cs dependencies, reflection exposure strategy, Public/Private API boundaries, naming conventions, and preventing circular dependencies."
+    }
+  ],
+  "software_version": {}
+}

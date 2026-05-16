@@ -1,0 +1,22 @@
+{
+  "manifest_version": "1.0",
+  "name": "comfyui_node_installer",
+  "display_name": "Comfyui Node Installer",
+  "description": "",
+  "version": "0.2.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "workflow",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "skill_tools": [
+    {
+      "name": "comfyui_node_installer",
+      "description": ""
+    }
+  ],
+  "software_version": {}
+}
