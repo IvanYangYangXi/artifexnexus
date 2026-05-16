@@ -832,6 +832,7 @@ function GatewayTab() {
   // 轮询日志（增量拉取，只展示当次 Gateway 启动后的条目）
   const lastLogIdRef = React.useRef<number | null>(null);
   const startedAtRef = React.useRef<number>(0);
+  const lastEntryCountRef = React.useRef(-1);  // 上次拉取的条目数，抑制空轮询重复日志
 
   // status 拿到后记录当次启动时间
   React.useEffect(() => {
@@ -845,6 +846,7 @@ function GatewayTab() {
     // 重置：切换到新 Gateway 时清空旧日志
     setLogs([]);
     lastLogIdRef.current = null;
+    lastEntryCountRef.current = -1;
 
     let active = true;
 
@@ -866,11 +868,16 @@ function GatewayTab() {
           // 直接展示缓冲区所有条目即可（gateway_log 自身已按时间排序 + 上限保护）。
           const filtered = result.entries;
           if (filtered.length === 0) {
-            console.log(
-              `[GatewayTab] doPoll: got ${result.entries.length} entries (no filter applied)`,
-            );
+            // 仅在条目数变化到 0 时打印一次，抑制稳态空轮询噪声
+            if (lastEntryCountRef.current !== 0) {
+              console.log(
+                `[GatewayTab] doPoll: got ${result.entries.length} entries (no filter applied)`,
+              );
+            }
+            lastEntryCountRef.current = 0;
             return;
           }
+          lastEntryCountRef.current = filtered.length;
           const newLines = filtered.map((e: any) => {
             const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
             return `${time} ${e.level || ""} ${e.text || ""}`;

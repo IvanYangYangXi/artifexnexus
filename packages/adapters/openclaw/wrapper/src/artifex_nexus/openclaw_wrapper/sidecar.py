@@ -329,6 +329,10 @@ def _handle_openclaw_doctor(req_id: Any, params: dict) -> dict:
         }
 
 
+# 上次 status 输出的关键字段快照（抑制稳态重复日志）
+_last_status_snapshot: dict = {}
+
+
 def _handle_openclaw_status(req_id: Any, params: dict) -> dict:
     """openclaw.status RPC：聚合状态查询。
 
@@ -348,14 +352,24 @@ def _handle_openclaw_status(req_id: Any, params: dict) -> dict:
         # 详细 URL 探测在 openclaw.web.get_url 中实时执行
         result["web_ui_available"] = _web_ui.is_web_ui_available(Path(openclaw_home))
 
-        # 2026-05-14：响应摘要日志（排查前端拿到了什么）
-        sys.stderr.write(
-            f"[sidecar.status] cli_installed={result.get('cli_installed')} "
-            f"bootstrap_done={result.get('bootstrap_done')} "
-            f"gateway_running={result.get('gateway_running')} "
-            f"pid={result.get('pid')} version={result.get('version')!r}\n"
-        )
-        sys.stderr.flush()
+        # 2026-05-14：响应摘要日志（仅在状态变化时打印，抑制稳态噪声）
+        _snap = {
+            "cli_installed": result.get("cli_installed"),
+            "bootstrap_done": result.get("bootstrap_done"),
+            "gateway_running": result.get("gateway_running"),
+            "pid": result.get("pid"),
+            "version": result.get("version"),
+        }
+        if _snap != _last_status_snapshot:
+            sys.stderr.write(
+                f"[sidecar.status] cli_installed={_snap['cli_installed']} "
+                f"bootstrap_done={_snap['bootstrap_done']} "
+                f"gateway_running={_snap['gateway_running']} "
+                f"pid={_snap['pid']} version={_snap['version']!r}\n"
+            )
+            sys.stderr.flush()
+            _last_status_snapshot.clear()
+            _last_status_snapshot.update(_snap)
 
         return {
             "jsonrpc": "2.0",
@@ -1677,6 +1691,15 @@ def _signal_handler(signum: int, _frame: Any) -> None:
     sys.exit(0)
 
 
+# 高频轮询方法：成功时静默 RPC 出入日志（状态变化在各自的 handler 中单独打点）
+_POLL_METHODS = frozenset({
+    "openclaw.status",
+    "openclaw.gateway.auth_info",
+    "openclaw.dcc.port.get",
+    "openclaw.gateway.mcp_bridge.status",
+})
+
+
 def main() -> None:
     """stdio JSON-RPC 主循环：逐行读取 stdin，逐行写回 stdout。
 
@@ -1779,13 +1802,21 @@ def main() -> None:
         line = line.strip()
         if not line:
             continue
-        # 调试打点：每条 RPC 入口
+        # 调试打点：每条 RPC 入口（轮询方法静默，减少噪声）
+        method_name = None
         try:
-            preview = line[:140].replace("\n", " ")
-        except Exception:
-            preview = "<preview-failed>"
-        sys.stderr.write(f"[sidecar.rpc] in: {preview}\n")
-        sys.stderr.flush()
+            request_preview = json.loads(line)
+            method_name = request_preview.get("method", "")
+        except json.JSONDecodeError:
+            pass
+        _is_poll = method_name in _POLL_METHODS
+        if not _is_poll:
+            try:
+                preview = line[:140].replace("\n", " ")
+            except Exception:
+                preview = "<preview-failed>"
+            sys.stderr.write(f"[sidecar.rpc] in: {preview}\n")
+            sys.stderr.flush()
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
@@ -1801,13 +1832,14 @@ def main() -> None:
         response = handle_request(request)
         sys.stdout.write(json.dumps(response) + "\n")
         sys.stdout.flush()
-        # 调试打点：每条 RPC 出口
-        try:
-            method = request.get("method", "?")
-        except Exception:
-            method = "?"
-        sys.stderr.write(f"[sidecar.rpc] out: {method}\n")
-        sys.stderr.flush()
+        # 调试打点：每条 RPC 出口（轮询方法静默）
+        if not _is_poll:
+            try:
+                method = request.get("method", "?")
+            except Exception:
+                method = "?"
+            sys.stderr.write(f"[sidecar.rpc] out: {method}\n")
+            sys.stderr.flush()
 
 
 if __name__ == "__main__":

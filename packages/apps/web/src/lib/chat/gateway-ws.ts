@@ -116,6 +116,10 @@ export class GatewayWebSocket {
   /** 网关事件循环是否处于退化状态（从 health 事件解析） */
   private _eventLoopDegraded = false;
 
+  /** 上次打印 health 详情日志时的 degraded 状态（抑制稳态重复日志，约每 2s 一次太吵） */
+  private _lastLoggedHealthDegraded: boolean | null = null;
+  private _lastLoggedHealthDelayMs = -1;
+
   /** FIX-DEGRADED-FLAP: degraded health 事件连续命中计数（去抖：连续 5 次才相信） */
   private _degradedHitCount = 0;
   /** 连续多少次 degraded=true 的 health 事件才相信（去抖）。
@@ -724,12 +728,22 @@ export class GatewayWebSocket {
         if (el) {
           const inGrace = this._connectionEstablishedAt > 0
             && (Date.now() - this._connectionEstablishedAt) < GatewayWebSocket.STARTUP_GRACE_MS;
-          // 全量记录 health 事件（方便诊断误报）
-          console.log(
-            `[gateway-ws] health: degraded=${el.degraded}, delayMaxMs=${el.delayMaxMs}, ` +
-            `utilization=${el.utilization}, reasons=${JSON.stringify(el.reasons)}, ` +
-            `inGracePeriod=${inGrace}, connAge=${this._connectionEstablishedAt ? Date.now() - this._connectionEstablishedAt : 0}ms`,
-          );
+          // 仅在首次或状态变化时打印详细 health 日志，抑制稳态噪声（约每 2s 一次太吵）
+          const currentDegraded = el.degraded === true;
+          const currentDelay = typeof el.delayMaxMs === "number" ? el.delayMaxMs : 0;
+          const degradedChanged = this._lastLoggedHealthDegraded !== null &&
+            this._lastLoggedHealthDegraded !== currentDegraded;
+          const delayChangedSignificantly = currentDelay > 0 &&
+            Math.abs(currentDelay - this._lastLoggedHealthDelayMs) > Math.max(currentDelay * 0.5, 5000);
+          if (this._lastLoggedHealthDegraded === null || degradedChanged || delayChangedSignificantly) {
+            console.log(
+              `[gateway-ws] health: degraded=${el.degraded}, delayMaxMs=${el.delayMaxMs}, ` +
+              `utilization=${el.utilization}, reasons=${JSON.stringify(el.reasons)}, ` +
+              `inGracePeriod=${inGrace}, connAge=${this._connectionEstablishedAt ? Date.now() - this._connectionEstablishedAt : 0}ms`,
+            );
+            this._lastLoggedHealthDegraded = currentDegraded;
+            this._lastLoggedHealthDelayMs = currentDelay;
+          }
           if (inGrace && el.degraded === true) {
             // 启动宽限期内：只 log，不设置退化标志
             console.log(
@@ -1095,6 +1109,8 @@ export class GatewayWebSocket {
       // 等首次 health 事件确认真实状态；如真退化会立即标记。
       this._eventLoopDegraded = false;
       this._degradedHitCount = 0; // 重置去抖计数
+      this._lastLoggedHealthDegraded = null; // 重连后首次 health 事件必须打印
+      this._lastLoggedHealthDelayMs = -1;
       // 清除空闲断开标记（重连成功 = 不再空闲）
       this._idleDisconnected = false;
       // 重置 MCP Bridge 状态（新连接 = 重新评估）

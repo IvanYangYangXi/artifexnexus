@@ -12,6 +12,17 @@ use std::time::{Duration, Instant};
 const MAX_RESTARTS_PER_MINUTE: u32 = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
+/// 高频轮询方法（成功时静默 trace_log，减少噪声；失败仍打印）
+fn is_poll_method(method: &str) -> bool {
+    matches!(
+        method,
+        "openclaw.status"
+            | "openclaw.gateway.auth_info"
+            | "openclaw.dcc.port.get"
+            | "openclaw.gateway.mcp_bridge.status"
+    )
+}
+
 /// Sidecar 管理器：持有客户端实例和重启计数器。
 pub struct SidecarManager {
     client: Option<SidecarClient>,
@@ -80,11 +91,16 @@ impl SidecarManager {
             })?;
 
         let t0 = Instant::now();
-        trace_log!("rpc", "→ {method}");
+        let poll = is_poll_method(method);
+        if !poll {
+            trace_log!("rpc", "→ {method}");
+        }
 
         match client.call(method, params) {
             Ok(result) => {
-                trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
+                if !poll {
+                    trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
+                }
                 Ok(result)
             }
             Err(e) => {
@@ -111,11 +127,16 @@ impl SidecarManager {
             })?;
 
         let t0 = Instant::now();
-        trace_log!("rpc", "→ {method} timeout={}s", timeout_secs);
+        let poll = is_poll_method(method);
+        if !poll {
+            trace_log!("rpc", "→ {method} timeout={}s", timeout_secs);
+        }
 
         match client.call_with_timeout(method, params, timeout_secs) {
             Ok(result) => {
-                trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
+                if !poll {
+                    trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
+                }
                 Ok(result)
             }
             Err(e) => {
