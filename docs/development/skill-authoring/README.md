@@ -13,10 +13,10 @@ status: draft
 ## 名词约定
 
 - **Skill** = 一个包（目录 + `SKILL.md` + `manifest.json` + `__init__.py`），是分发与版本管理的单位
-- **Tool** = Skill 包内被 `@tool` 装饰的可调用函数，是实际执行的单位
-- 一个 Skill 可暴露多个 Tool
+- **SkillTool** = Skill 包内被 `@skill_tool` 装饰的可调用函数，是实际执行的单位
+- 一个 Skill 可暴露多个 SkillTool
 
-## 一个 Tool 只做三件事
+## 一个 SkillTool 只做三件事
 
 1. 声明元数据（name / description / category / risk_level）
 2. 定义参数 schema
@@ -25,9 +25,9 @@ status: draft
 ## 模板
 
 ```python
-from artifex_nexus.skill import tool, ToolResult
+from artifex_nexus.skill import skill_tool, SkillToolResult
 
-@tool(
+@skill_tool(
     name="create_static_mesh",
     description="在场景中创建静态网格体 / Spawn a static mesh actor.",
     category="scene",
@@ -37,12 +37,12 @@ from artifex_nexus.skill import tool, ToolResult
         "location":  {"type": "vec3", "default": [0, 0, 0]},
     },
 )
-def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> ToolResult:
+def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> SkillToolResult:
     import unreal  # 仅在 UE 环境可用
     actor = unreal.EditorLevelLibrary.spawn_actor_from_object(
         unreal.load_asset(mesh_path), unreal.Vector(*location),
     )
-    return ToolResult.success({"actor_name": actor.get_name()})
+    return SkillToolResult.success({"actor_name": actor.get_name()})
 ```
 
 ## 安装路径

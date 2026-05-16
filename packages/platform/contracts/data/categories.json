@@ -1,0 +1,49 @@
+{
+  "$schema": "https://artifexnexus.dev/schemas/categories.schema.json",
+  "description": "Artifex Nexus Skill/Nexus-Tool 分类与标签 — 唯一数据源。前后端共享，manifest.schema.json 和 pydantic 模型均从此读取。",
+
+  "software": ["universal", "unreal", "blender", "maya", "3ds_max", "houdini"],
+
+  "risk_level": ["low", "medium", "high", "critical"],
+
+  "category": [
+    "scene", "asset", "material", "lighting", "render",
+    "blueprint", "animation", "ui",
+    "utils", "integration", "workflow",
+    "modeling", "rigging", "fx", "compositing"
+  ],
+
+  "display": {
+    "software": {
+      "universal": "通用",
+      "unreal": "Unreal Engine",
+      "blender": "Blender",
+      "maya": "Maya",
+      "3ds_max": "3ds Max",
+      "houdini": "Houdini"
+    },
+    "risk_level": {
+      "low": "低风险",
+      "medium": "中风险",
+      "high": "高风险",
+      "critical": "严重"
+    },
+    "category": {
+      "scene": "场景操作",
+      "asset": "资产管理",
+      "material": "材质编辑",
+      "lighting": "灯光设置",
+      "render": "渲染设置",
+      "blueprint": "蓝图操作",
+      "animation": "动画相关",
+      "ui": "UI/编辑器界面",
+      "utils": "工具类",
+      "integration": "第三方集成",
+      "workflow": "工作流自动化",
+      "modeling": "建模操作",
+      "rigging": "骨骼绑定",
+      "fx": "特效制作",
+      "compositing": "合成后期"
+    }
+  }
+}

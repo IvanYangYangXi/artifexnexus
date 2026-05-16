@@ -1,7 +1,21 @@
 # Artifex Nexus 项目记忆
 
+## AI 协助规则：PM→开发→QA 三道关卡
+
+**所有开发任务必须按以下三道关卡执行，不可跳过：**
+
+1. **PM 关卡（开发前）**：从产品经理角度审核需求合理性。发现需求问题（范围不清、验收标准缺失、依赖未声明、与已有架构冲突等）→ **必须先向用户确认**，不可直接假设或跳过。
+2. **开发关卡（编码中）**：实现过程中遇到任何设计上不明确的点（接口选择、边界条件、兼容策略等）→ **必须先向用户确认**，不可自行猜测后继续。
+3. **QA 关卡（完成后）**：从 QA 角度对代码进行审核，检查项包括：
+   - 代码规范（命名、结构、行数 ≤500、函数 ≤80 行、圈复杂度 ≤10）
+   - 逻辑通顺性（是否有死代码、错误处理是否完整、是否有未覆盖的验收标准）
+   - 审核结果直接报告给用户
+
 ## 设计原则
 
+- **Skill Hub 扫描加载分离**：Hub 内部维护两个阶段 —— `_available`（启动时扫描元数据，不 import 模块）和 `_loaded`（首次调用时懒加载）。遵循 ADR 0003 "tool 用到再加载"，不需要独立 Loader 类。
+- **用户偏好独立于安装器**：pin/favorite 是用户偏好操作，不属于 SkillInstaller。由 `~/.artifexnexus/config/skills.json` 的 `SkillConfig`（`core` 包）管理，与文件系统操作解耦。
+- **单进程无需文件锁**：Sidecar JSON-RPC over stdio 是串行处理，`SkillConfig._save()` 的原子 rename（tmp → replace）已保证数据完整性，不加 fcntl/msvcrt 锁。
 - **配置覆盖原则**：sidecar 只在安装时写入默认配置（`bootstrap.py`），运行时**不强制重写**用户已存在的配置。
   - 用户修改应被尊重；bug 修复方式应注释 bootstrap 写入代码而非运行时强制改写。
 - **sessionKey 格式**：`agent:{agentId}:{subKey}`，统一使用 `lib/chat/session-key.ts` 解析，禁止手动 `.split(":")`。
@@ -65,6 +79,25 @@
 ## 团队
 
 使用 `artifex-nexus-team`（产品经理 + 程序 + QA），共享任务列表协作。
+
+## AI 协作规则（2026-05-15 定）
+
+用户要求每一轮开发任务必须经过三道关卡：
+
+1. **开发前 → PM 审核**：从产品经理角度审核需求合理性。发现任何疑点（需求矛盾、边界不清、范围过大/过小、缺验收标准等）**必须先向用户确认**，不得自行假设后直接开发。
+2. **开发中 → 即时确认**：遇到任何设计上不明确的点（接口签名、数据结构、错误处理策略、命名、边界情况等），**停下来向用户确认**，不猜测。
+3. **开发后 → QA 审核**：从 QA 角度审查代码规范性和逻辑通顺性。检查项包括：
+   - 代码风格一致性（与项目现有代码对齐）
+   - 错误处理是否完整（异常分支是否被吞）
+   - 类型标注是否准确
+   - 公共 API 是否有 docstring
+   - 是否有明显的逻辑漏洞或边界条件遗漏
+   - 是否有死代码或重复逻辑
+
+审核结果在回复中明确呈现（通过/发现问题/需确认），问题分级：
+- **P0**：逻辑错误、崩溃风险、数据丢失 → 必须修
+- **P1**：设计不一致、边界遗漏、错误处理缺失 → 应该修
+- **P2**：风格/命名/文档 → 建议修
 
 ## OpenClaw 重装备份
 
@@ -130,12 +163,12 @@
   - `settings.reducer.ts::buildPatchFromState` 默认带顶层 `replacePaths`：`models.providers`、`auth.profiles`、`auth.order`、`agents.list`（**不再加 `.<id>.models`**）
 - 用户在 UI 删 provider/model/agent 现在能真删，不需要走 OpenClaw CLI 删命令
 
-## Skill & Tool 系统（调研于 2026-05-15）
+## Skill & Nexus-Tool 系统（调研于 2026-05-15）
 
 ### 现状
 - **MCP 基础设施已完成**（MCP Server + Gateway Plugin + MCP Bridge Client）—— 端到端验证通过
 - **Skill 子系统骨架已建但全部为空桩**：`packages/platform/skill/src/artifex_nexus/skill/` 下 8 个子模块仅有空 `__init__.py`
-- **Web UI Skill/Tool 页面已做**（mock 数据），待 STORY-0040 接真实 API
+- **Web UI Skill/SkillTool 页面已做**（mock 数据），待 STORY-0040 接真实 API
 - **Manifest Schema 已定义**：`packages/platform/contracts/schemas/manifest.schema.json`
 
 ### 架构铁律（不可违反）
@@ -144,7 +177,10 @@
 - **Contracts 先行**：所有数据结构先定义 JSON Schema
 - **Skill 包不依赖具体 DCC 模块**（bpy/unreal）
 - **安装路径**：`~/.artifexnexus/.openclaw/workspace/skills/`，copy 不用 symlink
-- **Skill ≠ Tool**：Skill = 包（SKILL.md + manifest.json + __init__.py），Tool = @tool 装饰的函数
+- **Skill ≠ SkillTool**：Skill = 包（SKILL.md + manifest.json + __init__.py），SkillTool = @skill_tool 装饰的函数
+- **枚举唯一数据源**：`contracts/data/categories.json` 为 Software/RiskLevel/Category 枚举的唯一数据源。categories.py 和 manifest.schema.json 均从此读取，禁止各自定义。前端 TS 也应从此 JSON 取枚举值。
+- **Category 开放自定义**：预设值在 categories.json，用户可在 manifest 中自定义（格式 `^[\u4e00-\u9fa5a-zA-Z0-9_-]{1,31}$`），UI 动态收集已安装 Skill 的 category 合并展示
+- **RiskLevel 硬约束**：仅 low/medium/high/critical 四值，不可自定义
 
 ### 调研文档
 - `docs/research/artclaw-tool-manager-skill-tool-survey.md` — 全量调研报告
@@ -154,13 +190,13 @@
 ### v2 实施任务（2026-05-15 已创建）
 | STORY | 内容 | 父 EPIC |
 |-------|------|---------|
-| STORY-0042 | @tool 装饰器 + Manifest + Version | EPIC-0004 |
-| STORY-0043 | SkillHub + Registry + Conflict | EPIC-0004 |
-| STORY-0044 | SkillInstaller + Loader + Config | EPIC-0004 |
-| STORY-0045 | ToolRegistry + ToolInstaller | EPIC-0005 |
-| STORY-0046 | Sidecar RPC：Skill/Tool 方法注册 | EPIC-0004 |
-| STORY-0047 | Web UI：Skill/Tool 管理面板接线 | EPIC-0004 |
-| STORY-0048 | Skill/Tool 内容迁移（16 项） | EPIC-0004 |
+| STORY-0042 | @skill_tool 装饰器 + Manifest + Version | EPIC-0004 | ✅ done |
+| STORY-0043 | SkillHub + Registry + Conflict | EPIC-0004 | ✅ done |
+| STORY-0044 | SkillInstaller + Loader + Config | EPIC-0004 | ✅ done |
+| STORY-0045 | NexusToolRegistry + NexusToolInstaller | EPIC-0005 | next |
+| STORY-0046 | Sidecar RPC：Skill/SkillTool 方法注册 | EPIC-0004 | |
+| STORY-0047 | Web UI：Skill/SkillTool 管理面板接线 | EPIC-0004 | |
+| STORY-0048 | Skill/SkillTool 内容迁移（16 项） | EPIC-0004 | |
 
 ### 推荐执行顺序
 A1(decorator) → A2(manifest) → A3(hub) → B4(registry) → C1(sidecar RPC) → C2/C3(UI wiring)

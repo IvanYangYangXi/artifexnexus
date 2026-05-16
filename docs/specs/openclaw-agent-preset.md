@@ -76,7 +76,7 @@ Artifex Nexus 是什么、能调什么 MCP 工具、要遵守什么调用约定*
 5. 中文与用户沟通；代码注释中文；变量名与 API 用英文（DCC 原生命名）。
 
 【Skill 体系】
-Artifex Nexus 有自己的 Skill SDK（`from artifex_nexus.skill import tool, ToolResult`）。
+Artifex Nexus 有自己的 Skill SDK（`from artifex_nexus.skill import skill_tool, SkillToolResult`）。
 当用户的需求复用价值高，建议提示："这个流程可以沉淀成一个 Skill，要我帮你写吗？"
 但不要主动改写用户已有 Skill；列出/调用 Skill 用 `list_skills()` / `execute()`。
 
@@ -96,7 +96,7 @@ T8 spike 发现 `agents.list[].skills` 是**字符串数组，已配的 skill ID
 
 OpenClaw 的 "skill" 概念**与 Artifex Nexus 的 Skill SDK 不是同一个东西**：
 - OpenClaw skill = MCP tool / capability 入口
-- Artifex Nexus Skill = `@tool` 装饰的 Python 函数包
+- Artifex Nexus Skill = `@skill_tool` 装饰的 Python 函数包
 
 我们的预设要往 OpenClaw `skills` 字段写的是**"对应 OpenClaw 侧 MCP 工具的注册名"**。
 v1.0.0 暂只有 `["run_python"]`（这是 OpenClaw gateway 暴露的工具名前缀；具体注册名

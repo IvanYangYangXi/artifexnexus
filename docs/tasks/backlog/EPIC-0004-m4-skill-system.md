@@ -47,12 +47,12 @@ tags: [epic, skill, M4]
 
 ## 子节点（STORY 列表）
 
-- [ ] [[STORY-0042-m4-sdk-decorator-manifest]] · @tool 装饰器 + Manifest + Version (2d)
+- [ ] [[STORY-0042-m4-sdk-decorator-manifest]] · @skill_tool 装饰器 + Manifest + Version (2d)
 - [ ] [[STORY-0043-m4-sdk-hub-registry]] · SkillHub + Registry + Conflict (2d)
 - [ ] [[STORY-0044-m4-sdk-installer-loader]] · SkillInstaller + Loader + Config (2d)
-- [ ] [[STORY-0046-m4-rpc-skill-tool]] · Sidecar RPC：Skill/Tool 方法 (1.5d)
-- [ ] [[STORY-0047-m4-ui-skill-tool-wiring]] · Web UI 接线 (2d)
-- [ ] [[STORY-0048-m4-migration-skill-tool]] · Skill/Tool 内容迁移 (1.5d)
+- [ ] [[STORY-0046-m4-rpc-skill-nexus-tool]] · Sidecar RPC：Skill/Nexus-Tool 方法 (1.5d)
+- [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]] · Web UI 接线 (2d)
+- [ ] [[STORY-0048-m4-migration-skill-nexus-tool]] · Skill/Nexus-Tool 内容迁移 (1.5d)
 
 ## 进展日志
 

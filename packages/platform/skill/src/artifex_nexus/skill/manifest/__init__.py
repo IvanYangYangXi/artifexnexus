@@ -1,1 +1,31 @@
-"""manifest — TODO: 迁移自原项目对应模块。"""
+"""manifest 子包 — Skill Manifest 模型与加载器。
+
+导出：
+    - ``SkillManifest`` — pydantic v2 模型
+    - ``SkillToolRef`` — Skill-Tool 引用
+    - ``SoftwareVersionConstraint`` — DCC 版本约束
+    - ``RiskLevel`` / ``Software`` — 枚举（数据源：categories.json）
+    - ``load_manifest_model`` — 加载并校验 manifest.json，返回 pydantic 模型实例
+"""
+
+from __future__ import annotations
+
+from .loader import load_manifest, load_manifest_model
+from .models import (
+    SkillManifest,
+    SkillToolRef,
+    SoftwareVersionConstraint,
+)
+
+# 枚举从 categories.json 唯一数据源读取，expose 给外部使用
+from ..categories import RiskLevel, Software
+
+__all__ = [
+    "SkillManifest",
+    "SkillToolRef",
+    "SoftwareVersionConstraint",
+    "RiskLevel",
+    "Software",
+    "load_manifest_model",
+    "load_manifest",  # deprecated，保留向后兼容
+]

@@ -1,7 +1,7 @@
 ---
 id: STORY-0046
 kind: story
-title: M4-RPC-01 · Sidecar RPC：Skill/Tool 方法注册
+title: M4-RPC-01 · Sidecar RPC：Skill/Nexus-Tool 方法注册
 status: backlog
 priority: P1
 owner: "@ivan"
@@ -17,13 +17,13 @@ related_docs:
 related_packages:
   - "packages/adapters/openclaw/wrapper"
   - "packages/platform/skill"
-tags: [story, skill, tool, rpc, sidecar, M4, M5]
+tags: [story, skill, nexus-tool, rpc, sidecar, M4, M5]
 ---
 
-# STORY-0046 · Sidecar RPC：Skill/Tool 方法注册
+# STORY-0046 · Sidecar RPC：Skill/Nexus-Tool 方法注册
 
 ## 用户故事
-前端通过 Tauri invoke → JSON-RPC → sidecar 调用 Skill/Tool 全部管理操作，为 Web UI 提供后端接口。
+前端通过 Tauri invoke → JSON-RPC → sidecar 调用 Skill/Nexus-Tool 全部管理操作，为 Web UI 提供后端接口。
 
 ## 验收标准
 
@@ -40,21 +40,21 @@ tags: [story, skill, tool, rpc, sidecar, M4, M5]
 - [ ] `skill.batch(operation, ids)` → `{succeeded, failed, errors}`
 - [ ] `skill.search(query)` → `list[SkillInfo]`
 
-### Tool RPC (12 方法)
-- [ ] `tool.list(filters)` → `(items, total)` 分页列表
-- [ ] `tool.detail(id)` → `ToolDetail`
-- [ ] `tool.create(...)` → `ToolInfo`
-- [ ] `tool.update(id, ...)` → `ToolInfo`
-- [ ] `tool.delete(id)` → `{ok}`
-- [ ] `tool.enable(id)` / `tool.disable(id)` → `ToolInfo`
-- [ ] `tool.pin(id)` / `tool.unpin(id)` → `ToolInfo`
-- [ ] `tool.favorite(id)` / `tool.unfavorite(id)` → `ToolInfo`
-- [ ] `tool.publish(id, opts)` → `{ok, version}`
-- [ ] `tool.run(id, args)` → `ToolResult`
-- [ ] `tool.batch(operation, ids)` → `{succeeded, failed, errors}`
+### Nexus-Tool RPC (12 方法)
+- [ ] `nexus-tool.list(filters)` → `(items, total)` 分页列表
+- [ ] `nexus-tool.detail(id)` → `NexusToolDetail`
+- [ ] `nexus-tool.create(...)` → `NexusToolInfo`
+- [ ] `nexus-tool.update(id, ...)` → `NexusToolInfo`
+- [ ] `nexus-tool.delete(id)` → `{ok}`
+- [ ] `nexus-tool.enable(id)` / `nexus-tool.disable(id)` → `NexusToolInfo`
+- [ ] `nexus-tool.pin(id)` / `nexus-tool.unpin(id)` → `NexusToolInfo`
+- [ ] `nexus-tool.favorite(id)` / `nexus-tool.unfavorite(id)` → `NexusToolInfo`
+- [ ] `nexus-tool.publish(id, opts)` → `{ok, version}`
+- [ ] `nexus-tool.run(id, args)` → `NexusToolResult`
+- [ ] `nexus-tool.batch(operation, ids)` → `{succeeded, failed, errors}`
 
 ### Sidecar 注册
-- [ ] `skill_rpc.py` 新建：所有 `skill.*` / `tool.*` handler 函数实现
+- [ ] `skill_rpc.py` 新建：所有 `skill.*` / `nexus-tool.*` handler 函数实现
 - [ ] sidecar.py `METHOD_TABLE` 追加 24 个条目
 - [ ] 所有方法支持标准 JSON-RPC error 返回（code + message）
 
@@ -75,9 +75,21 @@ tags: [story, skill, tool, rpc, sidecar, M4, M5]
 ## 依赖
 - → EPIC-0004（父）
 - ← STORY-0044（SkillInstaller + Loader + Config 必须可用）
-- ← STORY-0045（ToolRegistry + ToolInstaller 必须可用）
+- ← STORY-0045（NexusToolRegistry + NexusToolInstaller 必须可用）
 
 ## 非范围
 - Rust Tauri command 层（→ STORY-0047）
 - 前端 API 封装（→ STORY-0047）
 - Memory 管理
+
+## ⚠️ PM 标注（2026-05-16）：`nexus-tool.run` RPC 方法需移除
+
+**问题**：验收标准 §`nexus-tool.run(id, args)` 将 Nexus-Tool 执行暴露为 Sidecar RPC 方法，
+但 Nexus-Tool 执行必须在 DCC 的 Python 环境中进行（需要 `bpy` / `unreal` 等 DCC 模块），
+sidecar 进程无法访问这些环境。
+
+**正确路径**：Nexus-Tool 执行应通过 OpenClaw → MCP Bridge → DCC `run_python` 完成。
+前端 [▶ 运行] 按钮不应调用 `nexus-tool.run` RPC，而应触发 OpenClaw agent 生成 `run_python` 调用。
+
+**建议**：从 Nexus-Tool RPC 方法列表中移除 `nexus-tool.run`（减少为 11 个方法）。
+`NexusToolRegistry.run_nexus_tool()` 保留为纯 Python SDK 方法，供 DCC 内部使用。

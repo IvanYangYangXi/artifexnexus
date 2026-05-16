@@ -1,7 +1,7 @@
 ---
 id: STORY-0048
 kind: story
-title: M4-MIG-01 · Skill/Tool 内容迁移
+title: M4-MIG-01 · Skill/Nexus-Tool 内容迁移
 status: backlog
 priority: P1
 owner: "@ivan"
@@ -16,13 +16,13 @@ related_docs:
   - "[[../../../docs/research/artclaw-tool-manager-replication-plan-v2]]"
 related_packages:
   - "packages/platform/skill"
-tags: [story, migration, skill, tool, official, marketplace, M4, M5]
+tags: [story, migration, skill, nexus-tool, official, marketplace, M4, M5]
 ---
 
-# STORY-0048 · Skill/Tool 内容迁移
+# STORY-0048 · Skill/Nexus-Tool 内容迁移
 
 ## 用户故事
-artclaw_bridge 的官方和市集 Skill/Tool 全部迁移到 Artifex Nexus 对应目录，可直接通过 SkillHub 加载和 Web UI 管理。
+artclaw_bridge 的官方和市集 Skill/Nexus-Tool 全部迁移到 Artifex Nexus 对应目录，可直接通过 SkillHub 加载和 Web UI 管理。
 
 ## 验收标准
 
@@ -41,24 +41,24 @@ artclaw_bridge 的官方和市集 Skill/Tool 全部迁移到 Artifex Nexus 对�
 - [ ] `ue5-debug-validation` → `skills/marketplace/unreal/`
 - [ ] `scene-vision-analyzer` → `skills/marketplace/universal/`
 
-### Official Tools 迁移（2 个，排除 1 个记忆相关）
-- [ ] `artclaw-skill-compliance-checker` → `~/.artifexnexus/tools/official/universal/`
-- [ ] `tool-compliance-checker` → `~/.artifexnexus/tools/official/universal/`
+### Official Nexus-Tools 迁移（2 个，排除 1 个记忆相关）
+- [ ] `artclaw-skill-compliance-checker` → `~/.artifexnexus/nexus-tools/official/universal/`
+- [ ] `tool-compliance-checker` → `~/.artifexnexus/nexus-tools/official/universal/`
 - [x] ❌ `memory-promote-to-team` 不迁移（记忆管理）
 
-### Marketplace Tools 迁移（6 个）
-- [ ] `Blender对象命名规范检查` → `~/.artifexnexus/tools/marketplace/blender/`
-- [ ] `模型批量加前缀后缀` → `~/.artifexnexus/tools/marketplace/blender/`
-- [ ] `SM命名检查` → `~/.artifexnexus/tools/marketplace/unreal/`
-- [ ] `UV & 贴图利用率优化-UV重排` → `~/.artifexnexus/tools/marketplace/unreal/`
-- [ ] `UV & 贴图利用率优化-贴图裁切` → `~/.artifexnexus/tools/marketplace/unreal/`
-- [ ] `资产批量改名` → `~/.artifexnexus/tools/marketplace/unreal/`
+### Marketplace Nexus-Tools 迁移（6 个）
+- [ ] `Blender对象命名规范检查` → `~/.artifexnexus/nexus-tools/marketplace/blender/`
+- [ ] `模型批量加前缀后缀` → `~/.artifexnexus/nexus-tools/marketplace/blender/`
+- [ ] `SM命名检查` → `~/.artifexnexus/nexus-tools/marketplace/unreal/`
+- [ ] `UV & 贴图利用率优化-UV重排` → `~/.artifexnexus/nexus-tools/marketplace/unreal/`
+- [ ] `UV & 贴图利用率优化-贴图裁切` → `~/.artifexnexus/nexus-tools/marketplace/unreal/`
+- [ ] `资产批量改名` → `~/.artifexnexus/nexus-tools/marketplace/unreal/`
 
 ### 迁移后验证
 - [ ] 所有 Skill SKILL.md 可被 `load_manifest()` 正常解析
-- [ ] 所有 Tool manifest.json 可被 ToolScanner 正常解析
+- [ ] 所有 Nexus-Tool manifest.json 可被 NexusToolScanner 正常解析
 - [ ] `skill.list()` 返回 8 个 Skill（3 official + 5 marketplace）
-- [ ] `tool.list()` 返回 8 个 Tool（2 official + 6 marketplace）
+- [ ] `nexus-tool.list()` 返回 8 个 Nexus-Tool（2 official + 6 marketplace）
 
 ## 迁移统计
 
@@ -66,8 +66,8 @@ artclaw_bridge 的官方和市集 Skill/Tool 全部迁移到 Artifex Nexus 对�
 |------|------|------|
 | Official Skills | 3 | UE5 (2) + ComfyUI (1) |
 | Marketplace Skills | 5 | UE5 (4) + Universal (1) |
-| Official Tools | 2 | Universal |
-| Marketplace Tools | 6 | Blender (2) + UE5 (4) |
+| Official Nexus-Tools | 2 | Universal |
+| Marketplace Nexus-Tools | 6 | Blender (2) + UE5 (4) |
 | **合计** | **16** | |
 | **排除** | 1 | memory-promote-to-team |
 
@@ -89,7 +89,7 @@ skills/
     └── universal/
         └── scene-vision-analyzer/
 
-~/.artifexnexus/tools/
+~/.artifexnexus/nexus-tools/
 ├── official/universal/
 │   ├── artclaw-skill-compliance-checker/
 │   └── tool-compliance-checker/
@@ -105,10 +105,10 @@ skills/
 ```
 
 ## 依赖
-- → EPIC-0004（Skill 迁移）；→ EPIC-0005（Tool 迁移）
+- → EPIC-0004（Skill 迁移）；→ EPIC-0005（Nexus-Tool 迁移）
 - ← STORY-0043（SkillHub 扫描/加载必须可用）
-- ← STORY-0045（ToolRegistry 扫描必须可用）
+- ← STORY-0045（NexusToolRegistry 扫描必须可用）
 
 ## 非范围
-- memory-promote-to-team（记忆管理 Tool）
+- memory-promote-to-team（记忆管理 Nexus-Tool）
 - memory/ 和 team_memory/ 目录

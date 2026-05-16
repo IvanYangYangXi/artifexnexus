@@ -13,8 +13,8 @@ status: draft
 
 ```
 packages/platform/skill/src/artifex_nexus/skill/
-├── __init__.py           # 统一门面：from artifex_nexus.skill import tool, ToolResult, execute, ...
-├── decorator/            # @tool 装饰器、参数 schema 推导（基于 type hints）
+├── __init__.py           # 统一门面：from artifex_nexus.skill import skill_tool, SkillToolResult, execute_skill_tool, ...
+├── decorator/            # @skill_tool 装饰器、参数 schema 推导（基于 type hints）
 ├── manifest/             # SkillManifest pydantic v2 模型 + Category / RiskLevel 枚举
 ├── loader/               # 分层加载（00_official > 01_team > 02_user > 99_custom）
 ├── version/              # 版本解析/比较（基于 packaging）+ 软件版本匹配
@@ -30,7 +30,7 @@ packages/platform/skill/src/artifex_nexus/skill/
 
 | 点 | 原项目 | Artifex Nexus | 收益 |
 |----|--------|--------------|------|
-| 装饰器命名 | `@artclaw_tool` / `@ue_tool` | **统一 `@tool`**；`@artclaw_tool` 保留为别名兼容 | 命名一致，区分 Skill（包）与 Tool（函数）语义 |
+| 装饰器命名 | `@artclaw_tool` / `@ue_tool` | **统一 `@skill_tool`**；`@artclaw_tool` / `@tool` 保留为别名兼容 | 命名一致，区分 Skill（包）与 SkillTool（函数）语义 |
 | manifest 校验 | `jsonschema`（手写校验） | **pydantic v2 模型**（schema 由 contracts 提供） | 类型提示 + 运行时校验一步到位 |
 | 顶层 API | 散落在 `core.version_manager` / `cli.skill_hub` / `core.skill_decorator` | **统一 `from artifex_nexus.skill import ...`** | 隐藏子模块细节 |
 | VersionManager | 一个大类承担"查询 + 安装 + 发布 + 同步" | **拆为 `SkillRegistry` + `SkillInstaller`** | 单一职责，易测易复用 |
@@ -40,9 +40,9 @@ packages/platform/skill/src/artifex_nexus/skill/
 ## 3. 装饰器使用（Skill 作者视角）
 
 ```python
-from artifex_nexus.skill import tool, ToolResult
+from artifex_nexus.skill import skill_tool, SkillToolResult
 
-@tool(
+@skill_tool(
     name="create_static_mesh",
     description="在场景中创建静态网格体 / Spawn a static mesh actor.",
     category="scene",
@@ -52,25 +52,25 @@ from artifex_nexus.skill import tool, ToolResult
         "location":  {"type": "vec3", "default": [0, 0, 0]},
     },
 )
-def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> ToolResult:
+def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> SkillToolResult:
     import unreal
     actor = unreal.EditorLevelLibrary.spawn_actor_from_object(
         unreal.load_asset(mesh_path), unreal.Vector(*location),
     )
-    return ToolResult.success({"actor_name": actor.get_name()})
+    return SkillToolResult.success({"actor_name": actor.get_name()})
 ```
 
 > **命名约定**：
 > - **Skill** = 一个包（`SKILL.md` + `manifest.json` + `__init__.py`），是分发与版本管理的单位。
-> - **Tool** = Skill 包内被 `@tool` 装饰的可调用函数，是实际执行的单位。一个 Skill 可暴露多个 Tool。
+> - **SkillTool** = Skill 包内被 `@skill_tool` 装饰的可调用函数，是实际执行的单位。一个 Skill 可暴露多个 SkillTool。
 
 ## 4. AI 调用方式
 
 AI 不直接调用 Tool，而是通过 MCP 唯一工具 `run_python`（Gateway 端会带 DCC 前缀变成 `mcp_unreal_run_python` / `mcp_blender_run_python`）执行：
 
 ```python
-from artifex_nexus.skill import execute
-result = execute("create_static_mesh", {
+from artifex_nexus.skill import execute_skill_tool
+result = execute_skill_tool("create_static_mesh", {
     "mesh_path": "/Game/Meshes/Cube",
     "location": [0, 0, 0],
 })
