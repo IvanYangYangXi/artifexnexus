@@ -9,7 +9,14 @@ Methods: ping, get_port, openclaw.install, openclaw.bootstrap, openclaw.start,
          openclaw.config.dump, openclaw.config.patch, openclaw.config.test_provider
          openclaw.auth.set_token,
          openclaw.backup, openclaw.restore, openclaw.backups.list,
-         openclaw.backups.delete
+         openclaw.backups.delete,
+         skill.list, skill.detail, skill.install, skill.uninstall, skill.enable,
+         skill.disable, skill.pin, skill.unpin, skill.favorite, skill.unfavorite,
+         skill.sync, skill.publish, skill.batch, skill.search,
+         nexus-tool.list, nexus-tool.detail, nexus-tool.create, nexus-tool.update,
+         nexus-tool.delete, nexus-tool.enable, nexus-tool.disable, nexus-tool.pin,
+         nexus-tool.unpin, nexus-tool.favorite, nexus-tool.unfavorite,
+         nexus-tool.publish, nexus-tool.batch
 
 Lifecycle:
     sidecar 退出（正常 / Tauri 主进程关窗 / SIGTERM）时，必须主动停掉它
@@ -47,6 +54,8 @@ try:
     from . import runtime as _runtime
     from . import sidecar_gateway as _sidecar_gateway
     from . import sidecar_sessions as _sidecar_sessions
+    from . import skill_rpc as _skill_rpc
+    from . import nexus_tool_rpc as _nexus_tool_rpc
     from . import web_ui as _web_ui
 except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
@@ -60,6 +69,8 @@ except ImportError:
     import runtime as _runtime  # type: ignore[no-redef]
     import sidecar_gateway as _sidecar_gateway  # type: ignore[no-redef]
     import sidecar_sessions as _sidecar_sessions  # type: ignore[no-redef]
+    import skill_rpc as _skill_rpc  # type: ignore[no-redef]
+    import nexus_tool_rpc as _nexus_tool_rpc  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
 
 sys.stderr.write("[sidecar.boot] all submodules imported\n")
@@ -1558,6 +1569,9 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.restore": _handle_openclaw_restore,
     "openclaw.backups.list": _handle_openclaw_backups_list,
     "openclaw.backups.delete": _handle_openclaw_backups_delete,
+    # STORY-0046：Skill / Nexus-Tool RPC（27 方法，不含 nexus-tool.run）
+    **_skill_rpc.SKILL_METHODS,
+    **_nexus_tool_rpc.NEXUS_TOOL_METHODS,
 }
 
 

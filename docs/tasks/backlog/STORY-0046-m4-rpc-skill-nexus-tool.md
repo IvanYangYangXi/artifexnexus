@@ -2,13 +2,13 @@
 id: STORY-0046
 kind: story
 title: M4-RPC-01 · Sidecar RPC：Skill/Nexus-Tool 方法注册
-status: backlog
+status: ready
 priority: P1
 owner: "@ivan"
 assignee: pair
 estimate: 1.5d
 created: 2026-05-15
-updated: 2026-05-15
+updated: 2026-05-16
 parent: "[[../backlog/EPIC-0004-m4-skill-system]]"
 milestone: M4
 related_adr: [0003]
@@ -27,36 +27,35 @@ tags: [story, skill, nexus-tool, rpc, sidecar, M4, M5]
 
 ## 验收标准
 
-### Skill RPC (12 方法)
-- [ ] `skill.list(filters)` → `(items, total)` 分页列表
-- [ ] `skill.detail(id)` → `SkillDetail` 详情
-- [ ] `skill.install(id)` → `{ok, message}`
-- [ ] `skill.uninstall(id)` → `{ok, message}`
-- [ ] `skill.enable(id)` / `skill.disable(id)` → `SkillInfo`
-- [ ] `skill.pin(id)` / `skill.unpin(id)` → `SkillInfo`
-- [ ] `skill.favorite(id)` / `skill.unfavorite(id)` → `SkillInfo`
-- [ ] `skill.sync(id)` → `{ok, synced_files}`
-- [ ] `skill.publish(id, opts)` → `{ok, version}`
-- [ ] `skill.batch(operation, ids)` → `{succeeded, failed, errors}`
-- [ ] `skill.search(query)` → `list[SkillInfo]`
+### Skill RPC (14 方法)
+- [x] `skill.list(filters)` → `(items, total)` 分页列表
+- [x] `skill.detail(id)` → `SkillDetail` 详情
+- [x] `skill.install(id)` → `{ok, message}`
+- [x] `skill.uninstall(id)` → `{ok, message}`
+- [x] `skill.enable(id)` / `skill.disable(id)` → `SkillInfo`
+- [x] `skill.pin(id)` / `skill.unpin(id)` → `SkillInfo`
+- [x] `skill.favorite(id)` / `skill.unfavorite(id)` → `SkillInfo`
+- [x] `skill.sync(id)` → `{ok, synced_files}`
+- [x] `skill.publish(id, opts)` → `{ok, version}`
+- [x] `skill.batch(operation, ids)` → `{succeeded, failed, errors}`
+- [x] `skill.search(query)` → `list[SkillInfo]`
 
-### Nexus-Tool RPC (12 方法)
-- [ ] `nexus-tool.list(filters)` → `(items, total)` 分页列表
-- [ ] `nexus-tool.detail(id)` → `NexusToolDetail`
-- [ ] `nexus-tool.create(...)` → `NexusToolInfo`
-- [ ] `nexus-tool.update(id, ...)` → `NexusToolInfo`
-- [ ] `nexus-tool.delete(id)` → `{ok}`
-- [ ] `nexus-tool.enable(id)` / `nexus-tool.disable(id)` → `NexusToolInfo`
-- [ ] `nexus-tool.pin(id)` / `nexus-tool.unpin(id)` → `NexusToolInfo`
-- [ ] `nexus-tool.favorite(id)` / `nexus-tool.unfavorite(id)` → `NexusToolInfo`
-- [ ] `nexus-tool.publish(id, opts)` → `{ok, version}`
-- [ ] `nexus-tool.run(id, args)` → `NexusToolResult`
-- [ ] `nexus-tool.batch(operation, ids)` → `{succeeded, failed, errors}`
+### Nexus-Tool RPC (13 方法，不含 run)
+- [x] `nexus-tool.list(filters)` → `(items, total)` 分页列表
+- [x] `nexus-tool.detail(id)` → `NexusToolDetail`
+- [x] `nexus-tool.create(...)` → `NexusToolInfo`
+- [x] `nexus-tool.update(id, ...)` → `NexusToolInfo`
+- [x] `nexus-tool.delete(id)` → `{ok}`
+- [x] `nexus-tool.enable(id)` / `nexus-tool.disable(id)` → `NexusToolInfo`
+- [x] `nexus-tool.pin(id)` / `nexus-tool.unpin(id)` → `NexusToolInfo`
+- [x] `nexus-tool.favorite(id)` / `nexus-tool.unfavorite(id)` → `NexusToolInfo`
+- [x] `nexus-tool.publish(id, opts)` → `{ok, version}`
+- [x] `nexus-tool.batch(operation, ids)` → `{succeeded, failed, errors}`
 
 ### Sidecar 注册
-- [ ] `skill_rpc.py` 新建：所有 `skill.*` / `nexus-tool.*` handler 函数实现
-- [ ] sidecar.py `METHOD_TABLE` 追加 24 个条目
-- [ ] 所有方法支持标准 JSON-RPC error 返回（code + message）
+- [x] `skill_rpc.py` + `nexus_tool_rpc.py` + `_rpc_helpers.py` 新建
+- [x] sidecar.py `METHOD_TABLE` 追加 27 个条目（14 skill + 13 nexus-tool）
+- [x] 所有方法支持标准 JSON-RPC error 返回（code + message）
 
 ## 源文件对照
 
