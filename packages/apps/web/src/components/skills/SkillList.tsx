@@ -1,24 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star } from "lucide-react";
+import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@artifex-nexus/ui";
-import { ItemCard, formatDate } from "./ItemCard";
+import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
-import { PinnedSkillsContext } from "../shell/AppShell";
 import {
-  MOCK_SKILLS, type MockSkill, type SkillStatus, type SkillSource, type DCC,
-  DCC_LABELS, SOURCE_LABELS, STATUS_LABELS,
-} from "../../lib/skillsMock";
+  skillList, skillInstall, skillUninstall, skillEnable, skillDisable,
+  skillPin, skillUnpin, skillFavorite, skillUnfavorite, skillDetail,
+  type SkillItem,
+} from "../../lib/skill/skill-api";
+import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 
-const STATUS_COLORS: Record<SkillStatus, string> = {
-  installed: "bg-emerald-500/15 text-emerald-400",
-  not_installed: "bg-muted text-muted-foreground",
-  update_available: "bg-amber-500/15 text-amber-400",
-  disabled: "bg-red-500/15 text-red-400",
-};
+// layer → source 映射
+function layerToSource(layer: string): string {
+  if (layer.startsWith("00_")) return "official";
+  if (layer.startsWith("01_")) return "marketplace";
+  if (layer.startsWith("02_")) return "user";
+  return "user";
+}
 
-const SOURCE_COLORS: Record<SkillSource, string> = {
+const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400", marketplace: "text-purple-400", user: "text-green-400",
 };
 
@@ -26,23 +28,70 @@ export function SkillList() {
   const [search, setSearch] = React.useState("");
   const [dccFilter, setDccFilter] = React.useState("all");
   const [sourceFilter, setSourceFilter] = React.useState("all");
-  const [statusFilter, setStatusFilter] = React.useState("all");
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"card" | "list">("card");
-  const [skills, setSkills] = React.useState(MOCK_SKILLS);
-  const [detailSkill, setDetailSkill] = React.useState<MockSkill | null>(null);
-  const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
+  const [skills, setSkills] = React.useState<SkillItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [detailSkill, setDetailSkill] = React.useState<SkillItem | null>(null);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
 
-  const toggleFavorite = (id: string) => {
-    setSkills((prev) => prev.map((s) => s.id === id ? { ...s, favorited: !s.favorited } : s));
-  };
+  // 加载列表
+  const loadSkills = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await skillList({ page: 1, limit: 200 });
+      setSkills(result.items);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { loadSkills(); }, [loadSkills]);
+
+  // 操作封装（支持乐观更新 + 静默重取）
+  const doAction = React.useCallback(async (id: string, action: () => Promise<unknown>) => {
+    setActionLoading((prev) => new Set(prev).add(id));
+    try {
+      await action();
+      await loadSkills();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  }, [loadSkills]);
+
+  const handleDetail = React.useCallback(async (id: string) => {
+    setDetailLoading(true);
+    try {
+      const detail = await skillDetail(id);
+      // detail.entry has SkillEntry data, convert to SkillItem for display
+      const item: SkillItem = {
+        ...detail.entry,
+        enabled: detail.config.enabled,
+        pinned: detail.config.pinned,
+        favorited: detail.config.favorited,
+      };
+      setDetailSkill(item);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  const isBusy = (id: string) => actionLoading.has(id);
 
   const filtered = skills
     .filter((s) => {
-      if (search && !s.name.includes(search) && !s.description.includes(search)) return false;
-      if (dccFilter !== "all" && !s.targetDCCs.includes(dccFilter as DCC)) return false;
-      if (sourceFilter !== "all" && s.source !== sourceFilter) return false;
-      if (statusFilter !== "all" && s.status !== statusFilter) return false;
+      if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (dccFilter !== "all" && s.software !== dccFilter) return false;
+      if (sourceFilter !== "all" && layerToSource(s.layer) !== sourceFilter) return false;
       if (favoritesOnly && !s.favorited) return false;
       return true;
     })
@@ -72,69 +121,71 @@ export function SkillList() {
             {Object.entries(SOURCE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue placeholder="状态" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部状态</SelectItem>
-            {Object.entries(STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-          </SelectContent>
-        </Select>
         <Button variant={favoritesOnly ? "default" : "ghost"} size="icon" className="h-8 w-8"
           onClick={() => setFavoritesOnly(!favoritesOnly)}>
           <Star className={`h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`} />
         </Button>
         <div className="flex-1" />
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="刷新"
+          onClick={loadSkills} disabled={loading}>
+          <Loader2 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8"
           onClick={() => setViewMode(viewMode === "card" ? "list" : "card")}>
           {viewMode === "card" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
-        <Button variant="outline" size="sm" className="h-8 gap-1 text-xs"><Plus className="h-3 w-3" />安装</Button>
       </div>
+
+      {loading && skills.length === 0 && (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" />加载中...
+        </div>
+      )}
+
+      {error && skills.length === 0 && (
+        <div className="flex flex-1 items-center justify-center gap-2 text-red-400">
+          <AlertCircle className="h-5 w-5" />
+          <span className="text-sm">sidecar 未就绪或加载失败</span>
+          <Button variant="outline" size="sm" onClick={loadSkills}>重试</Button>
+        </div>
+      )}
 
       <ScrollFade className="flex-1">
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((skill) => (
-            <ItemCard key={skill.id} viewMode={viewMode}
-              icon={<DCCIcon dcc={skill.targetDCCs[0]} />}
-              title={skill.name}
-              titleBadge={skill.targetDCCs.length > 0 ? { label: skill.targetDCCs.map((d) => DCC_LABELS[d]).join(", ") } : undefined}
-              source={{ label: SOURCE_LABELS[skill.source], color: SOURCE_COLORS[skill.source] }}
-              status={{ label: STATUS_LABELS[skill.status], color: STATUS_COLORS[skill.status] }}
-              description={skill.description}
+            <ItemCard key={skill.name} viewMode={viewMode}
+              icon={<DCCIcon software={skill.software} />}
+              title={skill.display_name || skill.name}
+              source={{ label: SOURCE_LABELS[layerToSource(skill.layer)] || layerToSource(skill.layer), color: SOURCE_COLORS[layerToSource(skill.layer)] }}
+              status={{
+                label: skill.enabled ? "已安装" : "已禁用",
+                color: skill.enabled ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
+              }}
+              description={skill.category}
               meta={<>
                 <span>{skill.version}</span>
-                <span>·</span><span>{skill.author}</span>
-                <span>·</span><span>{skill.modifiedDate}</span>
+                <span>·</span><span>{skill.software}</span>
               </>}
               actions={<>
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDetailSkill(skill)}>详情</Button>
-                {skill.status === "not_installed" && <Button size="sm" className="h-7 text-xs">安装</Button>}
-                {skill.status === "installed" && <>
-                  <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs">禁用</Button>
-                  {skill.source === "user" && <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePin(skill.name)}>
-                    {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
-                  </Button>
-                </>}
-                {skill.status === "update_available" && <>
-                  <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
-                  <Button size="sm" className="h-7 text-xs">更新</Button>
-                  {skill.source === "user" && <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePin(skill.name)}>
-                    {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
-                  </Button>
-                </>}
-                {skill.status === "disabled" && <>
-                  <Button variant="outline" size="sm" className="h-7 text-xs">卸载</Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs">启用</Button>
-                  {skill.source === "user" && <Button variant="outline" size="sm" className="h-7 text-xs">发布</Button>}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePin(skill.name)}>
-                    {pinnedSkills.includes(skill.name) ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                <Button variant="outline" size="sm" className="h-7 text-xs"
+                  onClick={() => handleDetail(skill.name)} disabled={isBusy(skill.name)}>
+                  详情
+                </Button>
+                {!skill.enabled && <Button size="sm" className="h-7 text-xs"
+                  onClick={() => doAction(skill.name, () => skillEnable(skill.name))} disabled={isBusy(skill.name)}>启用</Button>}
+                {skill.enabled && <>
+                  <Button variant="outline" size="sm" className="h-7 text-xs"
+                    onClick={() => doAction(skill.name, () => skillDisable(skill.name))} disabled={isBusy(skill.name)}>禁用</Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7"
+                    onClick={() => doAction(skill.name, () => skill.pinned ? skillUnpin(skill.name) : skillPin(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
                   </Button>
                 </>}
                 <div className="flex-1" />
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleFavorite(skill.id)}>
+                <Button variant="ghost" size="icon" className="h-7 w-7"
+                  onClick={() => doAction(skill.name, () => skill.favorited ? skillUnfavorite(skill.name) : skillFavorite(skill.name))}
+                  disabled={isBusy(skill.name)}>
                   <Star className={`h-3.5 w-3.5 ${skill.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
                 </Button>
               </>}
@@ -145,15 +196,15 @@ export function SkillList() {
 
       <Dialog open={!!detailSkill} onOpenChange={() => setDetailSkill(null)}>
         <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader><DialogTitle>{detailSkill?.name}</DialogTitle>
-            <DialogDescription>{detailSkill?.source && SOURCE_LABELS[detailSkill.source]} · {detailSkill?.version} · {detailSkill?.author}</DialogDescription>
+          <DialogHeader><DialogTitle>{detailSkill?.display_name || detailSkill?.name}</DialogTitle>
+            <DialogDescription>{layerToSource(detailSkill?.layer || "")} · {detailSkill?.version} · {detailSkill?.software}</DialogDescription>
           </DialogHeader>
           {detailSkill && <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">{detailSkill.description}</p>
-            <div className="flex flex-wrap gap-1.5">{detailSkill.targetDCCs.map((d) => <span key={d} className="rounded bg-muted px-2 py-0.5 text-xs">{DCC_LABELS[d]}</span>)}</div>
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" size="sm" className="text-xs">打开源码目录</Button>
-              <Button variant="outline" size="sm" className="text-xs">打开安装目录</Button>
+            <p className="text-muted-foreground">{detailSkill.category}</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="rounded bg-muted px-2 py-0.5 text-xs">{detailSkill.software}</span>
+              <span className="rounded bg-muted px-2 py-0.5 text-xs">{detailSkill.version}</span>
+              <span className="rounded bg-muted px-2 py-0.5 text-xs">优先级 {detailSkill.priority}</span>
             </div>
           </div>}
         </DialogContent>
@@ -162,8 +213,17 @@ export function SkillList() {
   );
 }
 
-function DCCIcon({ dcc }: { dcc: DCC }) {
-  const colors: Record<DCC, string> = { blender: "bg-orange-500/20 text-orange-400", maya: "bg-cyan-500/20 text-cyan-400", max: "bg-yellow-500/20 text-yellow-400", unreal: "bg-sky-500/20 text-sky-400", houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400", general: "bg-muted text-muted-foreground" };
-  const icons: Record<DCC, string> = { blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C", general: "G" };
-  return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[dcc] || colors.general}`}>{icons[dcc]}</span>;
+function DCCIcon({ software }: { software: string }) {
+  const colors: Record<string, string> = {
+    blender: "bg-orange-500/20 text-orange-400", maya: "bg-cyan-500/20 text-cyan-400",
+    max: "bg-yellow-500/20 text-yellow-400", unreal: "bg-sky-500/20 text-sky-400",
+    houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400",
+  };
+  const icons: Record<string, string> = {
+    blender: "B", maya: "M", max: "3", unreal: "U", houdini: "H", comfyui: "C",
+  };
+  const key = software?.toLowerCase() || "";
+  return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[key] || "bg-muted text-muted-foreground"}`}>
+    {icons[key] || "?"}
+  </span>;
 }

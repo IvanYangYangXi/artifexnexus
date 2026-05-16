@@ -7,8 +7,9 @@ Delegates to the artifex_nexus.skill.nexus_tool SDK modules.
 Imports shared helpers from ``_rpc_helpers``.
 
 Methods: list, detail, create, update, delete, enable, disable,
-         pin, unpin, favorite, unfavorite, publish, batch
-         (13 methods; nexus-tool.run excluded per PM 标注)
+         pin, unpin, favorite, unfavorite, publish, run, batch
+         (14 methods; nexus-tool.run routes via MCP Bridge for DCC tools,
+          subprocess for general tools)
 """
 
 from __future__ import annotations
@@ -331,6 +332,128 @@ def _handle_nexus_tool_batch(req_id: Any, params: dict) -> dict:
         return _err(req_id, str(e))
 
 
+# ── DCC → MCP server name 映射 ─────────────────────────────────────────────
+
+_DCC_TO_MCP_SERVER: dict[str, str] = {
+    "blender": "blender-editor",
+    "maya": "maya-primary",
+    "unreal": "unreal-editor",
+    "houdini": "houdini-primary",
+    "max": "max-primary",
+    "comfyui": "comfyui-primary",
+}
+
+
+def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
+    """nexus-tool.run(id, args) → NexusToolResult。
+
+    执行策略：
+    - DCC 工具（target_dccs 不含 "general"）→ MCP Bridge → DCC MCP Server run_python
+    - 通用工具（含 "general" 或无 DCC）→ subprocess 执行 main.py
+    """
+    try:
+        nexus_tool_id = params.get("id")
+        if not nexus_tool_id:
+            return _err_invalid_params(req_id, "缺少参数: id")
+
+        run_args = params.get("args") or {}
+
+        registry = _get_nt_registry()
+        registry.refresh()
+
+        ntd = registry.get_nexus_tool(nexus_tool_id)
+        if ntd is None:
+            return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
+
+        target_dccs = [d.lower() for d in (ntd.target_dccs or [])]
+        is_general = "general" in target_dccs or not target_dccs
+
+        # ── 读取 main.py ──
+        from pathlib import Path
+        tool_dir = Path(ntd.nexus_tool_path)
+        main_py = tool_dir / "main.py"
+        if not main_py.is_file():
+            return _err(req_id, f"Nexus-Tool main.py 不存在: {main_py}")
+
+        code = main_py.read_text(encoding="utf-8")
+
+        if is_general:
+            # ── 通用工具：subprocess ──
+            import subprocess
+            import json as _json
+            try:
+                proc = subprocess.run(
+                    ["python", str(main_py)],
+                    input=_json.dumps(run_args),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=str(tool_dir),
+                )
+                data = {
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                    "returncode": proc.returncode,
+                }
+                if proc.returncode == 0:
+                    return _ok(req_id, {"success": True, "data": data})
+                else:
+                    return _ok(req_id, {
+                        "success": False,
+                        "data": data,
+                        "error": proc.stderr.strip() or f"exit code {proc.returncode}",
+                    })
+            except subprocess.TimeoutExpired:
+                return _err(req_id, "Nexus-Tool 执行超时（120s）")
+            except FileNotFoundError:
+                return _err(req_id, "Python 解释器不可用")
+        else:
+            # ── DCC 工具：MCP Bridge 路由 ──
+            # 选取第一个支持的 DCC
+            dcc = target_dccs[0] if target_dccs else "blender"
+            server_name = _DCC_TO_MCP_SERVER.get(dcc)
+            if server_name is None:
+                return _err(req_id, f"不支持的 DCC: {dcc}（已知: {list(_DCC_TO_MCP_SERVER)})")
+
+            mcp_tool_name = f"mcp_{server_name}_run_python"
+
+            # 注入参数到代码
+            import json as _json
+            injected_code = (
+                f"# --- nexus-tool args injected ---\n"
+                f"_nexus_tool_args = {_json.dumps(run_args, ensure_ascii=False)}\n"
+                f"{code}"
+            )
+
+            try:
+                from .mcp_bridge import MCPBridgeClient
+                bridge = MCPBridgeClient.get_instance()
+                if not bridge.is_connected:
+                    connected = bridge.connect()
+                    if not connected:
+                        return _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
+
+                result = bridge.call_tool(
+                    mcp_tool_name,
+                    {"code": injected_code},
+                    timeout=120,
+                )
+                return _ok(req_id, {
+                    "success": not result.get("isError", False),
+                    "data": result,
+                    "dcc": dcc,
+                })
+            except ImportError:
+                return _err(req_id, "MCP Bridge 模块未加载，无法路由到 DCC")
+            except Exception as exc:
+                logger.exception("mcp bridge call failed")
+                return _err(req_id, f"DCC 执行失败 ({dcc}): {exc}")
+
+    except Exception as e:
+        logger.exception("nexus-tool.run failed")
+        return _err(req_id, str(e))
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 NEXUS_TOOL_METHODS = {
     "nexus-tool.list": _handle_nexus_tool_list,
@@ -345,6 +468,7 @@ NEXUS_TOOL_METHODS = {
     "nexus-tool.favorite": _handle_nexus_tool_favorite,
     "nexus-tool.unfavorite": _handle_nexus_tool_unfavorite,
     "nexus-tool.publish": _handle_nexus_tool_publish,
+    "nexus-tool.run": _handle_nexus_tool_run,
     "nexus-tool.batch": _handle_nexus_tool_batch,
 }
 

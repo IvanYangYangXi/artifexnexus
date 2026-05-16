@@ -11,7 +11,6 @@ tags:
 
 - [ ] [[EPIC-0003-m3-web-ui-chat]]
 - [ ] [[EPIC-0004-m4-skill-system]]
-- [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]
 - [ ] [[STORY-0048-m4-migration-skill-nexus-tool]]
 - [ ] [[EPIC-0005-m5-nexus-tool-system]]
 - [ ] [[EPIC-0006-m6-memory-system]]
@@ -27,6 +26,7 @@ tags:
 - [ ] [[STORY-0044-m4-sdk-installer-loader]]
 - [ ] [[STORY-0045-m5-sdk-nexus-tool-registry]]
 - [ ] [[STORY-0046-m4-rpc-skill-nexus-tool]]
+- [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]
 
 
 

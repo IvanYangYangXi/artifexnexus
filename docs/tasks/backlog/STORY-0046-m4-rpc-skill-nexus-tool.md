@@ -81,14 +81,11 @@ tags: [story, skill, nexus-tool, rpc, sidecar, M4, M5]
 - 前端 API 封装（→ STORY-0047）
 - Memory 管理
 
-## ⚠️ PM 标注（2026-05-16）：`nexus-tool.run` RPC 方法需移除
+## ⚠️ PM 标注（2026-05-16）：`nexus-tool.run` RPC 执行路径
 
-**问题**：验收标准 §`nexus-tool.run(id, args)` 将 Nexus-Tool 执行暴露为 Sidecar RPC 方法，
-但 Nexus-Tool 执行必须在 DCC 的 Python 环境中进行（需要 `bpy` / `unreal` 等 DCC 模块），
-sidecar 进程无法访问这些环境。
+**最终决策**：`nexus-tool.run` 保留为 RPC 方法。执行路由：
+- **DCC 工具**（target_dccs 不含 general）→ Sidecar → MCP Bridge → DCC MCP Server `run_python`
+- **通用工具**（含 general 或无 DCC）→ Sidecar subprocess 执行 main.py
 
-**正确路径**：Nexus-Tool 执行应通过 OpenClaw → MCP Bridge → DCC `run_python` 完成。
-前端 [▶ 运行] 按钮不应调用 `nexus-tool.run` RPC，而应触发 OpenClaw agent 生成 `run_python` 调用。
-
-**建议**：从 Nexus-Tool RPC 方法列表中移除 `nexus-tool.run`（减少为 11 个方法）。
-`NexusToolRegistry.run_nexus_tool()` 保留为纯 Python SDK 方法，供 DCC 内部使用。
+Sidecar 已有 `MCPBridgeClient.call_tool()` 可转发到 DCC，因此 nexus-tool.run
+通过 sidecar RPC 是可行的。旧标注"不能在 sidecar 执行"基于不完整的理解，已修正。

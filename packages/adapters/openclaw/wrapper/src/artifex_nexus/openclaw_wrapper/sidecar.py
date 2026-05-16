@@ -16,7 +16,7 @@ Methods: ping, get_port, openclaw.install, openclaw.bootstrap, openclaw.start,
          nexus-tool.list, nexus-tool.detail, nexus-tool.create, nexus-tool.update,
          nexus-tool.delete, nexus-tool.enable, nexus-tool.disable, nexus-tool.pin,
          nexus-tool.unpin, nexus-tool.favorite, nexus-tool.unfavorite,
-         nexus-tool.publish, nexus-tool.batch
+         nexus-tool.publish, nexus-tool.run, nexus-tool.batch
 
 Lifecycle:
     sidecar 退出（正常 / Tauri 主进程关窗 / SIGTERM）时，必须主动停掉它

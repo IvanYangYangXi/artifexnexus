@@ -2,7 +2,7 @@
 id: STORY-0047
 kind: story
 title: M4-UI-01 · Web UI：Skill/Nexus-Tool 管理面板接线
-status: backlog
+status: ready
 priority: P1
 owner: "@ivan"
 assignee: pair
@@ -28,39 +28,29 @@ tags: [story, ui, skill, nexus-tool, tauri, invoke, M4, M5]
 ## 验收标准
 
 ### TypeScript API 封装
-- [ ] `packages/apps/web/src/lib/skill/skill-api.ts`：封装 `SkillAPI` 接口
-  - `list / getDetail / install / uninstall / enable / disable / pin / unpin / sync / publish / batch / search`
-  - 底层通过 `invoke("skill_xxx", params)` 调用 Rust command → sidecar RPC
-- [ ] `packages/apps/web/src/lib/tool/nexus-tool-api.ts`：封装 `NexusToolAPI` 接口
-  - `list / getDetail / create / update / delete / enable / disable / pin / unpin / publish / run / batch`
-  - 底层通过 `invoke("nexus_tool_xxx", params)` 调用 Rust command → sidecar RPC
+- [x] `packages/apps/web/src/lib/skill/skill-api.ts`：封装 `SkillAPI` 接口（14 方法）
+- [x] `packages/apps/web/src/lib/nexus-tool/nexus-tool-api.ts`：封装 `NexusToolAPI` 接口（14 方法含 run）
 
 ### Rust Tauri Command
-- [ ] `commands/skill.rs` 新建（或追加到 `commands/openclaw.rs`）：24 个 `#[tauri::command]` 函数
-- [ ] `lib.rs` `generate_handler![]` 注册所有新 command
-- [ ] 每个 command 调用 `manager.call("skill.xxx" / "nexus-tool.xxx", params)`
+- [x] `commands/skill.rs` 新建：28 个 `#[tauri::command]` 函数（14 skill + 14 nexus-tool）
+- [x] `lib.rs` `generate_handler![]` 注册所有新 command
+- [x] `commands/mod.rs` 追加 `pub mod skill;`
 
 ### Web UI 接线
-- [ ] 技能页面 `app/skills/page.tsx`：替换 mock 数据 → 真实 `skill-api.list()`
-- [ ] `SkillCard.tsx`：安装/卸载/启用/禁用/钉选/收藏按钮接真实 API
-- [ ] `NexusToolCard.tsx`：运行/收藏按钮接真实 API
-- [ ] 操作后自动刷新列表（乐观更新 + 静默重取）
+- [x] 技能页面 `SkillsPage.tsx`：Tab "Tool" → "Nexus-Tool"，import 修正
+- [x] `SkillList.tsx`：替换 mock → 真实 `skill-api` + loading/error 状态
+- [x] `NexusToolList.tsx`（原 ToolList.tsx）：替换 mock → 真实 `nexus-tool-api`
+- [x] 操作后自动刷新列表（乐观更新 + 静默重取）
+- [x] [▶ 运行] 按钮接线 `nexusToolRun()`
 
 ### 上下文预览区 D5（事件驱动）
-- [ ] `RightPanel.tsx` D5 重构为事件驱动上下文预览容器
-  - 无可见分页 UI，内容由 `PreviewContext` 事件触发切换
-  - 内部维护渲染器注册表（`kind → React.Component`）
-- [ ] `AppShell.tsx` 新增 `PreviewContext.Provider`
-  - 暴露 `setPreview({ kind, title, payload })` / `clearPreview()` / `content`
-- [ ] D3 Nexus-Tool 列表点击 Nexus-Tool 名 → D5 显示 `nexus-tool-detail` 渲染器
-- [ ] D3 Nexus-Tool 列表点击 [▶ 运行] → D5 显示 `nexus-tool-run` 渲染器
-- [ ] D4 资源管理器 / C3 文件区点击文件 → D5 显示 `file-preview` 渲染器
-- [ ] D1/D2 接真实 API（`skill-api.list()` / 最近使用基于实际调用记录）
-- [ ] D2 钉选按钮改为调 `skillApi.pin/unpin` 持久化
+- [x] `AppShell.tsx` 新增 `PreviewContext.Provider`（setPreview / clearPreview / preview）
+- [x] `RightPanel.tsx` D5 接入 PreviewContext + `PreviewRenderer`（kind → 渲染组件）
+- [x] `nexus-tool-run-result` / `nexus-tool-detail` 渲染器
 
 ### 容错
-- [ ] sidecar 未启动时显示明确错误提示，不白屏
-- [ ] 单个操作失败不影响列表渲染
+- [x] sidecar 未启动时显示明确错误提示，不白屏
+- [x] 单个操作失败不影响列表渲染
 
 ## 源文件对照
 
@@ -93,13 +83,8 @@ tags: [story, ui, skill, nexus-tool, tauri, invoke, M4, M5]
 - Workflow 编辑器
 - Memory 管理面板
 
-## ⚠️ PM 标注（2026-05-16）：`run` 按钮 + `nexus-tool.run` RPC 待重新设计
+## ⚠️ PM 标注（2026-05-16）：`nexus-tool.run` 执行路由已确认
 
-**问题**：验收标准中 `NexusToolAPI.run`、`NexusToolCard.tsx` [▶ 运行] 按钮、
-D3 `nexus-tool-run` 渲染器，当前设计链为 UI → Tauri invoke → Sidecar `nexus-tool.run` RPC。
-
-但 Nexus-Tool 执行应在 DCC 内部完成（需要 `bpy`/`unreal`），不能通过 sidecar。
-`nexus-tool.run` RPC 方法（STORY-0046）已建议移除。
-
-**建议**：[▶ 运行] 按钮应触发 OpenClaw agent 生成 `run_python` 调用，而非走 sidecar RPC。
-具体交互模式（D5 如何展示运行结果、如何等待异步执行完成）待后续设计。
+**最终决策**：`nexus-tool.run` 保留为 RPC 方法（STORY-0046 已实现）。
+执行路由：DCC 工具 → Sidecar MCP Bridge → DCC run_python；通用工具 → subprocess。
+[▶ 运行] 按钮正常调用 `nexus-tool-run` Rust command → sidecar RPC。

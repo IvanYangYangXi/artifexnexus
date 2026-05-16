@@ -26,7 +26,7 @@ import {
   CollapsiblePanelGroup,
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { PreviewFileContext, PinnedSkillsContext, RunToolContext } from "./AppShell";
+import { PreviewFileContext, PreviewContext, PinnedSkillsContext, RunToolContext } from "./AppShell";
 
 const RECENT_ITEMS = [
   { kind: "skill" as const, name: "blender-modeling" },
@@ -51,6 +51,7 @@ const TOOL_GROUPS = [
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
+  const { preview } = React.useContext(PreviewContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
   const { runTool } = React.useContext(RunToolContext);
   return (
@@ -195,18 +196,20 @@ export function RightPanel() {
           </ScrollFade>
         </CollapsiblePanel>
 
-        {/* D5 文件预览 */}
+        {/* D5 上下文预览（STORY-0047） */}
         <CollapsiblePanel
           id="preview"
           order={5}
-          title={previewFile ? `预览: ${previewFile.name}` : "文件预览"}
+          title={preview ? `预览: ${preview.title}` : previewFile ? `预览: ${previewFile.name}` : "上下文预览"}
           icon={<FileText className="h-3 w-3" />}
-          defaultSize={previewFile ? 30 : 10}
+          defaultSize={preview || previewFile ? 30 : 10}
           minSize={8}
-          defaultOpen={!!previewFile}
+          defaultOpen={!!(preview || previewFile)}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            {previewFile ? (
+            {preview ? (
+              <PreviewRenderer payload={preview} />
+            ) : previewFile ? (
               <div className="px-3 py-2">
                 <div className="mb-1 text-[10px] text-muted-foreground">
                   {previewFile.name}
@@ -218,12 +221,55 @@ export function RightPanel() {
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-1 px-2 py-3 text-center text-[11px] text-muted-foreground">
                 <FileText className="h-4 w-4" />
-                <p>在资源管理器或会话文件中选择文件以预览</p>
+                <p>点击 Nexus-Tool 名或文件以预览</p>
               </div>
             )}
           </ScrollFade>
         </CollapsiblePanel>
       </CollapsiblePanelGroup>
     </div>
+  );
+}
+
+/** D5 预览渲染器 — kind → 渲染组件注册表 */
+function PreviewRenderer({ payload }: { payload: { kind: string; title: string; data: unknown } }) {
+  if (payload.kind === "nexus-tool-run-result") {
+    const data = payload.data as Record<string, unknown> | undefined;
+    return (
+      <div className="px-3 py-2 text-xs">
+        <div className="mb-2 flex items-center gap-2">
+          <span className={`inline-block h-2 w-2 rounded-full ${data?.success ? "bg-emerald-400" : "bg-red-400"}`} />
+          <span className="font-medium">{data?.dcc ? `在 ${data.dcc} 上运行` : "运行结果"}</span>
+        </div>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[300px]">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  if (payload.kind === "nexus-tool-detail") {
+    const data = payload.data as Record<string, unknown> | undefined;
+    return (
+      <div className="px-3 py-2 text-xs space-y-2">
+        <div className="font-medium text-sm">{payload.title}</div>
+        {data?.description && <p className="text-muted-foreground">{String(data.description)}</p>}
+        <div className="flex flex-wrap gap-1">
+          {data?.target_dccs && (data.target_dccs as string[]).map((d: string) => (
+            <span key={d} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{d}</span>
+          ))}
+        </div>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[200px]">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  // fallback: raw JSON
+  return (
+    <pre className="overflow-x-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed">
+      {JSON.stringify(payload, null, 2)}
+    </pre>
   );
 }

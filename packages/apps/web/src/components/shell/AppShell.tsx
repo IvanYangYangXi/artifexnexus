@@ -73,6 +73,23 @@ export const RunToolContext = React.createContext<{
   clearPendingTool: () => {},
 });
 
+// D5 上下文预览（STORY-0047）— 事件驱动，kind → renderer 注册表
+export interface PreviewPayload {
+  kind: string;
+  title: string;
+  data: unknown;
+}
+
+export const PreviewContext = React.createContext<{
+  preview: PreviewPayload | null;
+  setPreview: (p: PreviewPayload) => void;
+  clearPreview: () => void;
+}>({
+  preview: null,
+  setPreview: () => {},
+  clearPreview: () => {},
+});
+
 // Gateway 连接信息 context（Chat 模块用于建立 WebSocket）
 export const GatewayContext = React.createContext<{
   port: number;
@@ -236,6 +253,8 @@ export function AppShell() {
 
   // 预览文件状态（C3-文件区 ↔ D5 联动）
   const [previewFile, setPreviewFile] = React.useState<PreviewFile | null>(null);
+  const [preview, setPreview] = React.useState<PreviewPayload | null>(null);
+  const clearPreview = React.useCallback(() => setPreview(null), []);
 
   // 钉选 Skill 状态
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
@@ -430,6 +449,7 @@ export function AppShell() {
   const showSidebar = !bp.isMobile;
 
   return (
+    <PreviewContext.Provider value={{ preview, setPreview, clearPreview }}>
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
@@ -608,5 +628,6 @@ export function AppShell() {
     </RunToolContext.Provider>
     </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>
+    </PreviewContext.Provider>
   );
 }
