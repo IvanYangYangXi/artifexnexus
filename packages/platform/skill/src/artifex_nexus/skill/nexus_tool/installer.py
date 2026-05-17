@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,10 +47,12 @@ class NexusToolInstaller:
         registry: NexusToolRegistry | None = None,
         config: SkillConfig | None = None,
         nexus_tools_root: Path | None = None,
+        bundled_nexus_tools_path: Path | None = None,
     ):
         self.registry = registry or NexusToolRegistry(config=config)
         self.config = config or SkillConfig()
         self._nexus_tools_root = nexus_tools_root or _DEFAULT_NEXUS_TOOLS_ROOT
+        self._bundled_nexus_tools_path = bundled_nexus_tools_path
 
     # ═══════════════════════════════════════════════════════════════════════
     # CRUD
@@ -68,13 +71,18 @@ class NexusToolInstaller:
     ) -> NexusToolData:
         """创建新的 nexus-tool（写入 manifest.json 到磁盘）。
 
-        Nexus-Tool 存储在 ``~/.artifexnexus/nexus-tools/{source}/{name}/``。
+        仅支持 ``source="user"``（官方/市集工具存放在项目源码中，不可直接创建）。
+        Nexus-Tool 存储在 ``~/.artifexnexus/nexus-tools/user/{name}/``。
         """
-        if source not in _VALID_SOURCES:
-            source = "user"
+        if source != "user":
+            raise ValueError(
+                f"Invalid source '{source}'. "
+                f"Only 'user' nexus-tools can be created directly. "
+                f"Official/marketplace tools live in the project source tree."
+            )
 
         nexus_tool_id = f"{source}/{name}"
-        nexus_tool_dir = self._nexus_tools_root / source / name
+        nexus_tool_dir = self._nexus_tools_root / "user" / name
 
         if nexus_tool_dir.exists():
             raise ValueError(f"Nexus-Tool already exists: {nexus_tool_id}")
@@ -198,10 +206,17 @@ class NexusToolInstaller:
         version: str | None = None,
         description: str | None = None,
     ) -> Dict[str, Any]:
-        """发布 user nexus-tool 到 official 或 marketplace layer。
+        """发布 user nexus-tool 到 official 或 marketplace（内嵌路径）。
 
-        将 nexus-tool 从 user 目录移动到目标 layer 目录。
+        将 nexus-tool 从 ``~/.artifexnexus/nexus-tools/user/`` 移动到
+        ``{bundled_nexus_tools_path}/{target}/``。
+        生产环境（site-packages 只读）时拒绝发布并给出清晰错误。
         """
+        if self._bundled_nexus_tools_path is None:
+            raise ValueError(
+                "Cannot publish: bundled_nexus_tools_path is not set. "
+                "The bundled nexus-tools directory could not be located."
+            )
         if target not in ("official", "marketplace"):
             raise ValueError(
                 f"Invalid publish target: {target}. "
@@ -219,11 +234,20 @@ class NexusToolInstaller:
         if not source_path.exists():
             raise ValueError(f"Source nexus-tool directory not found: {source_path}")
 
-        # 目标路径
-        repo_target = self._nexus_tools_root / target / td.name
+        # 目标路径：内嵌 nexus-tools/{target}/ 下
+        repo_target = self._bundled_nexus_tools_path / target / td.name
+
+        # 检查目标目录是否可写（生产环境 site-packages 可能只读）
+        repo_target.parent.mkdir(parents=True, exist_ok=True)
+        if not os.access(str(repo_target.parent), os.W_OK):
+            raise RuntimeError(
+                f"Cannot publish: target directory '{repo_target.parent}' is not writable. "
+                f"Publishing to official/marketplace requires write access to the bundled "
+                f"nexus-tools directory, which is only available in development mode."
+            )
+
         if repo_target.exists():
             shutil.rmtree(repo_target)
-        repo_target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(str(source_path), str(repo_target))
 
         # 更新目标 manifest.json

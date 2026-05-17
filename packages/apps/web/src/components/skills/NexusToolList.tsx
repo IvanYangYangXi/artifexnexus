@@ -33,7 +33,7 @@ export function NexusToolList() {
   const [error, setError] = React.useState<string | null>(null);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
 
-  const { setPreview } = React.useContext(PreviewContext);
+  const { setPreview, preview } = React.useContext(PreviewContext);
 
   const loadTools = React.useCallback(async () => {
     try {
@@ -55,14 +55,40 @@ export function NexusToolList() {
     try {
       await action();
       await loadTools();
+      // 如果当前详情面板正在预览同一个工具，刷新 preview 以触发重载
+      if (preview?.kind === "nexus-tool-detail") {
+        const data = preview.data as { toolId?: string; toolName?: string; refreshKey?: number };
+        if (data?.toolId === id) {
+          setPreview({
+            ...preview,
+            data: { ...data, refreshKey: Date.now() },
+          });
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setActionLoading((prev) => { const next = new Set(prev); next.delete(id); return next; });
     }
-  }, [loadTools]);
+  }, [loadTools, preview, setPreview]);
 
   const isBusy = (id: string) => actionLoading.has(id);
+
+  /** 计算触发器状态：none=无触发器, active=启动触发, disabled=禁用触发 */
+  const triggerState = (tool: NexusToolItem): "none" | "active" | "disabled" => {
+    const hasTriggers = tool.triggers && tool.triggers.length > 0;
+    if (!hasTriggers) return "none";
+    return tool.is_enabled ? "active" : "disabled";
+  };
+
+  const TRIGGER_STATE_LABEL: Record<string, string> = {
+    active: "启动触发",
+    disabled: "禁用触发",
+  };
+  const TRIGGER_STATE_COLOR: Record<string, string> = {
+    active: "bg-emerald-500/15 text-emerald-400",
+    disabled: "bg-red-500/15 text-red-400",
+  };
 
   /** 点击工具名/图标 → 在 D5 面板打开详情 */
   const handleToolClick = React.useCallback((tool: NexusToolItem) => {
@@ -144,10 +170,10 @@ export function NexusToolList() {
               title={tool.name}
               onTitleClick={() => handleToolClick(tool)}
               source={{ label: (SOURCE_LABELS as Record<string, string>)[tool.source] || tool.source, color: SOURCE_COLORS[tool.source] || "" }}
-              status={{
-                label: tool.is_enabled ? "已启用" : "已禁用",
-                color: tool.is_enabled ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
-              }}
+              status={triggerState(tool) !== "none" ? {
+                label: TRIGGER_STATE_LABEL[triggerState(tool)],
+                color: TRIGGER_STATE_COLOR[triggerState(tool)],
+              } : undefined}
               description={tool.description}
               meta={<>
                 <span>{tool.version}</span>
@@ -165,13 +191,15 @@ export function NexusToolList() {
                   disabled={isBusy(tool.id)}>
                   <Play className="mr-1 h-3 w-3" />运行
                 </Button>
-                {tool.is_enabled
-                  ? <Button variant="outline" size="sm" className="h-7 text-xs"
-                      onClick={() => doAction(tool.id, () => nexusToolDisable(tool.id))}
-                      disabled={isBusy(tool.id)}>禁用</Button>
-                  : <Button size="sm" className="h-7 text-xs"
-                      onClick={() => doAction(tool.id, () => nexusToolEnable(tool.id))}
-                      disabled={isBusy(tool.id)}>启用</Button>}
+                {triggerState(tool) !== "none" && (
+                  triggerState(tool) === "active"
+                    ? <Button variant="outline" size="sm" className="h-7 text-xs"
+                        onClick={() => doAction(tool.id, () => nexusToolDisable(tool.id))}
+                        disabled={isBusy(tool.id)}>禁用触发</Button>
+                    : <Button size="sm" className="h-7 text-xs"
+                        onClick={() => doAction(tool.id, () => nexusToolEnable(tool.id))}
+                        disabled={isBusy(tool.id)}>启动触发</Button>
+                )}
                 <Button variant="ghost" size="icon" className="h-7 w-7"
                   onClick={() => doAction(tool.id, () => tool.is_pinned ? nexusToolUnpin(tool.id) : nexusToolPin(tool.id))}
                   disabled={isBusy(tool.id)}>

@@ -200,3 +200,10 @@
 
 ### 推荐执行顺序
 A1(decorator) → A2(manifest) → A3(hub) → B4(registry) → C1(sidecar RPC) → C2/C3(UI wiring)
+
+### Nexus-Tool 触发器三态设计（2026-05-17 定）
+- **三态**：无触发器（不显示按钮）/ 启动触发（🟢徽章 + 「禁用触发」按钮）/ 禁用触发（🔴徽章 + 「启动触发」按钮）
+- **`is_enabled` 只控制触发器**，不影响「▶ 运行」按钮（手动运行永远可用）
+- **启用/禁用不改触发器 `enabled` 字段**（存 skills.json 的 `nexus_tools.disabled`）
+- **总闸 + 分闸独立**：`is_enabled` 是总闸，每条 trigger 的 `enabled` 是分闸，互不修改
+- **SDK `run_nexus_tool()` 已移除 `is_enabled` 门禁**（registry.py）

@@ -39,9 +39,11 @@ class NexusToolRegistry:
         self,
         config: SkillConfig | None = None,
         nexus_tools_root: Path | None = None,
+        bundled_nexus_tools_path: Path | None = None,
     ):
         self.config = config or SkillConfig()
         self._nexus_tools_root = nexus_tools_root
+        self._bundled_nexus_tools_path = bundled_nexus_tools_path
         self._cache: List[NexusToolData] = []
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -50,7 +52,10 @@ class NexusToolRegistry:
 
     def _scan_and_build(self) -> List[NexusToolData]:
         """扫描 nexus-tools 目录并与用户偏好合并。"""
-        scanned = scan_nexus_tools(self._nexus_tools_root)
+        scanned = scan_nexus_tools(
+            nexus_tools_root=self._nexus_tools_root,
+            bundled_nexus_tools_path=self._bundled_nexus_tools_path,
+        )
         disabled_set = self.config.get_disabled_nexus_tools()
         pinned_set = self.config.get_pinned_nexus_tools()
         fav_set = self.config.get_favorite_nexus_tools()
@@ -187,9 +192,6 @@ class NexusToolRegistry:
         td = self.get_nexus_tool(nexus_tool_id)
         if td is None:
             return NexusToolResult.fail(f"Nexus-Tool not found: {nexus_tool_id}")
-
-        if not td.is_enabled:
-            return NexusToolResult.fail(f"Nexus-Tool is disabled: {nexus_tool_id}")
 
         # DCC 绑定工具禁止本地执行
         if td.target_dccs and td.target_dccs != ["general"]:

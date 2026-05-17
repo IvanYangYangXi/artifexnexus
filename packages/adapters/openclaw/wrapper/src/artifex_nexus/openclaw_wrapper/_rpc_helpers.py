@@ -30,6 +30,37 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SKILLS_ROOT = Path.home() / ".artifexnexus" / ".openclaw" / "workspace" / "skills"
 _DEFAULT_CONFIG_PATH = Path.home() / ".artifexnexus" / "config" / "skills.json"
 _DEFAULT_NEXUS_TOOLS_ROOT = Path.home() / ".artifexnexus" / "nexus-tools"
+_BUNDLED_NEXUS_TOOLS_PATH: Optional[Path] = None
+
+
+def _get_bundled_nexus_tools_path() -> Optional[Path]:
+    """通过 importlib.resources 定位内嵌的 nexus-tools 目录。
+
+    nexus-tools (official + marketplace) 随 ``artifex_nexus.openclaw_wrapper``
+    包分发，位于 ``_bundled_nexus_tools/`` 子目录。
+
+    三种启动场景均覆盖：
+      - Dev / 绿色包：pip editable install → 返回源码路径
+      - NSIS 安装包：随包安装 → 返回 site-packages / 安装路径
+    """
+    global _BUNDLED_NEXUS_TOOLS_PATH
+    if _BUNDLED_NEXUS_TOOLS_PATH is None:
+        try:
+            from importlib.resources import files as _resources_files
+            _BUNDLED_NEXUS_TOOLS_PATH = (
+                Path(str(_resources_files("artifex_nexus.openclaw_wrapper")))
+                / "_bundled_nexus_tools"
+            )
+            if not _BUNDLED_NEXUS_TOOLS_PATH.is_dir():
+                logger.warning(
+                    "Bundled nexus-tools directory not found at %s",
+                    _BUNDLED_NEXUS_TOOLS_PATH,
+                )
+                _BUNDLED_NEXUS_TOOLS_PATH = None
+        except Exception as exc:
+            logger.warning("Failed to locate bundled nexus-tools: %s", exc)
+            _BUNDLED_NEXUS_TOOLS_PATH = None
+    return _BUNDLED_NEXUS_TOOLS_PATH
 
 # ── 懒初始化单例 ──────────────────────────────────────────────────────────────
 
@@ -83,6 +114,7 @@ def _get_nt_registry() -> Any:
         _nt_registry = NexusToolRegistry(
             config=_get_skill_config(),
             nexus_tools_root=_DEFAULT_NEXUS_TOOLS_ROOT,
+            bundled_nexus_tools_path=_get_bundled_nexus_tools_path(),
         )
     return _nt_registry
 
@@ -95,6 +127,7 @@ def _get_nt_installer() -> Any:
             registry=_get_nt_registry(),
             config=_get_skill_config(),
             nexus_tools_root=_DEFAULT_NEXUS_TOOLS_ROOT,
+            bundled_nexus_tools_path=_get_bundled_nexus_tools_path(),
         )
     return _nt_installer
 

@@ -336,9 +336,9 @@ function PreviewRenderer({ payload, onClose, runTool }: {
   }
 
   if (payload.kind === "nexus-tool-detail") {
-    const data = payload.data as { toolId: string; toolName: string } | undefined;
+    const data = payload.data as { toolId: string; toolName: string; refreshKey?: number } | undefined;
     if (!data?.toolId) return <FallbackPreview payload={payload} />;
-    return <ToolDetailPanel toolId={data.toolId} onRun={runTool} compact />;
+    return <ToolDetailPanel toolId={data.toolId} onRun={runTool} compact refreshKey={data.refreshKey} />;
   }
 
   // fallback: raw JSON

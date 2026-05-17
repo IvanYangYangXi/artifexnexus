@@ -5,7 +5,10 @@ nexus_tool/scanner.py — Nexus-Tool 文件系统扫描
 从 artclaw ToolManager ``services/tool_scanner.py`` 复制并适配。
 
 目录结构：
-  ``~/.artifexnexus/nexus-tools/{source}/{name}/manifest.json``
+  - 内嵌工具（official / marketplace）：由调用方通过 ``bundled_nexus_tools_path`` 传入，
+    工具随 wrapper 包分发，通过 ``importlib.resources`` 定位。
+    ``{bundled_nexus_tools_path}/{source}/{dcc?}/{name}/manifest.json``
+  - 用户工具（user）：``~/.artifexnexus/nexus-tools/user/{name}/manifest.json``
 
 其中 source ∈ {official, marketplace, user}。
 
@@ -134,23 +137,31 @@ def _scan_source_dir(source_dir: Path, source_name: str,
 
 def scan_nexus_tools(
     nexus_tools_root: Optional[Path] = None,
+    bundled_nexus_tools_path: Optional[Path] = None,
 ) -> List[ScannedNexusTool]:
     """扫描所有 nexus-tool 目录并返回发现列表。
 
-    扫描顺序（低优先级先，高优先级后覆盖）：
-      1. official
-      2. marketplace
-      3. user
+    双路径架构：
+      - 内嵌路径：``{bundled_nexus_tools_path}/{official,marketplace}/``（随包分发）
+      - 用户路径：``~/.artifexnexus/nexus-tools/user/``（用户自创工具）
 
-    Artifex Nexus 简化版不需要 project_root —— 所有 nexus-tool
-    统一存放在 ``~/.artifexnexus/nexus-tools/`` 下。
+    扫描顺序（低优先级先，高优先级后覆盖）：
+      1. official   (bundled_nexus_tools_path)
+      2. marketplace (bundled_nexus_tools_path)
+      3. user       (nexus_tools_root)
     """
     root = nexus_tools_root or _DEFAULT_NEXUS_TOOLS_ROOT
     results: List[ScannedNexusTool] = []
     seen: Dict[str, bool] = {}
 
-    for source_name in _VALID_SOURCES:
-        source_dir = root / source_name
-        results.extend(_scan_source_dir(source_dir, source_name, seen))
+    # 1-2. 内嵌路径：official + marketplace（随 wrapper 包分发）
+    if bundled_nexus_tools_path is not None and bundled_nexus_tools_path.is_dir():
+        for source_name in ("official", "marketplace"):
+            source_dir = bundled_nexus_tools_path / source_name
+            results.extend(_scan_source_dir(source_dir, source_name, seen))
+
+    # 3. 用户路径：仅 user（~/.artifexnexus/nexus-tools/user/）
+    user_dir = root / "user"
+    results.extend(_scan_source_dir(user_dir, "user", seen))
 
     return results

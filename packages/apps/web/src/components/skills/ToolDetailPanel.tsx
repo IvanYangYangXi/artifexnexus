@@ -90,9 +90,11 @@ interface ToolDetailPanelProps {
   onLoaded?: (detail: NexusToolDetail) => void;
   /** 紧凑模式（D5 侧面板用） */
   compact?: boolean;
+  /** 外部变动通知（如卡片列表启停后强制重载详情） */
+  refreshKey?: number;
 }
 
-export function ToolDetailPanel({ toolId, onRun, onLoaded, compact }: ToolDetailPanelProps) {
+export function ToolDetailPanel({ toolId, onRun, onLoaded, compact, refreshKey }: ToolDetailPanelProps) {
   const [activeTab, setActiveTab] = React.useState<TabId>("info");
   const [detail, setDetail] = React.useState<NexusToolDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -117,7 +119,7 @@ export function ToolDetailPanel({ toolId, onRun, onLoaded, compact }: ToolDetail
     } finally {
       setLoading(false);
     }
-  }, [toolId, onLoaded]);
+  }, [toolId, onLoaded, refreshKey]);
 
   const handleChangeParam = React.useCallback((id: string, value: unknown) => {
     setParamValues(prev => ({ ...prev, [id]: value }));
@@ -249,7 +251,7 @@ export function ToolDetailPanel({ toolId, onRun, onLoaded, compact }: ToolDetail
           {activeTab === "info" && <InfoTab detail={detail} onRun={handleRun} compact={compact} />}
           {activeTab === "params" && <ParamsTab detail={detail} onRun={handleRun} compact={compact} paramValues={paramValues} onChangeParam={handleChangeParam} onError={setError} />}
           {activeTab === "presets" && <PresetsTab detail={detail} onSave={handleSavePreset} onDelete={handleDeletePreset} saving={saving} compact={compact} paramValues={paramValues} />}
-          {activeTab === "triggers" && <TriggersTab detail={detail} onSave={handleSaveTriggers} saving={saving} compact={compact} />}
+          {activeTab === "triggers" && <TriggersTab detail={detail} onSave={handleSaveTriggers} saving={saving} compact={compact} toolEnabled={detail.is_enabled} />}
         </div>
       </ScrollFade>
 
@@ -625,11 +627,12 @@ const EXEC_MODES = [
   { value: "prompt", label: "询问后执行" },
 ];
 
-function TriggersTab({ detail, onSave, saving, compact }: {
+function TriggersTab({ detail, onSave, saving, compact, toolEnabled = true }: {
   detail: NexusToolDetail;
   onSave: (triggers: NexusToolTrigger[]) => Promise<void>;
   saving: boolean;
   compact?: boolean;
+  toolEnabled?: boolean;
 }) {
   const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>(detail.triggers || []);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -714,6 +717,14 @@ function TriggersTab({ detail, onSave, saving, compact }: {
 
   return (
     <div className="space-y-3">
+      {/* 总闸关闭提示 */}
+      {!toolEnabled && (
+        <div className="flex items-center gap-2 rounded border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
+          <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+          <span className="text-xs text-red-300/80">触发器总闸已关闭，所有触发器暂停生效</span>
+        </div>
+      )}
+
       {/* 添加按钮 */}
       {!isEditing && (
         <Button variant="outline" size="sm" className="w-full text-xs" onClick={startNew}>
@@ -800,7 +811,11 @@ function TriggersTab({ detail, onSave, saving, compact }: {
           {triggers.map((t) => (
             <div key={t.id} className={cn(
               "flex items-center gap-2 rounded border px-2 py-1.5 group transition-colors",
-              t.enabled ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-border/40 bg-muted/10 hover:border-border/60",
+              !toolEnabled
+                ? "border-border/30 bg-muted/5 opacity-60"
+                : t.enabled
+                  ? "border-amber-500/30 bg-amber-500/[0.04]"
+                  : "border-border/40 bg-muted/10 hover:border-border/60",
             )}>
               <button onClick={() => handleToggle(t.id)} className="shrink-0">
                 {t.enabled
@@ -814,7 +829,7 @@ function TriggersTab({ detail, onSave, saving, compact }: {
                   <span>·</span>
                   <span>{EVENT_OPTIONS.find(o => o.value === t.trigger.event)?.label || t.trigger.event}</span>
                   <span>·</span>
-                  <span className={cn(t.enabled && "text-amber-400/80")}>
+                  <span className={cn(toolEnabled && t.enabled && "text-amber-400/80")}>
                     {EXEC_MODES.find(o => o.value === t.execution.mode)?.label || t.execution.mode}
                   </span>
                 </div>

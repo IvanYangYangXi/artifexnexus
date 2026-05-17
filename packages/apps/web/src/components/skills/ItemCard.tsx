@@ -15,7 +15,7 @@ export interface ItemCardProps {
   title: string;
   titleBadge?: { label: string };
   source: { label: string; color: string };
-  status: { label: string; color: string };
+  status?: { label: string; color: string };
   description: string;
   meta: React.ReactNode;
   actions: React.ReactNode;
@@ -73,9 +73,11 @@ function ItemCardView({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className={cn("text-[10px]", source.color)}>{source.label}</span>
+          {status && (
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>
             {status.label}
           </span>
+          )}
         </div>
       </div>
 
@@ -130,9 +132,11 @@ function ItemListRow({
         {titleBadge && (
           <Badge variant="secondary" className="text-[9px]">{titleBadge.label}</Badge>
         )}
+        {status && (
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>
           {status.label}
         </span>
+        )}
         <div className="flex items-center gap-2 truncate text-[10px] text-muted-foreground">
           {meta}
         </div>
