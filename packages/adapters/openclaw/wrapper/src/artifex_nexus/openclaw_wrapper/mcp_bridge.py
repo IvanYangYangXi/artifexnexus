@@ -10,6 +10,7 @@ mcp_bridge.py — Gateway ↔ DCC MCP 桥接层
 
 设计：
   - 单例连接（懒初始化，按需连接）
+  - 持久化 event loop（解决 "Event loop is closed" 问题）
   - 自动重连（连接断开后下次调用自动重连）
   - 超时保护（默认 30s）
 """
@@ -55,6 +56,8 @@ class MCPBridgeClient:
 
     单例模式：整个 sidecar 进程共享一个连接。
     线程安全：使用 threading.Lock 保护连接状态。
+    持久化 event loop：connect 和 call_tool 复用同一个 asyncio event loop，
+    避免 "Event loop is closed" 错误。
     """
 
     _instance: Optional[MCPBridgeClient] = None
@@ -67,6 +70,30 @@ class MCPBridgeClient:
         self._connected = False
         self._next_id = 1
         self._conn_lock = threading.Lock()
+        # 持久化 event loop（生命周期与 MCPBridgeClient 一致）
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
+
+    def _ensure_loop(self):
+        """确保持久化 event loop 在后台运行"""
+        if self._loop is not None and self._loop.is_running():
+            return
+        self._loop = asyncio.new_event_loop()
+        def _run_forever():
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_forever()
+        self._loop_thread = threading.Thread(target=_run_forever, daemon=True)
+        self._loop_thread.start()
+
+    def _stop_loop(self):
+        """停止持久化 event loop"""
+        if self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except Exception:
+                pass
+            self._loop = None
+            self._loop_thread = None
 
     @classmethod
     def get_instance(cls, host: str = "127.0.0.1", port: int = DEFAULT_BLENDER_MCP_PORT) -> MCPBridgeClient:
@@ -102,39 +129,20 @@ class MCPBridgeClient:
             if self._connected and self._ws is not None:
                 return True
 
+            self._ensure_loop()
+
             try:
-                # 在独立线程中运行 asyncio 连接
-                result = {"success": False, "error": None}
-
-                def _connect():
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        self._ws = loop.run_until_complete(
-                            self._async_connect(timeout)
-                        )
-                        result["success"] = True
-                    except Exception as e:
-                        result["error"] = str(e)
-                    finally:
-                        loop.close()
-
-                thread = threading.Thread(target=_connect, daemon=True)
-                thread.start()
-                thread.join(timeout=timeout + 2.0)
-
-                if result["success"]:
-                    self._connected = True
-                    logger.info(f"已连接 Blender MCP Server: {self.server_address}")
-                    return True
-                else:
-                    logger.warning(f"连接 Blender MCP Server 失败: {result['error']}")
-                    self._ws = None
-                    return False
-
+                future = asyncio.run_coroutine_threadsafe(
+                    self._async_connect(timeout), self._loop
+                )
+                self._ws = future.result(timeout=timeout + 2)
+                self._connected = True
+                logger.info(f"已连接 Blender MCP Server: {self.server_address}")
+                return True
             except Exception as e:
-                logger.error(f"连接异常: {e}")
+                logger.warning(f"连接 Blender MCP Server 失败: {e}")
                 self._ws = None
+                self._connected = False
                 return False
 
     async def _async_connect(self, timeout: float) -> Any:
@@ -171,10 +179,16 @@ class MCPBridgeClient:
         with self._conn_lock:
             if self._ws is not None:
                 try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self._ws.close())
-                    loop.close()
+                    if self._loop is not None and self._loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._ws.close(), self._loop
+                        )
+                        future.result(timeout=2)
+                    else:
+                        # fallback: 创建临时 loop
+                        loop = asyncio.new_event_loop()
+                        loop.run_until_complete(self._ws.close())
+                        loop.close()
                 except Exception:
                     pass
                 self._ws = None
@@ -214,41 +228,25 @@ class MCPBridgeClient:
                 }
 
             try:
-                result = {"response": None, "error": None}
-
-                def _call():
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        result["response"] = loop.run_until_complete(
-                            self._async_call_tool(tool_name, arguments, timeout)
-                        )
-                    except Exception as e:
-                        result["error"] = str(e)
-                    finally:
-                        loop.close()
-
-                thread = threading.Thread(target=_call, daemon=True)
-                thread.start()
-                thread.join(timeout=timeout + 2.0)
-
-                if result["error"]:
-                    # 连接可能已断开，标记为未连接
-                    self._connected = False
-                    self._ws = None
-                    return {
-                        "content": [{"type": "text", "text": f"调用失败: {result['error']}"}],
-                        "isError": True,
-                    }
-
-                return result["response"]
-
+                self._ensure_loop()
+                future = asyncio.run_coroutine_threadsafe(
+                    self._async_call_tool(tool_name, arguments, timeout),
+                    self._loop,
+                )
+                return future.result(timeout=timeout + 5)
+            except asyncio.TimeoutError:
+                self._connected = False
+                self._ws = None
+                return {
+                    "content": [{"type": "text", "text": f"调用超时 ({timeout}s)"}],
+                    "isError": True,
+                }
             except Exception as e:
                 self._connected = False
                 self._ws = None
                 logger.warning("call_tool: failed tool=%s: %s", tool_name, e)
                 return {
-                    "content": [{"type": "text", "text": f"调用异常: {str(e)}"}],
+                    "content": [{"type": "text", "text": f"调用失败: {str(e)}"}],
                     "isError": True,
                 }
 

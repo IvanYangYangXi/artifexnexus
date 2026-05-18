@@ -18,7 +18,7 @@ import { ChatControlBar } from "./ChatControlBar";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInputArea } from "./ChatInputArea";
 import { NewSessionDialog } from "./NewSessionDialog";
-import { RunToolContext, GatewayContext } from "../shell/AppShell";
+import { RunToolContext, ChatPromptContext, GatewayContext } from "../shell/AppShell";
 import { useChatService } from "../../lib/chat/chat-service";
 import { uiLog } from "../../lib/ui-log";
 import { toast } from "@artifex-nexus/ui";
@@ -34,6 +34,7 @@ import {
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
+  const { prompt: aiPrompt, clearPrompt } = React.useContext(ChatPromptContext);
   const { port, token, running: gatewayRunning, authReady, setWsConnected, setWsDegraded } = React.useContext(GatewayContext);
   const pendingHandledRef = React.useRef(false);
 
@@ -205,6 +206,18 @@ export function ChatView() {
       clearPendingTool();
     }
   }, [pendingToolName, clearPendingTool]);
+
+  // 处理 AI 辅助运行 prompt 预输入
+  const aiPromptHandledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (aiPrompt && !aiPromptHandledRef.current) {
+      aiPromptHandledRef.current = true;
+      window.dispatchEvent(new CustomEvent("artifex:prefillInput", {
+        detail: { text: aiPrompt },
+      }));
+      clearPrompt();
+    }
+  }, [aiPrompt, clearPrompt]);
 
   // 模块切换回来时重置标记
   React.useEffect(() => {

@@ -9,7 +9,6 @@ import { PreviewContext } from "../shell/AppShell";
 import {
   nexusToolList, nexusToolEnable, nexusToolDisable,
   nexusToolPin, nexusToolUnpin, nexusToolFavorite, nexusToolUnfavorite,
-  nexusToolRun,
   type NexusToolItem,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
@@ -187,8 +186,11 @@ export function NexusToolList() {
                   <Info className="h-3.5 w-3.5" />
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs"
-                  onClick={() => doAction(tool.id, () => nexusToolRun(tool.id))}
-                  disabled={isBusy(tool.id)}>
+                  onClick={() => setPreview({
+                    kind: "nexus-tool-run",
+                    title: `运行: ${tool.name}`,
+                    data: { toolId: tool.id },
+                  })}>
                   <Play className="mr-1 h-3 w-3" />运行
                 </Button>
                 {triggerState(tool) !== "none" && (

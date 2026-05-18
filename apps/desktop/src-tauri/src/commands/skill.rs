@@ -365,6 +365,19 @@ pub async fn nexus_tool_run(
     manager.call_with_timeout("nexus-tool.run", params, 120)
 }
 
+/// nexus-tool.fetch_types — 实时查询 DCC 对象类型（超时 30s）
+#[tauri::command]
+pub async fn nexus_tool_fetch_types(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call_with_timeout("nexus-tool.fetch_types", params, 30)
+}
+
 /// nexus-tool.batch — 批量操作
 #[tauri::command]
 pub async fn nexus_tool_batch(

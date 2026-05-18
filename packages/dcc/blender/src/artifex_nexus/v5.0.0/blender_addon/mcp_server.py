@@ -420,6 +420,37 @@ class MCPServer:
         self._running = True
         logger.info(f"MCP Server 已启动: {self.server_address}")
 
+    def broadcast_trigger_event(self, event_type: str, filepath: str = "") -> None:
+        """向所有已连接的 Artifex Nexus 客户端广播触发器事件。
+
+        线程安全：可从 Blender 主线程调用（通过 call_soon_threadsafe 投递）。"""
+        if not self._running or not self._loop:
+            return
+        if not self._clients:
+            return
+
+        payload = json.dumps({
+            "type": "trigger_event",
+            "dcc": "blender",
+            "event": event_type,
+            "filepath": filepath,
+        })
+
+        async def _broadcast():
+            dead: list = []
+            for ws in list(self._clients):
+                try:
+                    await ws.send(payload)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self._clients.discard(ws)
+
+        try:
+            asyncio.run_coroutine_threadsafe(_broadcast(), self._loop)
+        except Exception:
+            pass  # 静默失败
+
     def stop(self) -> None:
         """停止 MCP Server"""
         if not self._running:

@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * ToolDetailPanel — Nexus-Tool 详情面板（4 标签页）
+ * ToolDetailPanel — Nexus-Tool 详情面板（5 标签页）
  *
- * 对齐 ArtClaw ToolDetailDialog 的四个区：
- *   1. 基本信息（Info）— 名称/版本/作者/描述/目标 DCC/实现方式
- *   2. 参数（Params）— 输入参数编辑 + 输出参数预览
- *   3. 预设（Presets）— 参数预设的保存/加载/删除
+ *   1. 基本信息（Info）— 全字段可编辑（名称/描述/作者/版本/DCC/实现方式）
+ *   2. 脚本参数（Params）— 参数名/类型/默认值/描述/必填 可编辑 + list/dict 多输入框
+ *   3. 筛选条件（Filters）— DCC 选择 + ObjectTypePicker + 路径规则（分页）
  *   4. 触发器（Triggers）— 事件触发规则的增删改+启用开关
  *
- * 数据来源：nexusToolDetail(id) 返回的 NexusToolDetail（含 manifest）。
+ * 底部操作栏：[刷新] [另存为实例] [保存修改]
  */
 
 import * as React from "react";
@@ -18,7 +17,6 @@ import {
   Sliders,
   Save,
   Zap,
-  Play,
   Plus,
   Trash2,
   Check,
@@ -29,20 +27,29 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  ToggleLeft,
-  ToggleRight,
+  Copy,
+  Filter,
+  GitBranch,
 } from "lucide-react";
-import { Button, Badge, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, cn } from "@artifex-nexus/ui";
+import { Button, Input, cn } from "@artifex-nexus/ui";
+import { invoke } from "@tauri-apps/api/core";
 import { ScrollFade } from "../chat/ScrollFade";
+import { DCCStatusContext } from "../shell/AppShell";
+import { FiltersTab } from "./FiltersTab";
+import TriggerRuleEditor, { type TriggerFormData } from "./TriggerRuleEditor";
+import { getEventLabel, hasDCCEvents } from "../../lib/nexus-tool/dcc-events";
 import {
   nexusToolDetail,
-  nexusToolRun,
-  nexusToolSavePresets,
+  nexusToolUpdate,
   nexusToolSaveTriggers,
+  nexusToolSaveAsInstance,
+  nexusToolList,
   type NexusToolDetail,
   type NexusToolParam,
-  type NexusToolPreset,
   type NexusToolTrigger,
+  type FilterConfig,
+  type TriggerType,
+  type ExecutionMode,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import {
   SOURCE_LABELS,
@@ -51,12 +58,12 @@ import {
 
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
-type TabId = "info" | "params" | "presets" | "triggers";
+type TabId = "info" | "params" | "filters" | "triggers";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "info", label: "基本信息", icon: <Info className="h-3.5 w-3.5" /> },
-  { id: "params", label: "参数", icon: <Sliders className="h-3.5 w-3.5" /> },
-  { id: "presets", label: "预设", icon: <Save className="h-3.5 w-3.5" /> },
+  { id: "params", label: "脚本参数", icon: <Sliders className="h-3.5 w-3.5" /> },
+  { id: "filters", label: "筛选条件", icon: <Filter className="h-3.5 w-3.5" /> },
   { id: "triggers", label: "触发器", icon: <Zap className="h-3.5 w-3.5" /> },
 ];
 
@@ -72,47 +79,77 @@ const IMPL_LABELS: Record<string, string> = {
   composite: "组合",
 };
 
-const PARAM_TYPE_LABELS: Record<string, string> = {
-  string: "字符串",
-  number: "数字",
-  boolean: "布尔",
-  select: "下拉选择",
-  object: "对象",
-};
+const PARAM_TYPE_OPTIONS = [
+  { value: "string", label: "字符串" },
+  { value: "number", label: "数字" },
+  { value: "boolean", label: "布尔" },
+  { value: "select", label: "下拉选择" },
+  { value: "object", label: "对象" },
+  { value: "list", label: "列表" },
+  { value: "dict", label: "字典" },
+];
 
 // ─── 主组件 ────────────────────────────────────────────────────────────────
 
 interface ToolDetailPanelProps {
   toolId: string;
-  /** 运行回调（打开 Chat + 预输入工具名） */
-  onRun?: (toolName: string) => void;
-  /** 数据刷新后回调（供父组件更新 D5 标题等） */
+  /** 数据刷新后回调 */
   onLoaded?: (detail: NexusToolDetail) => void;
   /** 紧凑模式（D5 侧面板用） */
   compact?: boolean;
-  /** 外部变动通知（如卡片列表启停后强制重载详情） */
+  /** 外部变动通知 */
   refreshKey?: number;
 }
 
-export function ToolDetailPanel({ toolId, onRun, onLoaded, compact, refreshKey }: ToolDetailPanelProps) {
+export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolDetailPanelProps) {
   const [activeTab, setActiveTab] = React.useState<TabId>("info");
   const [detail, setDetail] = React.useState<NexusToolDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  /** 当前参数值 — 由 ParamsTab 编辑、PresetsTab 保存 */
-  const [paramValues, setParamValues] = React.useState<Record<string, unknown>>({});
+  const [dirty, setDirty] = React.useState(false);
+  const [saveMsg, setSaveMsg] = React.useState<string | null>(null);
+
+  // ── 编辑态 ────────────────────────────────────────────────────────────
+
+  const [editedName, setEditedName] = React.useState("");
+  const [editedDescription, setEditedDescription] = React.useState("");
+  const [editedAuthor, setEditedAuthor] = React.useState("");
+  const [editedVersion, setEditedVersion] = React.useState("");
+  const [editedTargetDCCs, setEditedTargetDCCs] = React.useState<string[]>([]);
+  const [editedImplType, setEditedImplType] = React.useState("");
+  const [editedInputs, setEditedInputs] = React.useState<NexusToolParam[]>([]);
+  const [editedFilters, setEditedFilters] = React.useState<FilterConfig>({});
+  const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>([]);
+
+  // ── 另存为实例 ────────────────────────────────────────────────────────
+
+  const [showSaveAs, setShowSaveAs] = React.useState(false);
+  const [saveAsName, setSaveAsName] = React.useState("");
+  const [saveAsDesc, setSaveAsDesc] = React.useState("");
+
+  // ── 加载详情 ──────────────────────────────────────────────────────────
 
   const loadDetail = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      setSaveMsg(null);
       const d = await nexusToolDetail(toolId);
       setDetail(d);
-      // 从 manifest inputs 初始化参数默认值
-      const defaults: Record<string, unknown> = {};
-      (d.inputs || []).forEach((p) => { defaults[p.id] = p.default; });
-      setParamValues(defaults);
+
+      setEditedName(d.name);
+      setEditedDescription(d.description || "");
+      setEditedAuthor(d.author || "");
+      setEditedVersion(d.version);
+      setEditedTargetDCCs(d.target_dccs || []);
+      setEditedImplType(d.implementation_type);
+      setEditedInputs(d.inputs?.map((p) => ({ ...p })) || []);
+      setEditedFilters(d.default_filters || {});
+      setTriggers(d.triggers || []);
+      setDirty(false);
+      setShowSaveAs(false);
+
       onLoaded?.(d);
     } catch (e) {
       setError(String(e));
@@ -121,73 +158,123 @@ export function ToolDetailPanel({ toolId, onRun, onLoaded, compact, refreshKey }
     }
   }, [toolId, onLoaded, refreshKey]);
 
-  const handleChangeParam = React.useCallback((id: string, value: unknown) => {
-    setParamValues(prev => ({ ...prev, [id]: value }));
-  }, []);
-
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
 
-  // 运行工具
-  const handleRun = React.useCallback(async () => {
+  const markDirty = React.useCallback(() => setDirty(true), []);
+  const fieldCls =
+    "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-3 text-xs focus:outline-none focus:border-primary/40 transition-colors font-mono";
+
+  // ── 保存修改 ──────────────────────────────────────────────────────────
+
+  const handleSave = React.useCallback(async () => {
     if (!detail) return;
-    if (onRun) {
-      onRun(detail.name);
-    } else {
+    setSaving(true);
+    setError(null);
+    try {
+      const savedFilters = {
+        ...editedFilters,
+        path: editedFilters.path?.filter((r) => r.pattern.trim()),
+      };
+      const manifestPatch: Record<string, unknown> = {
+        inputs: editedInputs,
+        outputs: detail.outputs || [],
+        triggers,
+        defaultFilters: savedFilters,
+        implementation: detail.implementation || {},
+      };
+      await nexusToolUpdate(detail.id, {
+        name: editedName,
+        description: editedDescription,
+        author: editedAuthor,
+        version: editedVersion,
+        target_dccs: editedTargetDCCs,
+        implementation_type: editedImplType,
+        manifest: manifestPatch,
+      });
+      setDirty(false);
+      setSaveMsg("保存成功");
+      setTimeout(() => setSaveMsg(null), 2000);
+      await loadDetail();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [detail, editedName, editedDescription, editedAuthor, editedVersion,
+      editedTargetDCCs, editedImplType, editedInputs, editedFilters,
+      triggers, loadDetail]);
+
+  // ── 另存为实例 ────────────────────────────────────────────────────────
+
+  const handleSaveAsInstance = React.useCallback(async () => {
+    if (!detail) return;
+    const baseName = saveAsName.trim();
+    if (!baseName) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      // 检查同名工具，自动编号避免冲突
+      let finalName = baseName;
       try {
-        await nexusToolRun(detail.id);
-        await loadDetail();
-      } catch (e) {
-        setError(String(e));
+        const existing = await nexusToolList({ search: finalName, limit: 50 });
+        const existingNames = new Set(existing.items.map((t) => t.name));
+        if (existingNames.has(finalName)) {
+          let counter = 2;
+          while (existingNames.has(`${baseName}-${String(counter).padStart(2, "0")}`)) {
+            counter++;
+          }
+          finalName = `${baseName}-${String(counter).padStart(2, "0")}`;
+        }
+      } catch {
+        // list 失败不阻塞，直接尝试创建
       }
-    }
-  }, [detail, onRun, loadDetail]);
 
-  // ─── 预设操作 ────────────────────────────────────────────────────────
-
-  const handleSavePreset = React.useCallback(async (preset: NexusToolPreset) => {
-    if (!detail) return;
-    setSaving(true);
-    try {
-      const presets = [...(detail.presets || []), preset];
-      await nexusToolSavePresets(detail.id, presets);
-      await loadDetail();
+      await nexusToolSaveAsInstance({
+        name: finalName,
+        description: saveAsDesc.trim() || editedDescription,
+        inputs: editedInputs,
+        outputs: detail.outputs || [],
+        filters: editedFilters,
+        triggers,
+        implementation: detail.implementation,
+        parentId: detail.id,
+        parentName: detail.name,
+        parentPath: detail.nexus_tool_path,
+        target_dccs: editedTargetDCCs,
+        implementation_type: editedImplType,
+        version: editedVersion,
+      });
+      setShowSaveAs(false);
+      setSaveAsName("");
+      setSaveAsDesc("");
+      setSaveMsg(`实例 "${finalName}" 已创建`);
+      setTimeout(() => setSaveMsg(null), 3000);
     } catch (e) {
       setError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [detail, loadDetail]);
+  }, [detail, saveAsName, saveAsDesc, editedDescription, editedInputs,
+      editedFilters, triggers, editedTargetDCCs, editedImplType, editedVersion]);
 
-  const handleDeletePreset = React.useCallback(async (presetId: string) => {
+  // ── 触发器操作（保持现有逻辑）─────────────────────────────────────────
+
+  const handleSaveTriggers = React.useCallback(async (t: NexusToolTrigger[]) => {
     if (!detail) return;
     setSaving(true);
     try {
-      const presets = (detail.presets || []).filter(p => p.id !== presetId);
-      await nexusToolSavePresets(detail.id, presets);
-      await loadDetail();
+      await nexusToolSaveTriggers(detail.id, t);
+      setTriggers(t);
+      markDirty();
     } catch (e) {
       setError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [detail, loadDetail]);
+  }, [detail, markDirty]);
 
-  // ─── 触发器操作 ──────────────────────────────────────────────────────
-
-  const handleSaveTriggers = React.useCallback(async (triggers: NexusToolTrigger[]) => {
-    if (!detail) return;
-    setSaving(true);
-    try {
-      await nexusToolSaveTriggers(detail.id, triggers);
-      await loadDetail();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }, [detail, loadDetail]);
-
-  // ─── 渲染 ────────────────────────────────────────────────────────────
+  // ── 渲染 ──────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -211,16 +298,18 @@ export function ToolDetailPanel({ toolId, onRun, onLoaded, compact, refreshKey }
     return <div className="p-4 text-xs text-muted-foreground">工具不存在</div>;
   }
 
+  const isInstance = !!(detail.instance_of);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Tab 栏 */}
-      <div className="flex shrink-0 border-b border-border/60 bg-muted/20">
+      <div className="flex shrink-0 border-b border-border/60 bg-muted/20 overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px",
+              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 -mb-px",
               activeTab === tab.id
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground/80",
@@ -229,62 +318,204 @@ export function ToolDetailPanel({ toolId, onRun, onLoaded, compact, refreshKey }
           >
             {tab.icon}
             {tab.label}
-            {/* 参数/预设/触发器数量徽标 */}
-            {tab.id === "params" && (detail.inputs?.length || detail.outputs?.length) ? (
-              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">
-                {(detail.inputs?.length || 0) + (detail.outputs?.length || 0)}
-              </span>
+            {tab.id === "params" && editedInputs.length > 0 && (
+              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{editedInputs.length}</span>
+            )}
+            {tab.id === "filters" && editedFilters.path?.length ? (
+              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{editedFilters.path.length}</span>
             ) : null}
-            {tab.id === "presets" && detail.presets?.length ? (
-              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{detail.presets.length}</span>
-            ) : null}
-            {tab.id === "triggers" && detail.triggers?.length ? (
-              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{detail.triggers.length}</span>
-            ) : null}
+            {tab.id === "triggers" && triggers.length > 0 && (
+              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{triggers.length}</span>
+            )}
           </button>
         ))}
       </div>
 
+      {/* 提示条 */}
+      {saveMsg && (
+        <div className="flex shrink-0 items-center gap-2 bg-emerald-500/10 border-b border-emerald-500/20 px-3 py-1.5">
+          <Check className="h-3 w-3 text-emerald-400" />
+          <span className="text-[11px] text-emerald-400">{saveMsg}</span>
+        </div>
+      )}
+
       {/* Tab 内容 */}
       <ScrollFade className="flex-1">
         <div className="p-3">
-          {activeTab === "info" && <InfoTab detail={detail} onRun={handleRun} compact={compact} />}
-          {activeTab === "params" && <ParamsTab detail={detail} onRun={handleRun} compact={compact} paramValues={paramValues} onChangeParam={handleChangeParam} onError={setError} />}
-          {activeTab === "presets" && <PresetsTab detail={detail} onSave={handleSavePreset} onDelete={handleDeletePreset} saving={saving} compact={compact} paramValues={paramValues} />}
-          {activeTab === "triggers" && <TriggersTab detail={detail} onSave={handleSaveTriggers} saving={saving} compact={compact} toolEnabled={detail.is_enabled} />}
+          {activeTab === "info" && (
+            <InfoTab
+              detail={detail}
+              isInstance={isInstance}
+              editedName={editedName} setEditedName={(v) => { setEditedName(v); markDirty(); }}
+              editedDescription={editedDescription} setEditedDescription={(v) => { setEditedDescription(v); markDirty(); }}
+              editedAuthor={editedAuthor} setEditedAuthor={(v) => { setEditedAuthor(v); markDirty(); }}
+              editedVersion={editedVersion} setEditedVersion={(v) => { setEditedVersion(v); markDirty(); }}
+              editedTargetDCCs={editedTargetDCCs} setEditedTargetDCCs={(v) => { setEditedTargetDCCs(v); markDirty(); }}
+              editedImplType={editedImplType} setEditedImplType={(v) => { setEditedImplType(v); markDirty(); }}
+              inputsCount={editedInputs.length}
+              triggersCount={triggers.length}
+              compact={compact}
+            />
+          )}
+          {activeTab === "params" && (
+            <ParamsTab
+              isInstance={isInstance}
+              inputs={editedInputs}
+              onChange={(v) => { setEditedInputs(v); markDirty(); }}
+              outputs={detail.outputs}
+              compact={compact}
+            />
+          )}
+          {activeTab === "filters" && (
+            <FiltersTab
+              filters={editedFilters}
+              onChange={(v) => { setEditedFilters(v); markDirty(); }}
+              targetDCCs={editedTargetDCCs.length > 0 ? editedTargetDCCs : detail.target_dccs || []}
+              compact={compact}
+            />
+          )}
+          {activeTab === "triggers" && (
+            <TriggersTab
+              detail={detail}
+              triggers={triggers}
+              onSave={handleSaveTriggers}
+              saving={saving}
+              compact={compact}
+              toolEnabled={detail.is_enabled}
+            />
+          )}
         </div>
       </ScrollFade>
 
-      {/* 底栏：运行按钮 */}
+      {/* 底部操作栏 */}
       <div className="flex shrink-0 items-center gap-2 border-t border-border/60 px-3 py-2">
-        <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleRun}>
-          <Play className="mr-1.5 h-3.5 w-3.5" />
-          运行
-        </Button>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={loadDetail} title="刷新">
-          <RefreshCw className="h-3.5 w-3.5" />
-        </Button>
+        {/* 另存为实例 — 内联表单 */}
+        {showSaveAs ? (
+          <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input
+                className="h-7 flex-1 text-xs"
+                placeholder="实例名称"
+                value={saveAsName}
+                onChange={(e) => setSaveAsName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveAsInstance()}
+                autoFocus
+              />
+              <Input
+                className="h-7 flex-1 text-xs"
+                placeholder="描述（可选）"
+                value={saveAsDesc}
+                onChange={(e) => setSaveAsDesc(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveAsInstance()}
+              />
+            </div>
+            <div className="flex justify-end gap-1.5">
+              <Button variant="outline" size="sm" className="h-6 text-[11px]" onClick={() => setShowSaveAs(false)}>
+                取消
+              </Button>
+              <Button size="sm" className="h-6 text-[11px]" onClick={handleSaveAsInstance} disabled={!saveAsName.trim() || saving}>
+                {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Copy className="mr-1 h-3 w-3" />}
+                创建实例
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={loadDetail} title="刷新">
+              <RefreshCw className="mr-1 h-3 w-3" />
+              刷新
+            </Button>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+              setSaveAsName(editedName + " (实例)");
+              setSaveAsDesc("");
+              setShowSaveAs(true);
+            }}>
+              <GitBranch className="mr-1 h-3 w-3" />
+              另存为实例
+            </Button>
+            <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Save className="mr-1 h-3 w-3" />}
+              保存修改
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Tab 1: 基本信息
+// Tab 1: 基本信息（全可编辑）
 // ═══════════════════════════════════════════════════════════════════════════
 
-function InfoTab({ detail, onRun, compact }: { detail: NexusToolDetail; onRun: () => void; compact?: boolean }) {
+function InfoTab({
+  detail, isInstance,
+  editedName, setEditedName,
+  editedDescription, setEditedDescription,
+  editedAuthor, setEditedAuthor,
+  editedVersion, setEditedVersion,
+  editedTargetDCCs, setEditedTargetDCCs,
+  editedImplType, setEditedImplType,
+  inputsCount, triggersCount,
+  compact,
+}: {
+  detail: NexusToolDetail;
+  isInstance: boolean;
+  editedName: string; setEditedName: (v: string) => void;
+  editedDescription: string; setEditedDescription: (v: string) => void;
+  editedAuthor: string; setEditedAuthor: (v: string) => void;
+  editedVersion: string; setEditedVersion: (v: string) => void;
+  editedTargetDCCs: string[]; setEditedTargetDCCs: (v: string[]) => void;
+  editedImplType: string; setEditedImplType: (v: string) => void;
+  inputsCount: number; triggersCount: number;
+  compact?: boolean;
+}) {
+  const fieldCls =
+    "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-3 text-xs focus:outline-none focus:border-primary/40 transition-colors w-full appearance-none";
+  const selectCls =
+    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&_option]:bg-card [&_option]:text-foreground";
+  const labelCls = "text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1";
+
+  const toggleDCC = (dcc: string) => {
+    if (editedTargetDCCs.includes(dcc)) {
+      setEditedTargetDCCs(editedTargetDCCs.filter((d) => d !== dcc));
+    } else {
+      setEditedTargetDCCs([...editedTargetDCCs, dcc]);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* 标题行 */}
+      {/* 实例标签 */}
+      {isInstance && (
+        <div className="rounded border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2.5 space-y-1">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-xs font-medium text-amber-400">工具实例</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            <span>父级工具: </span>
+            <span className="text-amber-300/80 font-mono">{detail.parent_name || detail.instance_of}</span>
+          </div>
+          {detail.parent_path && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 font-mono break-all">
+              <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+              {detail.parent_path}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 标题图标 */}
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
-          {detail.name.charAt(0).toUpperCase()}
+          {editedName.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold">{detail.name}</h3>
+          <h3 className="truncate text-sm font-semibold">{editedName}</h3>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-mono text-muted-foreground">v{detail.version}</span>
+            <span className="text-[10px] font-mono text-muted-foreground">v{editedVersion}</span>
             {detail.source && (
               <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", SOURCE_COLORS[detail.source] || "text-muted-foreground bg-muted")}>
                 {(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source}
@@ -294,37 +525,87 @@ function InfoTab({ detail, onRun, compact }: { detail: NexusToolDetail; onRun: (
         </div>
       </div>
 
-      {/* 描述 */}
-      {detail.description && (
-        <p className="text-xs leading-relaxed text-muted-foreground">{detail.description}</p>
-      )}
+      {/* ── 可编辑字段 ── */}
 
-      {/* 元信息网格 */}
+      <div>
+        <div className={labelCls}>名称</div>
+        <input value={editedName} onChange={(e) => setEditedName(e.target.value)} className={fieldCls} />
+      </div>
+
+      <div>
+        <div className={labelCls}>描述</div>
+        <textarea
+          value={editedDescription}
+          onChange={(e) => setEditedDescription(e.target.value)}
+          rows={3}
+          className="w-full rounded border border-border/60 bg-muted/20 px-2 py-1.5 text-xs focus:outline-none focus:border-primary/40 transition-colors resize-y"
+        />
+      </div>
+
+      <div>
+        <div className={labelCls}>作者</div>
+        <input value={editedAuthor} onChange={(e) => setEditedAuthor(e.target.value)} placeholder="作者名称" className={fieldCls} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className={labelCls}>版本</div>
+          <input value={editedVersion} onChange={(e) => setEditedVersion(e.target.value)} className={fieldCls} />
+        </div>
+        <div>
+          <div className={labelCls}>来源</div>
+          <div className={cn("flex h-7 items-center px-2 rounded bg-muted/10 border border-border/30 text-xs text-muted-foreground")}>
+            {(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className={labelCls}>实现方式</div>
+        <select
+          value={editedImplType}
+          onChange={(e) => setEditedImplType(e.target.value)}
+          className={selectCls}
+        >
+          {Object.entries(IMPL_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 目标 DCC */}
+      <div>
+        <div className={labelCls}>目标软件</div>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(DCC_LABELS).slice(0, 8).map(([dcc, label]) => {
+            const active = editedTargetDCCs.includes(dcc);
+            return (
+              <button
+                key={dcc}
+                onClick={() => toggleDCC(dcc)}
+                className={cn(
+                  "px-2 py-0.5 rounded text-[11px] border transition-colors",
+                  active
+                    ? "bg-primary/15 text-primary border-primary/30"
+                    : "bg-muted/20 text-muted-foreground border-border/40 hover:border-border/60",
+                )}
+              >
+                {label as string}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 只读信息 */}
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <InfoField label="作者" value={detail.author || "—"} />
-        <InfoField label="实现方式" value={IMPL_LABELS[detail.implementation_type] || detail.implementation_type || "—"} />
         <InfoField label="创建日期" value={detail.created_at?.slice(0, 10) || "—"} />
         <InfoField label="更新日期" value={detail.updated_at?.slice(0, 10) || "—"} />
       </div>
 
-      {/* 目标 DCC */}
-      {detail.target_dccs && detail.target_dccs.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">目标软件</div>
-          <div className="flex flex-wrap gap-1">
-            {detail.target_dccs.map((dcc) => (
-              <span key={dcc} className="rounded bg-muted px-2 py-0.5 text-[11px]">
-                {(DCC_LABELS as Record<string, string>)[dcc] || dcc}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 实现细节 */}
       {detail.implementation && (
         <div>
-          <div className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">执行入口</div>
+          <div className={labelCls}>执行入口</div>
           <div className="space-y-1 rounded bg-muted/30 p-2 font-mono text-[11px]">
             <div><span className="text-muted-foreground">type:</span> {detail.implementation.type || "—"}</div>
             <div><span className="text-muted-foreground">entry:</span> {detail.implementation.entry || "—"}</div>
@@ -333,14 +614,22 @@ function InfoTab({ detail, onRun, compact }: { detail: NexusToolDetail; onRun: (
         </div>
       )}
 
-      {/* 工具路径 */}
       {detail.nexus_tool_path && (
         <div>
-          <div className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">工具路径</div>
-          <div className="flex items-center gap-1.5 rounded bg-muted/30 px-2 py-1.5 font-mono text-[10px] text-muted-foreground break-all">
+          <div className={labelCls}>工具路径</div>
+          <button
+            onClick={async () => {
+              try {
+                await invoke("shell_open_path", { path: detail.nexus_tool_path });
+              } catch (e) {
+                console.error("打开工具路径失败:", e);
+              }
+            }}
+            className="flex w-full items-center gap-1.5 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-2 py-1.5 font-mono text-[10px] text-muted-foreground break-all hover:border-primary/40 hover:text-foreground transition-colors text-left"
+          >
             <ExternalLink className="h-3 w-3 shrink-0" />
             {detail.nexus_tool_path}
-          </div>
+          </button>
         </div>
       )}
 
@@ -348,13 +637,11 @@ function InfoTab({ detail, onRun, compact }: { detail: NexusToolDetail; onRun: (
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <span>使用 {detail.use_count || 0} 次</span>
         <span>·</span>
-        <span>{detail.inputs?.length || 0} 个输入参数</span>
+        <span>{inputsCount} 个输入参数</span>
         <span>·</span>
         <span>{detail.outputs?.length || 0} 个输出</span>
         <span>·</span>
-        <span>{detail.presets?.length || 0} 个预设</span>
-        <span>·</span>
-        <span>{detail.triggers?.length || 0} 个触发器</span>
+        <span>{triggersCount} 个触发器</span>
       </div>
     </div>
   );
@@ -370,46 +657,62 @@ function InfoField({ label, value }: { label: string; value: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Tab 2: 参数
+// Tab 2: 脚本参数（全可编辑）
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ParamsTab({ detail, onRun, compact, paramValues, onChangeParam, onError }: {
-  detail: NexusToolDetail;
-  onRun: () => void;
+function ParamsTab({
+  isInstance, inputs, onChange, outputs, compact,
+}: {
+  isInstance: boolean;
+  inputs: NexusToolParam[];
+  onChange: (inputs: NexusToolParam[]) => void;
+  outputs?: { id: string; name: string; type: string }[];
   compact?: boolean;
-  paramValues: Record<string, unknown>;
-  onChangeParam: (id: string, value: unknown) => void;
-  onError: (msg: string | null) => void;
 }) {
-  const handleRunWithParams = async () => {
-    try {
-      await nexusToolRun(detail.id, paramValues);
-    } catch (e) {
-      onError(String(e));
-    }
+  const addParam = () => {
+    const id = `param_${Date.now()}`;
+    onChange([...inputs, { id, name: "", type: "string", required: false, default: "", description: "" }]);
+  };
+
+  const updateParam = (idx: number, patch: Partial<NexusToolParam>) => {
+    const updated = [...inputs];
+    updated[idx] = { ...updated[idx], ...patch };
+    onChange(updated);
+  };
+
+  const removeParam = (idx: number) => {
+    onChange(inputs.filter((_, i) => i !== idx));
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* ── 输入参数 ── */}
-      {detail.inputs && detail.inputs.length > 0 && (
+      {inputs.length > 0 && (
         <ParamSection title="输入参数" defaultOpen>
-          {detail.inputs.map((param) => (
-            <ParamRow
+          {inputs.map((param, idx) => (
+            <EditableParamRow
               key={param.id}
               param={param}
-              value={paramValues[param.id]}
-              onChange={(v) => onChangeParam(param.id, v)}
+              idx={idx}
+              isInstance={isInstance}
+              onUpdate={(patch) => updateParam(idx, patch)}
+              onRemove={() => removeParam(idx)}
               compact={compact}
             />
           ))}
         </ParamSection>
       )}
 
+      {/* 添加按钮 */}
+      <Button variant="outline" size="sm" className="w-full text-xs" onClick={addParam}>
+        <Plus className="mr-1.5 h-3.5 w-3.5" />
+        添加参数
+      </Button>
+
       {/* ── 输出参数 ── */}
-      {detail.outputs && detail.outputs.length > 0 && (
+      {outputs && outputs.length > 0 && (
         <ParamSection title="输出参数" defaultOpen={false}>
-          {detail.outputs.map((out) => (
+          {outputs.map((out) => (
             <div key={out.id} className="flex items-center gap-2 py-1.5 text-xs">
               <span className="w-2 h-2 rounded-full bg-blue-400/30 shrink-0" />
               <span className="font-medium min-w-[60px]">{out.name}</span>
@@ -419,19 +722,11 @@ function ParamsTab({ detail, onRun, compact, paramValues, onChangeParam, onError
         </ParamSection>
       )}
 
-      {(!detail.inputs || detail.inputs.length === 0) && (!detail.outputs || detail.outputs.length === 0) && (
+      {inputs.length === 0 && (!outputs || outputs.length === 0) && (
         <div className="py-6 text-center text-xs text-muted-foreground">
           <Sliders className="mx-auto mb-2 h-5 w-5 opacity-40" />
           此工具没有定义参数
         </div>
-      )}
-
-      {/* 运行按钮（带当前参数） */}
-      {detail.inputs && detail.inputs.length > 0 && (
-        <Button size="sm" variant="outline" className="w-full text-xs" onClick={handleRunWithParams}>
-          <Play className="mr-1.5 h-3.5 w-3.5" />
-          用当前参数运行
-        </Button>
       )}
     </div>
   );
@@ -448,160 +743,225 @@ function ParamSection({ title, defaultOpen, children }: { title: string; default
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         {title}
       </button>
-      {open && <div className="space-y-0.5 pl-4">{children}</div>}
+      {open && <div className="space-y-1 pl-4">{children}</div>}
     </div>
   );
 }
 
-function ParamRow({ param, value, onChange, compact }: {
+function EditableParamRow({
+  param, idx, isInstance, onUpdate, onRemove, compact,
+}: {
   param: NexusToolParam;
-  value: unknown;
-  onChange: (v: unknown) => void;
+  idx: number;
+  isInstance: boolean;
+  onUpdate: (patch: Partial<NexusToolParam>) => void;
+  onRemove: () => void;
   compact?: boolean;
 }) {
-  const [focused, setFocused] = React.useState(false);
+  const inputCls =
+    "h-6 rounded border border-border/60 bg-muted/20 px-1.5 text-[11px] font-mono focus:outline-none focus:border-primary/40";
+  const selectCls =
+    "h-6 rounded-md border border-input bg-input px-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&_option]:bg-card [&_option]:text-foreground";
 
-  return (
-    <div className={cn(
-      "group rounded border border-transparent px-2 py-1.5 transition-colors",
-      focused && "border-primary/20 bg-primary/[0.02]",
-    )}>
-      <div className="flex items-center gap-2">
-        <span className="flex-1 min-w-0">
-          <span className="text-xs font-medium">{param.name}</span>
-          {param.required && <span className="ml-1 text-[10px] text-red-400">*</span>}
-          <span className="ml-1.5 text-[10px] rounded bg-muted/30 px-1 py-0 text-muted-foreground">{param.type}</span>
-        </span>
-        <div className="shrink-0">
-          {param.type === "boolean" ? (
-            <button
-              onClick={() => onChange(!value)}
-              className={cn(
-                "flex h-5 w-9 items-center rounded-full transition-colors",
-                value ? "bg-primary/60" : "bg-muted",
-              )}
-            >
-              <span className={cn(
-                "h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
-                value ? "translate-x-4.5 ml-0.5" : "translate-x-0.5",
-              )} />
-            </button>
-          ) : param.type === "select" && param.options ? (
-            <select
-              value={String(value ?? param.default ?? param.options[0])}
-              onChange={(e) => onChange(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              className="h-6 rounded border border-border/60 bg-muted/20 px-1.5 text-[11px] font-mono focus:outline-none focus:border-primary/40"
-            >
-              {param.options.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          ) : param.type === "number" ? (
-            <input
-              type="number"
-              value={value as number ?? param.default ?? ""}
-              onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              className="h-6 w-24 rounded border border-border/60 bg-muted/20 px-1.5 text-[11px] font-mono focus:outline-none focus:border-primary/40"
-            />
-          ) : (
-            <input
-              type="text"
-              value={String(value ?? param.default ?? "")}
-              onChange={(e) => onChange(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              className="h-6 rounded border border-border/60 bg-muted/20 px-1.5 text-[11px] font-mono focus:outline-none focus:border-primary/40 w-32"
-            />
-          )}
-        </div>
-      </div>
-      {param.description && (
-        <p className="mt-0.5 text-[10px] text-muted-foreground/70 leading-relaxed">{param.description}</p>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Tab 3: 预设
-// ═══════════════════════════════════════════════════════════════════════════
-
-function PresetsTab({ detail, onSave, onDelete, saving, compact, paramValues }: {
-  detail: NexusToolDetail;
-  onSave: (preset: NexusToolPreset) => Promise<void>;
-  onDelete: (presetId: string) => Promise<void>;
-  saving: boolean;
-  compact?: boolean;
-  paramValues: Record<string, unknown>;
-}) {
-  const [newPresetName, setNewPresetName] = React.useState("");
-  const [savingNow, setSavingNow] = React.useState(false);
-
-  const presets = detail.presets || [];
-
-  const handleSave = async () => {
-    const name = newPresetName.trim();
-    if (!name) return;
-    setSavingNow(true);
+  // 解析 list/dict 默认值
+  const parseListDefault = (): string[] => {
     try {
-      const preset: NexusToolPreset = {
-        id: `preset_${Date.now()}`,
-        name,
-        values: { ...paramValues },
-        created_at: new Date().toISOString(),
-      };
-      await onSave(preset);
-      setNewPresetName("");
-    } finally {
-      setSavingNow(false);
-    }
+      const v = param.default;
+      if (Array.isArray(v)) return v.map(String);
+      if (typeof v === "string" && v.startsWith("[")) return JSON.parse(v) as string[];
+    } catch { /* ignore */ }
+    return [];
+  };
+
+  const parseDictDefault = (): Array<{ key: string; val: string }> => {
+    try {
+      const v = param.default;
+      if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+        return Object.entries(v as Record<string, unknown>).map(([k, val]) => ({ key: k, val: String(val) }));
+      }
+      if (typeof v === "string" && v.startsWith("{")) {
+        const obj = JSON.parse(v) as Record<string, unknown>;
+        return Object.entries(obj).map(([k, val]) => ({ key: k, val: String(val) }));
+      }
+    } catch { /* ignore */ }
+    return [];
+  };
+
+  const listItems = param.type === "list" ? parseListDefault() : [];
+  const dictItems = param.type === "dict" ? parseDictDefault() : [];
+
+  const updateListDefault = (items: string[]) => {
+    onUpdate({ default: items });
+  };
+
+  const updateDictDefault = (items: Array<{ key: string; val: string }>) => {
+    const obj: Record<string, string> = {};
+    items.forEach(({ key, val }) => { if (key) obj[key] = val; });
+    onUpdate({ default: obj });
   };
 
   return (
-    <div className="space-y-3">
-      {/* 新建预设 */}
-      <div className="flex gap-2">
-        <Input
-          className="h-7 flex-1 text-xs"
-          placeholder="预设名称..."
-          value={newPresetName}
-          onChange={(e) => setNewPresetName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSave()}
+    <div className="rounded border border-border/40 bg-muted/5 px-2 py-1.5 space-y-1.5 group">
+      {/* 行1: 参数名 + 类型标签 + 必填 + 删除 */}
+      <div className="flex items-center gap-1.5">
+        <input
+          value={param.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          placeholder="参数名"
+          className={cn(inputCls, "flex-1")}
         />
-        <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={!newPresetName.trim() || savingNow}>
-          {savingNow ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
-          保存
+        <span
+          className={cn(
+            "inline-flex items-center shrink-0 h-6 px-2 rounded-[8px] text-[10px] font-mono",
+            "bg-primary/10 text-primary/80 border border-primary/20",
+          )}
+        >
+          {PARAM_TYPE_OPTIONS.find((o) => o.value === param.type)?.label || param.type}
+        </span>
+        <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            checked={param.required}
+            onChange={(e) => onUpdate({ required: e.target.checked })}
+            className="w-3 h-3 rounded accent-primary"
+          />
+          必填
+        </label>
+        <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0" onClick={onRemove} title="删除参数">
+          <Trash2 className="h-3 w-3 text-red-400" />
         </Button>
       </div>
 
-      {/* 预设列表 */}
-      {presets.length === 0 ? (
-        <div className="py-6 text-center text-xs text-muted-foreground">
-          <Save className="mx-auto mb-2 h-5 w-5 opacity-40" />
-          暂无预设。设置好参数后，输入名称并点击"保存"。
-        </div>
-      ) : (
-        <div className="space-y-1">
-          {presets.map((preset) => (
-            <div key={preset.id} className="flex items-center gap-2 rounded border border-border/40 bg-muted/10 px-2 py-1.5 group hover:border-border/60">
-              <Save className="h-3 w-3 text-amber-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium truncate">{preset.name}</div>
-                <div className="text-[10px] text-muted-foreground truncate">
-                  {Object.keys(preset.values).length} 个参数
-                  {preset.created_at && ` · ${preset.created_at.slice(0, 10)}`}
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => onDelete(preset.id)} title="删除预设">
-                <Trash2 className="h-3 w-3 text-red-400" />
+      {/* 行2: 默认值（根据类型不同显示不同编辑器） */}
+      {param.type === "list" ? (
+        <div className="pl-1 space-y-1">
+          <div className="text-[10px] text-muted-foreground">值列表:</div>
+          {listItems.map((item, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <input
+                value={item}
+                onChange={(e) => {
+                  const next = [...listItems];
+                  next[i] = e.target.value;
+                  updateListDefault(next);
+                }}
+                className={cn(inputCls, "flex-1")}
+                placeholder={`项 ${i + 1}`}
+              />
+              <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => {
+                updateListDefault(listItems.filter((_, j) => j !== i));
+              }}>
+                <X className="h-2.5 w-2.5 text-muted-foreground" />
               </Button>
             </div>
           ))}
+          <Button variant="outline" size="sm" className="h-5 text-[10px]" onClick={() => updateListDefault([...listItems, ""])}>
+            <Plus className="mr-0.5 h-2.5 w-2.5" />添加项
+          </Button>
+        </div>
+      ) : param.type === "dict" ? (
+        <div className="pl-1 space-y-1">
+          <div className="text-[10px] text-muted-foreground">键值对:</div>
+          {dictItems.map((item, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground shrink-0">K:</span>
+              <input
+                value={item.key}
+                onChange={(e) => {
+                  const next = [...dictItems];
+                  next[i] = { ...next[i], key: e.target.value };
+                  updateDictDefault(next);
+                }}
+                className={cn(inputCls, "flex-1")}
+                placeholder="键"
+              />
+              <span className="text-[10px] text-muted-foreground shrink-0">V:</span>
+              <input
+                value={item.val}
+                onChange={(e) => {
+                  const next = [...dictItems];
+                  next[i] = { ...next[i], val: e.target.value };
+                  updateDictDefault(next);
+                }}
+                className={cn(inputCls, "flex-1")}
+                placeholder="值"
+              />
+              <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => {
+                updateDictDefault(dictItems.filter((_, j) => j !== i));
+              }}>
+                <X className="h-2.5 w-2.5 text-muted-foreground" />
+              </Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" className="h-5 text-[10px]" onClick={() => updateDictDefault([...dictItems, { key: "", val: "" }])}>
+            <Plus className="mr-0.5 h-2.5 w-2.5" />添加键值对
+          </Button>
+        </div>
+      ) : param.type === "boolean" ? (
+        <div className="flex items-center gap-2 pl-1">
+          <span className="text-[10px] text-muted-foreground">默认值:</span>
+          <ToggleSwitch
+            size="xs"
+            checked={!!param.default}
+            onChange={(v) => onUpdate({ default: v })}
+          />
+        </div>
+      ) : param.type === "select" && param.options ? (
+        <div className="flex items-center gap-2 pl-1">
+          <span className="text-[10px] text-muted-foreground shrink-0">默认:</span>
+          <select
+            value={String(param.default ?? param.options[0] ?? "")}
+            onChange={(e) => onUpdate({ default: e.target.value })}
+            className={cn(selectCls, "w-32 flex-1")}
+          >
+            {(param.options || []).map((opt: string) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 pl-1">
+          <span className="text-[10px] text-muted-foreground shrink-0">默认值:</span>
+          <input
+            type={param.type === "number" ? "number" : "text"}
+            value={param.type === "number" ? (param.default as number ?? "") : String(param.default ?? "")}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (param.type === "number") {
+                onUpdate({ default: raw === "" ? undefined : Number(raw) });
+              } else {
+                onUpdate({ default: raw });
+              }
+            }}
+            className={cn(inputCls, "flex-1")}
+            placeholder="无默认值"
+          />
+        </div>
+      )}
+
+      {/* 行3: 描述 */}
+      <div className="flex items-center gap-2 pl-1">
+        <span className="text-[10px] text-muted-foreground shrink-0">描述:</span>
+        <input
+          value={param.description || ""}
+          onChange={(e) => onUpdate({ description: e.target.value || undefined })}
+          className={cn(inputCls, "flex-1")}
+          placeholder="参数说明"
+        />
+      </div>
+
+      {/* 实例专属：使用源参数 */}
+      {isInstance && (
+        <div className="pl-1 pt-0.5">
+          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={param.useSourceDefault === true}
+              onChange={(e) => onUpdate({ useSourceDefault: e.target.checked })}
+              className="w-3 h-3 rounded accent-amber-400"
+            />
+            使用源参数默认值（继承父工具当前设定）
+          </label>
         </div>
       )}
     </div>
@@ -609,115 +969,137 @@ function PresetsTab({ detail, onSave, onDelete, saving, compact, paramValues }: 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Tab 4: 触发器
+// Tab 3: 触发器
 // ═══════════════════════════════════════════════════════════════════════════
 
-const EVENT_OPTIONS = [
-  { value: "file.save.post", label: "文件保存后" },
-  { value: "file.save.pre", label: "文件保存前" },
-  { value: "file.open.post", label: "文件打开后" },
-  { value: "file.open.pre", label: "文件打开前" },
-  { value: "scene.new", label: "新建场景" },
-  { value: "object.select", label: "选择对象" },
-];
+const TRIGGER_TYPE_LABELS: Record<TriggerType, string> = {
+  event: "事件触发",
+  schedule: "定时触发",
+  watch: "文件监听",
+};
 
-const EXEC_MODES = [
-  { value: "notify", label: "仅通知" },
-  { value: "autorun", label: "自动执行" },
-  { value: "prompt", label: "询问后执行" },
-];
+const EXEC_MODE_LABELS: Record<ExecutionMode, string> = {
+  silent: "静默",
+  notify: "通知",
+};
 
-function TriggersTab({ detail, onSave, saving, compact, toolEnabled = true }: {
+/** 调度配置 → 友好标签 */
+function scheduleLabel(sc: { type: string; interval?: string; cron?: string; runAt?: string }): string {
+  switch (sc.type) {
+    case "interval": return sc.interval ? `每${sc.interval}执行` : "定时间隔";
+    case "cron":      return sc.cron ? `Cron: ${sc.cron}` : "Cron 定时";
+    case "once":      return sc.runAt ? `单次: ${sc.runAt.replace("T", " ")}` : "单次执行";
+    default:          return sc.type;
+  }
+}
+
+function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
   detail: NexusToolDetail;
+  triggers: NexusToolTrigger[];
   onSave: (triggers: NexusToolTrigger[]) => Promise<void>;
   saving: boolean;
   compact?: boolean;
   toolEnabled?: boolean;
 }) {
-  const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>(detail.triggers || []);
+  const { dccStatus } = React.useContext(DCCStatusContext);
+  const [localTriggers, setLocalTriggers] = React.useState<NexusToolTrigger[]>(triggers);
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [isNew, setIsNew] = React.useState(false);
+  const [showNew, setShowNew] = React.useState(false);
 
-  // 编辑态数据
-  const [editName, setEditName] = React.useState("");
-  const [editEvent, setEditEvent] = React.useState("file.save.post");
-  const [editDcc, setEditDcc] = React.useState(detail.target_dccs?.[0] || "blender");
-  const [editMode, setEditMode] = React.useState("notify");
-  const [editUseDefault, setEditUseDefault] = React.useState(false);
+  React.useEffect(() => { setLocalTriggers(triggers); }, [triggers]);
 
-  const resetEdit = () => {
-    setEditName("");
-    setEditEvent("file.save.post");
-    setEditDcc(detail.target_dccs?.[0] || "blender");
-    setEditMode("notify");
-    setEditUseDefault(false);
+  const targetDCCs = detail.target_dccs?.length ? detail.target_dccs : ["blender", "unreal_engine", "maya", "3ds_max", "houdini", "comfyui"];
+
+  // 判断是否有目标 DCC 已连接
+  const hasConnectedDCC = React.useMemo(() => {
+    return targetDCCs.some((dcc) => {
+      const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
+      return status?.connected ?? false;
+    });
+  }, [targetDCCs, dccStatus]);
+
+  const defaultFilters = detail.default_filters;
+
+  // ── 新建 ──
+  const handleCreate = (data: TriggerFormData) => {
+    const newTrigger: NexusToolTrigger = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `trigger_${Date.now()}`,
+      name: data.name,
+      enabled: data.isEnabled,
+      triggerType: data.triggerType,
+      dcc: data.dcc,
+      eventType: data.eventType,
+      executionMode: data.executionMode,
+      useDefaultFilters: data.useDefaultFilters,
+      conditions: data.conditions,
+      scheduleConfig: data.scheduleConfig,
+    };
+    const updated = [...localTriggers, newTrigger];
+    setLocalTriggers(updated);
+    setShowNew(false);
+    onSave(updated);
+  };
+
+  // ── 更新 ──
+  const handleUpdate = (id: string, data: TriggerFormData) => {
+    const updated = localTriggers.map((t) =>
+      t.id === id
+        ? {
+            ...t,
+            name: data.name,
+            enabled: data.isEnabled,
+            triggerType: data.triggerType,
+            dcc: data.dcc,
+            eventType: data.eventType,
+            executionMode: data.executionMode,
+            useDefaultFilters: data.useDefaultFilters,
+            conditions: data.conditions,
+            scheduleConfig: data.scheduleConfig,
+          }
+        : t,
+    );
+    setLocalTriggers(updated);
     setEditingId(null);
-    setIsNew(false);
+    onSave(updated);
   };
 
-  const startNew = () => {
-    resetEdit();
-    setIsNew(true);
-    setEditingId("__new__");
-  };
-
-  const startEdit = (t: NexusToolTrigger) => {
-    setEditName(t.name);
-    setEditEvent(t.trigger.event);
-    setEditDcc(t.trigger.dcc);
-    setEditMode(t.execution.mode);
-    setEditUseDefault(t.useDefaultFilters);
-    setEditingId(t.id);
-    setIsNew(false);
-  };
-
-  const handleSaveEdit = async () => {
-    const name = editName.trim();
-    if (!name) return;
-
-    let updated: NexusToolTrigger[];
-    if (isNew) {
-      const newTrigger: NexusToolTrigger = {
-        id: crypto.randomUUID ? crypto.randomUUID() : `trigger_${Date.now()}`,
-        name,
-        enabled: false,
-        trigger: { type: "event", event: editEvent, dcc: editDcc },
-        execution: { mode: editMode },
-        useDefaultFilters: editUseDefault,
-      };
-      updated = [...triggers, newTrigger];
-    } else {
-      updated = triggers.map((t) =>
-        t.id === editingId
-          ? { ...t, name, trigger: { ...t.trigger, event: editEvent, dcc: editDcc }, execution: { mode: editMode }, useDefaultFilters: editUseDefault }
-          : t,
-      );
-    }
-
-    setTriggers(updated);
-    resetEdit();
-    await onSave(updated);
-  };
-
+  // ── 删除 ──
   const handleDelete = async (id: string) => {
-    const updated = triggers.filter((t) => t.id !== id);
-    setTriggers(updated);
+    const updated = localTriggers.filter((t) => t.id !== id);
+    setLocalTriggers(updated);
+    if (editingId === id) setEditingId(null);
     await onSave(updated);
   };
 
+  // ── 启用/禁用 ──
   const handleToggle = async (id: string) => {
-    const updated = triggers.map((t) =>
+    const updated = localTriggers.map((t) =>
       t.id === id ? { ...t, enabled: !t.enabled } : t,
     );
-    setTriggers(updated);
+    setLocalTriggers(updated);
     await onSave(updated);
   };
 
-  const isEditing = editingId !== null;
+  // ── TriggerFormData ← NexusToolTrigger ──
+  const triggerToForm = (t: NexusToolTrigger): TriggerFormData => ({
+    name: t.name,
+    triggerType: t.triggerType,
+    dcc: t.dcc,
+    eventType: t.eventType,
+    executionMode: t.executionMode,
+    useDefaultFilters: t.useDefaultFilters,
+    conditions: t.conditions || {},
+    isEnabled: t.enabled,
+    scheduleConfig: t.scheduleConfig || { type: "interval", interval: "30m" },
+  });
+
+  const hasInlineFilter = (t: NexusToolTrigger) => {
+    const c = t.conditions;
+    return c && (c.path?.length || c.fileRules?.length || c.sceneRules?.length || c.typeFilter?.types?.length);
+  };
 
   return (
     <div className="space-y-3">
-      {/* 总闸关闭提示 */}
       {!toolEnabled && (
         <div className="flex items-center gap-2 rounded border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
           <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
@@ -725,127 +1107,202 @@ function TriggersTab({ detail, onSave, saving, compact, toolEnabled = true }: {
         </div>
       )}
 
-      {/* 添加按钮 */}
-      {!isEditing && (
-        <Button variant="outline" size="sm" className="w-full text-xs" onClick={startNew}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          添加触发器
-        </Button>
-      )}
-
-      {/* 编辑表单 */}
-      {isEditing && (
-        <div className="rounded border border-primary/30 bg-primary/[0.02] p-3 space-y-2">
-          <div className="flex items-center gap-2 mb-1">
-            <Zap className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-xs font-medium">{isNew ? "新建触发器" : "编辑触发器"}</span>
-          </div>
-
-          <div>
-            <label className="text-[10px] text-muted-foreground">名称</label>
-            <Input className="h-7 text-xs mt-0.5" placeholder="触发器名称" value={editName}
-              onChange={(e) => setEditName(e.target.value)} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-muted-foreground">DCC</label>
-              <select value={editDcc} onChange={(e) => setEditDcc(e.target.value)}
-                className="mt-0.5 h-7 w-full rounded border border-border/60 bg-muted/20 px-1.5 text-xs focus:outline-none focus:border-primary/40">
-                {(detail.target_dccs || ["blender", "unreal_engine", "maya", "3ds_max", "houdini", "comfyui"]).map((d) => (
-                  <option key={d} value={d}>{(DCC_LABELS as Record<string, string>)[d] || d}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] text-muted-foreground">事件</label>
-              <select value={editEvent} onChange={(e) => setEditEvent(e.target.value)}
-                className="mt-0.5 h-7 w-full rounded border border-border/60 bg-muted/20 px-1.5 text-xs focus:outline-none focus:border-primary/40">
-                {EVENT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-muted-foreground">执行方式</label>
-              <select value={editMode} onChange={(e) => setEditMode(e.target.value)}
-                className="mt-0.5 h-7 w-full rounded border border-border/60 bg-muted/20 px-1.5 text-xs focus:outline-none focus:border-primary/40">
-                {EXEC_MODES.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end pb-0.5">
-              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                <input type="checkbox" checked={editUseDefault} onChange={(e) => setEditUseDefault(e.target.checked)}
-                  className="h-3 w-3 rounded border-border" />
-                <span className="text-[10px]">使用默认过滤</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <Button size="sm" className="h-7 text-xs" onClick={handleSaveEdit} disabled={!editName.trim() || saving}>
-              <Check className="mr-1 h-3 w-3" />
-              保存
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={resetEdit}>
-              <X className="mr-1 h-3 w-3" />
-              取消
-            </Button>
+      {/* 触发器需要 DCC 插件支持提示 — 仅在没有已连接的 DCC 时显示 */}
+      {!hasConnectedDCC && localTriggers.length > 0 && (
+        <div className="flex items-start gap-2 rounded border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-300/80">
+            <p className="font-medium mb-0.5">触发器需要 DCC 插件支持</p>
+            <p className="text-[11px] text-muted-foreground">
+              触发器通过 DCC 插件（Blender Addon / Maya Plugin 等）中的事件钩子（如 <code className="text-[10px] bg-muted/30 px-1 rounded">bpy.app.handlers.save_post</code>）来监听 DCC 事件。
+              请确保目标 DCC 已安装最新版 Artifex Nexus 插件，插件启动后会自动注册触发钩子。
+            </p>
           </div>
         </div>
       )}
 
-      {/* 触发器列表 */}
-      {triggers.length === 0 && !isEditing ? (
-        <div className="py-6 text-center text-xs text-muted-foreground">
-          <Zap className="mx-auto mb-2 h-5 w-5 opacity-40" />
-          暂无触发器。添加触发器以在特定事件发生时自动执行此工具。
+      {/* ── 触发器列表 ── */}
+      {localTriggers.length > 0 ? (
+        <div className="space-y-1.5">
+          {localTriggers.map((t) => {
+            const dccLabel = (DCC_LABELS as Record<string, string>)[t.dcc] || t.dcc;
+            const eventLabel = hasDCCEvents(t.dcc) ? getEventLabel(t.dcc, t.eventType) : t.eventType;
+            const typeLabel = TRIGGER_TYPE_LABELS[t.triggerType] || t.triggerType;
+            const modeLabel = EXEC_MODE_LABELS[t.executionMode] || t.executionMode;
+            const isEditing = editingId === t.id;
+
+            return (
+              <div key={t.id}>
+                {/* 行 */}
+                <div
+                  className={cn(
+                    "flex items-start gap-2 p-2 rounded border transition-colors group",
+                    !toolEnabled
+                      ? "border-border/30 bg-muted/5 opacity-60"
+                      : t.enabled
+                        ? "border-amber-500/30 bg-amber-500/[0.04] hover:border-amber-500/50"
+                        : "border-border/40 bg-muted/10 hover:border-border/60",
+                  )}
+                >
+                  {/* 启用 toggle — 用 div 避免嵌套 button（ToggleSwitch 内部是 button） */}
+                  <div
+                    onClick={() => handleToggle(t.id)}
+                    title={t.enabled ? "点击禁用" : "点击启用"}
+                    className="mt-0.5 shrink-0 cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleToggle(t.id);
+                      }
+                    }}
+                  >
+                    <ToggleSwitch
+                      checked={t.enabled}
+                      size="sm"
+                    />
+                  </div>
+
+                  {/* 内容 */}
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
+                    onClick={() => setEditingId(isEditing ? null : t.id)}
+                  >
+                    <div className="text-xs font-medium truncate">{t.name || "未命名"}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="px-1.5 py-0.5 rounded bg-muted/30 text-[9px]">{typeLabel}</span>
+                      {dccLabel && <span>{dccLabel}</span>}
+                      {eventLabel && <span>{eventLabel}</span>}
+                      <span className={cn(toolEnabled && t.enabled && "text-amber-400/80")}>{modeLabel}</span>
+                    </div>
+                    {(hasInlineFilter(t) || t.scheduleConfig) && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        {hasInlineFilter(t) && <span>🔍 内联筛选</span>}
+                        {t.scheduleConfig && (
+                          <span className="ml-2">
+                            ⏱ {scheduleLabel(t.scheduleConfig)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 操作 */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                      onClick={() => setEditingId(isEditing ? null : t.id)}
+                      title="编辑"
+                    >
+                      <Sliders className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                      onClick={() => handleDelete(t.id)}
+                      title="删除"
+                    >
+                      <Trash2 className="h-3 w-3 text-red-400" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* 内联编辑器 */}
+                {isEditing && (
+                  <div className="mt-2 mb-1">
+                    <TriggerRuleEditor
+                      initialData={triggerToForm(t)}
+                      targetDCCs={targetDCCs}
+                      defaultFilters={defaultFilters}
+                      onSave={(data) => handleUpdate(t.id, data)}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : (
-        <div className="space-y-1">
-          {triggers.map((t) => (
-            <div key={t.id} className={cn(
-              "flex items-center gap-2 rounded border px-2 py-1.5 group transition-colors",
-              !toolEnabled
-                ? "border-border/30 bg-muted/5 opacity-60"
-                : t.enabled
-                  ? "border-amber-500/30 bg-amber-500/[0.04]"
-                  : "border-border/40 bg-muted/10 hover:border-border/60",
-            )}>
-              <button onClick={() => handleToggle(t.id)} className="shrink-0">
-                {t.enabled
-                  ? <ToggleRight className="h-4 w-4 text-amber-400" />
-                  : <ToggleLeft className="h-4 w-4 text-muted-foreground/50" />}
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium truncate">{t.name}</div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <span>{(DCC_LABELS as Record<string, string>)[t.trigger.dcc] || t.trigger.dcc}</span>
-                  <span>·</span>
-                  <span>{EVENT_OPTIONS.find(o => o.value === t.trigger.event)?.label || t.trigger.event}</span>
-                  <span>·</span>
-                  <span className={cn(toolEnabled && t.enabled && "text-amber-400/80")}>
-                    {EXEC_MODES.find(o => o.value === t.execution.mode)?.label || t.execution.mode}
-                  </span>
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => startEdit(t)} title="编辑">
-                <Sliders className="h-3 w-3" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => handleDelete(t.id)} title="删除">
-                <Trash2 className="h-3 w-3 text-red-400" />
-              </Button>
-            </div>
-          ))}
-        </div>
+        !showNew && (
+          <div className="py-6 text-center text-xs text-muted-foreground">
+            <Zap className="mx-auto mb-2 h-5 w-5 opacity-40" />
+            暂无触发规则
+          </div>
+        )
+      )}
+
+      {/* ── 新建编辑器 ── */}
+      {showNew ? (
+        <TriggerRuleEditor
+          targetDCCs={targetDCCs}
+          defaultFilters={defaultFilters}
+          onSave={handleCreate}
+          onCancel={() => setShowNew(false)}
+        />
+      ) : (
+        <Button
+          variant="outline" size="sm"
+          className="w-full text-xs"
+          onClick={() => { setShowNew(true); setEditingId(null); }}
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          添加规则
+        </Button>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 共享组件：ToggleSwitch（统一开关 UI，StyleE 风格）
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  size = "md",
+}: {
+  checked: boolean;
+  onChange?: (v: boolean) => void;
+  disabled?: boolean;
+  size?: "xs" | "sm" | "md";
+}) {
+  const dims = 
+    size === "xs"
+      ? { track: "w-7 h-3.5", thumb: "h-2.5 w-2.5", txOn: "translate-x-3.5", txOff: "translate-x-0.5" }
+    : size === "sm"
+      ? { track: "w-8 h-4", thumb: "h-3 w-3", txOn: "translate-x-4", txOff: "translate-x-0.5" }
+      : { track: "w-9 h-5", thumb: "h-3.5 w-3.5", txOn: "translate-x-4", txOff: "translate-x-0.5" };
+
+  const handleClick = () => {
+    if (!disabled && onChange) onChange(!checked);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled}
+      className={cn(
+        "relative inline-flex shrink-0 items-center rounded-full transition-colors",
+        dims.track,
+        checked
+          ? "bg-emerald-500/60 hover:bg-emerald-500/70"
+          : "bg-muted-foreground/25 hover:bg-muted-foreground/35",
+        disabled && "opacity-50 cursor-not-allowed",
+      )}
+    >
+      <span
+        className={cn(
+          "rounded-full bg-white shadow-sm transition-transform",
+          dims.thumb,
+          checked ? dims.txOn : dims.txOff,
+        )}
+      />
+    </button>
   );
 }

@@ -17,6 +17,11 @@ export interface NexusToolParam {
   default?: unknown;
   description?: string;
   options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  /** 实例专属：是否继承源工具当前默认值 */
+  useSourceDefault?: boolean;
 }
 
 export interface NexusToolOutput {
@@ -25,26 +30,34 @@ export interface NexusToolOutput {
   type: string;
 }
 
-export interface NexusToolPreset {
-  id: string;
-  name: string;
-  values: Record<string, unknown>;
-  created_at?: string;
+/** 触发器类型 */
+export type TriggerType = "event" | "schedule" | "watch";
+
+/** 执行模式 */
+export type ExecutionMode = "silent" | "notify";
+
+/** 定时调度配置 */
+export interface ScheduleConfig {
+  type: "interval" | "cron" | "once";
+  interval?: string;
+  cron?: string;
+  runAt?: string;
 }
 
+/** Nexus 触发器（扁平格式，对齐 ArtClaw） */
 export interface NexusToolTrigger {
   id: string;
   name: string;
   enabled: boolean;
-  trigger: {
-    type: string;
-    event: string;
-    dcc: string;
-  };
-  execution: {
-    mode: string;
-  };
+  triggerType: TriggerType;
+  dcc: string;
+  eventType: string;
+  executionMode: ExecutionMode;
   useDefaultFilters: boolean;
+  /** 触发器级自定义筛选条件（仅 useDefaultFilters=false 时生效） */
+  conditions?: FilterConfig;
+  /** 定时调度配置（仅 triggerType=schedule 时生效） */
+  scheduleConfig?: ScheduleConfig;
 }
 
 export interface NexusToolImplementation {
@@ -73,10 +86,13 @@ export interface NexusToolItem {
   /** manifest 详情 — ToolDetailPanel 的 Info/Params/Presets/Triggers 数据源 */
   inputs?: NexusToolParam[];
   outputs?: NexusToolOutput[];
-  presets?: NexusToolPreset[];
   triggers?: NexusToolTrigger[];
-  default_filters?: Record<string, unknown>;
+  default_filters?: FilterConfig;
   implementation?: NexusToolImplementation;
+  /** 工具实例元数据（仅另存为实例时存在） */
+  instance_of?: string;
+  parent_name?: string;
+  parent_path?: string;
 }
 
 /** nexus-tool.detail 返回的完整数据（同 NexusToolItem，保证必有 manifest 字段） */
@@ -133,13 +149,70 @@ export interface NexusToolUpdateOptions {
   name?: string;
   description?: string;
   version?: string;
+  author?: string;
+  /** source 由文件系统决定，仅 user→user 可修改 */
+  source?: string;
   target_dccs?: string[];
   implementation_type?: string;
   manifest?: Record<string, unknown>;
-  /** 快捷字段：预设列表（会合并到 manifest.presets） */
-  presets?: NexusToolPreset[];
   /** 快捷字段：触发器列表（会合并到 manifest.triggers） */
   triggers?: NexusToolTrigger[];
+}
+
+// ── 筛选条件 ──────────────────────────────────────────────────────────────────
+
+export interface FilterRule {
+  pattern: string;
+}
+
+export interface SceneRule {
+  pattern: string;
+  isRegex?: boolean;
+}
+
+export interface TypeFilter {
+  types: string[];
+  dcc?: string;
+}
+
+export interface FilterConfig {
+  /** 路径规则（工具默认筛选 + 触发器 watch 路径共用） */
+  path?: FilterRule[];
+  /** ⬇ 以下为触发器内联筛选用，兼容旧工具默认筛选格式 ⬇ */
+  /** 筛选 DCC */
+  dcc?: string;
+  /** 对象类型列表 */
+  types?: string[];
+  /** 文件筛选规则（事件触发器内联使用） */
+  fileRules?: FilterRule[];
+  /** 场景对象名称规则（正则） */
+  sceneRules?: SceneRule[];
+  /** 对象类型筛选（含 DCC） */
+  typeFilter?: TypeFilter;
+}
+
+// ── 实例参数 ──────────────────────────────────────────────────────────────────
+
+export interface InstanceParam extends NexusToolParam {
+  /** 是否继承源工具的当前默认值（实例专属） */
+  useSourceDefault?: boolean;
+}
+
+/** 另存为实例参数 */
+export interface SaveAsInstanceOptions {
+  name: string;
+  description?: string;
+  inputs: NexusToolParam[];
+  outputs?: NexusToolOutput[];
+  filters: FilterConfig;
+  triggers: NexusToolTrigger[];
+  implementation?: NexusToolImplementation;
+  parentId: string;
+  parentName: string;
+  parentPath: string;
+  target_dccs?: string[];
+  implementation_type?: string;
+  version?: string;
 }
 
 export interface NexusToolPublishOptions {
@@ -220,14 +293,51 @@ export async function nexusToolBatch(operation: string, ids: string[]): Promise<
   return invoke<NexusToolBatchResult>("nexus_tool_batch", { params: { operation, ids } });
 }
 
-/** 保存预设列表到 manifest */
-export async function nexusToolSavePresets(id: string, presets: NexusToolPreset[]): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_update", { params: { id, presets } });
+/** 实时查询 DCC 对象类型（通过 MCP Bridge run_python） */
+export async function fetchDccObjectTypes(dcc: string): Promise<string[]> {
+  const result = await invoke<{ success: boolean; data?: { stdout?: string }; error?: string }>(
+    "nexus_tool_fetch_types",
+    { params: { dcc } },
+  );
+  if (!result.success || !result.data?.stdout) return [];
+  // 解析 Python print 输出的类型列表（每行一个类型名）
+  return result.data.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
 }
 
 /** 保存触发器列表到 manifest */
 export async function nexusToolSaveTriggers(id: string, triggers: NexusToolTrigger[]): Promise<NexusToolItem> {
   return invoke<NexusToolItem>("nexus_tool_update", { params: { id, triggers } });
+}
+
+/** 另存为工具实例 — 创建新的 user nexus-tool，复制完整参数+筛选+触发器 */
+export async function nexusToolSaveAsInstance(opts: SaveAsInstanceOptions): Promise<NexusToolItem> {
+  const manifest: Record<string, unknown> = {
+    inputs: opts.inputs,
+    outputs: opts.outputs || [],
+    defaultFilters: opts.filters,
+    triggers: opts.triggers,
+    implementation: {
+      ...(opts.implementation || {}),
+      sourceTool: opts.parentId,
+    },
+    instanceOf: opts.parentId,
+    parentName: opts.parentName,
+    parentPath: opts.parentPath,
+  };
+  return invoke<NexusToolItem>("nexus_tool_create", {
+    params: {
+      name: opts.name,
+      description: opts.description || "",
+      version: opts.version || "1.0.0",
+      source: "user",
+      target_dccs: opts.target_dccs || [],
+      implementation_type: opts.implementation_type || "script",
+      manifest,
+    },
+  });
 }
 
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
@@ -247,8 +357,8 @@ export const NexusToolAPI = {
   publish: nexusToolPublish,
   run: nexusToolRun,
   batch: nexusToolBatch,
-  savePresets: nexusToolSavePresets,
   saveTriggers: nexusToolSaveTriggers,
+  saveAsInstance: nexusToolSaveAsInstance,
 };
 
 export type NexusToolAPIType = typeof NexusToolAPI;

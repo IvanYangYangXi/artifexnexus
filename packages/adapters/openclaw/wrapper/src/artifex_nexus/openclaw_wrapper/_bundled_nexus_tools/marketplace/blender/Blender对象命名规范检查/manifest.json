@@ -9,44 +9,48 @@
     "blender"
   ],
   "createdAt": "2026-04-26 23:00:00",
-  "updatedAt": "2026-04-27 03:40:44",
+  "updatedAt": "2026-05-17 14:51:00",
   "defaultFilters": {
-    "path": []
+    "dcc": "blender",
+    "path": [],
+    "types": [
+      "Mesh"
+    ]
   },
   "implementation": {
-    "type": "script",
     "entry": "main.py",
-    "function": "check_naming"
+    "function": "check_naming",
+    "type": "script"
   },
   "inputs": [
     {
+      "default": "SM_,SK_,BP_,VFX_,MAT_,TEX_,CH_,ENV_,PROP_",
+      "description": "逗号分隔的合规前缀，对象名必须以其中之一开头（留空跳过前缀检查）",
       "id": "prefixes",
       "name": "合规前缀列表",
-      "type": "string",
       "required": false,
-      "default": "SM_,SK_,BP_,VFX_,MAT_,TEX_,CH_,ENV_,PROP_",
-      "description": "逗号分隔的合规前缀，对象名必须以其中之一开头（留空跳过前缀检查）"
+      "type": "string"
     },
     {
+      "default": "",
+      "description": "all=全场景对象 selected=选中对象 collection=当前活跃集合",
       "id": "target",
       "name": "检查范围",
-      "type": "select",
-      "required": false,
-      "default": "all",
       "options": [
         "all",
         "selected",
         "collection"
       ],
-      "description": "all=全场景对象 selected=选中对象 collection=当前活跃集合"
+      "required": false,
+      "type": "select"
     },
     {
+      "default": false,
+      "description": "跳过 Blender 默认生成的名称（如 Cube, Sphere, Camera, Light 等）",
       "id": "skip_default_names",
       "name": "跳过默认命名",
-      "type": "boolean",
       "required": false,
-      "default": false,
-      "description": "跳过 Blender 默认生成的名称（如 Cube, Sphere, Camera, Light 等）"
+      "type": "boolean"
     }
   ],
   "outputs": [
@@ -69,32 +73,50 @@
   "presets": [],
   "triggers": [
     {
+      "conditions": {},
+      "dcc": "blender",
+      "enabled": true,
+      "eventType": "file.save.post",
+      "execution": {
+        "mode": "notify"
+      },
+      "executionMode": "silent",
       "id": "61a94281-bfdf-4487-b4fd-4e2993d85f7b",
       "name": "Blender保存时命名检查",
-      "enabled": false,
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      },
       "trigger": {
-        "type": "event",
+        "dcc": "blender",
         "event": "file.save.post",
-        "dcc": "blender"
+        "type": "event"
       },
-      "execution": {
-        "mode": "notify"
-      },
-      "useDefaultFilters": false
+      "triggerType": "event",
+      "useDefaultFilters": true
     },
     {
-      "id": "1a9c0360-28b2-4ee1-b192-d08dda5a90a6",
-      "name": " Blender打开文件时命名检查",
+      "conditions": {},
+      "dcc": "blender",
       "enabled": false,
-      "trigger": {
-        "type": "event",
-        "event": "file.open.post",
-        "dcc": "blender"
-      },
+      "eventType": "file.open.post",
       "execution": {
         "mode": "notify"
       },
-      "useDefaultFilters": false
+      "executionMode": "notify",
+      "id": "1a9c0360-28b2-4ee1-b192-d08dda5a90a6",
+      "name": " Blender打开文件时命名检查",
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      },
+      "trigger": {
+        "dcc": "blender",
+        "event": "file.open.post",
+        "type": "event"
+      },
+      "triggerType": "event",
+      "useDefaultFilters": true
     }
   ]
 }

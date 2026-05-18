@@ -96,6 +96,84 @@ def _auto_start_server():
         print(f"[Artifex Nexus] MCP Server 自动启动异常: {e}")
 
 
+# ── 触发器钩子 ──────────────────────────────────────────────────────
+# 通过 bpy.app.handlers 监听 Blender 事件，当事件触发时通知
+# Artifex Nexus sidecar 检查并执行匹配的 Nexus Tool 触发器。
+
+_TRIGGER_HANDLERS_ACTIVE = False
+
+
+def _notify_trigger_event(event_type: str, filepath: str = "") -> None:
+    """将 DCC 事件推送给 Artifex Nexus sidecar（通过 MCP 广播）。"""
+    try:
+        server = _get_mcp_server()
+        if server is not None and server.is_running:
+            server.broadcast_trigger_event(event_type, filepath)
+    except Exception:
+        pass  # 静默失败 —— 触发器通知不应影响 DCC 正常操作
+    logger.info("[Trigger] event=%s file=%s", event_type, filepath)
+
+
+def _register_trigger_hooks() -> None:
+    """注册 Blender 事件钩子（save_post / load_post / render_pre / render_post）。"""
+    global _TRIGGER_HANDLERS_ACTIVE
+    if _TRIGGER_HANDLERS_ACTIVE or not _HAS_BPY:
+        return
+
+    import bpy as _bpy
+
+    # 先清理已存在的（防止重复注册）
+    _unregister_trigger_hooks()
+
+    @_bpy.app.handlers.persistent
+    def _on_save_post(*_args: object) -> None:
+        fp = _bpy.data.filepath or ""
+        _notify_trigger_event("file.save.post", fp)
+
+    @_bpy.app.handlers.persistent
+    def _on_load_post(*_args: object) -> None:
+        fp = _bpy.data.filepath or ""
+        _notify_trigger_event("file.open.post", fp)
+
+    @_bpy.app.handlers.persistent
+    def _on_render_pre(*_args: object) -> None:
+        _notify_trigger_event("render.pre", _bpy.data.filepath or "")
+
+    @_bpy.app.handlers.persistent
+    def _on_render_post(*_args: object) -> None:
+        _notify_trigger_event("render.post", _bpy.data.filepath or "")
+
+    _bpy.app.handlers.save_post.append(_on_save_post)
+    _bpy.app.handlers.load_post.append(_on_load_post)
+    _bpy.app.handlers.render_pre.append(_on_render_pre)
+    _bpy.app.handlers.render_post.append(_on_render_post)
+
+    _TRIGGER_HANDLERS_ACTIVE = True
+    logger.info("触发器钩子已注册 (save_post, load_post, render_pre, render_post)")
+    print("[Artifex Nexus] 触发器钩子已注册")
+
+
+def _unregister_trigger_hooks() -> None:
+    """注销 Blender 事件钩子。"""
+    global _TRIGGER_HANDLERS_ACTIVE
+    if not _HAS_BPY:
+        return
+    import bpy as _bpy
+
+    # 闭包引用需要通过遍历查找；我们根据函数名匹配
+    for handler_list, suffix in [
+        (_bpy.app.handlers.save_post, "save_post"),
+        (_bpy.app.handlers.load_post, "load_post"),
+        (_bpy.app.handlers.render_pre, "render_pre"),
+        (_bpy.app.handlers.render_post, "render_post"),
+    ]:
+        to_remove = [h for h in handler_list if hasattr(h, "__name__") and h.__name__ == f"_on_{suffix}"]
+        for h in to_remove:
+            handler_list.remove(h)
+    _TRIGGER_HANDLERS_ACTIVE = False
+    logger.info("触发器钩子已注销")
+
+
 # ── Blender 特有代码（仅在 bpy 可用时定义）─────────────────────────────
 
 if _HAS_BPY:
@@ -219,10 +297,16 @@ if _HAS_BPY:
         # 自动启动 MCP Server
         _auto_start_server()
 
+        # 注册触发器钩子
+        _register_trigger_hooks()
+
 
     def unregister():
         """Blender addon 反注册入口 — 自动停止 MCP Server"""
         global _mcp_server, _adapter
+
+        # 注销触发器钩子
+        _unregister_trigger_hooks()
 
         if _mcp_server is not None and _mcp_server.is_running:
             try:

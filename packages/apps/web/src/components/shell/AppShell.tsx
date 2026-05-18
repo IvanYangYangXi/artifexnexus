@@ -73,6 +73,17 @@ export const RunToolContext = React.createContext<{
   clearPendingTool: () => {},
 });
 
+/** AI 辅助运行：切换到 Chat 并注入 prompt */
+export const ChatPromptContext = React.createContext<{
+  prompt: string | null;
+  navigateWithPrompt: (text: string) => void;
+  clearPrompt: () => void;
+}>({
+  prompt: null,
+  navigateWithPrompt: () => {},
+  clearPrompt: () => {},
+});
+
 // D5 上下文预览（STORY-0047）— 事件驱动，kind → renderer 注册表
 export interface PreviewPayload {
   kind: string;
@@ -112,6 +123,13 @@ export const GatewayContext = React.createContext<{
   setWsConnected: () => {},
   wsDegraded: false,
   setWsDegraded: () => {},
+});
+
+/** DCC MCP Server 连接状态上下文 */
+export const DCCStatusContext = React.createContext<{
+  dccStatus: { name: string; connected: boolean }[];
+}>({
+  dccStatus: [],
 });
 
 const STORAGE_KEYS = {
@@ -445,6 +463,16 @@ export function AppShell() {
     setPendingToolName(null);
   }, []);
 
+  // AI 辅助运行：切换到 Chat 并注入 prompt
+  const [chatPrompt, setChatPrompt] = React.useState<string | null>(null);
+  const navigateWithPrompt = React.useCallback((text: string) => {
+    setChatPrompt(text);
+    setCurrentModule("chat");
+  }, []);
+  const clearChatPrompt = React.useCallback(() => {
+    setChatPrompt(null);
+  }, []);
+
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded;
   const showSidebar = !bp.isMobile;
 
@@ -453,7 +481,9 @@ export function AppShell() {
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>
+    <ChatPromptContext.Provider value={{ prompt: chatPrompt, navigateWithPrompt, clearPrompt: clearChatPrompt }}>
     <GatewayContext.Provider value={{ port: gatewayPort, token: gatewayToken, running: gatewayRunning, authReady: gatewayAuthReady, wsConnected, setWsConnected, wsDegraded, setWsDegraded }}>
+    <DCCStatusContext.Provider value={{ dccStatus }}>
     <div className="grid h-screen w-screen grid-rows-[40px_1fr] overflow-hidden bg-background text-foreground">
       {/* Gateway 启动全屏遮罩 */}
       {gatewayStarting && !openclawInstalled === false && (
@@ -624,7 +654,9 @@ export function AppShell() {
       </Dialog>
       <Toaster />
     </div>
+    </DCCStatusContext.Provider>
     </GatewayContext.Provider>
+    </ChatPromptContext.Provider>
     </RunToolContext.Provider>
     </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>

@@ -124,7 +124,8 @@ def _handle_nexus_tool_update(req_id: Any, params: dict) -> dict:
 
         installer = _get_nt_installer()
         kwargs: dict[str, Any] = {}
-        for key in ("name", "description", "version", "target_dccs", "implementation_type", "manifest"):
+        for key in ("name", "description", "version", "author", "source",
+                     "target_dccs", "implementation_type", "manifest"):
             if key in params:
                 kwargs[key] = params[key]
 
@@ -477,6 +478,106 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         return _err(req_id, str(e))
 
 
+def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
+    """nexus-tool.fetch_types(dcc) → 实时查询 DCC 对象类型。
+
+    通过 MCP Bridge 向目标 DCC 发送 run_python 查询对象类型。
+    """
+    dcc = (params.get("dcc") or "").lower()
+    if not dcc:
+        return _err_invalid_params(req_id, "缺少参数: dcc")
+
+    server_name = _DCC_TO_MCP_SERVER.get(dcc)
+    if server_name is None:
+        # "general" 类型不需要查询 DCC，返回通用类型列表
+        if dcc == "general":
+            return _ok(req_id, {"success": True, "data": {"stdout": "file\ndirectory\nproject\n"}})
+        return _err(req_id, f"不支持的 DCC: {dcc}")
+
+    mcp_tool_name = f"mcp_{server_name}_run_python"
+
+    # 各 DCC 的对象类型查询脚本
+    _TYPE_QUERY_SCRIPTS: dict[str, str] = {
+        "blender": (
+            "import bpy\n"
+            "# 收集所有 bpy.types 下的对象类型\n"
+            "types = sorted(set(\n"
+            "    t.__name__ for t in bpy.types.Object.__subclasses__()\n"
+            ")) + sorted(set(\n"
+            "    t.__name__ for t in bpy.types.ID.__subclasses__()\n"
+            "))\n"
+            "for t in types:\n"
+            "    print(t)\n"
+        ),
+        "unreal_engine": (
+            "import unreal\n"
+            "# 常见 UE 资源类型\n"
+            "types = [\n"
+            "    'StaticMesh', 'SkeletalMesh', 'Material', 'Texture2D',\n"
+            "    'Blueprint', 'Level', 'ParticleSystem', 'SoundCue',\n"
+            "    'AnimationSequence', 'MaterialInstance', 'NiagaraSystem',\n"
+            "    'World', 'Actor', 'Pawn', 'Character',\n"
+            "    'MaterialInstanceConstant', 'MaterialFunction',\n"
+            "    'AnimBlueprint', 'WidgetBlueprint',\n"
+            "]\n"
+            "for t in types:\n"
+            "    print(t)\n"
+        ),
+        "maya": (
+            "import maya.cmds as cmds\n"
+            "types = sorted(set(cmds.ls(type='nodeType')))\n"
+            "for t in types:\n"
+            "    print(t)\n"
+        ),
+        "3ds_max": (
+            "# 3ds Max: 通过 pymxs\n"
+            "from pymxs import runtime as rt\n"
+            "types = rt.ClassIDs\n"
+            "# 返回预设列表（pymxs 的实时查询需要更复杂处理）\n"
+            "for t in ['Editable_Mesh','Camera','Light','Bone','Helper','Shape',"
+            "'SplineShape','Editable_Poly','Editable_Spline','Dummy']:\n"
+            "    print(t)\n"
+        ),
+        "houdini": (
+            "import hou\n"
+            "types = sorted(set(t.name() for t in hou.nodeTypeCategories().values()))\n"
+            "for t in types:\n"
+            "    print(t)\n"
+        ),
+    }
+
+    code = _TYPE_QUERY_SCRIPTS.get(dcc, f"# no type query for {dcc}\nprint('# no types')\n")
+
+    try:
+        try:
+            from .mcp_bridge import MCPBridgeClient
+        except ImportError:
+            from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
+        bridge = MCPBridgeClient.get_instance()
+        if not bridge.is_connected:
+            connected = bridge.connect()
+            if not connected:
+                return _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
+
+        result = bridge.call_tool(
+            mcp_tool_name,
+            {"code": code},
+            timeout=30,
+        )
+        # 从 MCP result 提取 stdout 文本
+        if isinstance(result, dict) and not result.get("isError", False):
+            content = result.get("content", [])
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    return _ok(req_id, {"success": True, "data": {"stdout": item["text"]}})
+        return _ok(req_id, {"success": False, "error": "查询对象类型失败"})
+    except ImportError:
+        return _err(req_id, "MCP Bridge 模块未加载")
+    except Exception as exc:
+        logger.exception("fetch_types failed")
+        return _err(req_id, f"查询对象类型失败: {exc}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 NEXUS_TOOL_METHODS = {
     "nexus-tool.list": _handle_nexus_tool_list,
@@ -492,6 +593,7 @@ NEXUS_TOOL_METHODS = {
     "nexus-tool.unfavorite": _handle_nexus_tool_unfavorite,
     "nexus-tool.publish": _handle_nexus_tool_publish,
     "nexus-tool.run": _handle_nexus_tool_run,
+    "nexus-tool.fetch_types": _handle_nexus_tool_fetch_types,
     "nexus-tool.batch": _handle_nexus_tool_batch,
 }
 

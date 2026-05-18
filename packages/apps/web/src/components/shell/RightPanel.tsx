@@ -29,8 +29,9 @@ import {
   CollapsiblePanelGroup,
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { PreviewFileContext, PreviewContext, PinnedSkillsContext, RunToolContext } from "./AppShell";
+import { PreviewFileContext, PreviewContext, PinnedSkillsContext } from "./AppShell";
 import { ToolDetailPanel } from "../skills/ToolDetailPanel";
+import { RunPanel } from "../skills/RunPanel";
 import {
   type SkillItem,
   skillList,
@@ -38,7 +39,6 @@ import {
 import {
   type NexusToolItem,
   nexusToolList,
-  nexusToolRun,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS } from "../../lib/skillsMock";
 
@@ -46,7 +46,7 @@ export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
   const { preview, setPreview, clearPreview } = React.useContext(PreviewContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
-  const { runTool } = React.useContext(RunToolContext);
+  // tool run panel: triggered via PreviewContext, see PreviewRenderer
 
   // ─── 真实 API：Skill 列表 ─────────────────────────────────────────
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
@@ -93,21 +93,12 @@ export function RightPanel() {
     });
   }, [setPreview]);
 
-  const handleToolRunFromPanel = React.useCallback(async (tool: NexusToolItem) => {
-    try {
-      const result = await nexusToolRun(tool.id);
-      setPreview({
-        kind: "nexus-tool-run-result",
-        title: `运行结果: ${tool.name}`,
-        data: { ...result, toolId: tool.id },
-      });
-    } catch (e) {
-      setPreview({
-        kind: "nexus-tool-run-result",
-        title: `运行失败: ${tool.name}`,
-        data: { success: false, error: String(e), toolId: tool.id },
-      });
-    }
+  const handleToolRunFromPanel = React.useCallback((tool: NexusToolItem) => {
+    setPreview({
+      kind: "nexus-tool-run",
+      title: `运行: ${tool.name}`,
+      data: { toolId: tool.id },
+    });
   }, [setPreview]);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
@@ -245,7 +236,7 @@ export function RightPanel() {
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5"
-                            onClick={(e) => { e.stopPropagation(); runTool(t.name); }}
+                            onClick={(e) => { e.stopPropagation(); handleToolRunFromPanel(t); }}
                           >
                             <Play className="h-3 w-3" />
                           </Button>
@@ -291,7 +282,7 @@ export function RightPanel() {
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             {preview ? (
-              <PreviewRenderer payload={preview} onClose={clearPreview} runTool={runTool} />
+              <PreviewRenderer payload={preview} onClose={clearPreview} />
             ) : previewFile ? (
               <div className="px-3 py-2">
                 <div className="mb-1 text-[10px] text-muted-foreground">
@@ -315,10 +306,9 @@ export function RightPanel() {
 }
 
 /** D5 预览渲染器 — kind → 渲染组件注册表 */
-function PreviewRenderer({ payload, onClose, runTool }: {
+function PreviewRenderer({ payload, onClose }: {
   payload: { kind: string; title: string; data: unknown };
   onClose: () => void;
-  runTool: (toolName: string) => void;
 }) {
   if (payload.kind === "nexus-tool-run-result") {
     const data = payload.data as Record<string, unknown> | undefined;
@@ -338,7 +328,13 @@ function PreviewRenderer({ payload, onClose, runTool }: {
   if (payload.kind === "nexus-tool-detail") {
     const data = payload.data as { toolId: string; toolName: string; refreshKey?: number } | undefined;
     if (!data?.toolId) return <FallbackPreview payload={payload} />;
-    return <ToolDetailPanel toolId={data.toolId} onRun={runTool} compact refreshKey={data.refreshKey} />;
+    return <ToolDetailPanel toolId={data.toolId} compact refreshKey={data.refreshKey} />;
+  }
+
+  if (payload.kind === "nexus-tool-run") {
+    const data = payload.data as { toolId: string } | undefined;
+    if (!data?.toolId) return <FallbackPreview payload={payload} />;
+    return <RunPanel toolId={data.toolId} compact />;
   }
 
   // fallback: raw JSON

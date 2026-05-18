@@ -199,6 +199,10 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "triggers": manifest.get("triggers", []),
         "default_filters": manifest.get("defaultFilters", {}),
         "implementation": manifest.get("implementation", {}),
+        # 工具实例元数据（另存为实例时填充）
+        "instance_of": manifest.get("instanceOf", ""),
+        "parent_name": manifest.get("parentName", ""),
+        "parent_path": manifest.get("parentPath", ""),
     }
     return result
 

@@ -147,6 +147,7 @@ pub fn run() {
             commands::skill::nexus_tool_unfavorite,
             commands::skill::nexus_tool_publish,
             commands::skill::nexus_tool_run,
+            commands::skill::nexus_tool_fetch_types,
             commands::skill::nexus_tool_batch,
 
             commands::shell_config::read_shell_config,
