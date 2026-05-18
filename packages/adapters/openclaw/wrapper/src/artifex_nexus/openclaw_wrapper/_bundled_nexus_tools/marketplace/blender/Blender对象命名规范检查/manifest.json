@@ -9,7 +9,7 @@
     "blender"
   ],
   "createdAt": "2026-04-26 23:00:00",
-  "updatedAt": "2026-05-17 14:51:00",
+  "updatedAt": "2026-05-18 10:44:08",
   "defaultFilters": {
     "dcc": "blender",
     "path": [],
@@ -83,6 +83,7 @@
       "executionMode": "silent",
       "id": "61a94281-bfdf-4487-b4fd-4e2993d85f7b",
       "name": "Blender保存时命名检查",
+      "description": "保存文件时自动检查对象命名规范，以气泡通知显示结果，5 秒后自动消失",
       "scheduleConfig": {
         "interval": "30m",
         "type": "interval"
@@ -105,7 +106,8 @@
       },
       "executionMode": "notify",
       "id": "1a9c0360-28b2-4ee1-b192-d08dda5a90a6",
-      "name": " Blender打开文件时命名检查",
+      "name": "Blender打开文件时命名检查",
+      "description": "打开文件时自动检查对象命名规范，以弹窗显示结果，需手动关闭",
       "scheduleConfig": {
         "interval": "30m",
         "type": "interval"

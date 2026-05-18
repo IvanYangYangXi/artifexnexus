@@ -137,11 +137,11 @@ status: draft
 
 ### 4.3 执行模式
 
-| 模式 | 行为 |
-|------|------|
-| `notify` | reject/error 时弹窗，allow 静默 |
-| `silent` | 始终静默，仅记录日志 |
-| `block` | reject 时阻止操作（如阻止保存）—— 未来实现 |
+| 模式 | 行为 | Blender 表现 | Maya 表现（规划） |
+|------|------|-------------|-----------------|
+| `notify` | reject/error 时弹窗提示，需用户手动关闭 | `popup_menu` 弹窗 | `confirmDialog` |
+| `silent` | reject/error 时气泡通知，5 秒自动消失 | draw handler 气泡 | `inViewMessage` |
+| `block` | reject 时阻止操作并弹窗（未来实现） | — | — |
 
 ### 4.4 工具入口
 

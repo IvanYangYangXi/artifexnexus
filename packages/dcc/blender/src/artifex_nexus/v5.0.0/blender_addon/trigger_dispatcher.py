@@ -179,12 +179,23 @@ class BlenderTriggerDispatcher:
 
         # 执行匹配的工具
         results = []
-        for tool_id in matched:
+        for tool_id, execution_mode in matched:
             result = self._execute_tool(tool_id, payload)
+            result["execution_mode"] = execution_mode
             results.append(result)
 
-        # 弹窗（仅当有 reject/error 时）
-        self._show_popup(results, event_type, filepath)
+        # 按模式分组显示
+        silent_results = [r for r in results
+                          if r.get("execution_mode") == "silent"
+                          and r.get("action") in ("reject", "error")]
+        notify_results = [r for r in results
+                          if r.get("execution_mode") != "silent"
+                          and r.get("action") in ("reject", "error")]
+
+        if silent_results:
+            self._show_bubble(silent_results, event_type, filepath)
+        if notify_results:
+            self._show_popup(notify_results, event_type, filepath)
 
         # 可选：上报状态到 sidecar
         self._report_status(event_type, filepath, results)
@@ -260,13 +271,15 @@ class BlenderTriggerDispatcher:
                 "triggers": matched_triggers,
             }
 
-            # 索引 event → tool_id
+            # 索引 event → (tool_id, execution_mode)
             for t in matched_triggers:
                 event_name = t["trigger"]["event"]
+                execution_mode = t.get("executionMode", "notify")
+                entry = (tool_id, execution_mode)
                 if event_name not in self._event_index:
                     self._event_index[event_name] = []
-                if tool_id not in self._event_index[event_name]:
-                    self._event_index[event_name].append(tool_id)
+                if entry not in self._event_index[event_name]:
+                    self._event_index[event_name].append(entry)
 
             logger.info("[Trigger] REGISTERED tool=%s events=%s",
                          tool_id, [t["trigger"]["event"] for t in matched_triggers])
@@ -285,8 +298,8 @@ class BlenderTriggerDispatcher:
 
     # ── 触发器匹配 ──
 
-    def _match_triggers(self, event_type: str) -> List[str]:
-        """匹配 event_type 对应的工具 ID 列表。"""
+    def _match_triggers(self, event_type: str) -> List[tuple]:
+        """匹配 event_type 对应的 (tool_id, execution_mode) 列表。"""
         return list(self._event_index.get(event_type, []))
 
     # ── 工具执行 ──
@@ -375,18 +388,138 @@ class BlenderTriggerDispatcher:
                 if p in sys.path:
                     sys.path.remove(p)
 
-    # ── Blender 弹窗 ──
+    # ── Blender 通知系统 ──
 
-    def _show_popup(self, results: List[dict], event_type: str, filepath: str) -> None:
-        """使用 bpy popup_menu 显示触发器结果。
+    def _show_bubble(self, issues: List[dict], event_type: str, filepath: str) -> None:
+        """气泡提示（静默模式）：在 3D 视图底部显示半透明通知，5 秒后自动消失。
 
-        仅当有 reject / error 结果时弹窗，全部通过则静默。
+        使用 draw handler + timer 实现非阻塞通知。
         """
-        issues = [r for r in results if r.get("action") in ("reject", "error")]
-        if not issues:
-            logger.info("[Trigger] ALL OK for event=%s", event_type)
+        import bpy
+        import blf
+
+        # 构建消息行
+        lines = [f"事件: {event_type}", f"文件: {filepath or '(未保存)'}"]
+        for issue in issues:
+            tool_name = issue.get("tool_name", issue.get("tool_id", "unknown"))
+            lines.append(f"[{tool_name}] {issue.get('reason', '未知错误')}")
+
+        start_time = time.time()
+        _active = [True]  # mutable flag for closure
+
+        # 收集所有 VIEW_3D 空间
+        draw_spaces = []
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    try:
+                        draw_spaces.append(area.spaces[0])
+                    except Exception:
+                        pass
+
+        if not draw_spaces:
+            logger.warning("[Trigger] 无可用 VIEW_3D 空间，气泡通知跳过")
             return
 
+        def _draw_bubble():
+            if not _active[0]:
+                return
+
+            try:
+                region = bpy.context.region
+                if not region:
+                    return
+
+                elapsed = time.time() - start_time
+                alpha = min(1.0, (5.0 - elapsed) / 0.5)  # fade out last 0.5s
+                if alpha <= 0:
+                    return
+
+                # 布局参数
+                line_h = 20
+                pad = 14
+                box_w = 450
+                box_h = len(lines) * line_h + pad * 2 + 8
+
+                x = region.width / 2 - box_w / 2
+                y = 80  # from bottom
+
+                # 背景
+                from gpu_extras.batch import batch_for_shader
+                import gpu
+
+                vertices = [
+                    (x, y), (x + box_w, y),
+                    (x + box_w, y + box_h), (x, y + box_h),
+                ]
+                indices = [(0, 1, 2), (0, 2, 3)]
+
+                shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+                batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
+                shader.bind()
+                shader.uniform_float("color", (0.08, 0.08, 0.10, 0.92 * alpha))
+                batch.draw(shader)
+            except Exception:
+                return  # GPU 操作失败时静默退出
+
+        def _draw_text():
+            if not _active[0]:
+                return
+
+            try:
+                region = bpy.context.region
+                if not region:
+                    return
+
+                elapsed = time.time() - start_time
+                alpha = min(1.0, (5.0 - elapsed) / 0.5)
+
+                line_h = 20
+                pad = 14
+                box_w = 450
+
+                x = region.width / 2 - box_w / 2
+                y = 80 + pad
+
+                blf.size(0, 14)
+                blf.color(0, 0.95, 0.95, 0.95, alpha)
+
+                for i, line in enumerate(lines):
+                    blf.position(0, x + pad, y + (len(lines) - 1 - i) * line_h, 0)
+                    blf.draw(0, line)
+            except Exception:
+                return
+
+        # 注册绘制回调
+        bg_handles = []
+        text_handles = []
+        for space in draw_spaces:
+            try:
+                h1 = space.draw_handler_add(_draw_bubble, (), 'WINDOW', 'POST_PIXEL')
+                h2 = space.draw_handler_add(_draw_text, (), 'WINDOW', 'POST_PIXEL')
+                bg_handles.append((space, h1))
+                text_handles.append((space, h2))
+            except Exception:
+                pass
+
+        # 5 秒后清理
+        def _cleanup():
+            _active[0] = False
+            for space, h in bg_handles + text_handles:
+                try:
+                    space.draw_handler_remove(h, 'WINDOW')
+                except Exception:
+                    pass
+            return None  # 停止计时器
+
+        bpy.app.timers.register(_cleanup, first_interval=5.0)
+        logger.info("[Trigger] BUBBLE SHOWN issues=%d", len(issues))
+
+    def _show_popup(self, issues: List[dict], event_type: str, filepath: str) -> None:
+        """弹窗提示（通知模式）：需要用户点击关闭。
+
+        使用 bpy popup_menu 显示触发器结果。
+        """
         # 构建弹窗消息
         lines = [f"事件: {event_type}", f"文件: {filepath or '(未保存)'}", ""]
         for issue in issues:
@@ -407,7 +540,7 @@ class BlenderTriggerDispatcher:
                 "    for line in _msg.split('\\\\n'):\n"
                 "        self.layout.label(text=line)\n"
                 "bpy.context.window_manager.popup_menu(\n"
-                "    _artifex_trigger_popup, title='Artifex Nexus - 触发器检查', icon='ERROR'\n"
+                "    _artifex_trigger_popup, title='Artifex Nexus — 触发器检查', icon='ERROR'\n"
                 ")"
             )
             exec(popup_code, {"bpy": bpy, "json": _json})
