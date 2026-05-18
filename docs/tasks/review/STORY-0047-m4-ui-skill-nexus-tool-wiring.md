@@ -2,7 +2,7 @@
 id: STORY-0047
 kind: story
 title: M4-UI-01 · Web UI：Skill/Nexus-Tool 管理面板接线
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

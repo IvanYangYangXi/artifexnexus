@@ -420,21 +420,35 @@ class MCPServer:
         self._running = True
         logger.info(f"MCP Server 已启动: {self.server_address}")
 
-    def broadcast_trigger_event(self, event_type: str, filepath: str = "") -> None:
+    def broadcast_trigger_event(self, event_type: str, filepath: str = "",
+                                  timing: str = "", data: dict = None) -> None:
         """向所有已连接的 Artifex Nexus 客户端广播触发器事件。
 
-        线程安全：可从 Blender 主线程调用（通过 call_soon_threadsafe 投递）。"""
+        线程安全：可从 Blender 主线程调用（通过 call_soon_threadsafe 投递）。
+
+        Args:
+            event_type: 事件类型，如 "file.save.post"
+            filepath: 当前场景文件路径
+            timing: 事件时序，如 "pre" / "post"
+            data: 增强事件数据（scene_name, asset_class 等）
+        """
         if not self._running or not self._loop:
             return
         if not self._clients:
             return
 
-        payload = json.dumps({
+        payload_dict = {
             "type": "trigger_event",
             "dcc": "blender",
             "event": event_type,
             "filepath": filepath,
-        })
+        }
+        if timing:
+            payload_dict["timing"] = timing
+        if data:
+            payload_dict["data"] = data
+
+        payload = json.dumps(payload_dict)
 
         async def _broadcast():
             dead: list = []
@@ -489,7 +503,7 @@ class MCPServer:
 # ── 内置工具注册 ────────────────────────────────────────────────────────
 
 def register_builtin_tools(server: MCPServer, adapter=None) -> None:
-    """注册内置 MCP 工具（run_python）"""
+    """注册内置 MCP 工具（run_python + get_editor_context）"""
 
     # ── run_python: 万能执行器 ──
     def _handle_run_python(arguments: dict) -> dict:
@@ -582,4 +596,46 @@ def register_builtin_tools(server: MCPServer, adapter=None) -> None:
         main_thread=True,
     )
 
-    logger.info("已注册 1 个内置工具: run_python")
+    # ── get_editor_context: 编辑器上下文快捷查询 ──
+    def _handle_get_context(arguments: dict) -> dict:
+        if not adapter:
+            return {
+                "content": [{"type": "text", "text": "错误: DCC adapter 未初始化"}],
+                "isError": True,
+            }
+        try:
+            info = {
+                "software": adapter.get_software_name(),
+                "version": adapter.get_software_version(),
+                "python": adapter.get_python_version(),
+                "current_file": adapter.get_current_file() or "untitled",
+                "selected_objects": adapter.get_selected_objects(),
+                "scene_info": adapter.get_scene_info(),
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(info, ensure_ascii=False, indent=2)}],
+                "isError": False,
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"错误: {e}"}],
+                "isError": True,
+            }
+
+    server.register_tool(
+        name="get_editor_context",
+        description=(
+            "获取 Blender 编辑器上下文信息。\n\n"
+            "返回：软件名称/版本、Python 版本、当前文件路径、"
+            "选中对象列表（名称 + 类型）、场景统计（对象数/网格数/帧范围/渲染引擎）。\n"
+            "无需参数，直接调用即可获取当前编辑状态快照。"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {},
+        },
+        handler=_handle_get_context,
+        main_thread=True,
+    )
+
+    logger.info("已注册 2 个内置工具: run_python, get_editor_context")

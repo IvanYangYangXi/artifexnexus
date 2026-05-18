@@ -2,7 +2,7 @@
 id: STORY-0042
 kind: story
 title: M4-SDK-01 · @skill_tool 装饰器 + Manifest + Version
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

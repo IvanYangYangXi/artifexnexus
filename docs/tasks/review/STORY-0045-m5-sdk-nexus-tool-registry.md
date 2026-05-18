@@ -2,7 +2,7 @@
 id: STORY-0045
 kind: story
 title: M5-SDK-01 · NexusToolRegistry + NexusToolInstaller
-status: ready
+status: review
 priority: P2
 owner: "@ivan"
 assignee: pair

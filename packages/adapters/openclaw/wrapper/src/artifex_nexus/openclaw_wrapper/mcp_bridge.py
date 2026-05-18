@@ -22,7 +22,7 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,11 @@ class MCPBridgeClient:
         # 持久化 event loop（生命周期与 MCPBridgeClient 一致）
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
+        # 后台消息分发
+        self._response_queue: Optional[asyncio.Queue] = None
+        self._reader_task: Optional[asyncio.Task] = None
+        # trigger_event 回调
+        self._trigger_handler: Optional[Callable] = None
 
     def _ensure_loop(self):
         """确保持久化 event loop 在后台运行"""
@@ -146,7 +151,7 @@ class MCPBridgeClient:
                 return False
 
     async def _async_connect(self, timeout: float) -> Any:
-        """异步连接 + MCP initialize 握手"""
+        """异步连接 + MCP initialize 握手 + 启动后台消息 reader"""
         ws = await asyncio.wait_for(
             websockets.connect(self.server_address),
             timeout=timeout,
@@ -172,11 +177,24 @@ class MCPBridgeClient:
             raise RuntimeError(f"MCP initialize 失败: {response['error']}")
 
         logger.info(f"MCP 握手成功: {response.get('result', {}).get('serverInfo', {})}")
+
+        # 启动后台消息 reader（进程级单例，WS 连接存活期间持续运行）
+        import asyncio as _asyncio
+        self._response_queue = _asyncio.Queue()
+        self._reader_task = _asyncio.create_task(self._message_reader())
+
         return ws
 
     def disconnect(self) -> None:
         """断开连接"""
         with self._conn_lock:
+            # 取消后台 reader
+            if self._reader_task is not None:
+                self._reader_task.cancel()
+                self._reader_task = None
+            if self._response_queue is not None:
+                self._response_queue = None
+
             if self._ws is not None:
                 try:
                     if self._loop is not None and self._loop.is_running():
@@ -194,6 +212,67 @@ class MCPBridgeClient:
                 self._ws = None
             self._connected = False
             logger.info("已断开 Blender MCP Server")
+
+    # ── trigger_event 监听 ──
+
+    def on_trigger_event(self, handler: Callable) -> None:
+        """注册 trigger_event 回调。
+
+        当从 Blender MCP Server 收到 trigger_event 广播时，
+        调用 handler(payload_dict)。
+        """
+        self._trigger_handler = handler
+
+    async def _message_reader(self) -> None:
+        """后台消息读取任务。
+
+        持续从 WebSocket 读取消息并分发：
+          - type="trigger_event" → _trigger_handler()
+          - jsonrpc="2.0" + id → _response_queue.put()
+
+        当连接断开时，自动清理状态防止后续调用在死连接上操作。
+        """
+        import asyncio as _asyncio
+        try:
+            while self._connected and self._ws is not None:
+                try:
+                    raw = await self._ws.recv()
+                except ConnectionClosed:
+                    break
+                except _asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.warning("_message_reader recv 异常: %s", e)
+                    break
+
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    logger.warning("_message_reader 无法解析消息: %.100s", raw)
+                    continue
+
+                # trigger_event 广播 → 回调
+                if isinstance(msg, dict) and msg.get("type") == "trigger_event":
+                    if self._trigger_handler is not None:
+                        try:
+                            self._trigger_handler(msg)
+                        except Exception as e:
+                            logger.error("trigger_event handler 异常: %s", e, exc_info=True)
+                    continue
+
+                # JSON-RPC 响应 → 入队
+                if isinstance(msg, dict) and msg.get("jsonrpc") == JSONRPC_VERSION:
+                    if self._response_queue is not None:
+                        await self._response_queue.put(msg)
+                    continue
+
+                logger.debug("_message_reader 忽略未知消息: %.100s", raw)
+        finally:
+            # 连接断开：清理状态，防止后续 call_tool 在死连接上操作
+            logger.info("_message_reader 退出，清理连接状态")
+            self._connected = False
+            self._ws = None
+            self._reader_task = None
 
     # ── 工具调用 ──
 
@@ -252,7 +331,7 @@ class MCPBridgeClient:
 
     async def _async_call_tool(self, tool_name: str, arguments: dict,
                                timeout: float) -> Dict[str, Any]:
-        """异步调用 MCP 工具"""
+        """异步调用 MCP 工具（使用后台 reader + Queue 分发，规避 trigger_event 竞态）"""
         request_id = self._next_id
         self._next_id += 1
 
@@ -267,17 +346,31 @@ class MCPBridgeClient:
         }
 
         await self._ws.send(json.dumps(call_msg))
-        response_raw = await asyncio.wait_for(
-            self._ws.recv(), timeout=timeout
-        )
-        response = json.loads(response_raw)
 
-        if "error" in response:
-            raise RuntimeError(
-                f"MCP 错误: {response['error'].get('message', str(response['error']))}"
-            )
+        # 从后台 reader 填充的 response_queue 中匹配对应 id 的响应
+        import asyncio as _asyncio
+        deadline = _asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - _asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise _asyncio.TimeoutError(f"tools/call {tool_name} 超时 ({timeout}s)")
+            try:
+                msg = await _asyncio.wait_for(
+                    self._response_queue.get(), timeout=remaining
+                )
+            except _asyncio.TimeoutError:
+                raise _asyncio.TimeoutError(f"tools/call {tool_name} 超时 ({timeout}s)")
 
-        return response.get("result", {})
+            # 只处理匹配的响应，其他消息已被 _message_reader 分发
+            if msg.get("id") == request_id:
+                if "error" in msg:
+                    raise RuntimeError(
+                        f"MCP 错误: {msg['error'].get('message', str(msg['error']))}"
+                    )
+                return msg.get("result", {})
+            else:
+                # 不匹配的响应放回队列（极少情况，如请求超时后的迟到响应）
+                self._response_queue.put_nowait(msg)
 
 
 # ── 便捷函数 ────────────────────────────────────────────────────────────

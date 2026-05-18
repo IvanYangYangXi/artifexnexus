@@ -2,7 +2,7 @@
 id: STORY-0046
 kind: story
 title: M4-RPC-01 · Sidecar RPC：Skill/Nexus-Tool 方法注册
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

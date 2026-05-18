@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
+from typing import Any, Dict
 
 # ── 日志 ────────────────────────────────────────────────────────────────
 logger = logging.getLogger("artifex.blender")
@@ -99,23 +101,108 @@ def _auto_start_server():
 # ── 触发器钩子 ──────────────────────────────────────────────────────
 # 通过 bpy.app.handlers 监听 Blender 事件，当事件触发时通知
 # Artifex Nexus sidecar 检查并执行匹配的 Nexus Tool 触发器。
+#
+# 事件覆盖（精简版，M2 验收范围）：
+#   - file.save.post : 文件保存后
+#   - file.open.post : 文件打开后
+#
+# 反重载保护：handler wrapper 函数存储在 sys.modules 特殊 key 下，
+# 模块热重载后 wrapper 引用不变，内部通过 sys.modules 动态查找最新实现。
 
 _TRIGGER_HANDLERS_ACTIVE = False
 
+_DEDUP_WINDOW = 0.5
+_dedup_state: Dict[str, Any] = {"key": "", "time": 0.0}
+
+# 反重载保护：wrapper 函数存储在 sys.modules 特殊 key
+_WRAPPER_KEY = "__artifex_blender_wrappers__"
+
+
+def _get_or_create_wrappers():
+    """返回跨 reload 稳定的 handler wrapper 函数对。
+
+    wrapper 存储在 sys.modules[_WRAPPER_KEY] 下，
+    不随本模块重载而变化，内部通过 sys.modules 动态查找最新实现。
+    """
+    registry = sys.modules.get(_WRAPPER_KEY)
+    if registry is not None:
+        return registry["save_post"], registry["load_post"]
+
+    import bpy as _bpy
+
+    @_bpy.app.handlers.persistent
+    def save_post_wrapper(*_args: object) -> None:
+        mod = sys.modules.get(__name__)
+        if mod is not None:
+            mod._on_save_post_impl(*_args)
+
+    @_bpy.app.handlers.persistent
+    def load_post_wrapper(*_args: object) -> None:
+        mod = sys.modules.get(__name__)
+        if mod is not None:
+            mod._on_load_post_impl(*_args)
+
+    registry = {"save_post": save_post_wrapper, "load_post": load_post_wrapper}
+    sys.modules[_WRAPPER_KEY] = registry
+    return save_post_wrapper, load_post_wrapper
+
+
+def _on_save_post_impl(*_args: object) -> None:
+    """file.save.post 实现（可随模块重载更新）"""
+    import bpy as _bpy
+    fp = _bpy.data.filepath or ""
+    _notify_trigger_event("file.save.post", fp)
+
+
+def _on_load_post_impl(*_args: object) -> None:
+    """file.open.post 实现（可随模块重载更新）"""
+    import bpy as _bpy
+    fp = _bpy.data.filepath or ""
+    _notify_trigger_event("file.open.post", fp)
+
 
 def _notify_trigger_event(event_type: str, filepath: str = "") -> None:
-    """将 DCC 事件推送给 Artifex Nexus sidecar（通过 MCP 广播）。"""
+    """将 DCC 事件推送给 Artifex Nexus sidecar（通过 MCP 广播）。
+
+    含 500ms 去重保护 + 增强 payload（scene_name / asset_class / timing）。
+    """
+    # ── 去重 ──
+    now = time.monotonic()
+    dedup_key = f"{event_type}:{filepath}"
+    if dedup_key == _dedup_state["key"] and (now - _dedup_state["time"]) < _DEDUP_WINDOW:
+        return
+    _dedup_state["key"] = dedup_key
+    _dedup_state["time"] = now
+
+    # ── 增强 payload ──
+    try:
+        import bpy as _bpy
+        scene_name = _bpy.context.scene.name if _bpy.context.scene else ""
+    except Exception:
+        scene_name = ""
+
+    timing = event_type.rsplit(".", 1)[-1] if "." in event_type else ""
+    data = {
+        "scene_name": scene_name,
+        "asset_name": scene_name,
+        "asset_class": "BlendFile",
+    }
+
     try:
         server = _get_mcp_server()
         if server is not None and server.is_running:
-            server.broadcast_trigger_event(event_type, filepath)
+            server.broadcast_trigger_event(event_type, filepath, timing=timing, data=data)
     except Exception:
         pass  # 静默失败 —— 触发器通知不应影响 DCC 正常操作
-    logger.info("[Trigger] event=%s file=%s", event_type, filepath)
+
+    logger.info("[Trigger] event=%s file=%s scene=%s", event_type, filepath, scene_name)
 
 
 def _register_trigger_hooks() -> None:
-    """注册 Blender 事件钩子（save_post / load_post / render_pre / render_post）。"""
+    """注册 Blender 事件钩子（save_post / load_post）。
+
+    使用 sys.modules wrapper 反重载保护。
+    """
     global _TRIGGER_HANDLERS_ACTIVE
     if _TRIGGER_HANDLERS_ACTIVE or not _HAS_BPY:
         return
@@ -125,32 +212,17 @@ def _register_trigger_hooks() -> None:
     # 先清理已存在的（防止重复注册）
     _unregister_trigger_hooks()
 
-    @_bpy.app.handlers.persistent
-    def _on_save_post(*_args: object) -> None:
-        fp = _bpy.data.filepath or ""
-        _notify_trigger_event("file.save.post", fp)
+    save_w, load_w = _get_or_create_wrappers()
 
-    @_bpy.app.handlers.persistent
-    def _on_load_post(*_args: object) -> None:
-        fp = _bpy.data.filepath or ""
-        _notify_trigger_event("file.open.post", fp)
+    if save_w not in _bpy.app.handlers.save_post:
+        _bpy.app.handlers.save_post.append(save_w)
 
-    @_bpy.app.handlers.persistent
-    def _on_render_pre(*_args: object) -> None:
-        _notify_trigger_event("render.pre", _bpy.data.filepath or "")
-
-    @_bpy.app.handlers.persistent
-    def _on_render_post(*_args: object) -> None:
-        _notify_trigger_event("render.post", _bpy.data.filepath or "")
-
-    _bpy.app.handlers.save_post.append(_on_save_post)
-    _bpy.app.handlers.load_post.append(_on_load_post)
-    _bpy.app.handlers.render_pre.append(_on_render_pre)
-    _bpy.app.handlers.render_post.append(_on_render_post)
+    if load_w not in _bpy.app.handlers.load_post:
+        _bpy.app.handlers.load_post.append(load_w)
 
     _TRIGGER_HANDLERS_ACTIVE = True
-    logger.info("触发器钩子已注册 (save_post, load_post, render_pre, render_post)")
-    print("[Artifex Nexus] 触发器钩子已注册")
+    logger.info("触发器钩子已注册 (save_post, load_post)")
+    print("[Artifex Nexus] 触发器钩子已注册 (save_post, load_post)")
 
 
 def _unregister_trigger_hooks() -> None:
@@ -160,16 +232,15 @@ def _unregister_trigger_hooks() -> None:
         return
     import bpy as _bpy
 
-    # 闭包引用需要通过遍历查找；我们根据函数名匹配
-    for handler_list, suffix in [
-        (_bpy.app.handlers.save_post, "save_post"),
-        (_bpy.app.handlers.load_post, "load_post"),
-        (_bpy.app.handlers.render_pre, "render_pre"),
-        (_bpy.app.handlers.render_post, "render_post"),
+    save_w, load_w = _get_or_create_wrappers()
+
+    for handler_list, fn in [
+        (_bpy.app.handlers.save_post, save_w),
+        (_bpy.app.handlers.load_post, load_w),
     ]:
-        to_remove = [h for h in handler_list if hasattr(h, "__name__") and h.__name__ == f"_on_{suffix}"]
-        for h in to_remove:
-            handler_list.remove(h)
+        if fn in handler_list:
+            handler_list.remove(fn)
+
     _TRIGGER_HANDLERS_ACTIVE = False
     logger.info("触发器钩子已注销")
 

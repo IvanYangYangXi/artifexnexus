@@ -1700,6 +1700,25 @@ _POLL_METHODS = frozenset({
 })
 
 
+def _init_trigger_dispatcher() -> None:
+    """初始化触发器调度引擎并注册到 MCPBridgeClient。
+
+    在 sidecar 主循环启动前调用，确保 Blender 触发事件
+    能被正确接收、匹配并回传结果。
+    """
+    try:
+        from artifex_nexus.openclaw_wrapper.trigger_dispatcher import TriggerDispatcher
+        from artifex_nexus.openclaw_wrapper.mcp_bridge import MCPBridgeClient
+
+        dispatcher = TriggerDispatcher()
+        client = MCPBridgeClient.get_instance()
+        client.on_trigger_event(dispatcher.on_trigger_event)
+        sys.stderr.write("[sidecar.boot] TriggerDispatcher initialized\n")
+    except Exception as exc:
+        sys.stderr.write(f"[sidecar.boot] TriggerDispatcher init failed: {exc!r}\n")
+    sys.stderr.flush()
+
+
 def main() -> None:
     """stdio JSON-RPC 主循环：逐行读取 stdin，逐行写回 stdout。
 
@@ -1779,6 +1798,9 @@ def main() -> None:
     # stdin 是否被 buffer 卡住、Python 是否真到达读取阶段。
     sys.stderr.write("[sidecar.main] entering stdin loop\n")
     sys.stderr.flush()
+
+    # 初始化触发器调度引擎（注册到 MCPBridgeClient 的 trigger_event 回调）
+    _init_trigger_dispatcher()
 
     # 用 readline() 替代 `for line in sys.stdin:` —— 后者在 Windows 命名管道上
     # 走 BufferedReader iterator 协议，可能预读整个 buffer 后才返回，

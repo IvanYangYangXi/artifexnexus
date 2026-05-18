@@ -103,7 +103,7 @@ export function FiltersTab({
         <select
           value={selectedDcc}
           onChange={(e) => handleDccChange(e.target.value)}
-          className="h-8 rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring w-full max-w-[200px] [&_option]:bg-card [&_option]:text-foreground"
+          className="h-8 rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring w-full max-w-[200px] [color-scheme:dark] [&_option]:bg-card [&_option]:text-foreground"
         >
           <option value="">选择 DCC</option>
           {dccOptions.slice(1).map((dcc) => (

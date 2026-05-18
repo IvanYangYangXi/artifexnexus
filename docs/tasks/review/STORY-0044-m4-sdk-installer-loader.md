@@ -2,7 +2,7 @@
 id: STORY-0044
 kind: story
 title: M4-SDK-03 · SkillInstaller + Loader + Config
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

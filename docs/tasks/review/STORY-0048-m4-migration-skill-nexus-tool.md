@@ -2,7 +2,7 @@
 id: STORY-0048
 kind: story
 title: M4-MIG-01 · Skill/Nexus-Tool 内容迁移
-status: done
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

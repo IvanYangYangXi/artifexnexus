@@ -2,7 +2,7 @@
 id: STORY-0043
 kind: story
 title: M4-SDK-02 · SkillHub + Registry + Conflict
-status: ready
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair

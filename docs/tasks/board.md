@@ -31,14 +31,15 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0048-m4-migration-skill-nexus-tool]]
+- [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]
+- [ ] [[STORY-0046-m4-rpc-skill-nexus-tool]]
+- [ ] [[STORY-0045-m5-sdk-nexus-tool-registry]]
+- [ ] [[STORY-0044-m4-sdk-installer-loader]]
+- [ ] [[STORY-0043-m4-sdk-hub-registry]]
+- [ ] [[STORY-0042-m4-sdk-decorator-manifest]]
+
 ## Done
-- [x] [[STORY-0048-m4-migration-skill-nexus-tool]]
-- [x] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]
-- [x] [[STORY-0046-m4-rpc-skill-nexus-tool]]
-- [x] [[STORY-0045-m5-sdk-nexus-tool-registry]]
-- [x] [[STORY-0044-m4-sdk-installer-loader]]
-- [x] [[STORY-0043-m4-sdk-hub-registry]]
-- [x] [[STORY-0042-m4-sdk-decorator-manifest]]
 - [x] [[STORY-0040-m3-func-modules-api]] *(已拆解覆盖，不复执行 → 2026-05-15)*
 - [x] [[STORY-0039-m3-func-chat-api]]
 - [x] [[TASK-0050-chat-panel-interaction-optimization]]

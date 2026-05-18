@@ -116,7 +116,7 @@ export default function TriggerRuleEditor({
   const inputCls =
     "w-full px-3 py-1.5 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-foreground text-xs focus:border-primary/40 focus:outline-none placeholder:text-muted-foreground transition-colors";
   const selectCls =
-    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&_option]:bg-card [&_option]:text-foreground";
+    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:dark] [&_option]:bg-card [&_option]:text-foreground";
 
   return (
     <div className="bg-muted/5 border border-border/50 rounded-lg p-4">
@@ -336,6 +336,7 @@ export default function TriggerRuleEditor({
         <FieldRow label="启用状态">
           <label className="flex items-center gap-2 cursor-pointer pt-0.5">
             <ToggleSwitch
+              size="xs"
               checked={form.isEnabled}
               onChange={(v) => updateField("isEnabled", v)}
             />

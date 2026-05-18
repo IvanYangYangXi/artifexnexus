@@ -474,7 +474,7 @@ function InfoTab({
   const fieldCls =
     "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-3 text-xs focus:outline-none focus:border-primary/40 transition-colors w-full appearance-none";
   const selectCls =
-    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&_option]:bg-card [&_option]:text-foreground";
+    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:dark] [&_option]:bg-card [&_option]:text-foreground";
   const labelCls = "text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1";
 
   const toggleDCC = (dcc: string) => {
@@ -761,7 +761,7 @@ function EditableParamRow({
   const inputCls =
     "h-6 rounded border border-border/60 bg-muted/20 px-1.5 text-[11px] font-mono focus:outline-none focus:border-primary/40";
   const selectCls =
-    "h-6 rounded-md border border-input bg-input px-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&_option]:bg-card [&_option]:text-foreground";
+    "h-6 rounded-md border border-input bg-input px-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:dark] [&_option]:bg-card [&_option]:text-foreground";
 
   // 解析 list/dict 默认值
   const parseListDefault = (): string[] => {
