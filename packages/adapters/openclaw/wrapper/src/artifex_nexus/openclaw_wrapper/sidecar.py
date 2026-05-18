@@ -76,6 +76,45 @@ except ImportError:
 sys.stderr.write("[sidecar.boot] all submodules imported\n")
 sys.stderr.flush()
 
+# ── SDK 路径注入 ────────────────────────────────────────────────────────
+
+def _find_project_root() -> Path:
+    """探测项目根目录（向上查找 pnpm-workspace.yaml）。
+
+    用于定位 packages/dcc/shared/artifex_nexus_sdk/（SDK 单一源）。
+    """
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (current / "pnpm-workspace.yaml").exists():
+            return current
+        current = current.parent
+    # fallback: 基于已知的 monorepo 层级计算
+    return Path(__file__).resolve().parents[7]
+
+
+def _inject_sdk_path() -> None:
+    """将 packages/dcc/shared/ 加入 sys.path，
+    使工具脚本可以通过 ``import artifex_nexus_sdk as sdk`` 找到 SDK。
+
+    遵循单一源原则：SDK 只有一份源，位于 packages/dcc/shared/artifex_nexus_sdk/，
+    不再维护 _bundled_nexus_tools 下的副本。
+    """
+    try:
+        _project_root = _find_project_root()
+        _sdk_parent = _project_root / "packages" / "dcc" / "shared"
+        _sdk_parent_str = str(_sdk_parent)
+        if _sdk_parent.is_dir() and _sdk_parent_str not in sys.path:
+            sys.path.insert(0, _sdk_parent_str)
+            sys.stderr.write(
+                f"[sidecar.boot] injected SDK path (single-source): {_sdk_parent_str}\n"
+            )
+        elif not _sdk_parent.is_dir():
+            sys.stderr.write(
+                f"[sidecar.boot] WARNING: SDK single-source not found at {_sdk_parent_str}\n"
+            )
+    except Exception as e:
+        sys.stderr.write(f"[sidecar.boot] SDK path injection failed: {e}\n")
+
 
 # ---------------------------------------------------------------------------
 # 路径工具
@@ -1227,6 +1266,67 @@ def _handle_shell_open_path(req_id: Any, params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Nexus Tool 源码目录管理 RPC
+# ---------------------------------------------------------------------------
+
+def _handle_tool_sources_list(req_id: Any, params: dict) -> dict:
+    """列出所有已注册的 Nexus Tool / Skill 源码目录。"""
+    try:
+        from . import tool_sources as _ts
+    except ImportError:
+        import tool_sources as _ts  # type: ignore[no-redef]
+
+    source_type = params.get("type")
+    sources = _ts.get_sources(source_type)
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {"sources": sources},
+    }
+
+
+def _handle_tool_sources_register(req_id: Any, params: dict) -> dict:
+    """注册一个新的 Nexus Tool / Skill 源码目录。"""
+    try:
+        from . import tool_sources as _ts
+    except ImportError:
+        import tool_sources as _ts  # type: ignore[no-redef]
+
+    path = params.get("path", "")
+    source_type = params.get("type", "user")
+    updated_by = params.get("updated_by", "rpc")
+
+    if not path:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": False, "error": "path is required"},
+        }
+
+    ok = _ts.register_source(path, source_type, updated_by)
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {"success": ok},
+    }
+
+
+def _handle_tool_sources_verify(req_id: Any, params: dict) -> dict:
+    """验证所有已注册的源码目录并刷新统计信息。"""
+    try:
+        from . import tool_sources as _ts
+    except ImportError:
+        import tool_sources as _ts  # type: ignore[no-redef]
+
+    result = _ts.verify_and_refresh()
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": result,
+    }
+
+
+# ---------------------------------------------------------------------------
 # STORY-0041：备份-安装-恢复 RPC
 # ---------------------------------------------------------------------------
 
@@ -1527,6 +1627,57 @@ def _handle_openclaw_backups_delete(req_id: Any, params: dict) -> dict:
 
 # ---------------------------------------------------------------------------
 # 方法路由表
+# ── 触发器诊断 RPC ───────────────────────────────────────────────────────
+
+def _handle_trigger_diagnose(req_id: Any, params: dict) -> dict:
+    """openclaw.trigger.diagnose RPC：诊断触发器系统的连接和注册状态。
+
+    返回:
+        connected: MCPBridgeClient 是否已连接 Blender MCP Server
+        server_address: MCP Bridge 目标地址
+        tools_total: 已注册的带触发器工具总数
+        triggers_total: 已注册的触发器规则总数
+        event_index: {event_type: [tool_id, ...]} 事件→工具映射
+    """
+    try:
+        from artifex_nexus.openclaw_wrapper.mcp_bridge import MCPBridgeClient
+    except ImportError:
+        from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
+
+    client = MCPBridgeClient.get_instance()
+    connected = client.is_connected
+    server_address = client.server_address
+
+    # 获取已注册的工具和触发器信息
+    tools_total = 0
+    triggers_total = 0
+    event_index: dict[str, list[str]] = {}
+
+    dispatcher = _trigger_dispatcher_instance
+    if dispatcher is not None:
+        # 如果还没加载工具，手动触发加载
+        if not dispatcher._loaded:
+            try:
+                dispatcher._load_tools()
+            except Exception:
+                pass
+        tools_total = len(dispatcher._tool_registry)
+        triggers_total = sum(len(v["triggers"]) for v in dispatcher._tool_registry.values())
+        event_index = dict(dispatcher._event_index)
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {
+            "connected": connected,
+            "server_address": server_address,
+            "tools_total": tools_total,
+            "triggers_total": triggers_total,
+            "event_index": event_index,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 
 METHOD_TABLE: dict[str, Any] = {
@@ -1559,6 +1710,8 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
+    # 触发器诊断
+    "openclaw.trigger.diagnose": _handle_trigger_diagnose,
     # STORY-0029 M2：DCC 端口管理
     "openclaw.dcc.port.get": _handle_openclaw_dcc_port_get,
     "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
@@ -1586,6 +1739,10 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0046：Skill / Nexus-Tool RPC（27 方法，不含 nexus-tool.run）
     **_skill_rpc.SKILL_METHODS,
     **_nexus_tool_rpc.NEXUS_TOOL_METHODS,
+    # Nexus Tool 源码目录管理
+    "tool_sources.list": _handle_tool_sources_list,
+    "tool_sources.register": _handle_tool_sources_register,
+    "tool_sources.verify": _handle_tool_sources_verify,
 }
 
 
@@ -1672,6 +1829,9 @@ def _shutdown_gateway_quietly() -> None:
 #   "unknown"= 默认/异常退出 → 杀 gateway（安全兜底）
 _exit_reason: str = "unknown"
 
+# 触发器调度器实例引用（由 _init_trigger_dispatcher() 设置，供诊断 RPC 访问）
+_trigger_dispatcher_instance: Any = None
+
 
 def _signal_handler(signum: int, _frame: Any) -> None:
     """收到终止信号时停 gateway，然后正常退出。
@@ -1707,14 +1867,57 @@ def _init_trigger_dispatcher() -> None:
 
     在 sidecar 主循环启动前调用，确保 Blender 触发事件
     能被正确接收、匹配并回传结果。
+
+    注册回调后立即建立到 Blender MCP Server 的持久连接，
+    否则 broadcast_trigger_event 发现 _clients 为空会跳过广播。
+
+    同时启动后台重连线程：sidecar 可能在 Blender 之前启动，
+    初次 connect() 失败后需要周期性重试，确保 Blender 启动后
+    自动恢复连接。
     """
+    global _trigger_dispatcher_instance  # 供诊断 RPC 访问
+    import threading as _threading
+    import time as _time
+
     try:
         from artifex_nexus.openclaw_wrapper.trigger_dispatcher import TriggerDispatcher
         from artifex_nexus.openclaw_wrapper.mcp_bridge import MCPBridgeClient
 
         dispatcher = TriggerDispatcher()
+        _trigger_dispatcher_instance = dispatcher
         client = MCPBridgeClient.get_instance()
         client.on_trigger_event(dispatcher.on_trigger_event)
+
+        # 建立持久连接以接收 Blender trigger_event 广播
+        # MCPBridgeClient 的 _message_reader 持续监听 WS 消息，
+        #    当收到 type="trigger_event" 时回调 dispatcher.on_trigger_event
+        if not client.is_connected:
+            connected = client.connect()
+            if connected:
+                sys.stderr.write("[sidecar.boot] TriggerDispatcher connected to Blender MCP\n")
+            else:
+                sys.stderr.write("[sidecar.boot] TriggerDispatcher: Blender MCP not reachable, starting reconnect loop\n")
+                # ── 后台重连循环 ──
+                _reconnect_flag = {"stop": False, "interval": 10.0}
+
+                def _reconnect_loop():
+                    _time.sleep(_reconnect_flag["interval"])
+                    while not _reconnect_flag["stop"]:
+                        try:
+                            if not client.is_connected:
+                                if client.connect():
+                                    sys.stderr.write("[sidecar.reconnect] TriggerDispatcher reconnected to Blender MCP\n")
+                                    sys.stderr.flush()
+                                    break  # 连上了，退出重连循环
+                        except Exception:
+                            pass
+                        _time.sleep(_reconnect_flag["interval"])
+
+                t = _threading.Thread(target=_reconnect_loop, daemon=True, name="trigger-reconnect")
+                t.start()
+        else:
+            sys.stderr.write("[sidecar.boot] TriggerDispatcher: MCPBridgeClient already connected\n")
+
         sys.stderr.write("[sidecar.boot] TriggerDispatcher initialized\n")
     except Exception as exc:
         sys.stderr.write(f"[sidecar.boot] TriggerDispatcher init failed: {exc!r}\n")
@@ -1733,6 +1936,9 @@ def main() -> None:
         - SIGINT (Ctrl+C)：开发期手动中断
         - SIGBREAK：Windows CTRL_BREAK_EVENT（Tauri 退出时父进程 group break）
     """
+    # ── 注入 artifex_nexus_sdk 路径（单一源：packages/dcc/shared/）──
+    _inject_sdk_path()
+
     # 注册退出 hook
     atexit.register(_shutdown_gateway_quietly)
     sys.stderr.write("[sidecar.boot] atexit registered\n")
@@ -1775,6 +1981,43 @@ def main() -> None:
         _bootstrap.reset_config_port_if_drifted(_get_openclaw_home())
     except Exception as exc:
         sys.stderr.write(f"[sidecar.boot] port-drift self-heal raised: {exc!r}\n")
+        sys.stderr.flush()
+
+    # ── 启动期验证和刷新 tool-sources.json ──
+    try:
+        from . import tool_sources as _ts
+    except ImportError:
+        import tool_sources as _ts  # type: ignore[no-redef]
+    try:
+        result = _ts.verify_and_refresh()
+        if result["missing"] > 0:
+            sys.stderr.write(
+                f"[sidecar.boot] tool-sources: {result['valid']}/{result['total']} valid, "
+                f"{result['missing']} missing\n"
+            )
+        else:
+            sys.stderr.write(
+                f"[sidecar.boot] tool-sources verified: {result['total']} source(s) OK\n"
+            )
+        sys.stderr.flush()
+    except Exception as exc:
+        sys.stderr.write(f"[sidecar.boot] tool-sources verify failed (non-fatal): {exc!r}\n")
+        sys.stderr.flush()
+
+    # ── 确保 sdk_path 已写入（已有安装可能缺此字段，sidecar 启动时自动补齐）──
+    try:
+        if _ts.get_sdk_path() is None:
+            pkg_dir = Path(__file__).resolve().parent
+            project_root = pkg_dir.parents[5]
+            sdk_parent = project_root / "packages" / "dcc" / "shared"
+            if sdk_parent.is_dir():
+                _ts.set_sdk_path(str(sdk_parent))
+                sys.stderr.write(f"[sidecar.boot] sdk_path auto-populated: {sdk_parent}\n")
+            else:
+                sys.stderr.write(f"[sidecar.boot] sdk_path not set (dir missing: {sdk_parent})\n")
+            sys.stderr.flush()
+    except Exception as exc:
+        sys.stderr.write(f"[sidecar.boot] sdk_path auto-populate failed (non-fatal): {exc!r}\n")
         sys.stderr.flush()
 
     # ─────────────────────────────────────────────────────────────────

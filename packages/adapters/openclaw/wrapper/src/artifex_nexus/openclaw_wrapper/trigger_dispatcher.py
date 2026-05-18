@@ -110,16 +110,45 @@ class TriggerDispatcher:
     # ── 工具加载 ──
 
     def _load_tools(self) -> None:
-        """扫描 _bundled_nexus_tools 目录，加载所有 manifest 并索引 event 触发器。"""
-        if self._nexus_tools_root is None:
-            logger.warning("[Trigger] 未找到 _bundled_nexus_tools 目录，跳过加载")
+        """扫描所有已注册的工具源码目录，加载 manifest 并索引 event 触发器。
+
+        优先使用 tool-sources.json 中注册的所有源目录（bundled + skills + user），
+        以 bundled 目录（_bundled_nexus_tools/）作为 fallback。
+
+        工具只需在 manifest.json 中声明 triggers 字段即可被自动发现，
+        无需额外的配置文件注册步骤。
+        """
+        manifest_paths: list[Path] = []
+
+        # ── 主路径：tool-sources.json（多源扫描）──
+        try:
+            from . import tool_sources as _ts
+        except ImportError:
+            try:
+                import tool_sources as _ts  # type: ignore[no-redef]
+            except ImportError:
+                _ts = None  # type: ignore[assignment]
+
+        if _ts is not None:
+            try:
+                raw_paths = _ts.get_all_manifest_paths()
+                manifest_paths = [Path(p) for p in raw_paths]
+                logger.info("[Trigger] tool-sources.json → %d manifests across all sources",
+                            len(manifest_paths))
+            except Exception as e:
+                logger.warning("[Trigger] tool-sources.json 读取失败: %s", e)
+
+        # ── Fallback：直接扫描 _bundled_nexus_tools/ ──
+        if not manifest_paths and self._nexus_tools_root:
+            root = Path(self._nexus_tools_root)
+            manifest_paths = list(root.rglob("manifest.json"))
+            logger.info("[Trigger] FALLBACK: scanning nexus_tools_root=%s found=%d manifests",
+                        root, len(manifest_paths))
+
+        if not manifest_paths:
+            logger.warning("[Trigger] 未找到任何工具 manifest，跳过触发器加载")
             self._loaded = True
             return
-
-        root = Path(self._nexus_tools_root)
-        manifest_paths = list(root.rglob("manifest.json"))
-        logger.info("[Trigger] SCANNING nexus_tools_root=%s found=%d manifests",
-                     root, len(manifest_paths))
 
         for mp in manifest_paths:
             try:
@@ -188,6 +217,29 @@ class TriggerDispatcher:
 
     # ── 工具执行 ──
 
+    @staticmethod
+    def _find_project_root() -> Path:
+        """探测项目根目录（向上查找 pnpm-workspace.yaml）。
+
+        用于定位 packages/dcc/shared/artifex_nexus_sdk/（SDK 单一源）。
+        """
+        current = Path(__file__).resolve().parent
+        for _ in range(10):
+            if (current / "pnpm-workspace.yaml").exists():
+                return current
+            current = current.parent
+        # fallback: 基于已知的 monorepo 层级计算
+        return Path(__file__).resolve().parents[7]
+
+    @staticmethod
+    def _get_sdk_path() -> str:
+        """返回 artifex_nexus_sdk 单一源目录的父目录。
+
+        将 ``packages/dcc/shared/`` 加入 sys.path 后，
+        工具脚本的 ``import artifex_nexus_sdk as sdk`` 可直接解析。
+        """
+        return str(TriggerDispatcher._find_project_root() / "packages" / "dcc" / "shared")
+
     def _execute_tool(self, tool_id: str, payload: dict) -> dict:
         """执行单个 Nexus Tool。
 
@@ -213,11 +265,18 @@ class TriggerDispatcher:
         # 动态 import 工具
         module_name = entry.replace(".py", "")
 
-        # 将工具目录加入 sys.path（执行后移除）
-        path_added = False
+        # 将工具目录和 SDK 单一源路径加入 sys.path
+        # - 工具目录：用于 import main 模块
+        # - packages/dcc/shared/：用于 import artifex_nexus_sdk（单一源，不再使用 bundled 副本）
+        paths_added = []
         if tool_dir not in sys.path:
             sys.path.insert(0, tool_dir)
-            path_added = True
+            paths_added.append(tool_dir)
+
+        sdk_parent = self._get_sdk_path()
+        if sdk_parent not in sys.path:
+            sys.path.insert(0, sdk_parent)
+            paths_added.append(sdk_parent)
 
         try:
             if module_name in sys.modules:
@@ -237,7 +296,7 @@ class TriggerDispatcher:
                 "timing": payload.get("timing", "post"),
                 "data": payload.get("data", {}),
             }
-            # 兼容 artclaw_sdk 格式
+            # 兼容 artifex_nexus_sdk 格式
             event_data["asset_path"] = payload.get("filepath", "")
             event_data["asset_name"] = payload.get("data", {}).get("asset_name", "")
             event_data["asset_class"] = payload.get("data", {}).get("asset_class", "")
@@ -263,8 +322,9 @@ class TriggerDispatcher:
             return {"tool_id": tool_id, "action": "error", "reason": str(e)}
 
         finally:
-            if path_added and tool_dir in sys.path:
-                sys.path.remove(tool_dir)
+            for p in reversed(paths_added):
+                if p in sys.path:
+                    sys.path.remove(p)
 
     # ── 结果回传 Blender ──
 

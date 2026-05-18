@@ -72,6 +72,12 @@ def _get_adapter():
     return _adapter
 
 
+def _get_trigger_dispatcher():
+    """延迟导入 BlenderTriggerDispatcher"""
+    from trigger_dispatcher import BlenderTriggerDispatcher
+    return BlenderTriggerDispatcher.get_instance()
+
+
 def _auto_start_server():
     """自动启动 MCP Server（addon 启用时调用）"""
     try:
@@ -99,8 +105,9 @@ def _auto_start_server():
 
 
 # ── 触发器钩子 ──────────────────────────────────────────────────────
-# 通过 bpy.app.handlers 监听 Blender 事件，当事件触发时通知
-# Artifex Nexus sidecar 检查并执行匹配的 Nexus Tool 触发器。
+# 通过 bpy.app.handlers 监听 Blender 事件，当事件触发时由
+# BlenderTriggerDispatcher（本地）匹配并执行 Nexus Tool 触发器。
+# 同时通过 MCP 向 sidecar 上报执行状态（可选，非关键路径）。
 #
 # 事件覆盖（精简版，M2 验收范围）：
 #   - file.save.post : 文件保存后
@@ -162,9 +169,10 @@ def _on_load_post_impl(*_args: object) -> None:
 
 
 def _notify_trigger_event(event_type: str, filepath: str = "") -> None:
-    """将 DCC 事件推送给 Artifex Nexus sidecar（通过 MCP 广播）。
+    """DCC 事件 → BlenderTriggerDispatcher 本地执行 + 可选 MCP 状态上报。
 
-    含 500ms 去重保护 + 增强 payload（scene_name / asset_class / timing）。
+    主流程在 Blender 内部完成（读配置 → 匹配 → 执行工具 → 弹窗）。
+    同时通过 MCP broadcast 上报状态给 sidecar（非关键，失败不影响功能）。
     """
     # ── 去重 ──
     now = time.monotonic()
@@ -181,21 +189,51 @@ def _notify_trigger_event(event_type: str, filepath: str = "") -> None:
     except Exception:
         scene_name = ""
 
-    timing = event_type.rsplit(".", 1)[-1] if "." in event_type else ""
     data = {
         "scene_name": scene_name,
         "asset_name": scene_name,
         "asset_class": "BlendFile",
     }
 
+    # ── 主流程：Blender 本地触发器执行 ──
+    try:
+        dispatcher = _get_trigger_dispatcher()
+        dispatcher.on_trigger_event(event_type, filepath, data)
+    except Exception:
+        logger.error("[Trigger] 本地触发器执行异常", exc_info=True)
+
+    # ── 可选：MCP 状态上报（非关键）──
     try:
         server = _get_mcp_server()
         if server is not None and server.is_running:
+            timing = event_type.rsplit(".", 1)[-1] if "." in event_type else ""
             server.broadcast_trigger_event(event_type, filepath, timing=timing, data=data)
     except Exception:
-        pass  # 静默失败 —— 触发器通知不应影响 DCC 正常操作
+        pass  # 静默失败 —— 状态上报不影响 DCC 正常操作
 
     logger.info("[Trigger] event=%s file=%s scene=%s", event_type, filepath, scene_name)
+
+
+def _report_trigger_status(event_type: str, filepath: str, results: list) -> None:
+    """将触发器执行结果通过 MCP 上报给 sidecar（可选，非关键路径）。"""
+    try:
+        server = _get_mcp_server()
+        if server is not None and server.is_running:
+            payload = {
+                "event": event_type,
+                "filepath": filepath,
+                "results": [
+                    {"tool_id": r.get("tool_id", ""), "action": r.get("action", "")}
+                    for r in results
+                ],
+            }
+            server.broadcast_trigger_event(
+                "trigger.result", filepath,
+                timing="post",
+                data={"trigger_results": payload},
+            )
+    except Exception:
+        pass  # 静默失败
 
 
 def _register_trigger_hooks() -> None:
@@ -284,8 +322,23 @@ if _HAS_BPY:
             else:
                 row.operator("artifex.start_server", text="启动 MCP Server", icon="PLAY")
 
-            # ── 信息 ──
             layout.separator()
+
+            # ── 触发器开关 ──
+            dispatcher = _get_trigger_dispatcher()
+            row = layout.row(align=True)
+            if dispatcher.enabled:
+                row.alert = False
+                row.label(text="触发器: 已启用", icon="CHECKBOX_HLT")
+                row.operator("artifex.toggle_trigger", text="禁用", icon="CHECKBOX_DEHLT")
+            else:
+                row.alert = True
+                row.label(text="触发器: 已禁用", icon="CHECKBOX_DEHLT")
+                row.operator("artifex.toggle_trigger", text="启用", icon="CHECKBOX_HLT")
+
+            layout.separator()
+
+            # ── 信息 ──
             layout.label(text="Artifex Nexus MCP Bridge v5.0.0")
 
 
@@ -352,10 +405,30 @@ if _HAS_BPY:
             return {"FINISHED"}
 
 
+    class ARTIFEX_OT_ToggleTrigger(bpy.types.Operator):
+        """启用/禁用 Nexus Tool 触发器系统"""
+        bl_idname = "artifex.toggle_trigger"
+        bl_label = "切换触发器"
+        bl_description = "启用或禁用自动触发器检查（如保存时命名检查）"
+
+        def execute(self, context):
+            dispatcher = _get_trigger_dispatcher()
+            dispatcher.enabled = not dispatcher.enabled
+            status = "启用" if dispatcher.enabled else "禁用"
+            self.report({"INFO"}, f"Nexus Tool 触发器已{status}")
+            logger.info("触发器系统已%s", status)
+
+            for area in context.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+            return {"FINISHED"}
+
+
     _classes = (
         ARTIFEX_PT_MainPanel,
         ARTIFEX_OT_StartServer,
         ARTIFEX_OT_StopServer,
+        ARTIFEX_OT_ToggleTrigger,
     )
 
 
@@ -370,6 +443,9 @@ if _HAS_BPY:
 
         # 注册触发器钩子
         _register_trigger_hooks()
+
+        # 注入 MCP 状态上报回调（可选，非关键）
+        _get_trigger_dispatcher().set_status_reporter(_report_trigger_status)
 
 
     def unregister():

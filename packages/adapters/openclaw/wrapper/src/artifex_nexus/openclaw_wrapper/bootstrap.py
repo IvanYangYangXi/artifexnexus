@@ -1398,6 +1398,35 @@ def _try_install_default_agent_preset(openclaw_home: Path) -> None:
         logger.warning("agent_preset 注入抛出异常（已忽略）: %s", exc)
 
 
+def _register_default_tool_sources(ts) -> None:
+    """注册默认的 Nexus Tool 和 Skill 源码目录到 tool-sources.json。
+
+    自动探测当前包中的 _bundled_nexus_tools 目录和 skills 目录。
+    """
+    try:
+        pkg_dir = Path(__file__).resolve().parent
+
+        # bundled Nexus Tools
+        bundled = pkg_dir / "_bundled_nexus_tools"
+        if bundled.is_dir():
+            ts.register_source(str(bundled), "bundled", "bootstrap")
+
+        # skills 目录（从项目根目录推导）
+        # pkg_dir = .../wrapper/src/artifex_nexus/openclaw_wrapper/
+        # project_root = pkg_dir.parents[5] (artifexnexus/)
+        project_root = pkg_dir.parents[5]
+        skills = project_root / "skills"
+        if skills.is_dir():
+            ts.register_source(str(skills), "skills", "bootstrap")
+
+        # SDK 单一源路径（供 DCC addon 定位 artifex_nexus_sdk）
+        sdk_parent = project_root / "packages" / "dcc" / "shared"
+        if sdk_parent.is_dir():
+            ts.set_sdk_path(str(sdk_parent))
+    except Exception:
+        logger.warning("Failed to register default tool sources", exc_info=True)
+
+
 def bootstrap(
     openclaw_home: Path,
     version: str = "v2026.5.4",
@@ -1485,6 +1514,14 @@ def bootstrap(
                 "bootstrap: mcp-bridge 自动部署异常（不阻塞 bootstrap）",
                 exc_info=True,
             )
+
+        # 9. 注册 Nexus Tool / Skill 源码目录到 tool-sources.json
+        #    供 Blender/DCC 插件触发器系统定位 manifest 文件。
+        try:
+            from . import tool_sources as _ts
+        except ImportError:
+            import tool_sources as _ts  # type: ignore[no-redef]
+        _register_default_tool_sources(_ts)
 
         return BootstrapResult(
             success=True,
