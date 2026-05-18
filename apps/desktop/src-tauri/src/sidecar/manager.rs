@@ -20,6 +20,7 @@ fn is_poll_method(method: &str) -> bool {
             | "openclaw.gateway.auth_info"
             | "openclaw.dcc.port.get"
             | "openclaw.gateway.mcp_bridge.status"
+            | "openclaw.gateway.tail_log"
     )
 }
 

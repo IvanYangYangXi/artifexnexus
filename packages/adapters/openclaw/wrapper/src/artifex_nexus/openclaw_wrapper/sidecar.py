@@ -1697,6 +1697,7 @@ _POLL_METHODS = frozenset({
     "openclaw.gateway.auth_info",
     "openclaw.dcc.port.get",
     "openclaw.gateway.mcp_bridge.status",
+    "openclaw.gateway.tail_log",
 })
 
 

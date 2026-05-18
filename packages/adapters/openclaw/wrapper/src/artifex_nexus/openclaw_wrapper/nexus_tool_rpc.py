@@ -15,6 +15,7 @@ Methods: list, detail, create, update, delete, enable, disable,
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Dict, List
 
 try:
@@ -478,25 +479,42 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         return _err(req_id, str(e))
 
 
+# fetch_types 缓存：避免每次调用都阻塞 sidecar 30s 查询 DCC
+# 结构: {dcc: (timestamp, result_dict)}
+_fetch_types_cache: dict[str, tuple[float, dict]] = {}
+_FETCH_TYPES_CACHE_TTL = 60.0  # 缓存 60 秒
+_FETCH_TYPES_MCP_TIMEOUT = 5    # MCP 调用超时 5 秒（原来 30s，阻塞 sidecar 导致连锁超时）
+
+
 def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
     """nexus-tool.fetch_types(dcc) → 实时查询 DCC 对象类型。
 
     通过 MCP Bridge 向目标 DCC 发送 run_python 查询对象类型。
+    结果缓存 60s，避免重复阻塞 sidecar。
     """
     dcc = (params.get("dcc") or "").lower()
     if not dcc:
         return _err_invalid_params(req_id, "缺少参数: dcc")
 
+    # ── 缓存命中 ──
+    cached = _fetch_types_cache.get(dcc)
+    if cached is not None:
+        ts, result = cached
+        if time.time() - ts < _FETCH_TYPES_CACHE_TTL:
+            return result
+
     server_name = _DCC_TO_MCP_SERVER.get(dcc)
     if server_name is None:
         # "general" 类型不需要查询 DCC，返回通用类型列表
         if dcc == "general":
-            return _ok(req_id, {"success": True, "data": {"stdout": "file\ndirectory\nproject\n"}})
+            result = _ok(req_id, {"success": True, "data": {"stdout": "file\ndirectory\nproject\n"}})
+            _fetch_types_cache[dcc] = (time.time(), result)
+            return result
         return _err(req_id, f"不支持的 DCC: {dcc}")
 
     mcp_tool_name = f"mcp_{server_name}_run_python"
 
-    # 各 DCC 的对象类型查询脚本
+    # ── 查询脚本 ──
     _TYPE_QUERY_SCRIPTS: dict[str, str] = {
         "blender": (
             "import bpy\n"
@@ -554,23 +572,33 @@ def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
         except ImportError:
             from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
         bridge = MCPBridgeClient.get_instance()
+
+        # 预检：桥未连接且无法建立 → 快速失败，不阻塞
         if not bridge.is_connected:
             connected = bridge.connect()
             if not connected:
-                return _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
+                err_result = _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
+                # 缓存失败结果（较短 TTL，允许重试）
+                _fetch_types_cache[dcc] = (time.time(), err_result)
+                return err_result
 
+        # MCP 调用：超时从 30s 降至 5s，避免阻塞 sidecar 导致连锁超时
         result = bridge.call_tool(
             mcp_tool_name,
             {"code": code},
-            timeout=30,
+            timeout=_FETCH_TYPES_MCP_TIMEOUT,
         )
         # 从 MCP result 提取 stdout 文本
         if isinstance(result, dict) and not result.get("isError", False):
             content = result.get("content", [])
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
-                    return _ok(req_id, {"success": True, "data": {"stdout": item["text"]}})
-        return _ok(req_id, {"success": False, "error": "查询对象类型失败"})
+                    ok_result = _ok(req_id, {"success": True, "data": {"stdout": item["text"]}})
+                    _fetch_types_cache[dcc] = (time.time(), ok_result)
+                    return ok_result
+        err_result = _ok(req_id, {"success": False, "error": "查询对象类型失败"})
+        _fetch_types_cache[dcc] = (time.time(), err_result)
+        return err_result
     except ImportError:
         return _err(req_id, "MCP Bridge 模块未加载")
     except Exception as exc:
