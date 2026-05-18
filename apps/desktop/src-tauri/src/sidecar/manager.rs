@@ -17,6 +17,7 @@ fn is_poll_method(method: &str) -> bool {
     matches!(
         method,
         "openclaw.status"
+            | "openclaw.gateway.status"
             | "openclaw.gateway.auth_info"
             | "openclaw.dcc.port.get"
             | "openclaw.gateway.mcp_bridge.status"

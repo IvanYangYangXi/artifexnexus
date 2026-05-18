@@ -1295,6 +1295,100 @@ def _cleanup_orphan_gateways(port: int) -> int:
     return killed
 
 
+def kill_existing_sidecars() -> int:
+    """启动时检测并杀死所有已存在的 sidecar.py 进程（自身除外）。
+
+    Kill any pre-existing sidecar.py processes at startup, excluding self.
+
+    设计要点：
+        - 防御性深度保护：Rust 端 ``preflight::kill_python_sidecars()``
+          也会做同样的事，但 Python 端再加一层确保万无一失。
+        - 通过命令行匹配 ``sidecar.py`` 而非进程名，避免误杀其他
+          Python 脚本。
+        - wmic 输出可能编码异常，全部 best-effort。
+
+    Returns:
+        实际杀掉的 sidecar 数量。
+    """
+    import os as _os
+
+    my_pid = _os.getpid()
+    killed = 0
+
+    try:
+        if _is_windows():
+            # wmic 查询所有 python.exe 中命令行含 sidecar.py 的进程
+            r = subprocess.run(
+                [
+                    "wmic", "process", "where", "name='python.exe'",
+                    "get", "ProcessId,CommandLine", "/format:csv",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=0x08000000,
+            )
+            for line in (r.stdout or "").splitlines():
+                if "sidecar.py" not in line:
+                    continue
+                # CSV 格式末列为 PID
+                parts = line.rsplit(",", 1)
+                if len(parts) < 2:
+                    continue
+                try:
+                    pid = int(parts[-1].strip())
+                except ValueError:
+                    continue
+                if pid == my_pid:
+                    continue
+                logger.info(
+                    "kill_existing_sidecars: 发现残留 sidecar pid=%s，终止中...", pid
+                )
+                _audit_log(
+                    "FORCE_KILL:duplicate_sidecar",
+                    f"pid={pid} my_pid={my_pid} reason=duplicate_sidecar_at_startup",
+                )
+                _force_kill(pid)
+                if _wait_pid_dead(pid, 3.0):
+                    killed += 1
+                else:
+                    logger.warning(
+                        "kill_existing_sidecars: pid=%s 强杀后仍未退出", pid
+                    )
+        else:
+            # Unix: pgrep + kill
+            r = subprocess.run(
+                ["pgrep", "-f", "sidecar.py"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in (r.stdout or "").splitlines():
+                try:
+                    pid = int(line.strip())
+                except ValueError:
+                    continue
+                if pid == my_pid:
+                    continue
+                logger.info(
+                    "kill_existing_sidecars: 发现残留 sidecar pid=%s，终止中...", pid
+                )
+                _audit_log(
+                    "FORCE_KILL:duplicate_sidecar",
+                    f"pid={pid} my_pid={my_pid} reason=duplicate_sidecar_at_startup",
+                )
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                if _wait_pid_dead(pid, 3.0):
+                    killed += 1
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.warning("kill_existing_sidecars: 检测失败（非致命）: %s", e)
+
+    if killed:
+        logger.info("kill_existing_sidecars: 已清理 %d 个残留 sidecar 进程", killed)
+    return killed
+
+
 
 def is_running() -> bool:
     """检查 gateway 是否运行中。

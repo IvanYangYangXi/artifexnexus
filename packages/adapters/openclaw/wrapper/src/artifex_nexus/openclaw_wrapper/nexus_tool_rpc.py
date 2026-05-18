@@ -437,7 +437,8 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
             if server_name is None:
                 return _err(req_id, f"不支持的 DCC: {dcc}（已知: {list(_DCC_TO_MCP_SERVER)})")
 
-            mcp_tool_name = f"mcp_{server_name}_run_python"
+            # Bridge 直连 DCC MCP Server（非 Gateway），用 raw tool name
+            # Gateway 侧注册为 mcp_{server_name}_run_python，Bridge 直接用 run_python
 
             # 注入参数到代码
             import json as _json
@@ -459,7 +460,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                         return _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
 
                 result = bridge.call_tool(
-                    mcp_tool_name,
+                    "run_python",
                     {"code": injected_code},
                     timeout=120,
                 )
@@ -493,6 +494,7 @@ def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
     结果缓存 60s，避免重复阻塞 sidecar。
     """
     dcc = (params.get("dcc") or "").lower()
+    logger.info("[fetch_types] called dcc=%s req_id=%s", dcc, req_id)
     if not dcc:
         return _err_invalid_params(req_id, "缺少参数: dcc")
 
@@ -501,6 +503,7 @@ def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
     if cached is not None:
         ts, result = cached
         if time.time() - ts < _FETCH_TYPES_CACHE_TTL:
+            logger.info("[fetch_types] cache HIT dcc=%s age=%.1fs", dcc, time.time() - ts)
             return result
 
     server_name = _DCC_TO_MCP_SERVER.get(dcc)
@@ -512,7 +515,7 @@ def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
             return result
         return _err(req_id, f"不支持的 DCC: {dcc}")
 
-    mcp_tool_name = f"mcp_{server_name}_run_python"
+    # Bridge 直连 DCC MCP Server（非 Gateway），用 raw tool name
 
     # ── 查询脚本 ──
     _TYPE_QUERY_SCRIPTS: dict[str, str] = {
@@ -567,43 +570,103 @@ def _handle_nexus_tool_fetch_types(req_id: Any, params: dict) -> dict:
     code = _TYPE_QUERY_SCRIPTS.get(dcc, f"# no type query for {dcc}\nprint('# no types')\n")
 
     try:
-        try:
-            from .mcp_bridge import MCPBridgeClient
-        except ImportError:
-            from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
-        bridge = MCPBridgeClient.get_instance()
-
-        # 预检：桥未连接且无法建立 → 快速失败，不阻塞
-        if not bridge.is_connected:
-            connected = bridge.connect()
-            if not connected:
-                err_result = _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
-                # 缓存失败结果（较短 TTL，允许重试）
-                _fetch_types_cache[dcc] = (time.time(), err_result)
-                return err_result
-
-        # MCP 调用：超时从 30s 降至 5s，避免阻塞 sidecar 导致连锁超时
-        result = bridge.call_tool(
-            mcp_tool_name,
-            {"code": code},
-            timeout=_FETCH_TYPES_MCP_TIMEOUT,
-        )
-        # 从 MCP result 提取 stdout 文本
-        if isinstance(result, dict) and not result.get("isError", False):
-            content = result.get("content", [])
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    ok_result = _ok(req_id, {"success": True, "data": {"stdout": item["text"]}})
-                    _fetch_types_cache[dcc] = (time.time(), ok_result)
-                    return ok_result
-        err_result = _ok(req_id, {"success": False, "error": "查询对象类型失败"})
-        _fetch_types_cache[dcc] = (time.time(), err_result)
-        return err_result
+        # 使用 asyncio.run() 直连 Blender MCP Server，避免 MCPBridgeClient 线程模型
+        # 的潜在死锁问题（bridge 在独立线程 + event loop 中运行，与 RPC 主线程交互
+        # 可能因锁竞争或事件循环调度导致 hang）
+        result = _fetch_types_via_direct_ws(dcc, code)
+        if result.get("success"):
+            ok_result = _ok(req_id, {"success": True, "data": {"stdout": result["stdout"]}})
+            _fetch_types_cache[dcc] = (time.time(), ok_result)
+            return ok_result
+        else:
+            err_result = _ok(req_id, {"success": False, "error": result.get("error", "查询对象类型失败")})
+            _fetch_types_cache[dcc] = (time.time(), err_result)
+            return err_result
     except ImportError:
         return _err(req_id, "MCP Bridge 模块未加载")
     except Exception as exc:
         logger.exception("fetch_types failed")
         return _err(req_id, f"查询对象类型失败: {exc}")
+
+
+def _fetch_types_via_direct_ws(dcc: str, code: str) -> dict:
+    """通过 asyncio.run() 直连 DCC MCP Server 执行 run_python 查询类型。
+
+    不使用 MCPBridgeClient（其线程+事件循环模型可能导致死锁），
+    而是创建隔离的 asyncio event loop 完成整个 MCP 握手 + 工具调用。
+    """
+    import asyncio as _asyncio
+    import json as _json
+
+    async def _do_fetch() -> dict:
+        try:
+            import websockets
+        except ImportError:
+            return {"success": False, "error": "websockets 库未安装"}
+
+        # 根据 dcc 选择目标地址（目前仅支持 Blender）
+        if dcc != "blender":
+            return {"success": False, "error": f"直连仅支持 blender，不支持: {dcc}"}
+
+        uri = "ws://127.0.0.1:18083"
+        try:
+            ws = await _asyncio.wait_for(websockets.connect(uri), timeout=3.0)
+        except _asyncio.TimeoutError:
+            return {"success": False, "error": f"连接 {uri} 超时，请确认 Blender 已运行且 MCP 插件已启用"}
+        except Exception as e:
+            return {"success": False, "error": f"连接失败: {e}"}
+
+        try:
+            # MCP initialize 握手
+            init_msg = {
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "artifex-fetch-types", "version": "0.1"},
+                },
+            }
+            await _asyncio.wait_for(ws.send(_json.dumps(init_msg)), timeout=3.0)
+            resp = _json.loads(await _asyncio.wait_for(ws.recv(), timeout=3.0))
+            if "error" in resp:
+                return {"success": False, "error": f"MCP 握手失败: {resp['error']}"}
+
+            # 发送 tools/call run_python
+            call_msg = {
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "run_python", "arguments": {"code": code}},
+            }
+            await _asyncio.wait_for(ws.send(_json.dumps(call_msg)), timeout=3.0)
+            call_resp = _json.loads(await _asyncio.wait_for(ws.recv(), timeout=8.0))
+
+            result = call_resp.get("result", {})
+            if result.get("isError", False):
+                content = result.get("content", [])
+                err_text = ""
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        err_text += item.get("text", "")
+                return {"success": False, "error": err_text or "run_python 返回错误"}
+
+            # 提取 stdout 文本
+            content = result.get("content", [])
+            stdout = ""
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    stdout += item.get("text", "")
+
+            return {"success": True, "stdout": stdout}
+        finally:
+            try:
+                await _asyncio.wait_for(ws.close(), timeout=1.0)
+            except Exception:
+                pass
+
+    try:
+        return _asyncio.run(_do_fetch())
+    except _asyncio.TimeoutError:
+        return {"success": False, "error": "查询超时"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

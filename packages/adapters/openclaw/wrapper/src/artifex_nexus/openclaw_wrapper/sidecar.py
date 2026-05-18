@@ -1694,6 +1694,7 @@ def _signal_handler(signum: int, _frame: Any) -> None:
 # 高频轮询方法：成功时静默 RPC 出入日志（状态变化在各自的 handler 中单独打点）
 _POLL_METHODS = frozenset({
     "openclaw.status",
+    "openclaw.gateway.status",
     "openclaw.gateway.auth_info",
     "openclaw.dcc.port.get",
     "openclaw.gateway.mcp_bridge.status",
@@ -1748,6 +1749,23 @@ def main() -> None:
         pass
     sys.stderr.write("[sidecar.boot] signal handlers installed\n")
     sys.stderr.flush()
+
+    # ── 启动期清理残留 sidecar 进程（防御性深度保护） ──
+    # Rust 端 preflight::kill_python_sidecars() 也会做同样操作，但 Python 端
+    # 再加一层确保万无一失。对于 dev.bat 反复重启、Tauri 异常退出等场景，
+    # 旧 sidecar 可能还在跑，必须先清掉再继续。
+    try:
+        killed = _runtime.kill_existing_sidecars()
+        if killed:
+            sys.stderr.write(
+                f"[sidecar.boot] killed {killed} stale sidecar(s)\n"
+            )
+        else:
+            sys.stderr.write("[sidecar.boot] no stale sidecars found\n")
+        sys.stderr.flush()
+    except Exception as exc:
+        sys.stderr.write(f"[sidecar.boot] sidecar cleanup failed (non-fatal): {exc!r}\n")
+        sys.stderr.flush()
 
     # STORY-0039：启动期 port-drift 自愈
     # 旧版 bootstrap_with_port_probe 可能把 gateway.port 迁到 19809/19829，

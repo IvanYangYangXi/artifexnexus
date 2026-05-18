@@ -101,17 +101,21 @@ export function ObjectTypePicker({
     if (!dcc) return;
     setLoading(true);
 
+    console.log(`[ObjectTypePicker] loadTypes dcc=${dcc}`);
+
     // 始终尝试 MCP 实时查询（不依赖 dccStatus 连接状态）
     try {
       const liveTypes = await fetchDccObjectTypes(dcc);
+      console.log(`[ObjectTypePicker] fetchDccObjectTypes result: count=${liveTypes.length}`, liveTypes);
       if (liveTypes.length > 0) {
         setTypes(liveTypes.map((t) => ({ type: t, label: t })));
         setSource("live");
         setLoading(false);
         return;
       }
-    } catch {
-      // MCP 查询失败 → fallback 到预设
+      console.warn("[ObjectTypePicker] fetchDccObjectTypes returned empty, falling back to preset");
+    } catch (err) {
+      console.error("[ObjectTypePicker] fetchDccObjectTypes failed:", err);
     }
 
     // Fallback: 使用静态预设列表
