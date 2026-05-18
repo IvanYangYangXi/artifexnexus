@@ -52,8 +52,8 @@ const TRIGGER_TYPES: { value: TriggerType; label: string }[] = [
 ];
 
 const EXECUTION_MODES: { value: ExecutionMode; label: string; desc: string }[] = [
-  { value: "silent", label: "静默",   desc: "拦截保存 + 右下角气泡提示" },
-  { value: "notify", label: "通知",   desc: "拦截保存 + 弹出说明对话框" },
+  { value: "silent", label: "静默",   desc: "气泡通知，5 秒后自动消失" },
+  { value: "notify", label: "通知",   desc: "弹窗提示，需手动关闭" },
 ];
 
 const SCHEDULE_TYPES: { value: string; label: string }[] = [
