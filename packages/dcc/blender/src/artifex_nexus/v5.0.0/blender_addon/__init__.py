@@ -424,12 +424,79 @@ if _HAS_BPY:
             return {"FINISHED"}
 
 
+    class ARTIFEX_OT_TriggerPopup(bpy.types.Operator):
+        """触发器结果弹窗。
+
+        静默模式: popup_menu（Blender 原生浮动面板，点击外部关闭）。
+        通知模式: invoke_props_dialog（标准对话框，自带"确定"按钮）。
+        """
+        bl_idname = "artifex.trigger_popup"
+        bl_label = "Artifex Nexus — 触发器检查"
+        bl_description = "查看触发器执行结果"
+        bl_options = {'INTERNAL'}
+
+        _message: str = ""
+        _auto_dismiss: bool = False
+
+        @classmethod
+        def prepare(cls, message: str, auto_dismiss: bool) -> None:
+            cls._message = message
+            cls._auto_dismiss = auto_dismiss
+
+        def invoke(self, context, event):
+            if self.__class__._auto_dismiss:
+                # 静默模式：popup_menu（闭包捕获 message，避免 self 覆盖问题）
+                _message = self.__class__._message
+                _title = self.bl_label
+                def _draw(_self, _ctx):
+                    for line in _message.split("\n"):
+                        if line == "":
+                            _self.layout.separator(factor=0.3)
+                        else:
+                            _self.layout.label(text=line)
+                context.window_manager.popup_menu(
+                    _draw, title=_title, icon='INFO',
+                )
+                return {'FINISHED'}
+            else:
+                # 通知模式：invoke_props_dialog（自带"确定"按钮）
+                return context.window_manager.invoke_props_dialog(self, width=480)
+
+        def execute(self, context):
+            return {'FINISHED'}
+
+        def draw(self, context):
+            for line in self.__class__._message.split("\n"):
+                if line == "":
+                    self.layout.separator(factor=0.3)
+                else:
+                    self.layout.label(text=line)
+
+
     _classes = (
         ARTIFEX_PT_MainPanel,
         ARTIFEX_OT_StartServer,
         ARTIFEX_OT_StopServer,
         ARTIFEX_OT_ToggleTrigger,
+        ARTIFEX_OT_TriggerPopup,
     )
+
+
+    def _trigger_ui_callback(message: str, auto_dismiss: bool) -> None:
+        """触发器结果弹窗回调（由 trigger_dispatcher 调用）。
+
+        通过 bpy.app.timers 延迟一帧执行，确保 handler 回调中有正确的 context。
+        """
+        ARTIFEX_OT_TriggerPopup.prepare(message, auto_dismiss)
+
+        def _invoke():
+            try:
+                bpy.ops.artifex.trigger_popup('INVOKE_DEFAULT')
+            except Exception:
+                logger.error("[Trigger] 弹窗调用失败", exc_info=True)
+            return None  # 单次调用，停止 timer
+
+        bpy.app.timers.register(_invoke, first_interval=0.0)
 
 
     def register():
@@ -444,8 +511,10 @@ if _HAS_BPY:
         # 注册触发器钩子
         _register_trigger_hooks()
 
-        # 注入 MCP 状态上报回调（可选，非关键）
-        _get_trigger_dispatcher().set_status_reporter(_report_trigger_status)
+        # 注入回调
+        dispatcher = _get_trigger_dispatcher()
+        dispatcher.set_status_reporter(_report_trigger_status)
+        dispatcher.set_ui_callback(_trigger_ui_callback)
 
 
     def unregister():

@@ -14,7 +14,7 @@ trigger_dispatcher.py — Blender 内独立触发器调度引擎
 
 设计：
   - 工具代码直接在 Blender Python 中运行，可直接使用 bpy
-  - 弹窗使用 bpy.context.window_manager.popup_menu()
+  - 弹窗通过 _ui_callback 委托给 __init__.py（Operator 注册所在模块）
   - 可选的 MCP 状态上报（通过 mcp_server）
 """
 
@@ -108,6 +108,10 @@ class BlenderTriggerDispatcher:
         # 状态上报回调（可选，由外部注入 mcp_server）
         self._status_reporter: Optional[Callable] = None
 
+        # UI 回调（由 __init__.py 注入，用于显示弹窗/气泡）
+        # callable(message: str, auto_dismiss: bool) -> None
+        self._ui_callback: Optional[Callable] = None
+
     @classmethod
     def get_instance(cls) -> BlenderTriggerDispatcher:
         """获取单例实例。"""
@@ -135,6 +139,16 @@ class BlenderTriggerDispatcher:
             reporter: callable(event_type, filepath, results) 或 None
         """
         self._status_reporter = reporter
+
+    # ── UI 回调 ──
+
+    def set_ui_callback(self, callback: Optional[Callable]) -> None:
+        """注入 UI 显示回调。
+
+        Args:
+            callback: callable(message: str, auto_dismiss: bool) 或 None
+        """
+        self._ui_callback = callback
 
     # ── 事件入口 ──
 
@@ -390,163 +404,40 @@ class BlenderTriggerDispatcher:
 
     # ── Blender 通知系统 ──
 
-    def _show_bubble(self, issues: List[dict], event_type: str, filepath: str) -> None:
-        """气泡提示（静默模式）：在 3D 视图底部显示半透明通知，5 秒后自动消失。
+    def _show_notification(self, issues: List[dict], event_type: str,
+                            filepath: str, *, auto_dismiss: bool) -> None:
+        """通用通知：通过 _ui_callback 委托给 __init__.py 显示。
 
-        使用 draw handler + timer 实现非阻塞通知。
+        所有 Blender UI 操作集中在 __init__.py 中（bpy 上下文所在），
+        保持 trigger_dispatcher 不直接依赖 bpy.types.Operator。
+
+        Args:
+            auto_dismiss: True=静默模式（自动消失），False=通知模式（需用户关闭）
         """
-        import bpy
-        import blf
-
-        # 构建消息行
-        lines = [f"事件: {event_type}", f"文件: {filepath or '(未保存)'}"]
-        for issue in issues:
-            tool_name = issue.get("tool_name", issue.get("tool_id", "unknown"))
-            lines.append(f"[{tool_name}] {issue.get('reason', '未知错误')}")
-
-        start_time = time.time()
-        _active = [True]  # mutable flag for closure
-
-        # 收集所有 VIEW_3D 空间
-        draw_spaces = []
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    try:
-                        draw_spaces.append(area.spaces[0])
-                    except Exception:
-                        pass
-
-        if not draw_spaces:
-            logger.warning("[Trigger] 无可用 VIEW_3D 空间，气泡通知跳过")
+        if self._ui_callback is None:
+            logger.warning("[Trigger] UI 回调未注入，跳过通知")
             return
 
-        def _draw_bubble():
-            if not _active[0]:
-                return
-
-            try:
-                region = bpy.context.region
-                if not region:
-                    return
-
-                elapsed = time.time() - start_time
-                alpha = min(1.0, (5.0 - elapsed) / 0.5)  # fade out last 0.5s
-                if alpha <= 0:
-                    return
-
-                # 布局参数
-                line_h = 20
-                pad = 14
-                box_w = 450
-                box_h = len(lines) * line_h + pad * 2 + 8
-
-                x = region.width / 2 - box_w / 2
-                y = 80  # from bottom
-
-                # 背景
-                from gpu_extras.batch import batch_for_shader
-                import gpu
-
-                vertices = [
-                    (x, y), (x + box_w, y),
-                    (x + box_w, y + box_h), (x, y + box_h),
-                ]
-                indices = [(0, 1, 2), (0, 2, 3)]
-
-                shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-                shader.bind()
-                shader.uniform_float("color", (0.08, 0.08, 0.10, 0.92 * alpha))
-                batch.draw(shader)
-            except Exception:
-                return  # GPU 操作失败时静默退出
-
-        def _draw_text():
-            if not _active[0]:
-                return
-
-            try:
-                region = bpy.context.region
-                if not region:
-                    return
-
-                elapsed = time.time() - start_time
-                alpha = min(1.0, (5.0 - elapsed) / 0.5)
-
-                line_h = 20
-                pad = 14
-                box_w = 450
-
-                x = region.width / 2 - box_w / 2
-                y = 80 + pad
-
-                blf.size(0, 14)
-                blf.color(0, 0.95, 0.95, 0.95, alpha)
-
-                for i, line in enumerate(lines):
-                    blf.position(0, x + pad, y + (len(lines) - 1 - i) * line_h, 0)
-                    blf.draw(0, line)
-            except Exception:
-                return
-
-        # 注册绘制回调
-        bg_handles = []
-        text_handles = []
-        for space in draw_spaces:
-            try:
-                h1 = space.draw_handler_add(_draw_bubble, (), 'WINDOW', 'POST_PIXEL')
-                h2 = space.draw_handler_add(_draw_text, (), 'WINDOW', 'POST_PIXEL')
-                bg_handles.append((space, h1))
-                text_handles.append((space, h2))
-            except Exception:
-                pass
-
-        # 5 秒后清理
-        def _cleanup():
-            _active[0] = False
-            for space, h in bg_handles + text_handles:
-                try:
-                    space.draw_handler_remove(h, 'WINDOW')
-                except Exception:
-                    pass
-            return None  # 停止计时器
-
-        bpy.app.timers.register(_cleanup, first_interval=5.0)
-        logger.info("[Trigger] BUBBLE SHOWN issues=%d", len(issues))
-
-    def _show_popup(self, issues: List[dict], event_type: str, filepath: str) -> None:
-        """弹窗提示（通知模式）：需要用户点击关闭。
-
-        使用 bpy popup_menu 显示触发器结果。
-        """
-        # 构建弹窗消息
         lines = [f"事件: {event_type}", f"文件: {filepath or '(未保存)'}", ""]
         for issue in issues:
             tool_name = issue.get("tool_name", issue.get("tool_id", "unknown"))
             lines.append(f"[{tool_name}] {issue.get('reason', '未知错误')}")
 
-        message = "\\n".join(lines)
-
+        message = "\n".join(lines)
         try:
-            import bpy
-            import json as _json
+            self._ui_callback(message, auto_dismiss)
+        except Exception:
+            logger.error("[Trigger] 通知显示失败", exc_info=True)
 
-            # 使用 json.dumps 转义 message
-            popup_code = (
-                "import bpy, json\n"
-                f"_msg = json.loads({_json.dumps(message)!r})\n"
-                "def _artifex_trigger_popup(self, context):\n"
-                "    for line in _msg.split('\\\\n'):\n"
-                "        self.layout.label(text=line)\n"
-                "bpy.context.window_manager.popup_menu(\n"
-                "    _artifex_trigger_popup, title='Artifex Nexus — 触发器检查', icon='ERROR'\n"
-                ")"
-            )
-            exec(popup_code, {"bpy": bpy, "json": _json})
-            logger.info("[Trigger] POPUP SHOWN issues=%d", len(issues))
-        except Exception as e:
-            logger.error("[Trigger] POPUP ERROR: %s", e, exc_info=True)
+    def _show_bubble(self, issues: List[dict], event_type: str,
+                      filepath: str) -> None:
+        """气泡提示（静默模式）：popup 样式，5 秒后自动消失。"""
+        self._show_notification(issues, event_type, filepath, auto_dismiss=True)
+
+    def _show_popup(self, issues: List[dict], event_type: str,
+                     filepath: str) -> None:
+        """弹窗提示（通知模式）：popup 样式，需用户点击外部关闭。"""
+        self._show_notification(issues, event_type, filepath, auto_dismiss=False)
 
     # ── 状态上报 ──
 

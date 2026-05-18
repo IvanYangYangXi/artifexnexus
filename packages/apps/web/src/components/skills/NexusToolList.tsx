@@ -73,7 +73,7 @@ export function NexusToolList() {
 
   const isBusy = (id: string) => actionLoading.has(id);
 
-  /** 计算触发器状态：none=无触发器, active=启动触发, disabled=禁用触发 */
+  /** 计算触发器状态：none=无触发器, active=启用触发, disabled=禁用触发 */
   const triggerState = (tool: NexusToolItem): "none" | "active" | "disabled" => {
     const hasTriggers = tool.triggers && tool.triggers.length > 0;
     if (!hasTriggers) return "none";
@@ -81,7 +81,7 @@ export function NexusToolList() {
   };
 
   const TRIGGER_STATE_LABEL: Record<string, string> = {
-    active: "启动触发",
+    active: "启用触发",
     disabled: "禁用触发",
   };
   const TRIGGER_STATE_COLOR: Record<string, string> = {
@@ -200,7 +200,7 @@ export function NexusToolList() {
                         disabled={isBusy(tool.id)}>禁用触发</Button>
                     : <Button size="sm" className="h-7 text-xs"
                         onClick={() => doAction(tool.id, () => nexusToolEnable(tool.id))}
-                        disabled={isBusy(tool.id)}>启动触发</Button>
+                        disabled={isBusy(tool.id)}>启用触发</Button>
                 )}
                 <Button variant="ghost" size="icon" className="h-7 w-7"
                   onClick={() => doAction(tool.id, () => tool.is_pinned ? nexusToolUnpin(tool.id) : nexusToolPin(tool.id))}
