@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle } from "lucide-react";
+import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
@@ -10,10 +10,10 @@ import {
   skillPin, skillUnpin, skillFavorite, skillUnfavorite, skillDetail,
   type SkillItem,
 } from "../../lib/skill/skill-api";
-import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
+import { DCC_LABELS, SOURCE_LABELS, type SkillSource } from "../../lib/skillsMock";
 
 // layer → source 映射
-function layerToSource(layer: string): string {
+function layerToSource(layer: string): SkillSource {
   if (layer.startsWith("00_")) return "official";
   if (layer.startsWith("01_")) return "marketplace";
   if (layer.startsWith("02_")) return "user";
@@ -147,6 +147,14 @@ export function SkillList() {
           <AlertCircle className="h-5 w-5" />
           <span className="text-sm">sidecar 未就绪或加载失败</span>
           <Button variant="outline" size="sm" onClick={loadSkills}>重试</Button>
+        </div>
+      )}
+
+      {!loading && !error && skills.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <Inbox className="h-12 w-12" />
+          <p className="text-sm">暂无 Skill</p>
+          <p className="text-xs">使用 "Plus" 按钮安装或创建新的 Skill</p>
         </div>
       )}
 

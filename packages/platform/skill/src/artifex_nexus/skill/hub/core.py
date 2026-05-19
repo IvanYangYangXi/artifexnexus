@@ -384,10 +384,8 @@ class SkillHub:
         :param manifest_path: manifest.json 文件路径。
         :return: SkillEntry，校验失败返回 None。
         """
-        try:
-            manifest = load_manifest_model(manifest_path)
-        except Exception as exc:
-            logger.warning("manifest 校验失败 (%s): %s", manifest_path, exc)
+        manifest = load_manifest_model(manifest_path)
+        if manifest is None:
             return None
 
         return SkillEntry(

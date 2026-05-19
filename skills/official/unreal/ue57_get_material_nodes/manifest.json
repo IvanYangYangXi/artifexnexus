@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "author": "Ivan(杨己力)",
   "license": "MIT",
-  "software": "unreal",
+  "software": "unreal_engine",
   "category": "material",
   "risk_level": "low",
   "dependencies": [],

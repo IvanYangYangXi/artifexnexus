@@ -76,8 +76,45 @@ def _get_skill_hub() -> Any:
     global _skill_hub
     if _skill_hub is None:
         from artifex_nexus.skill import SkillHub
-        _skill_hub = SkillHub(skills_root=_DEFAULT_SKILLS_ROOT)
+        _skill_hub = SkillHub(
+            skills_root=_DEFAULT_SKILLS_ROOT,
+            layer_sources=_find_skill_layer_sources(),
+        )
     return _skill_hub
+
+
+def _find_skill_layer_sources() -> Dict[str, Path]:
+    """查找项目 skills/ 目录下的 official / marketplace 源码层。
+    
+    探测策略（按优先级）：
+    1. 从 sidecar 所在包向上查找 pnpm-workspace.yaml（项目根）
+    2. 在项目根下查找 skills/official/ 和 skills/marketplace/
+    
+    Returns dict like {"00_official": Path, "01_marketplace": Path}
+    """
+    sources: Dict[str, Path] = {}
+    project_root = _find_project_root()
+    if project_root:
+        skills_root = project_root / "skills"
+        for layer_name, dir_name in [("00_official", "official"), ("01_marketplace", "marketplace")]:
+            layer_dir = skills_root / dir_name
+            if layer_dir.is_dir():
+                sources[layer_name] = layer_dir
+                logger.info("Skill layer source: %s → %s", layer_name, layer_dir)
+    return sources
+
+
+def _find_project_root() -> Optional[Path]:
+    """探测项目根目录（向上查找 pnpm-workspace.yaml）。"""
+    try:
+        current = Path(__file__).resolve().parent
+        for _ in range(10):
+            if (current / "pnpm-workspace.yaml").exists():
+                return current
+            current = current.parent
+    except Exception:
+        pass
+    return None
 
 
 def _get_skill_config() -> Any:

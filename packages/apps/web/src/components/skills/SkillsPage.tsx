@@ -13,28 +13,28 @@ import { SkillList } from "./SkillList";
 import { NexusToolList } from "./NexusToolList";
 
 export function SkillsPage() {
-  const [activeTab, setActiveTab] = React.useState<"skills" | "nexus_tools">("skills");
+  const [activeTab, setActiveTab] = React.useState<"nexus_tools" | "skills">("nexus_tools");
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* 顶部 Tab 栏 */}
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "skills" | "nexus_tools")}>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "nexus_tools" | "skills")}>
           <TabsList className="h-7">
-            <TabsTrigger value="skills" className="h-6 gap-1 text-xs">
-              <Puzzle className="h-3 w-3" />
-              Skill
-            </TabsTrigger>
             <TabsTrigger value="nexus_tools" className="h-6 gap-1 text-xs">
               <Wrench className="h-3 w-3" />
               Nexus-Tool
+            </TabsTrigger>
+            <TabsTrigger value="skills" className="h-6 gap-1 text-xs">
+              <Puzzle className="h-3 w-3" />
+              Skill
             </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
       {/* Tab 内容 */}
-      {activeTab === "skills" ? <SkillList /> : <NexusToolList />}
+      {activeTab === "nexus_tools" ? <NexusToolList /> : <SkillList />}
     </div>
   );
 }

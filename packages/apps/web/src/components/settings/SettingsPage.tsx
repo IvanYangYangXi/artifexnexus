@@ -438,29 +438,33 @@ function GeneralTab() {
   return (
     <div className="max-w-xl space-y-4">
       {/* 工具超时 */}
-      <div className={`${GLASS} p-4 space-y-1.5`}>
-        <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">默认工具超时（秒）</label>
-        <p className="text-[11px] text-muted-foreground/70">通用 nexus-tool 执行超时上限（manifest 可单工具覆盖），范围 1~86400</p>
-        <input
-          className="mt-1 h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-          type="number" min={1} max={86400}
-          value={settings.nexusToolDefaultTimeoutSec}
-          onChange={e => { const v = parseInt(e.target.value) || 120; patch({ nexusToolDefaultTimeoutSec: Math.max(1, Math.min(86400, v)) }); }}
-        />
-        {defaults && <span className="text-[10px] text-muted-foreground/50">默认: {defaults.nexusToolDefaultTimeoutSec}s</span>}
+      <div className={`${GLASS} p-4 space-y-2`}>
+        <label className="text-sm font-medium text-foreground">默认工具超时（秒）</label>
+        <p className="text-xs text-muted-foreground/70">通用 nexus-tool 执行超时上限（manifest 可单工具覆盖），范围 1~86400</p>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            className="h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+            type="number" min={1} max={86400}
+            value={settings.nexusToolDefaultTimeoutSec}
+            onChange={e => { const v = parseInt(e.target.value) || 120; patch({ nexusToolDefaultTimeoutSec: Math.max(1, Math.min(86400, v)) }); }}
+          />
+          {defaults && <span className="text-[11px] text-muted-foreground/50">默认: {defaults.nexusToolDefaultTimeoutSec}s</span>}
+        </div>
       </div>
 
       {/* 最大并发 */}
-      <div className={`${GLASS} p-4 space-y-1.5`}>
-        <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">最大并发工具数</label>
-        <p className="text-[11px] text-muted-foreground/70">同时允许运行的 nexus-tool 数，超出会拒绝，范围 1~64</p>
-        <input
-          className="mt-1 h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-          type="number" min={1} max={64}
-          value={settings.nexusToolMaxConcurrent}
-          onChange={e => { const v = parseInt(e.target.value) || 3; patch({ nexusToolMaxConcurrent: Math.max(1, Math.min(64, v)) }); }}
-        />
-        {defaults && <span className="text-[10px] text-muted-foreground/50">默认: {defaults.nexusToolMaxConcurrent}</span>}
+      <div className={`${GLASS} p-4 space-y-2`}>
+        <label className="text-sm font-medium text-foreground">最大并发工具数</label>
+        <p className="text-xs text-muted-foreground/70">同时允许运行的 nexus-tool 数，超出会拒绝，范围 1~64</p>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            className="h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+            type="number" min={1} max={64}
+            value={settings.nexusToolMaxConcurrent}
+            onChange={e => { const v = parseInt(e.target.value) || 3; patch({ nexusToolMaxConcurrent: Math.max(1, Math.min(64, v)) }); }}
+          />
+          {defaults && <span className="text-[11px] text-muted-foreground/50">默认: {defaults.nexusToolMaxConcurrent}</span>}
+        </div>
       </div>
 
       {/* 操作按钮 */}
@@ -476,7 +480,7 @@ function GeneralTab() {
       </div>
 
       {/* 文件路径（排错用） */}
-      <div className="text-[10px] text-muted-foreground/40 mt-2">
+      <div className="text-[11px] text-muted-foreground/40 mt-2">
         配置路径: <code className="font-mono">~/.artifexnexus/.openclaw/state/artifex/app-settings.json</code>
       </div>
     </div>

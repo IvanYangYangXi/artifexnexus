@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, PinOff, Pin, Info } from "lucide-react";
+import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, PinOff, Pin, Info, Inbox } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
@@ -158,6 +158,14 @@ export function NexusToolList() {
           <AlertCircle className="h-5 w-5" />
           <span className="text-sm">sidecar 未就绪或加载失败</span>
           <Button variant="outline" size="sm" onClick={loadTools}>重试</Button>
+        </div>
+      )}
+
+      {!loading && !error && tools.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <Inbox className="h-12 w-12" />
+          <p className="text-sm">暂无 Nexus-Tool</p>
+          <p className="text-xs">使用 "Plus" 按钮创建新的 Nexus-Tool</p>
         </div>
       )}
 

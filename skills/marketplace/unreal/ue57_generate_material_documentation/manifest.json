@@ -6,7 +6,7 @@
   "version": "1.0.3",
   "author": "Ivan(杨己力)",
   "license": "MIT",
-  "software": "unreal",
+  "software": "unreal_engine",
   "software_version": {
     "min": "5.1",
     "max": "5.7"

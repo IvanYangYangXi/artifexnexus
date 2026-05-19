@@ -2011,8 +2011,7 @@ def main() -> None:
     # ── 确保 sdk_path 已写入（已有安装可能缺此字段，sidecar 启动时自动补齐）──
     try:
         if _ts.get_sdk_path() is None:
-            pkg_dir = Path(__file__).resolve().parent
-            project_root = pkg_dir.parents[5]
+            project_root = _find_project_root()
             sdk_parent = project_root / "packages" / "dcc" / "shared"
             if sdk_parent.is_dir():
                 _ts.set_sdk_path(str(sdk_parent))
