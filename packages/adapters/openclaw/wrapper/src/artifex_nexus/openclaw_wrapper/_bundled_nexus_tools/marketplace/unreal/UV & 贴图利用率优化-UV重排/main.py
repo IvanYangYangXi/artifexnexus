@@ -5,7 +5,7 @@ v1.2: 引用检测改为按材质实例维度判断（材质→贴图→UV槽三
 """
 # ── SDK 头 ──
 import os, json
-import artclaw_sdk as sdk
+import artifex_nexus_sdk as sdk
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")

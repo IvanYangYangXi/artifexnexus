@@ -1,7 +1,7 @@
 """Blender 模型批量添加前缀后缀 — 为选中的对象添加前缀或后缀。"""
 # ── SDK 头 ──
 import os, json
-import artclaw_sdk as sdk
+import artifex_nexus_sdk as sdk
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")

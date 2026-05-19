@@ -358,6 +358,20 @@ pub async fn openclaw_gateway_mcp_bridge_status(
     manager.call("openclaw.gateway.mcp_bridge.status", json!({}))
 }
 
+/// 触发器系统诊断：检查 MCPBridgeClient 连接状态及工具注册情况。
+#[tauri::command]
+pub async fn openclaw_trigger_diagnose(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.trigger.diagnose", json!({}))
+}
+
 /// 获取 DCC MCP Server 端口配置。
 ///
 /// STORY-0029 M2：DCC 端口设置。

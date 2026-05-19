@@ -15,8 +15,15 @@ Methods: list, detail, create, update, delete, enable, disable,
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from typing import Any, Callable, Dict, List
+import uuid
+import sys
+from typing import Any, Callable, Dict, List, Optional
+
+# ── 日志 ──
+# 独立 handler + propagate=False，不依赖 root logger 级别
+# （sidecar 用 sys.stderr.write() 而非 logging 模块）
 
 try:
     from ._rpc_helpers import (
@@ -32,6 +39,93 @@ except ImportError:
     )
 
 logger = logging.getLogger(__name__)
+# 确保 stderr 可见：sidecar 用 sys.stderr.write() 直写，不走 logging 模块，
+# root logger 默认 WARNING → 所有子 logger INFO 消息被过滤。
+# 为当前模块创建独立 handler + propagate=False 解决。
+logger.propagate = False
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("[sidecar.nt] %(message)s"))
+    _h.setLevel(logging.INFO)
+    logger.addHandler(_h)
+
+# ── 异步任务状态 ───────────────────────────────────────────────────────
+# nexus-tool.run 在后台线程执行，主线程立即返回 task_id。
+# 前端通过 nexus-tool.result 轮询，nexus-tool.cancel 终止，nexus-tool.ack 清理。
+
+MAX_CONCURRENT_TASKS = 3  # 最多允许同时运行的直接执行任务
+TASK_TTL = 300  # 已完成/已取消的任务在 _task_store 中保留的秒数
+
+_task_store: Dict[str, Dict[str, Any]] = {}  # task_id → task 字典
+_task_lock = threading.Lock()
+
+
+def _cleanup_expired_tasks() -> None:
+    """删除超过 TASK_TTL 的已完成/已取消任务。
+
+    线程安全：由调用方在 ``_task_lock`` 外层调用，本函数自取锁。
+    在 ``nexus-tool.run`` 与 ``nexus-tool.result`` 入口处触发（O(N)，N 通常 < 20）。
+    """
+    now = time.time()
+    with _task_lock:
+        expired: List[str] = []
+        for tid, t in _task_store.items():
+            if t.get("status") in ("done", "error", "cancelled"):
+                created = t.get("created_at", 0)
+                if now - created > TASK_TTL:
+                    expired.append(tid)
+        for tid in expired:
+            _task_store.pop(tid, None)
+    if expired:
+        logger.info("[task-gc] 清理 %d 个过期任务: %s", len(expired), expired[:5])
+
+
+# ── SDK 路径辅助 ───────────────────────────────────────────────────────
+
+def _get_sdk_path() -> str:
+    """返回 artifex_nexus_sdk 可导入的父目录路径。
+
+    复用 sidecar._find_project_root 逻辑：
+    1. 检查 sys.path 中是否已有包含 artifex_nexus_sdk 的路径
+    2. 基于项目根目录 (packages/dcc/shared/)
+    """
+    import os, sys
+    from pathlib import Path
+
+    for p in sys.path:
+        sdk_dir = Path(p) / "artifex_nexus_sdk"
+        if sdk_dir.is_dir():
+            return str(p)
+
+    env_path = os.environ.get("ARTIFEX_NEXUS_SDK_PATH")
+    if env_path:
+        return env_path
+
+    # 向上查找项目根目录
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (current / "pnpm-workspace.yaml").exists():
+            sdk_parent = current / "packages" / "dcc" / "shared"
+            if sdk_parent.is_dir():
+                return str(sdk_parent)
+            break
+        current = current.parent
+
+    # fallback
+    return str(Path(__file__).resolve().parents[7] / "packages" / "dcc" / "shared")
+
+
+def _get_project_root() -> Path:
+    """探测项目根目录（向上查找 pnpm-workspace.yaml）。"""
+    from pathlib import Path
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (current / "pnpm-workspace.yaml").exists():
+            return current
+        current = current.parent
+    return Path(__file__).resolve().parents[7]
+
 
 # Nexus-Tool RPC handlers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -367,11 +461,13 @@ _DCC_TO_MCP_SERVER: dict[str, str] = {
 
 
 def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
-    """nexus-tool.run(id, args) → NexusToolResult。
+    """nexus-tool.run(id, args) → {task_id, status: "started"}。
+
+    异步执行，立即返回 task_id。后台线程执行工具，前端通过 nexus-tool.result 轮询。
 
     执行策略：
     - DCC 工具（target_dccs 不含 "general"）→ MCP Bridge → DCC MCP Server run_python
-    - 通用工具（含 "general" 或无 DCC）→ subprocess 执行 main.py
+    - 通用工具（含 "general" 或无 DCC）→ subprocess + importlib wrapper
     """
     try:
         nexus_tool_id = params.get("id")
@@ -387,97 +483,711 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        # ── 并发限制 + 过期任务 GC ──
+        # 用 app.settings.nexusToolMaxConcurrent 动态读取上限（fallback 到模块常量）
+        max_concurrent = _resolve_max_concurrent()
+        _cleanup_expired_tasks()
+        with _task_lock:
+            running_count = sum(1 for t in _task_store.values() if t.get("status") == "running")
+            if running_count >= max_concurrent:
+                return _err(
+                    req_id,
+                    f"并发任务数已达上限 ({max_concurrent})，请等待当前任务完成",
+                )
+
+        # ── 读取实现信息 ──
+        manifest = ntd.manifest or {}
+        impl = manifest.get("implementation", {})
+        func_name = impl.get("function", "")
+        if not func_name:
+            return _err(req_id, "manifest 未定义 implementation.function，无法确定入口函数")
+
         target_dccs = [d.lower() for d in (ntd.target_dccs or [])]
         is_general = "general" in target_dccs or not target_dccs
 
-        # ── 读取 main.py ──
-        from pathlib import Path
-        tool_dir = Path(ntd.nexus_tool_path)
-        main_py = tool_dir / "main.py"
-        if not main_py.is_file():
-            return _err(req_id, f"Nexus-Tool main.py 不存在: {main_py}")
+        # ── 创建 task ──
+        task_id = str(uuid.uuid4())[:12]
+        cancel_event = threading.Event()
 
-        code = main_py.read_text(encoding="utf-8")
-
-        if is_general:
-            # ── 通用工具：subprocess ──
-            import subprocess
-            import json as _json
+        def _run() -> None:
             try:
-                proc = subprocess.run(
-                    ["python", str(main_py)],
-                    input=_json.dumps(run_args),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    cwd=str(tool_dir),
-                )
-                data = {
-                    "stdout": proc.stdout,
-                    "stderr": proc.stderr,
-                    "returncode": proc.returncode,
-                }
-                if proc.returncode == 0:
-                    return _ok(req_id, {"success": True, "data": data})
-                else:
-                    return _ok(req_id, {
-                        "success": False,
-                        "data": data,
-                        "error": proc.stderr.strip() or f"exit code {proc.returncode}",
-                    })
-            except subprocess.TimeoutExpired:
-                return _err(req_id, "Nexus-Tool 执行超时（120s）")
-            except FileNotFoundError:
-                return _err(req_id, "Python 解释器不可用")
-        else:
-            # ── DCC 工具：MCP Bridge 路由 ──
-            # 选取第一个支持的 DCC
-            dcc = target_dccs[0] if target_dccs else "blender"
-            server_name = _DCC_TO_MCP_SERVER.get(dcc)
-            if server_name is None:
-                return _err(req_id, f"不支持的 DCC: {dcc}（已知: {list(_DCC_TO_MCP_SERVER)})")
+                logger.info("[nt-run] task=%s starting dccs=%s func=%s general=%s",
+                            task_id, target_dccs, func_name, is_general)
+                sys.stderr.flush()
+                result = _execute_tool_sync(ntd, run_args, func_name, cancel_event, task_id=task_id)
+                logger.info("[nt-run] task=%s completed result_keys=%s",
+                            task_id, list(result.keys()) if isinstance(result, dict) else type(result).__name__)
+                with _task_lock:
+                    t = _task_store.get(task_id)
+                    # 检查是否在执行期间被取消
+                    if t and t.get("cancel_event") and t["cancel_event"].is_set():
+                        _task_store[task_id] = {
+                            "task_id": task_id,
+                            "status": "cancelled",
+                            "created_at": time.time(),
+                        }
+                        logger.info("[nt-run] task=%s marked cancelled", task_id)
+                    else:
+                        _task_store[task_id] = {
+                            "task_id": task_id,
+                            "status": "done",
+                            "result": result,
+                            "created_at": time.time(),
+                        }
+            except Exception as e:
+                logger.exception("_run task %s failed", task_id)
+                with _task_lock:
+                    _task_store[task_id] = {
+                        "task_id": task_id,
+                        "status": "error",
+                        "error": repr(e),  # repr 保留异常类型信息
+                        "created_at": time.time(),
+                    }
+            except BaseException as e:
+                # 非 Exception 异常（SystemExit, KeyboardInterrupt 等）——
+                # 工具可能调用了 sys.exit()，必须捕获，否则线程静默死亡
+                # 导致 task 永远停留在 "running"
+                logger.error("[nt-run] task=%s died with non-Exception: %s %s",
+                             task_id, type(e).__name__, e)
+                with _task_lock:
+                    _task_store[task_id] = {
+                        "task_id": task_id,
+                        "status": "error",
+                        "error": f"{type(e).__name__}: {e}",
+                        "created_at": time.time(),
+                    }
 
-            # Bridge 直连 DCC MCP Server（非 Gateway），用 raw tool name
-            # Gateway 侧注册为 mcp_{server_name}_run_python，Bridge 直接用 run_python
+        with _task_lock:
+            _task_store[task_id] = {
+                "task_id": task_id,
+                "status": "running",
+                "created_at": time.time(),
+                "cancel_event": cancel_event,
+            }
 
-            # 注入参数到代码
-            import json as _json
-            injected_code = (
-                f"# --- nexus-tool args injected ---\n"
-                f"_nexus_tool_args = {_json.dumps(run_args, ensure_ascii=False)}\n"
-                f"{code}"
-            )
-
-            try:
-                try:
-                    from .mcp_bridge import MCPBridgeClient
-                except ImportError:
-                    from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
-                bridge = MCPBridgeClient.get_instance()
-                if not bridge.is_connected:
-                    connected = bridge.connect()
-                    if not connected:
-                        return _err(req_id, f"无法连接到 {dcc} MCP Server（{server_name}），请确认 {dcc} 已启动且 MCP 插件已加载")
-
-                result = bridge.call_tool(
-                    "run_python",
-                    {"code": injected_code},
-                    timeout=120,
-                )
-                return _ok(req_id, {
-                    "success": not result.get("isError", False),
-                    "data": result,
-                    "dcc": dcc,
-                })
-            except ImportError:
-                return _err(req_id, "MCP Bridge 模块未加载，无法路由到 DCC")
-            except Exception as exc:
-                logger.exception("mcp bridge call failed")
-                return _err(req_id, f"DCC 执行失败 ({dcc}): {exc}")
+        threading.Thread(target=_run, daemon=True, name=f"nexus-tool-run-{task_id}").start()
+        return _ok(req_id, {"task_id": task_id, "status": "started"})
 
     except Exception as e:
         logger.exception("nexus-tool.run failed")
         return _err(req_id, str(e))
+
+
+# ── 统一执行入口 ────────────────────────────────────────────────────────
+
+def _execute_tool_sync(
+    ntd: Any,
+    run_args: Dict[str, Any],
+    func_name: str,
+    cancel_event: threading.Event,
+    task_id: str = "",
+) -> Dict[str, Any]:
+    """在后台线程中执行工具。
+
+    - DCC 工具 → MCP Bridge → DCC MCP Server run_python
+    - 通用工具 → subprocess + importlib wrapper
+
+    task_id 用于通用工具的 cancel（注册子进程句柄）。
+    """
+    target_dccs = [d.lower() for d in (ntd.target_dccs or [])]
+    is_general = "general" in target_dccs or not target_dccs
+
+    if is_general:
+        logger.info("[nt-exec] task=%s → general tool", task_id)
+        sys.stderr.flush()
+        return _execute_general_tool(ntd, run_args, func_name, task_id=task_id)
+    else:
+        logger.info("[nt-exec] task=%s → DCC tool dccs=%s", task_id, target_dccs)
+        sys.stderr.flush()
+        return _execute_dcc_tool(ntd, run_args, func_name)
+
+
+def _execute_dcc_tool(
+    ntd: Any,
+    run_args: Dict[str, Any],
+    func_name: str,
+) -> Dict[str, Any]:
+    """DCC 工具执行：MCP Bridge → DCC MCP Server run_python。
+
+    工具代码通过 exec(code, ns) 在 DCC 预填充命名空间中执行
+    （含 bpy/S/C/D/L/W 等上下文变量），因此不能使用 importlib
+    （importlib 会让模块在隔离命名空间中运行，丢失上下文变量）。
+
+    通过显式设置 __name__ = '__nexus_dcc_tool__' 避免
+    if __name__ == "__main__" 守卫被意外触发。
+    所有 DCC（Blender/Maya/UE/Houdini/Max/ComfyUI）统一流程。
+    """
+    import json as _json
+    from pathlib import Path
+
+    target_dccs = [d.lower() for d in (ntd.target_dccs or []) if d != "general"]
+    dcc = target_dccs[0] if target_dccs else "blender"
+    server_name = _DCC_TO_MCP_SERVER.get(dcc)
+    if server_name is None:
+        raise RuntimeError(f"不支持的 DCC: {dcc}（未知: {list(_DCC_TO_MCP_SERVER)})")
+
+    manifest = ntd.manifest or {}
+    impl = manifest.get("implementation", {})
+    entry_file = impl.get("entry", "main.py")
+    tool_dir = Path(ntd.nexus_tool_path)
+    main_py = tool_dir / entry_file
+    if not main_py.is_file():
+        raise RuntimeError(f"入口文件不存在: {main_py}")
+
+    code = main_py.read_text(encoding="utf-8")
+    logger.info("[nt-exec:dcc] dcc=%s tool=%s func=%s code_len=%d",
+                dcc, ntd.id, func_name, len(code))
+    sys.stderr.flush()
+
+    # ── Blender 端 sys.path 准备 ─────────────────────────────────────────
+    # 工具脚本经常 `import artifex_nexus_sdk` 或 import 本地模块。
+    # DCC 进程的 Python 默认不包含 sdk 路径，需要在 exec 前显式注入：
+    #   * sdk_parent: artifex_nexus_sdk 所在父目录（与通用工具走的 _get_sdk_path 一致）
+    #   * tool_dir:   工具自己的目录（便于 `from helpers import ...`）
+    # 用 sidecar 进程自己的解析结果——前提是 dev 模式下 sidecar 与 Blender 在
+    # 同一台机器（这正是当前 dev/prod 的唯一拓扑）。
+    sdk_parent = _get_sdk_path()
+    extra_paths = [str(tool_dir), sdk_parent]
+    path_prep = (
+        "# --- ensure sdk + tool_dir on sys.path ---\n"
+        "import sys as _sys\n"
+        f"for _p in {_json.dumps(extra_paths)}:\n"
+        "    if _p and _p not in _sys.path:\n"
+        "        _sys.path.insert(0, _p)\n"
+    )
+
+    # 注入参数 + 显式 __name__ / __file__ + 自动调用入口函数。
+    # __name__ 显式设置防止 if __name__ == "__main__" 被触发；
+    # __file__ 显式设置以支持工具脚本 `os.path.dirname(__file__)` 找同目录资源
+    # （Blender 的 run_python 走 exec(code, ns)，默认 __file__ 不存在）。
+    # ─────────────────────────────────────────────────────────────────────
+    # 参数序列化为 Python 字面量必须用 repr()，不能用 json.dumps()！
+    # JSON: false/true/null  →  Python: False/True/None
+    # 历史 bug：曾用 json.dumps 注入，传 boolean 参数（如 skip_default_names=false）
+    # 直接在 exec 时炸出 `NameError: name 'false' is not defined`。
+    # repr() 对 dict/list/str/int/float/bool/None 是 Python 字面量的正确序列化方式，
+    # 且 repr() 对常规结构的输出本身又是合法 Python——可直接被 exec 反序列化。
+    # 保留 raw code 拼接方式确保在 DCC exec() 的预填充命名空间中运行。
+    # ─────────────────────────────────────────────────────────────────────
+    args_literal = _python_literal(run_args)
+    injected_code = (
+        f"# --- nexus-tool context injected ---\n"
+        f"{path_prep}"
+        f"__name__ = '__nexus_dcc_tool__'\n"
+        f"__file__ = {_json.dumps(str(main_py))}\n"
+        f"_nexus_tool_args = {args_literal}\n"
+        f"{code}\n"
+        f"# --- auto-call entry function ---\n"
+        f"import json as _json\n"
+        f"try:\n"
+        f"    _nexus_tool_result = {func_name}(**_nexus_tool_args)\n"
+        f"    print(_json.dumps(_nexus_tool_result, ensure_ascii=False, default=str))\n"
+        f"except Exception as _nexus_tool_err:\n"
+        f"    import traceback as _tb\n"
+        f"    print(_json.dumps({{'success': False, 'error': str(_nexus_tool_err), 'error_type': type(_nexus_tool_err).__name__, 'traceback': _tb.format_exc()}}, ensure_ascii=False))\n"
+    )
+
+    # MCP Bridge 直连（不经过 Gateway）
+    try:
+        from .mcp_bridge import MCPBridgeClient
+    except ImportError:
+        from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
+
+    bridge = MCPBridgeClient.get_instance()
+    logger.info("[nt-exec:dcc] dcc=%s bridge.is_connected=%s ws=%s",
+                dcc, bridge.is_connected, bridge._ws is not None)
+    sys.stderr.flush()
+
+    if not bridge.is_connected:
+        logger.info("[nt-exec:dcc] dcc=%s → bridge.connect()...", dcc)
+        sys.stderr.flush()
+        connected = bridge.connect()
+        logger.info("[nt-exec:dcc] dcc=%s → bridge.connect()=%s", dcc, connected)
+        sys.stderr.flush()
+        if not connected:
+            raise RuntimeError(
+                f"无法连接到 {dcc} MCP Server（{server_name}），"
+                f"请确认 {dcc} 已启动且 MCP 插件已加载"
+            )
+
+    logger.info("[nt-exec:dcc] dcc=%s → bridge.call_tool(timeout=120)... code_len=%d", dcc, len(injected_code))
+    sys.stderr.flush()
+    result = bridge.call_tool("run_python", {"code": injected_code}, timeout=120)
+    logger.info("[nt-exec:dcc] dcc=%s ← bridge.call_tool returned isError=%s", dcc, result.get("isError"))
+    sys.stderr.flush()
+    return {"success": not result.get("isError", False), "data": result, "dcc": dcc}
+
+
+def _execute_general_tool(
+    ntd: Any,
+    run_args: Dict[str, Any],
+    func_name: str,
+    task_id: str = "",
+) -> Dict[str, Any]:
+    """通用工具执行：subprocess + importlib 包装器。
+
+    特性 / 修复：
+      1. SDK 路径注入（artifex_nexus_sdk 可 import）
+      2. 用 importlib 加载工具模块，绕过 ``if __name__ == "__main__"`` 守卫
+      3. 参数通过 stdin (UTF-8 bytes) 传给入口函数 ``**kwargs``
+      4. **Windows 编码兜底**：父进程用 bytes 管道，子进程强制 UTF-8
+         （PYTHONIOENCODING/PYTHONUTF8/-X utf8 三重保险）
+      5. **Marker 协议**：约定 stdout 中的
+         ``===NEXUS_RESULT_BEGIN===\\n<json>\\n===NEXUS_RESULT_END===``
+         作为结果包裹，工具自身可自由 print 日志而不污染 JSON 解析。
+         向后兼容：未带 marker 时退回"取最后一行 JSON"。
+      6. **tempdir wrapper**：临时 wrapper 写到 ``tempfile.mkdtemp`` 而非工具源码目录，
+         避免污染只读官方工具目录、并发同名工具互相覆盖。
+      7. **进程树管理**：Windows 下用 ``CREATE_NEW_PROCESS_GROUP`` 启动；
+         cancel 时调用 :func:`_kill_process_tree` 递归杀子进程（taskkill /F /T）。
+      8. **超时来源**：优先 manifest.implementation.timeout，其次 app.settings
+         ``nexusToolDefaultTimeoutSec``，最后 fallback 120s。
+
+    task_id 用于将 subprocess.Popen 句柄注册到 _task_store，
+    供 _handle_nexus_tool_cancel 终止子进程。
+    """
+    import json as _json
+    import os as _os
+    import shutil as _shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    # ── 解析 manifest / 路径 ──
+    manifest = ntd.manifest or {}
+    impl = manifest.get("implementation", {})
+    entry_file = impl.get("entry", "main.py")
+    tool_dir = Path(ntd.nexus_tool_path)
+    main_py = tool_dir / entry_file
+    if not main_py.is_file():
+        raise RuntimeError(f"入口文件不存在: {main_py}")
+
+    sdk_parent = _get_sdk_path()
+
+    # ── 解析超时（manifest > app settings > fallback 120）──
+    timeout_sec = _resolve_timeout(impl)
+
+    logger.info(
+        "[nt-exec:general] task=%s tool_dir=%s main_py=%s sdk=%s func=%s timeout=%ds",
+        task_id, tool_dir, main_py.name, sdk_parent, func_name, timeout_sec,
+    )
+
+    # ── 生成临时 wrapper.py（写到独立 tempdir，避免污染工具目录）──
+    # 父进程使用 bytes 管道 + UTF-8，子进程通过 PYTHONIOENCODING/PYTHONUTF8/-X utf8
+    # 三重保险确保 stdout/stderr 全程 UTF-8。
+    # MARKER 协议：工具任意 print 日志，最终 JSON 结果由 wrapper 包裹在 BEGIN/END
+    # 之间，父进程严格按 marker 解析，避免日志污染 JSON。
+    wrapper_code = f'''\
+import sys, json, os, io, traceback
+
+_BEGIN = "===NEXUS_RESULT_BEGIN==="
+_END   = "===NEXUS_RESULT_END==="
+
+# ══ 强制 stdout/stderr 使用 UTF-8（即便父进程没设环境变量也兜底）══
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+# ══ SDK 路径 + 工具目录注入 ══
+sys.path.insert(0, {_json.dumps(sdk_parent)})
+sys.path.insert(0, {_json.dumps(str(tool_dir))})
+
+# ══ importlib 导入主模块（绕过 __name__ 问题）══
+import importlib.util
+spec = importlib.util.spec_from_file_location("_nexus_tool", {_json.dumps(str(main_py))})
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+# ══ 从 stdin 读取参数（父进程以 UTF-8 bytes 写入）══
+try:
+    args_raw = sys.stdin.buffer.read().decode("utf-8")
+except Exception:
+    args_raw = sys.stdin.read()
+args = json.loads(args_raw) if args_raw else {{}}
+
+def _emit(payload):
+    """把结果用 BEGIN/END marker 包裹写到 stdout。"""
+    sys.stdout.write("\\n" + _BEGIN + "\\n")
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, default=str))
+    sys.stdout.write("\\n" + _END + "\\n")
+    sys.stdout.flush()
+
+# ══ 调用入口函数 ══
+func = getattr(mod, {_json.dumps(func_name)})
+try:
+    result = func(**args)
+    _emit(result)
+except SystemExit as se:
+    # 工具调用 sys.exit() —— 拦截并以 JSON 形式上报
+    _emit({{"success": False, "error": "tool sys.exit({{}})".format(se.code), "error_type": "SystemExit"}})
+    sys.exit(0)
+except Exception as e:
+    sys.stderr.write(traceback.format_exc())
+    _emit({{"success": False, "error": str(e), "error_type": type(e).__name__}})
+'''
+
+    workdir = Path(tempfile.mkdtemp(prefix=f"nexus-tool-{task_id or 'anon'}-"))
+    wrapper_py = workdir / "_nexus_wrapper.py"
+    wrapper_py.write_text(wrapper_code, encoding="utf-8")
+    logger.info("[nt-exec:general] task=%s wrapper=%s size=%d", task_id, wrapper_py, len(wrapper_code))
+
+    # ── 子进程环境：强制 UTF-8 输入输出，避免 Windows GBK 解码失败 ──
+    child_env = {**_os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+
+    # Windows 下创建新进程组，cancel 时方便用 taskkill /T 递归杀
+    popen_kwargs: Dict[str, Any] = dict(
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(tool_dir),  # 工具自己的相对路径仍然可用
+        env=child_env,
+    )
+    if _os.name == "nt":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+
+    proc: Optional[subprocess.Popen] = None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(wrapper_py)],
+            **popen_kwargs,
+        )
+        logger.info("[nt-exec:general] task=%s subprocess pid=%d", task_id, proc.pid)
+
+        # 注册子进程句柄到 _task_store，供 cancel 时 kill
+        if task_id:
+            with _task_lock:
+                t = _task_store.get(task_id)
+                if t:
+                    t["subprocess_handle"] = proc
+
+        logger.info("[nt-exec:general] task=%s communicating (timeout=%ds)...", task_id, timeout_sec)
+        stdin_bytes = _json.dumps(run_args, ensure_ascii=False).encode("utf-8")
+        stdout_b, stderr_b = proc.communicate(input=stdin_bytes, timeout=timeout_sec)
+
+        # 兜底防 None
+        stdout = (stdout_b or b"").decode("utf-8", errors="replace")
+        stderr = (stderr_b or b"").decode("utf-8", errors="replace")
+
+        logger.info(
+            "[nt-exec:general] task=%s subprocess exited rc=%s stdout_len=%d stderr_len=%d",
+            task_id, proc.returncode, len(stdout), len(stderr),
+        )
+
+        result_obj = _parse_tool_stdout(stdout)
+
+        if proc.returncode == 0 and result_obj is not None:
+            return result_obj
+
+        # 异常路径：rc != 0 或 stdout 没拿到合法 JSON
+        logger.warning(
+            "[nt-exec:general] task=%s non-zero/invalid rc=%s stderr=%s",
+            task_id, proc.returncode, stderr[:200],
+        )
+        return {
+            "success": False,
+            "data": {
+                "stdout": stdout,
+                "stderr": stderr,
+                "returncode": proc.returncode,
+            },
+            "error": (
+                stderr.strip()
+                or (f"工具输出未找到合法结果（exit {proc.returncode}）"
+                    if result_obj is None else f"exit code {proc.returncode}")
+            ),
+        }
+    except subprocess.TimeoutExpired:
+        if proc is not None:
+            _kill_process_tree(proc.pid)
+            try:
+                proc.communicate(timeout=5)  # 回收僵尸进程
+            except Exception:
+                pass
+        _clear_subprocess_handle(task_id)
+        raise RuntimeError(f"Nexus-Tool 执行超时（{timeout_sec}s）")
+    except FileNotFoundError:
+        _clear_subprocess_handle(task_id)
+        raise RuntimeError("Python 解释器不可用")
+    finally:
+        _clear_subprocess_handle(task_id)
+        # 清理 tempdir（含 wrapper）
+        try:
+            _shutil.rmtree(workdir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+# ── 结果解析 / 进程树管理 / 超时解析 ───────────────────────────────────
+
+_RESULT_BEGIN_MARKER = "===NEXUS_RESULT_BEGIN==="
+_RESULT_END_MARKER = "===NEXUS_RESULT_END==="
+
+
+def _parse_tool_stdout(stdout: str) -> Optional[Dict[str, Any]]:
+    """从工具子进程的 stdout 中解析结果 dict。
+
+    顺序：
+      1. 优先按 BEGIN/END marker 抠出中间 JSON（新协议，强健）。
+      2. 退回"整个 stdout 是 JSON"（兼容旧工具）。
+      3. 退回"最后一行是 JSON"（兼容工具自带 print 日志）。
+    任一失败都会返回 None，让调用方走异常分支。
+    """
+    import json as _json
+
+    if not stdout:
+        return None
+
+    # 1) marker 协议
+    if _RESULT_BEGIN_MARKER in stdout and _RESULT_END_MARKER in stdout:
+        try:
+            after_begin = stdout.split(_RESULT_BEGIN_MARKER, 1)[1]
+            payload = after_begin.split(_RESULT_END_MARKER, 1)[0].strip()
+            if payload:
+                return _json.loads(payload)
+        except (ValueError, _json.JSONDecodeError) as e:
+            logger.warning("[nt-exec:general] marker JSON 解析失败: %s", e)
+
+    # 2) 整个 stdout 是 JSON
+    s = stdout.strip()
+    if s:
+        try:
+            return _json.loads(s)
+        except _json.JSONDecodeError:
+            pass
+
+        # 3) 最后一行
+        last_line = s.splitlines()[-1] if s else ""
+        try:
+            return _json.loads(last_line)
+        except _json.JSONDecodeError:
+            return None
+
+    return None
+
+
+def _resolve_timeout(impl: Dict[str, Any]) -> int:
+    """决定本次执行的超时（秒）。
+
+    优先级：manifest.implementation.timeout > app.settings.nexusToolDefaultTimeoutSec > 120
+    """
+    # manifest 级
+    raw = impl.get("timeout") if isinstance(impl, dict) else None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        v = int(raw)
+        if 1 <= v <= 24 * 60 * 60:
+            return v
+    # app settings 级
+    try:
+        try:
+            from . import app_settings as _as_mod
+        except ImportError:
+            import app_settings as _as_mod  # type: ignore[no-redef]
+        s = _as_mod.get_runtime_settings()
+        v = s.get("nexusToolDefaultTimeoutSec")
+        if isinstance(v, int) and 1 <= v <= 24 * 60 * 60:
+            return v
+    except Exception as e:
+        logger.debug("[nt-exec:general] 读取 app settings 失败，回 fallback: %s", e)
+    return 120
+
+
+def _resolve_max_concurrent() -> int:
+    """读取 app.settings 里的并发上限，fallback 到模块常量。"""
+    try:
+        try:
+            from . import app_settings as _as_mod
+        except ImportError:
+            import app_settings as _as_mod  # type: ignore[no-redef]
+        s = _as_mod.get_runtime_settings()
+        v = s.get("nexusToolMaxConcurrent")
+        if isinstance(v, int) and 1 <= v <= 64:
+            return v
+    except Exception:
+        pass
+    return MAX_CONCURRENT_TASKS
+
+
+def _python_literal(obj: Any) -> str:
+    """把 Python 对象序列化为可被 ``exec`` 安全解析的 Python 字面量字符串。
+
+    专门给 :func:`_execute_dcc_tool` 注入 ``_nexus_tool_args`` 时用——
+    必须使用 Python 字面量（True/False/None），不能用 JSON 字面量
+    （true/false/null），否则在 Blender exec 时会抛
+    ``NameError: name 'false' is not defined``。
+
+    实现：优先 :func:`repr`（dict/list/str/int/float/bool/None 都已是合法 Python
+    字面量；嵌套结构也由 ``repr`` 递归处理）。对极少数 ``repr`` 无法表达的对象
+    （如 ``datetime``、自定义类实例），用 ``json.dumps`` 序列化后再替换
+    ``true/false/null`` 兜底——前端能传过来的 args 99.9% 是基础类型，
+    fallback 路径很少走到。
+    """
+    try:
+        text = repr(obj)
+        # 双向校验：repr 出来的能被 ast.literal_eval 反向解析才算合法 Python 字面量
+        import ast as _ast
+        _ast.literal_eval(text)
+        return text
+    except Exception:
+        # fallback：JSON 序列化 + token 替换。注意只替换裸 token（前后是边界）
+        import json as _json2
+        import re as _re
+        text = _json2.dumps(obj, ensure_ascii=False, default=str)
+        text = _re.sub(r"\btrue\b", "True", text)
+        text = _re.sub(r"\bfalse\b", "False", text)
+        text = _re.sub(r"\bnull\b", "None", text)
+        return text
+
+
+def _kill_process_tree(pid: int) -> None:
+    """递归终止进程及其所有子进程（Windows 用 taskkill /F /T；POSIX 用 process group）。
+
+    设计：尽力而为，所有异常被吞——cancel 只承诺"发起终止"。
+    优先级：psutil（如果用户装了）→ 平台原生命令。
+    """
+    import os as _os
+    import subprocess as _sp
+
+    if pid <= 0:
+        return
+
+    # 优先 psutil（最干净）
+    try:
+        import psutil  # type: ignore
+        try:
+            proc = psutil.Process(pid)
+            children = proc.children(recursive=True)
+            for c in children:
+                try:
+                    c.kill()
+                except Exception:
+                    pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return
+        except psutil.NoSuchProcess:
+            return
+    except ImportError:
+        pass
+
+    # 回退到平台命令
+    try:
+        if _os.name == "nt":
+            # /T 递归；/F 强制；CREATE_NO_WINDOW 避免弹黑框
+            CREATE_NO_WINDOW = 0x08000000
+            _sp.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                check=False,
+                stdout=_sp.DEVNULL,
+                stderr=_sp.DEVNULL,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        else:
+            # POSIX：用 SIGKILL 进程组
+            try:
+                _os.killpg(_os.getpgid(pid), 9)  # SIGKILL
+            except Exception:
+                _os.kill(pid, 9)
+    except Exception as e:
+        logger.warning("[nt-cancel] kill_process_tree pid=%s 失败: %s", pid, e)
+
+
+def _clear_subprocess_handle(task_id: str) -> None:
+    """从 _task_store 中移除子进程句柄。"""
+    if not task_id:
+        return
+    with _task_lock:
+        t = _task_store.get(task_id)
+        if t:
+            t.pop("subprocess_handle", None)
+
+
+# ── 轮询 / 取消 / 确认 ─────────────────────────────────────────────────
+
+def _handle_nexus_tool_result(req_id: Any, params: dict) -> dict:
+    """nexus-tool.result(task_id) → {task_id, status, result?, error?}。
+
+    轮询任务状态。status: "running" | "done" | "error" | "cancelled"。
+    顺便触发过期任务 GC（成本 O(N)，N 通常 < 20）。
+    """
+    task_id = params.get("task_id")
+    if not task_id:
+        return _err_invalid_params(req_id, "缺少参数: task_id")
+
+    # 不阻塞 result 主流程：GC 在锁内极快（无 I/O），可以同步调
+    _cleanup_expired_tasks()
+
+    with _task_lock:
+        t = _task_store.get(task_id)
+
+    if t is None:
+        logger.warning("[nt-result] task=%s NOT_FOUND (expired?)", task_id)
+        return _err(req_id, f"task 不存在或已过期: {task_id}")
+
+    return _ok(req_id, {
+        "task_id": task_id,
+        "status": t.get("status"),
+        "result": t.get("result"),
+        "error": t.get("error"),
+    })
+
+
+def _handle_nexus_tool_cancel(req_id: Any, params: dict) -> dict:
+    """nexus-tool.cancel(task_id) → {task_id, status: "cancelling"}。
+
+    取消运行中的任务：设置 cancel_event + kill 子进程（如适用）。
+    """
+    task_id = params.get("task_id")
+    if not task_id:
+        return _err_invalid_params(req_id, "缺少参数: task_id")
+
+    with _task_lock:
+        t = _task_store.get(task_id)
+
+    if t is None:
+        return _err(req_id, f"task 不存在: {task_id}")
+
+    if t.get("status") == "done":
+        return _err(req_id, "任务已完成，无需取消")
+    if t.get("status") in ("error", "cancelled"):
+        return _err(req_id, f"任务已结束（{t.get('status')}），无需取消")
+    if t.get("status") != "running":
+        return _err(req_id, f"无法取消状态为 {t.get('status')} 的任务")
+
+    t["cancel_event"].set()
+
+    # 如果有子进程句柄，递归杀进程树（Windows 下 proc.kill() 只能杀 wrapper 进程，
+    # 工具自己 spawn 的孙子进程会成为孤儿）。
+    subp = t.get("subprocess_handle")
+    if subp is not None:
+        try:
+            _kill_process_tree(subp.pid)
+        except Exception as e:
+            logger.warning("[nt-cancel] task=%s kill_process_tree 失败: %s", task_id, e)
+            try:
+                subp.kill()
+            except Exception:
+                pass
+
+    return _ok(req_id, {"task_id": task_id, "status": "cancelling"})
+
+
+def _handle_nexus_tool_ack(req_id: Any, params: dict) -> dict:
+    """nexus-tool.ack(task_id) → {task_id, acked: true}。
+
+    前端确认已收到结果，立即从 _task_store 清理。
+    """
+    task_id = params.get("task_id")
+    if not task_id:
+        return _err_invalid_params(req_id, "缺少参数: task_id")
+
+    with _task_lock:
+        _task_store.pop(task_id, None)
+
+    return _ok(req_id, {"task_id": task_id, "acked": True})
 
 
 # fetch_types 缓存：避免每次调用都阻塞 sidecar 30s 查询 DCC
@@ -630,6 +1340,12 @@ def _fetch_types_via_direct_ws(dcc: str, code: str) -> dict:
             if "error" in resp:
                 return {"success": False, "error": f"MCP 握手失败: {resp['error']}"}
 
+            # MCP 协议：发送 initialized 通知
+            await _asyncio.wait_for(
+                ws.send(_json.dumps({"jsonrpc": "2.0", "method": "initialized"})),
+                timeout=3.0,
+            )
+
             # 发送 tools/call run_python
             call_msg = {
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -684,6 +1400,9 @@ NEXUS_TOOL_METHODS = {
     "nexus-tool.unfavorite": _handle_nexus_tool_unfavorite,
     "nexus-tool.publish": _handle_nexus_tool_publish,
     "nexus-tool.run": _handle_nexus_tool_run,
+    "nexus-tool.result": _handle_nexus_tool_result,
+    "nexus-tool.cancel": _handle_nexus_tool_cancel,
+    "nexus-tool.ack": _handle_nexus_tool_ack,
     "nexus-tool.fetch_types": _handle_nexus_tool_fetch_types,
     "nexus-tool.batch": _handle_nexus_tool_batch,
 }

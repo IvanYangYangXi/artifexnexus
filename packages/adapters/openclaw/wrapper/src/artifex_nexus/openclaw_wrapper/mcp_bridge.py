@@ -25,6 +25,15 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+# 确保 stderr 可见（与 nexus_tool_rpc.py 相同原因）
+logger.propagate = False
+logger.setLevel(logging.DEBUG)  # mcp_bridge 使用 DEBUG 级别输出诊断
+if not logger.handlers:
+    import sys as _sys
+    _h = logging.StreamHandler(_sys.stderr)
+    _h.setFormatter(logging.Formatter("[sidecar.mcp] %(message)s"))
+    _h.setLevel(logging.DEBUG)
+    logger.addHandler(_h)
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
@@ -46,6 +55,51 @@ try:
     _HAS_WEBSOCKETS = True
 except ImportError:
     pass
+
+
+# ── 错误分类辅助 ────────────────────────────────────────────────────────
+# 用于判断是否值得重连重试。"网络层"失败（连接关闭/重置/拒绝）会重试；
+# 业务错误（MCP error / 超时）不重试。
+
+_CONNECTION_FAILURE_KINDS = frozenset({
+    "connection_closed",  # ConnectionClosed / ConnectionClosedOK / ConnectionClosedError
+    "no_ws",              # 连接已被先前调用清掉
+    "connection_reset",   # ECONNRESET / WinError 10054
+    "connection_refused", # ECONNREFUSED
+    "broken_pipe",        # EPIPE
+})
+
+
+def _classify_exception(e: BaseException) -> str:
+    """把异常归类成可重试 / 不可重试。
+
+    返回的字符串会被存到 result["_error_kind"]；调用方据此决定是否重试。
+    """
+    # 优先按类型识别 websockets.exceptions.ConnectionClosed*
+    cls_name = type(e).__name__
+    if cls_name in ("ConnectionClosed", "ConnectionClosedOK", "ConnectionClosedError"):
+        return "connection_closed"
+    if isinstance(e, ConnectionResetError):
+        return "connection_reset"
+    if isinstance(e, ConnectionRefusedError):
+        return "connection_refused"
+    if isinstance(e, BrokenPipeError):
+        return "broken_pipe"
+    if isinstance(e, ConnectionError):
+        return "connection_closed"
+    # 再用消息文本兜底（不同 websockets 版本异常字符串包含 "going away" / "1001"）
+    msg = str(e).lower()
+    if "going away" in msg or "1001" in msg or "1006" in msg or "connection closed" in msg:
+        return "connection_closed"
+    return "other"
+
+
+def _is_connection_failure(result: Dict[str, Any]) -> bool:
+    """判断 :meth:`_call_tool_once` 的返回结果是否是值得重连的网络层失败。"""
+    if not result.get("isError"):
+        return False
+    kind = result.get("_error_kind")
+    return kind in _CONNECTION_FAILURE_KINDS
 
 
 # ── MCP 桥接客户端 ──────────────────────────────────────────────────────
@@ -140,8 +194,14 @@ class MCPBridgeClient:
                 future = asyncio.run_coroutine_threadsafe(
                     self._async_connect(timeout), self._loop
                 )
-                self._ws = future.result(timeout=timeout + 2)
-                self._connected = True
+                # _async_connect 内部已经把 self._ws / self._connected 设上
+                # （必须在 reader create_task 之前设，见 _async_connect 注释）。
+                # 这里只是同步等待握手完成；返回值仅作冗余确认，不再覆盖状态。
+                future.result(timeout=timeout + 2)
+                if self._ws is None or not self._connected:
+                    # 理论上不会进入；防御 _async_connect 内部异常但未抛
+                    logger.warning("connect: _async_connect 返回但状态不一致")
+                    return False
                 logger.info(f"已连接 Blender MCP Server: {self.server_address}")
                 return True
             except Exception as e:
@@ -178,8 +238,22 @@ class MCPBridgeClient:
 
         logger.info(f"MCP 握手成功: {response.get('result', {}).get('serverInfo', {})}")
 
+        # MCP 协议要求：收到 initialize 响应后，客户端必须发送 initialized 通知
+        await ws.send(json.dumps({"jsonrpc": JSONRPC_VERSION, "method": "initialized"}))
+        logger.debug("MCP initialized 通知已发送")
+
         # 启动后台消息 reader（进程级单例，WS 连接存活期间持续运行）
+        # ──────────────────────────────────────────────────────────────
+        # 重要：必须在 create_task 之前把 self._ws / self._connected 设上！
+        # 否则 reader 协程被调度时 while-loop 条件 (self._connected and self._ws)
+        # 会立即为 False，reader 启动即退出 → 后续 _async_call_tool 永远在
+        # 空队列上 .get()，导致前端"一直转圈"。
+        # （历史 bug：上层 connect() 在 run_coroutine_threadsafe.result() 后才
+        # 设 self._connected=True，时序上晚于 reader 的首次 while 判断。）
+        # ──────────────────────────────────────────────────────────────
         import asyncio as _asyncio
+        self._ws = ws
+        self._connected = True
         self._response_queue = _asyncio.Queue()
         self._reader_task = _asyncio.create_task(self._message_reader())
 
@@ -253,6 +327,7 @@ class MCPBridgeClient:
 
                 # trigger_event 广播 → 回调
                 if isinstance(msg, dict) and msg.get("type") == "trigger_event":
+                    logger.debug("[mcp:recv] trigger_event event=%s", msg.get("event"))
                     if self._trigger_handler is not None:
                         try:
                             self._trigger_handler(msg)
@@ -263,6 +338,7 @@ class MCPBridgeClient:
                 # JSON-RPC 响应 → 入队
                 if isinstance(msg, dict) and msg.get("jsonrpc") == JSONRPC_VERSION:
                     if self._response_queue is not None:
+                        logger.debug("[mcp:recv] rpc id=%s method=%s", msg.get("id"), msg.get("method", ""))
                         await self._response_queue.put(msg)
                     continue
 
@@ -273,6 +349,15 @@ class MCPBridgeClient:
             self._connected = False
             self._ws = None
             self._reader_task = None
+            # 向队列推入 sentinel 唤醒所有等待 _async_call_tool 的协程。
+            # 历史 bug：曾用 `if was_connected` 守卫，但 race 下 connect() 还没把
+            # _connected 设 True 就被 reader 看到 False，导致 sentinel 漏推 →
+            # _async_call_tool 永远 await get() → 前端"一直转圈"。
+            if self._response_queue is not None:
+                try:
+                    self._response_queue.put_nowait(None)
+                except Exception:
+                    pass
 
     # ── 工具调用 ──
 
@@ -288,6 +373,16 @@ class MCPBridgeClient:
 
         Returns:
             MCP tools/call 响应 result 字段
+
+        自动重连策略：
+          当首次调用因 ``ConnectionClosed``（含 1001 ``Server shutting down``）
+          或 ``ConnectionError`` 失败时，自动 ``disconnect → connect → 重试一次``。
+          这样在 DCC 端 addon reload / 用户重启 MCP server 等场景下，前端不会
+          看到 "received 1001 (going away)" 之类的原始 ws 错误。
+
+          仅对 **网络层未送达** 错误重试，业务错误（MCP error / 超时）不重试，
+          避免幂等性问题（即便 ``tools/call`` 在多数情况下幂等，超时往往说明
+          Blender 主线程在跑，重试会叠加阻塞）。
         """
         if not self._connected:
             if not self.connect():
@@ -299,11 +394,50 @@ class MCPBridgeClient:
                     "isError": True,
                 }
 
+        # 首次尝试
+        result = self._call_tool_once(tool_name, arguments, timeout)
+        if not _is_connection_failure(result):
+            return result
+
+        # 网络层失败 → 重连一次再试
+        logger.warning(
+            "[mcp:call] tool=%s 首次失败 (%s)，尝试重连后重试",
+            tool_name, result.get("_error_kind"),
+        )
+        # 显式清理状态再重连，避免复用死 ws
+        with self._conn_lock:
+            self._connected = False
+            self._ws = None
+        if not self.connect():
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "错误: 与 Blender MCP Server 的连接已断开，且重连失败。"
+                        "请确认 Blender 仍在运行、Artifex Nexus 插件已启用、"
+                        "且 MCP Server 未被手动停止。"
+                    ),
+                }],
+                "isError": True,
+            }
+        result = self._call_tool_once(tool_name, arguments, timeout)
+        # 第二次失败：把 _error_kind 元字段去掉再返回（前端不需要）
+        result.pop("_error_kind", None)
+        return result
+
+    def _call_tool_once(self, tool_name: str, arguments: dict,
+                        timeout: float) -> Dict[str, Any]:
+        """单次工具调用（不重试）。
+
+        失败时返回 isError=True 的 MCP 结果；内部用 ``_error_kind`` 元字段标记
+        失败种类，供 :meth:`call_tool` 决定是否重试。
+        """
         with self._conn_lock:
             if self._ws is None:
                 return {
                     "content": [{"type": "text", "text": "错误: Blender MCP 连接已断开"}],
                     "isError": True,
+                    "_error_kind": "no_ws",
                 }
 
             try:
@@ -314,19 +448,36 @@ class MCPBridgeClient:
                 )
                 return future.result(timeout=timeout + 5)
             except asyncio.TimeoutError:
+                # 超时不重试：很可能 Blender 主线程在跑长任务
                 self._connected = False
                 self._ws = None
                 return {
                     "content": [{"type": "text", "text": f"调用超时 ({timeout}s)"}],
                     "isError": True,
+                    "_error_kind": "timeout",
+                }
+            except ConnectionError as e:
+                # _async_call_tool 主动抛出的"连接已断开"（sentinel 路径）
+                self._connected = False
+                self._ws = None
+                logger.warning("call_tool: connection lost tool=%s: %s", tool_name, e)
+                return {
+                    "content": [{"type": "text", "text": f"连接已断开: {e}"}],
+                    "isError": True,
+                    "_error_kind": "connection_closed",
                 }
             except Exception as e:
                 self._connected = False
                 self._ws = None
-                logger.warning("call_tool: failed tool=%s: %s", tool_name, e)
+                # websockets.ConnectionClosed* 在不同版本下继承关系不一定一致，
+                # 用字符串/类型名兜底识别
+                kind = _classify_exception(e)
+                logger.warning("call_tool: failed tool=%s kind=%s: %s",
+                               tool_name, kind, e)
                 return {
                     "content": [{"type": "text", "text": f"调用失败: {str(e)}"}],
                     "isError": True,
+                    "_error_kind": kind,
                 }
 
     async def _async_call_tool(self, tool_name: str, arguments: dict,
@@ -345,6 +496,7 @@ class MCPBridgeClient:
             },
         }
 
+        logger.info("[mcp:call] → id=%s tool=%s code_len=%d", request_id, tool_name, len(arguments.get("code", "")))
         await self._ws.send(json.dumps(call_msg))
 
         # 从后台 reader 填充的 response_queue 中匹配对应 id 的响应
@@ -361,15 +513,23 @@ class MCPBridgeClient:
             except _asyncio.TimeoutError:
                 raise _asyncio.TimeoutError(f"tools/call {tool_name} 超时 ({timeout}s)")
 
+            # sentinel：_message_reader 推送 None 表示连接已断开
+            if msg is None:
+                logger.warning("[mcp:call] ← id=%s sentinel (连接断开)", request_id)
+                raise ConnectionError("Blender MCP Server 连接已断开")
+
+            logger.debug("[mcp:call] dequeue id=%s expect=%s", msg.get("id"), request_id)
             # 只处理匹配的响应，其他消息已被 _message_reader 分发
             if msg.get("id") == request_id:
                 if "error" in msg:
                     raise RuntimeError(
                         f"MCP 错误: {msg['error'].get('message', str(msg['error']))}"
                     )
+                logger.info("[mcp:call] ← id=%s OK", request_id)
                 return msg.get("result", {})
             else:
                 # 不匹配的响应放回队列（极少情况，如请求超时后的迟到响应）
+                logger.debug("[mcp:call] requeue id=%s (expecting %s)", msg.get("id"), request_id)
                 self._response_queue.put_nowait(msg)
 
 
@@ -417,8 +577,8 @@ def check_blender_mcp_connection(timeout: float = 3.0) -> Dict[str, Any]:
     # 尝试连接（timeout 较短，仅探测）
     success = client.connect(timeout=timeout)
     if success:
-        # 连接成功后断开（检测不应保持连接）
-        client.disconnect()
+        # 保持连接不断开：bridge 需要持久连接接收 Blender trigger_event 广播。
+        # 之前这里会 disconnect() 导致触发通道被切断。
         return {"connected": True, "address": address, "error": None}
     else:
         return {

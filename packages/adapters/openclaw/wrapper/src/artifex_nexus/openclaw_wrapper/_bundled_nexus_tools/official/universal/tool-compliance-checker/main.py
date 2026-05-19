@@ -10,7 +10,7 @@ ArtClaw Tool Compliance Checker v3.0
 """
 # ── SDK 头 ──
 import os, json
-import artclaw_sdk as sdk
+import artifex_nexus_sdk as sdk
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
@@ -31,7 +31,7 @@ def _resolve_path_variables() -> Dict[str, str]:
     """
     解析路径变量映射表。与 manifest.json filters.path 中的 $variable 对应。
     """
-    cfg_path = Path.home() / ".artclaw" / "config.json"
+    cfg_path = Path.home() / ".artifexnexus" / "config" / "artifexnexus.json"
     project_root = ""
 
     try:
@@ -44,7 +44,7 @@ def _resolve_path_variables() -> Dict[str, str]:
     return {
         "$skills_installed": str(Path.home() / ".openclaw" / "workspace" / "skills"),
         "$project_root": project_root,
-        "$tools_dir": str(Path.home() / ".artclaw" / "tools"),
+        "$tools_dir": str(Path.home() / ".artifexnexus" / "nexus-tools"),
         "$home": str(Path.home()),
     }
 
@@ -100,7 +100,7 @@ def _get_source_tool_names(project_root: str) -> set:
     支持 flat 和 nested 两种布局。"""
     if not project_root:
         raise RuntimeError(
-            "project_root 未配置。请在 ~/.artclaw/config.json 中指定。"
+            "project_root 未配置。请在 ~/.artifexnexus/config/artifexnexus.json 中指定。"
         )
     source_tools_root = Path(project_root) / "tools"
     if not source_tools_root.exists():
@@ -133,7 +133,7 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
     路径来源优先级：
       1. 调用参数 tools_dir（非空时使用）
       2. 自身 manifest.json 的 triggers[].filters.path（$variable 解析）
-      3. 默认值 ~/.artclaw/tools
+      3. 默认值 ~/.artifexnexus/nexus-tools
     
     Args:
         tools_dir: 工具目录路径（为空时从 manifest filters 读取）
@@ -155,7 +155,7 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
     else:
         scan_dirs = _get_scan_dirs_from_manifest()
         if not scan_dirs:
-            scan_dirs = [str(Path.home() / ".artclaw" / "tools")]
+            scan_dirs = [str(Path.home() / ".artifexnexus" / "nexus-tools")]
 
     # 验证至少有一个有效目录
     valid_dirs = [d for d in scan_dirs if Path(d).exists()]
@@ -577,7 +577,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             issues.append({"tool_id": tool_id, "severity": "warning",
                             "message": f"{ts_field} 格式不正确: {val!r}，应为 YYYY-MM-DD HH:MM:SS"})
 
-    # ── Rule 30-36: artclaw_sdk 合规检查（AST 静态分析）────────────────────
+    # ── Rule 30-36: artifex_nexus_sdk 合规检查（AST 静态分析）────────────────────
     entry_file = impl.get("entry", "main.py") if impl else "main.py"
     entry_path_file = tool_dir / entry_file
     if entry_path_file.exists() and impl.get("type") == "script":
@@ -592,19 +592,19 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                 for tr in triggers
             ) if isinstance(triggers, list) else False
 
-            # Rule 30: main.py 必须 import artclaw_sdk ──────────────────────
+            # Rule 30: main.py 必须 import artifex_nexus_sdk ──────────────────
             has_sdk_import = False
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        if "artclaw_sdk" in alias.name:
+                        if "artifex_nexus_sdk" in alias.name or "artclaw_sdk" in alias.name:
                             has_sdk_import = True
                 elif isinstance(node, ast.ImportFrom):
-                    if node.module and "artclaw_sdk" in node.module:
+                    if node.module and ("artifex_nexus_sdk" in node.module or "artclaw_sdk" in node.module):
                         has_sdk_import = True
             if not has_sdk_import:
                 issues.append({"tool_id": tool_id, "severity": "error",
-                              "message": "main.py 未 import artclaw_sdk（所有工具必须使用 SDK）"})
+                              "message": "main.py 未 import artifex_nexus_sdk（所有工具必须使用 SDK）"})
 
             func_name = impl.get("function", "") if impl else ""
 
@@ -634,7 +634,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                     if isinstance(node, ast.Attribute) and node.attr in sdk_overlap_attrs:
                         # 排除 sdk.context.xxx 自身的调用（value 是 sdk 相关的 attribute）
                         if not (isinstance(node.value, ast.Attribute) and
-                                node.value.attr in ("context", "artclaw_sdk")):
+                                node.value.attr in ("context", "artifex_nexus_sdk", "artclaw_sdk")):
                             issues.append({"tool_id": tool_id, "severity": "warning",
                                           "message": (f"脚本直接调用 .{node.attr}()，"
                                                        f"建议改用 sdk.context.get_selected_assets() 或 get_selected_objects()")})

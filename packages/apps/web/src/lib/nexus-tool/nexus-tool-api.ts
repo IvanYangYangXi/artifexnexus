@@ -119,6 +119,32 @@ export interface NexusToolRunResult {
   dcc?: string;
 }
 
+/** nexus-tool.run 异步启动返回 */
+export interface NexusToolRunStartResult {
+  task_id: string;
+  status: "started";
+}
+
+/** nexus-tool.result 轮询返回 */
+export interface NexusToolPollResult {
+  task_id: string;
+  status: "running" | "done" | "error" | "cancelled";
+  result?: NexusToolRunResult;
+  error?: string;
+}
+
+/** nexus-tool.ack 确认返回 */
+export interface NexusToolAckResult {
+  task_id: string;
+  acked: boolean;
+}
+
+/** nexus-tool.cancel 取消返回 */
+export interface NexusToolCancelResult {
+  task_id: string;
+  status: string;
+}
+
 export interface NexusToolBatchResult {
   succeeded: string[];
   failed: string[];
@@ -283,9 +309,24 @@ export async function nexusToolPublish(id: string, opts?: NexusToolPublishOption
   return invoke<NexusToolPublishResult>("nexus_tool_publish", { params: { id, ...opts } });
 }
 
-/** 运行（DCC 工具走 MCP Bridge，通用工具走 subprocess） */
-export async function nexusToolRun(id: string, args?: Record<string, unknown>): Promise<NexusToolRunResult> {
-  return invoke<NexusToolRunResult>("nexus_tool_run", { params: { id, args: args ?? {} } });
+/** 运行（异步启动，立即返回 task_id，后端线程执行） */
+export async function nexusToolRun(id: string, args?: Record<string, unknown>): Promise<NexusToolRunStartResult> {
+  return invoke<NexusToolRunStartResult>("nexus_tool_run", { params: { id, args: args ?? {} } });
+}
+
+/** 轮询任务结果 */
+export async function nexusToolResult(taskId: string): Promise<NexusToolPollResult> {
+  return invoke<NexusToolPollResult>("nexus_tool_result", { params: { task_id: taskId } });
+}
+
+/** 取消运行中任务 */
+export async function nexusToolCancel(taskId: string): Promise<NexusToolCancelResult> {
+  return invoke<NexusToolCancelResult>("nexus_tool_cancel", { params: { task_id: taskId } });
+}
+
+/** 确认已收到结果，清理服务端存储 */
+export async function nexusToolAck(taskId: string): Promise<NexusToolAckResult> {
+  return invoke<NexusToolAckResult>("nexus_tool_ack", { params: { task_id: taskId } });
 }
 
 /** 批量操作 */

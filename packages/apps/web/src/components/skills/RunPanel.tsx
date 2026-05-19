@@ -24,6 +24,7 @@ import {
   GitBranch,
   Info,
   Sparkles,
+  XCircle,
 } from "lucide-react";
 import { Button, Input, cn } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
@@ -33,10 +34,14 @@ import { ChatPromptContext } from "../shell/AppShell";
 import {
   nexusToolDetail,
   nexusToolRun,
+  nexusToolResult,
+  nexusToolCancel,
+  nexusToolAck,
   type NexusToolDetail,
   type NexusToolParam,
   type FilterConfig,
   type NexusToolRunResult,
+  type NexusToolPollResult,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 
@@ -64,6 +69,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const [running, setRunning] = React.useState(false);
   const [runResult, setRunResult] = React.useState<NexusToolRunResult | null>(null);
   const [activeTab, setActiveTab] = React.useState<TabId>("params");
+
+  // ── 异步执行状态 ──
+  const taskIdRef = React.useRef<string | null>(null);
+  const pollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { navigateWithPrompt } = React.useContext(ChatPromptContext);
 
@@ -98,20 +108,84 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
 
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
 
-  // ── 运行 ──
+  // ── 运行（异步：启动 → 轮询）──
   const handleRun = async () => {
     if (!detail) return;
+    cleanup();
     setRunning(true);
     setRunResult(null);
+
     try {
-      const result = await nexusToolRun(detail.id, paramValues);
-      setRunResult(result);
+      // 1. 启动执行（5s 超时，立即返回 task_id）
+      const startResult = await nexusToolRun(detail.id, paramValues);
+      const taskId = startResult.task_id;
+      taskIdRef.current = taskId;
+
+      // 2. 轮询结果
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const poll: NexusToolPollResult = await nexusToolResult(taskId);
+
+          if (poll.status === "done") {
+            cleanup();
+            setRunResult(poll.result || { success: true });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          } else if (poll.status === "error") {
+            cleanup();
+            setRunResult({ success: false, error: poll.error || "执行失败" });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          } else if (poll.status === "cancelled") {
+            cleanup();
+            setRunResult({ success: false, error: "任务已取消" });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          }
+          // status === "running" → 继续轮询
+        } catch (_e) {
+          // 轮询失败不中断，继续尝试
+        }
+      }, 1000);
+
+      // 3. 超时保护（125s > 120s 执行超时）
+      timeoutTimerRef.current = setTimeout(() => {
+        cleanup();
+        setRunResult({ success: false, error: "执行超时（超过 120 秒）" });
+        setRunning(false);
+        if (taskId) nexusToolCancel(taskId).catch(() => {});
+      }, 125_000);
     } catch (e) {
+      cleanup();
       setRunResult({ success: false, error: String(e) });
-    } finally {
       setRunning(false);
     }
   };
+
+  const handleCancel = async () => {
+    const taskId = taskIdRef.current;
+    if (!taskId) return;
+    try {
+      await nexusToolCancel(taskId);
+    } catch (_e) {
+      // ignore
+    }
+    cleanup();
+    setRunning(false);
+    setRunResult({ success: false, error: "已取消" });
+  };
+
+  function cleanup() {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (timeoutTimerRef.current) {
+      clearTimeout(timeoutTimerRef.current);
+      timeoutTimerRef.current = null;
+    }
+    taskIdRef.current = null;
+  }
 
   // ── AI 辅助运行 ──
   const handleAIAssist = () => {
@@ -325,6 +399,17 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             AI 辅助运行
           </Button>
           <div className="flex-1" />
+          {running && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs text-red-400 border-red-400/30 hover:bg-red-500/10"
+              onClick={handleCancel}
+            >
+              <XCircle className="mr-1.5 h-3 w-3" />
+              取消
+            </Button>
+          )}
           <Button
             size="sm"
             className="h-7 text-xs"

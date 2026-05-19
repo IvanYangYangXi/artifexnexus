@@ -21,7 +21,7 @@ ArtClaw Skill Version Checker v4
 """
 # ── SDK 头 ──
 import os as _os, json as _json_mod
-import artclaw_sdk as sdk
+import artifex_nexus_sdk as sdk
 
 def _load_manifest():
     return _json_mod.loads(
@@ -47,12 +47,12 @@ def _resolve_path_variables() -> Dict[str, str]:
     """
     解析路径变量映射表。与 manifest.json filters.path 中的 $variable 对应。
     
-    变量来源优先级: bridge_config > ~/.artclaw/config.json > 默认值
+    变量来源优先级: bridge_config > ~/.artifexnexus/config/artifexnexus.json > 默认值
     """
-    cfg_path = Path.home() / ".artclaw" / "config.json"
+    cfg_path = Path.home() / ".artifexnexus" / "config" / "artifexnexus.json"
     project_root = ""
     platform_type = "openclaw"
-    skills_installed = str(Path.home() / ".openclaw" / "workspace" / "skills")
+    skills_installed = str(Path.home() / ".artifexnexus" / ".openclaw" / "workspace" / "skills")
 
     try:
         if cfg_path.exists():
@@ -81,7 +81,7 @@ def _resolve_path_variables() -> Dict[str, str]:
     return {
         "$skills_installed": skills_installed,
         "$project_root": project_root,
-        "$tools_dir": str(Path.home() / ".artclaw" / "tools"),
+        "$tools_dir": str(Path.home() / ".artifexnexus" / "nexus-tools"),
         "$home": str(Path.home()),
         "_platform_type": platform_type,  # 内部使用，非路径变量
     }
@@ -477,7 +477,7 @@ def _check_skill_dependencies(installed_dir: Path, source_map: Dict[str, Any]) -
                     "dep_name": dep_name,
                     "severity": "warning" if dep_in_source else "error",
                     "detail": (
-                        f"依赖 '{dep_name}' 未安装（源码库中有，可运行 artclaw skill install {dep_name}）"
+                        f"依赖 '{dep_name}' 未安装（源码库中有，可运行 artifex skill install {dep_name}）"
                         if dep_in_source else
                         f"依赖 '{dep_name}' 未安装且在源码库中未找到"
                     ),
@@ -670,7 +670,6 @@ def check_skill_versions(**kwargs) -> Dict[str, Any]:
 
     # ── E. 枚举字段校验（targetDCCs / software vs categories.json）────────
     enum_issues = _check_enum_fields(installed_dir, project_root)
-    # 同步检查 Nexus-Tools
     nt_dir = str(Path.home() / ".artifexnexus" / "nexus-tools")
     if Path(nt_dir).is_dir():
         enum_issues.extend(_check_enum_fields(nt_dir, project_root))

@@ -261,6 +261,10 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
         logger.warning(f"部署清单记录失败（不阻断安装）: {e}")
 
     logger.info(f"{dcc} {dcc_version} 插件安装成功 ({method})")
+
+    # 注册工具源码目录到 tool-sources.json（供 Blender/DCC 触发器系统使用）
+    _try_register_tool_source(src_dir)
+
     return {"success": True, "method": method, "target": target_dir, "error": None}
 
 
@@ -1255,3 +1259,25 @@ def uninstall_gateway_mcp_bridge() -> Dict:
         return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
     except Exception as e:
         return {"success": False, "target": target_dir, "error": str(e)}
+
+
+def _try_register_tool_source(src_dir: str) -> None:
+    """安装 DCC 插件后自动注册工具源码目录到 tool-sources.json。"""
+    try:
+        try:
+            from . import tool_sources as _ts
+        except ImportError:
+            import tool_sources as _ts
+        p = Path(src_dir).resolve()
+        for _ in range(10):
+            if (p / "packages").is_dir() and (p / "skills").is_dir():
+                break
+            p = p.parent
+        bundled = p / "packages" / "adapters" / "openclaw" / "wrapper" / "src" / "artifex_nexus" / "openclaw_wrapper" / "_bundled_nexus_tools"
+        if bundled.is_dir():
+            _ts.register_source(str(bundled), "bundled", "installer")
+        skills = p / "skills"
+        if skills.is_dir():
+            _ts.register_source(str(skills), "skills", "installer")
+    except Exception:
+        pass

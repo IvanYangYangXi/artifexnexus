@@ -94,6 +94,8 @@ pub fn run() {
             // STORY-0028 M2：Gateway MCP Bridge 插件
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,
+            // 触发器诊断
+            commands::openclaw::openclaw_trigger_diagnose,
             // STORY-0029 M2：DCC 端口管理
             commands::openclaw::openclaw_dcc_port_get,
             commands::openclaw::openclaw_dcc_port_set,
@@ -119,7 +121,7 @@ pub fn run() {
             commands::openclaw::openclaw_restore,
             commands::openclaw::openclaw_backups_list,
             commands::openclaw::openclaw_backups_delete,
-            // STORY-0047：Skill / Nexus-Tool RPC（28 commands）
+            // STORY-0047：Skill / Nexus-Tool RPC（31 commands — +result/cancel/ack for STORY-0050）
             commands::skill::skill_list,
             commands::skill::skill_detail,
             commands::skill::skill_install,
@@ -147,6 +149,9 @@ pub fn run() {
             commands::skill::nexus_tool_unfavorite,
             commands::skill::nexus_tool_publish,
             commands::skill::nexus_tool_run,
+            commands::skill::nexus_tool_result,
+            commands::skill::nexus_tool_cancel,
+            commands::skill::nexus_tool_ack,
             commands::skill::nexus_tool_fetch_types,
             commands::skill::nexus_tool_batch,
 
@@ -156,6 +161,10 @@ pub fn run() {
             commands::window_controls::window_toggle_maximize,
             commands::window_controls::window_close,
             commands::window_controls::window_is_maximized,
+            // 应用级设置（设置页 → 常规）
+            commands::app_settings::app_settings_get,
+            commands::app_settings::app_settings_set,
+            commands::app_settings::app_settings_reset,
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

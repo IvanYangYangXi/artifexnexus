@@ -352,7 +352,7 @@ pub async fn nexus_tool_publish(
     manager.call("nexus-tool.publish", params)
 }
 
-/// nexus-tool.run — 运行（DCC→MCP Bridge, 通用→subprocess, 超时 120s）
+/// nexus-tool.run — 异步启动（5s 超时返回 task_id，后台线程执行）
 #[tauri::command]
 pub async fn nexus_tool_run(
     sidecar: State<'_, SidecarState>,
@@ -362,7 +362,7 @@ pub async fn nexus_tool_run(
     if !manager.is_running() {
         manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
     }
-    manager.call_with_timeout("nexus-tool.run", params, 120)
+    manager.call_with_timeout("nexus-tool.run", params, 5)
 }
 
 /// nexus-tool.fetch_types — 实时查询 DCC 对象类型（超时 30s）
@@ -389,4 +389,43 @@ pub async fn nexus_tool_batch(
         manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
     }
     manager.call("nexus-tool.batch", params)
+}
+
+/// nexus-tool.result — 轮询任务结果（5s 超时）
+#[tauri::command]
+pub async fn nexus_tool_result(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call_with_timeout("nexus-tool.result", params, 5)
+}
+
+/// nexus-tool.cancel — 取消运行中任务（5s 超时）
+#[tauri::command]
+pub async fn nexus_tool_cancel(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call_with_timeout("nexus-tool.cancel", params, 5)
+}
+
+/// nexus-tool.ack — 确认已收到结果，清理服务端 _task_store（5s 超时）
+#[tauri::command]
+pub async fn nexus_tool_ack(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call_with_timeout("nexus-tool.ack", params, 5)
 }

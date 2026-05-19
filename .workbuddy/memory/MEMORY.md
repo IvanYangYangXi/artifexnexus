@@ -13,6 +13,7 @@
 
 ## 设计原则
 
+- **SDK 单一源**：`artifex_nexus_sdk` 只有一份源，位于 `packages/dcc/shared/artifex_nexus_sdk/`。不再维护 `_bundled_nexus_tools/` 下的副本。所有工具、sidecar、trigger_dispatcher 通过注入 `packages/dcc/shared/` 到 sys.path 来解析 `import artifex_nexus_sdk`。
 - **Skill Hub 扫描加载分离**：Hub 内部维护两个阶段 —— `_available`（启动时扫描元数据，不 import 模块）和 `_loaded`（首次调用时懒加载）。遵循 ADR 0003 "tool 用到再加载"，不需要独立 Loader 类。
 - **用户偏好独立于安装器**：pin/favorite 是用户偏好操作，不属于 SkillInstaller。由 `~/.artifexnexus/config/skills.json` 的 `SkillConfig`（`core` 包）管理，与文件系统操作解耦。
 - **单进程无需文件锁**：Sidecar JSON-RPC over stdio 是串行处理，`SkillConfig._save()` 的原子 rename（tmp → replace）已保证数据完整性，不加 fcntl/msvcrt 锁。
@@ -21,6 +22,10 @@
 - **sessionKey 格式**：`agent:{agentId}:{subKey}`，统一使用 `lib/chat/session-key.ts` 解析，禁止手动 `.split(":")`。
 - **构建命令**：`pnpm -C apps/desktop tauri build`（包含 Next.js build 作为 beforeBuildCommand），不能用 `pnpm build`。
 - **Gateway WebSocket client ID**：必须使用 `openclaw-control-ui`（OpenClaw v2026.5.4 CLIENT_IDS 白名单只有 `webchat-ui` / `openclaw-control-ui`），**不可**用 `artifex-nexus-control-ui`。
+- **Sidecar 重复进程三层防御**（2026-05-18）：
+  1. Rust `preflight.rs::pre_startup_cleanup()` → `kill_python_sidecars()`（EXE 启动期）
+  2. Rust `manager.rs::start()` → `kill_python_sidecars()`（每次 spawn 前）
+  3. Python `sidecar.py::main()` → `runtime.kill_existing_sidecars()`（Python 启动期，防御深度）
 
 ## 关键架构
 
@@ -44,6 +49,51 @@
 
 ### 隔离目录
 - `~/.artifexnexus/.openclaw/`：配置 + PID 锁 + 端口状态 + workspace + skills
+
+## artclaw_sdk → artifex_nexus_sdk 迁移（2026-05-18）
+
+### 审计范围
+- 8 个 `_bundled_nexus_tools` 工具脚本含 `import artclaw_sdk as sdk`
+- 2 个 compliance-checker 含 20+ 处 `.artclaw` 路径引用
+
+### 创建的 SDK 模块
+`packages/dcc/shared/artifex_nexus_sdk/` — 跨 DCC 共享 SDK：
+- `params.py` → `parse_params(inputs, kwargs)`
+- `result.py` → `success()`, `fail()`, `allow()`, `reject()`
+- `context.py` → `get_selected_objects()`, `get_selected_assets()`（自动检测 Blender/UE/Maya/Max）
+- `event.py` → `parse(kwargs)` → EventData 对象
+- `logger.py` → `get_tool_logger(name)`
+
+Bundled 副本：`_bundled_nexus_tools/artifex_nexus_sdk/`（与源码目录同步）
+
+### SDK 路径注入
+- `trigger_dispatcher._execute_tool()`: 注入 `_bundled_nexus_tools/` 根目录到 sys.path
+- `sidecar._inject_sdk_path()`: 启动时注入
+- Blender addon 将通过 tool-sources.json 配置发现 SDK 路径（待实现）
+
+### 合规检查器更新
+- `tool-compliance-checker/main.py` Rules 30-33: 检查 `artifex_nexus_sdk`（同时兼容 `artclaw_sdk` 作为过渡）
+
+## 工具源码目录配置（2026-05-18）
+
+`~/.artifexnexus/config/tool-sources.json`：
+```json
+{"version": 1, "sources": [{"path": "...", "type": "bundled|skills|user", ...}]}
+```
+
+### 写入点
+- `bootstrap.py:_register_default_tool_sources()` — 首次安装
+- `dcc_installer.py:_try_register_tool_source()` — DCC 插件安装
+- `sidecar.py main()` — 每次启动 `verify_and_refresh()`
+
+### RPC 方法
+- `tool_sources.list` — 列出所有源码目录
+- `tool_sources.register` — 注册新目录
+- `tool_sources.verify` — 验证并刷新
+
+### 设计原则
+- 工具保留在原目录，不复制到 `~/.artifexnexus/nexus-tools/`
+- Blender/DCC 插件通过 `get_all_manifest_paths()` 读取所有已注册目录的 manifest
 
 ## 端口分配
 

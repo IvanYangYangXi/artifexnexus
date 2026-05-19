@@ -56,6 +56,7 @@ try:
     from . import sidecar_sessions as _sidecar_sessions
     from . import skill_rpc as _skill_rpc
     from . import nexus_tool_rpc as _nexus_tool_rpc
+    from . import app_settings as _app_settings
     from . import web_ui as _web_ui
 except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
@@ -71,6 +72,7 @@ except ImportError:
     import sidecar_sessions as _sidecar_sessions  # type: ignore[no-redef]
     import skill_rpc as _skill_rpc  # type: ignore[no-redef]
     import nexus_tool_rpc as _nexus_tool_rpc  # type: ignore[no-redef]
+    import app_settings as _app_settings  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
 
 sys.stderr.write("[sidecar.boot] all submodules imported\n")
@@ -1739,6 +1741,8 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0046：Skill / Nexus-Tool RPC（27 方法，不含 nexus-tool.run）
     **_skill_rpc.SKILL_METHODS,
     **_nexus_tool_rpc.NEXUS_TOOL_METHODS,
+    # 应用级设置（设置页 → 常规）
+    **_app_settings.APP_SETTINGS_METHODS,
     # Nexus Tool 源码目录管理
     "tool_sources.list": _handle_tool_sources_list,
     "tool_sources.register": _handle_tool_sources_register,

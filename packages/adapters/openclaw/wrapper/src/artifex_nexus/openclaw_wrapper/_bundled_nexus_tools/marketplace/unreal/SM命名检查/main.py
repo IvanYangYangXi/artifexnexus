@@ -1,7 +1,7 @@
 """UE SM 命名检查 — 静态网格体命名前缀检查（保存拦截 + 放置检查）。"""
 import os
 import json
-import artclaw_sdk as sdk
+import artifex_nexus_sdk as sdk
 
 _log = sdk.logger.get_tool_logger("SM命名检查")
 
