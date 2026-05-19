@@ -5,7 +5,7 @@ manifest/models.py — Skill Manifest pydantic v2 模型
 基于 ``contracts/schemas/manifest.schema.json`` 定义的 JSON Schema，
 转为 pydantic v2 模型以提供类型安全与校验。
 
-枚举（Software / RiskLevel）从 ``categories.json`` 唯一数据源读取，
+枚举（Software）从 ``categories.json`` 唯一数据源读取，
 不由本模块自行定义，杜绝多源漂移。
 
 模型：
@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..categories import ALL_SOFTWARE, ALL_RISK_LEVELS, CATEGORY_PATTERN, RiskLevel
+from ..categories import ALL_SOFTWARE, CATEGORY_PATTERN
 
 
 # ── 正则常量 ────────────────────────────────────────────────────────────────
@@ -72,7 +72,6 @@ class SkillManifest(BaseModel):
     - name: 匹配 ^[a-z][a-z0-9_]{0,63}$
     - version: semver 格式
     - software: 合法枚举值（来自 categories.json）
-    - risk_level: 硬约束 low/medium/high/critical
     - category: 预设值或自定义（需匹配 CATEGORY_PATTERN）
     """
 
@@ -102,14 +101,10 @@ class SkillManifest(BaseModel):
     author: Optional[str] = Field(default=None, description="作者")
     license: Optional[str] = Field(default=None, description="许可证")
 
-    # ── 分类与风险 ──────────────────────────────────────────────────────
+    # ── 分类 ──────────────────────────────────────────────────────
     category: Optional[str] = Field(
         default=None,
         description="分类标签（预设值或自定义，格式见 CATEGORY_PATTERN）",
-    )
-    risk_level: RiskLevel = Field(
-        default=RiskLevel.LOW,
-        description="风险级别",
     )
 
     # ── 软件版本约束 ────────────────────────────────────────────────────

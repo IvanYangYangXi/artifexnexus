@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "ue57_artclaw_highlight",
+  "display_name": "ue57-artclaw-highlight",
+  "description": "Highlight, select, and focus actors in UE Editor viewport. Find actors by name, keyword, class type, or tag, then select and pilot camera to them. Use when AI needs to: (1) locate specific actors in the scene, (2) highlight/select multiple actors by filter, (3) focus viewport on a target actor. UE only (Maya/Max have no equivalent highlight API). Replaces old MCP tool: highlight_actors.",
+  "version": "0.1.0",
+  "author": "",
+  "license": "MIT",
+  "software": "universal",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

@@ -5,7 +5,7 @@
 
 export type SkillStatus = "installed" | "not_installed" | "update_available" | "disabled";
 export type SkillSource = "official" | "marketplace" | "user";
-export type DCC = "blender" | "maya" | "3ds_max" | "unreal_engine" | "houdini" | "comfyui" | "general";
+export type DCC = "blender" | "maya" | "3ds_max" | "unreal_engine" | "houdini" | "comfyui" | "substance_painter" | "substance_designer" | "unity" | "general";
 export type ImplType = "skill_wrapper" | "script" | "composite";
 
 export interface MockSkill {
@@ -46,6 +46,9 @@ export const DCC_LABELS: Record<DCC, string> = {
   unreal_engine: "Unreal Engine",
   houdini: "Houdini",
   comfyui: "ComfyUI",
+  substance_painter: "Substance Painter",
+  substance_designer: "Substance Designer",
+  unity: "Unity",
   general: "通用",
 };
 

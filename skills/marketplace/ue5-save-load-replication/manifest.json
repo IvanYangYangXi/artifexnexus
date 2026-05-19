@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "ue5_save_load_replication",
+  "display_name": "ue5-save-load-replication",
+  "description": "UE5.6/UE5.7 save/load and multiplayer replication workflow for gameplay systems. Use when requests involve SaveGame schema design, serialization, restore pipelines, RepNotify handling, RPC entry points, and server-authoritative validation.",
+  "version": "0.1.0",
+  "author": "",
+  "license": "MIT",
+  "software": "universal",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

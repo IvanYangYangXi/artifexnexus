@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "comfyui_operation_rules",
+  "display_name": "comfyui-operation-rules",
+  "description": "ComfyUI 操作通用规则。所有 ComfyUI 操作前必读。 Use when AI needs to: (1) perform any ComfyUI operation, (2) check post-operation best practices, (3) understand ComfyUI API constraints. ComfyUI only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

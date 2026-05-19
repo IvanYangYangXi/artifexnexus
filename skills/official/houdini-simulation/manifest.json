@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "houdini_simulation",
+  "display_name": "houdini-simulation",
+  "description": "Houdini 仿真工作流指南：Pyro/RBD/FLIP/Vellum 的标准搭建流程。 Use when AI needs to: (1) set up simulations, (2) configure DOPs, (3) build Pyro/RBD/FLIP/Vellum setups. Houdini only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "houdini",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

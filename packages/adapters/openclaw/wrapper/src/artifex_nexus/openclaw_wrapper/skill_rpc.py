@@ -21,12 +21,14 @@ try:
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
         _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
+        _skill_check_sync, _skill_update_manifest,
     )
 except ImportError:
     from _rpc_helpers import (  # type: ignore[no-redef]
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
         _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
+        _skill_check_sync, _skill_update_manifest,
     )
 
 logger = logging.getLogger(__name__)
@@ -140,6 +142,13 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
         install_dir = installer._target_skill_dir("02_user", skill_name)
         if install_dir.exists():
             detail["install_path"] = str(install_dir)
+
+        # 同步状态检测（已安装 Skill）
+        if install_dir.exists() and entry.path and entry.path.exists():
+            try:
+                detail["sync_state"] = _skill_check_sync(skill_name)
+            except Exception:
+                pass  # 检测失败不影响详情展示
 
         return _ok(req_id, detail)
     except Exception as e:
@@ -504,6 +513,35 @@ def _handle_skill_read_skill_md(req_id: Any, params: dict) -> dict:
         return _err(req_id, str(exc))
 
 
+def _handle_skill_check_sync(req_id: Any, params: dict) -> dict:
+    """skill.check_sync — 检测 Skill 同步状态。"""
+    try:
+        skill_name = str(params.get("id", "")).strip()
+        if not skill_name:
+            return _err_invalid_params(req_id, "缺少 id 参数")
+        result = _skill_check_sync(skill_name)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("skill.check_sync failed")
+        return _err(req_id, str(exc))
+
+
+def _handle_skill_update_manifest(req_id: Any, params: dict) -> dict:
+    """skill.update_manifest — 更新已安装 Skill 的 manifest.json 字段。"""
+    try:
+        skill_name = str(params.get("id", "")).strip()
+        if not skill_name:
+            return _err_invalid_params(req_id, "缺少 id 参数")
+        fields = params.get("fields", {})
+        if not isinstance(fields, dict):
+            return _err_invalid_params(req_id, "fields 必须是字典")
+        result = _skill_update_manifest(skill_name, fields)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("skill.update_manifest failed")
+        return _err(req_id, str(exc))
+
+
 SKILL_METHODS = {
     "skill.list": _handle_skill_list,
     "skill.detail": _handle_skill_detail,
@@ -521,6 +559,8 @@ SKILL_METHODS = {
     "skill.search": _handle_skill_search,
     "skill.fix_manifest": _handle_skill_fix_manifest,
     "skill.read_skill_md": _handle_skill_read_skill_md,
+    "skill.check_sync": _handle_skill_check_sync,
+    "skill.update_manifest": _handle_skill_update_manifest,
 }
 
 

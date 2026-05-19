@@ -8,7 +8,10 @@
     "maya",
     "3ds_max",
     "houdini",
-    "comfyui"
+    "comfyui",
+    "substance_painter",
+    "substance_designer",
+    "unity"
   ],
   "risk_level": [
     "low",
@@ -41,7 +44,10 @@
       "maya": "Maya",
       "3ds_max": "3ds Max",
       "houdini": "Houdini",
-      "comfyui": "ComfyUI"
+      "comfyui": "ComfyUI",
+      "substance_painter": "Substance Painter",
+      "substance_designer": "Substance Designer",
+      "unity": "Unity"
     },
     "risk_level": {
       "low": "低风险",

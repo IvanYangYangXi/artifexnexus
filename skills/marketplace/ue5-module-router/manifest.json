@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "ue5_module_router",
+  "display_name": "ue5-module-router",
+  "description": "Route UE5.6/UE5.7 questions to the most precise skill using module names, aliases, intent keywords, and layer context. Works for explicit module prompts (RenderCore, AIModule, AssetRegistry) and natural language requests.",
+  "version": "0.1.0",
+  "author": "",
+  "license": "MIT",
+  "software": "universal",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

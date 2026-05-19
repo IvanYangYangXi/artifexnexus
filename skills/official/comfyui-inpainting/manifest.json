@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "comfyui_inpainting",
+  "display_name": "comfyui-inpainting",
+  "description": "ComfyUI 局部重绘（Inpainting）：修改图像的特定区域。 Use when AI needs to: (1) modify part of an image, (2) remove or add objects, (3) change clothing or background. ComfyUI only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

@@ -217,11 +217,15 @@ def _entry_to_dict(entry: Any) -> dict:
         # manifest.json 独有字段（不存在时为空/默认值）
         "author": manifest.author or "",
         "tags": manifest.tags or [],
-        "risk_level": str(manifest.risk_level) if hasattr(manifest, "risk_level") else "low",
         "dependencies": manifest.dependencies or [],
         "entry_point": manifest.entry_point or "__init__.py",
         "license": manifest.license or "",
         "has_manifest": has_manifest,
+        # 软件版本约束（可选字段）
+        "software_version": (
+            {"min": manifest.software_version.min, "max": manifest.software_version.max}
+            if manifest.software_version else None
+        ),
     }
 
 
@@ -320,6 +324,133 @@ def _skill_read_skill_md(skill_name: str) -> dict:
         return {"ok": True, "content": content, "path": str(skill_md_path), "warnings": []}
     except OSError as exc:
         return {"ok": False, "content": "", "path": str(skill_md_path), "warnings": [f"读取 SKILL.md 失败: {exc}"]}
+
+
+def _skill_check_sync(skill_name: str) -> dict:
+    """检测 Skill 的同步状态（已安装 vs 源码目录）。
+
+    :return: {"ok": bool, "state": str|None, "installed_version": str|None,
+              "source_version": str|None, "changed_files": [...], "needs_update": bool,
+              "needs_publish": bool, "message": str}
+    """
+    hub = _get_skill_hub()
+    entry = hub.get_entry(skill_name)
+    if entry is None:
+        return {"ok": False, "state": None, "message": f"Skill '{skill_name}' 未找到"}
+
+    installer = _get_skill_installer()
+    install_dir = installer._target_skill_dir("02_user", skill_name)
+    if not install_dir.exists():
+        return {
+            "ok": True, "state": "not_installed",
+            "installed_version": None, "source_version": None,
+            "changed_files": [], "needs_update": False, "needs_publish": False,
+            "message": "Skill 未安装",
+        }
+
+    # 确定源码目录
+    source_dir = entry.path
+    if not source_dir.exists():
+        return {
+            "ok": True, "state": "no_source",
+            "installed_version": None, "source_version": None,
+            "changed_files": [], "needs_update": False, "needs_publish": False,
+            "message": "源码目录不存在",
+        }
+
+    from artifex_nexus.skill.conflict import compare_skill_dirs, SyncState
+    status = compare_skill_dirs(install_dir, source_dir)
+
+    needs_update = status.state == SyncState.SOURCE_NEWER
+    needs_publish = status.state in (SyncState.INSTALLED_NEWER, SyncState.MODIFIED)
+
+    return {
+        "ok": True,
+        "state": str(status.state),
+        "installed_version": status.installed_version,
+        "source_version": status.source_version,
+        "changed_files": status.changed_files,
+        "needs_update": needs_update,
+        "needs_publish": needs_publish,
+        "message": _sync_state_message(status),
+    }
+
+
+def _sync_state_message(status: Any) -> str:
+    """将 SyncStatus 转为用户友好的提示信息。"""
+    from artifex_nexus.skill.conflict import SyncState
+    messages = {
+        SyncState.SYNCED: "已是最新",
+        SyncState.SOURCE_NEWER: "源码有更新，建议同步",
+        SyncState.INSTALLED_NEWER: "安装目录版本较新，建议发布",
+        SyncState.MODIFIED: "安装目录有修改，建议发布",
+        SyncState.CONFLICT: "两端都有修改，需要手动处理",
+        SyncState.NO_SOURCE: "源码目录不存在",
+        SyncState.NOT_INSTALLED: "未安装",
+    }
+    return messages.get(status.state, "未知状态")
+
+
+def _skill_update_manifest(skill_name: str, fields: dict) -> dict:
+    """更新已安装 Skill 的 manifest.json 字段。
+
+    只写安装目录，不动源码目录。
+
+    :param skill_name: Skill 名称。
+    :param fields: 要更新的字段 dict（部分字段）。
+    :return: {"ok": bool, "path": str, "warnings": [...], "errors": [...]}
+    """
+    installer = _get_skill_installer()
+    install_dir = installer._target_skill_dir("02_user", skill_name)
+    manifest_path = install_dir / "manifest.json"
+
+    if not install_dir.exists():
+        return {"ok": False, "path": str(manifest_path), "warnings": [], "errors": [f"Skill '{skill_name}' 未安装"]}
+
+    if not manifest_path.exists():
+        return {"ok": False, "path": str(manifest_path), "warnings": [], "errors": ["manifest.json 不存在"]}
+
+    try:
+        import json as _json
+        # 读取现有 manifest
+        current = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"ok": False, "path": str(manifest_path), "warnings": [], "errors": [f"读取 manifest.json 失败: {exc}"]}
+
+    # 合并字段（只有传入的字段才更新）
+    allowed_fields = {
+        "software", "version", "category", "author",
+        "entry_point", "license", "tags", "dependencies", "display_name",
+        "software_version",
+    }
+    for key, value in fields.items():
+        if key in allowed_fields:
+            current[key] = value
+
+    # 如果是 software_version 且为 None，移除该字段
+    if current.get("software_version") is None:
+        current.pop("software_version", None)
+
+    # 用 pydantic 模型校验
+    from artifex_nexus.skill.manifest import SkillManifest
+    try:
+        SkillManifest.model_validate(current)
+    except Exception as exc:
+        return {
+            "ok": False, "path": str(manifest_path),
+            "warnings": [], "errors": [f"字段校验失败: {exc}"],
+        }
+
+    # 写入磁盘
+    try:
+        manifest_path.write_text(
+            _json.dumps(current, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("manifest.json 已更新: %s", manifest_path)
+        return {"ok": True, "path": str(manifest_path), "warnings": ["保存成功，建议发布到源目录"], "errors": []}
+    except OSError as exc:
+        return {"ok": False, "path": str(manifest_path), "warnings": [], "errors": [f"写入失败: {exc}"]}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

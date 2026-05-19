@@ -138,6 +138,8 @@ pub fn run() {
             commands::skill::skill_search,
             commands::skill::skill_fix_manifest,
             commands::skill::skill_read_skill_md,
+            commands::skill::skill_check_sync,
+            commands::skill::skill_update_manifest,
             commands::skill::nexus_tool_list,
             commands::skill::nexus_tool_detail,
             commands::skill::nexus_tool_create,

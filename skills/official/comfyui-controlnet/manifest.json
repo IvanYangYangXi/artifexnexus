@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "comfyui_controlnet",
+  "display_name": "comfyui-controlnet",
+  "description": "ComfyUI ControlNet 工作流：Canny、OpenPose、Depth、Lineart 等控制生成。 Use when AI needs to: (1) control image generation with reference image, (2) use ControlNet preprocessors and models, (3) build ControlNet workflows. ComfyUI only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

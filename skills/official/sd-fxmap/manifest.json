@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "sd_fxmap",
+  "display_name": "sd-fxmap",
+  "description": "SD FX-Map 节点使用指南。FX-Map 是 SD 中最强大的图案生成节点， 能实现所有基于网格的重复/散布/迭代图案。tile_generator/splatter/cells 等核心库节点 都是 FX-Map 的封装。包含：节点类型、迭代逻辑、函数图参数化、常用图案模式。 Use when AI needs to: (1) create custom tile/scatter patterns, (2) build iterative procedural patterns, (3) understand how tile_generator works internally, (4) implement patterns that library nodes cannot achieve. Substance Designer only (run_python).",
+  "version": "1.0.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "substance_designer",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

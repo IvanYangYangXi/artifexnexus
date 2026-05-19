@@ -218,6 +218,32 @@ pub async fn skill_read_skill_md(
     manager.call("skill.read_skill_md", params)
 }
 
+/// skill.check_sync — 检测同步状态
+#[tauri::command]
+pub async fn skill_check_sync(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call("skill.check_sync", params)
+}
+
+/// skill.update_manifest — 更新已安装 Skill 的 manifest.json
+#[tauri::command]
+pub async fn skill_update_manifest(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call("skill.update_manifest", params)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Nexus-Tool commands (14, 含 run)
 // ═══════════════════════════════════════════════════════════════════════════════

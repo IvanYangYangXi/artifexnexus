@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "blender_viewport_capture",
+  "display_name": "blender-viewport-capture",
+  "description": "捕获 Blender 视口截图用于 AI 分析。支持 OpenGL 渲染截图和渲染预览截图。 Use when AI needs to: (1) take a screenshot of the current viewport, (2) analyze scene composition visually, (3) capture rendered preview for AI feedback. NOT for: final production rendering, animation rendering. Blender only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "blender",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

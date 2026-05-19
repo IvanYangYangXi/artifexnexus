@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "sd_node_catalog",
+  "display_name": "sd-node-catalog",
+  "description": "SD 节点选型目录 + 动态查询。包含库节点的 sbs 文件名、输出端口、用途分类， 供 AI 选择合适的纹理源。详细参数和端口通过动态查询获取（永远准确）。 Use when AI needs to: (1) find the correct sbs filename for a library node, (2) choose appropriate noise/texture generators for a material, (3) dynamically query node params/ports before setting values. Substance Designer only (run_python).",
+  "version": "0.3.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "substance_designer",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

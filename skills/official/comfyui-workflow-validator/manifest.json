@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "comfyui_workflow_validator",
+  "display_name": "comfyui-workflow-validator",
+  "description": "验证 ComfyUI Workflow 的节点是否可用。 在提交 workflow 前检查所有节点类型是否存在。 Use when AI needs to: (1) validate workflow before submission, (2) check if nodes are available, (3) debug workflow issues. ComfyUI only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

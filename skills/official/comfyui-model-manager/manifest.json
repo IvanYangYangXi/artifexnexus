@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "comfyui_model_manager",
+  "display_name": "comfyui-model-manager",
+  "description": "ComfyUI 模型管理：查询、下载、删除、搜索模型。 支持 Checkpoints, LoRA, VAE, ControlNet 等所有模型类型。 Use when AI needs to: (1) list available models, (2) download models from CivitAI or HuggingFace, (3) manage model files. ComfyUI only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "comfyui",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

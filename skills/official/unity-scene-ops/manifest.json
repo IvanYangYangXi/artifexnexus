@@ -1,0 +1,26 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "unity_scene_ops",
+  "display_name": "Unity 场景操作",
+  "description": "Unity Editor scene operations via run_unity_python MCP tool. Use when AI needs to: (1) get scene info or hierarchy, (2) open/save/create scenes, (3) find GameObjects by name, tag, or layer, (4) manage Build Settings scene list, (5) query scene statistics (object count, dirty state, path). NOT for: runtime scene loading (Application.LoadScene), asset creation, component editing.",
+  "version": "1.0.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "unity",
+  "category": "scene",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [
+    "unity",
+    "scene",
+    "hierarchy",
+    "gameobject",
+    "find"
+  ],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

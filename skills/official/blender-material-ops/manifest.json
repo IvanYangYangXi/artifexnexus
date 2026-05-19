@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "blender_material_ops",
+  "display_name": "blender-material-ops",
+  "description": "Blender 材质创建与节点操作指南。包含 PBR 材质创建、节点连接、中文版兼容等最佳实践。 Use when AI needs to: (1) create or edit Blender materials, (2) set up Principled BSDF node trees, (3) connect shader nodes, (4) handle Chinese Blender node name differences. Blender only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "blender",
+  "category": "material",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

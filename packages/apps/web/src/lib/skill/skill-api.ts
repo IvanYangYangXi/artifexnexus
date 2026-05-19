@@ -25,10 +25,11 @@ export interface SkillEntry {
   /** manifest.json 独有字段 */
   author: string;
   tags: string[];
-  risk_level: string;
   dependencies: string[];
   entry_point: string;
   license: string;
+  /** 软件版本约束（可选） */
+  software_version?: { min?: string; max?: string } | null;
 }
 
 export interface SkillItem extends SkillEntry {
@@ -46,6 +47,17 @@ export interface SkillToolItem {
   input_schema: Record<string, unknown>;
 }
 
+export interface SyncStateInfo {
+  ok: boolean;
+  state: string | null;
+  installed_version: string | null;
+  source_version: string | null;
+  changed_files: string[];
+  needs_update: boolean;
+  needs_publish: boolean;
+  message: string;
+}
+
 export interface SkillDetail {
   entry: SkillEntry;
   tools: SkillToolItem[];
@@ -56,6 +68,7 @@ export interface SkillDetail {
   install_path?: string | null;
   load_error?: string | null;
   tool_count?: number;
+  sync_state?: SyncStateInfo | null;
 }
 
 export interface SkillListResult {
@@ -184,6 +197,16 @@ export async function skillReadSkillMd(id: string): Promise<{ ok: boolean; conte
   return invoke("skill_read_skill_md", { params: { id } });
 }
 
+/** 检测同步状态 */
+export async function skillCheckSync(id: string): Promise<SyncStateInfo> {
+  return invoke("skill_check_sync", { params: { id } });
+}
+
+/** 更新已安装 Skill 的 manifest.json */
+export async function skillUpdateManifest(id: string, fields: Record<string, unknown>): Promise<{ ok: boolean; path: string; warnings: string[]; errors: string[] }> {
+  return invoke("skill_update_manifest", { params: { id, fields } });
+}
+
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
 
 export const SkillAPI = {
@@ -203,6 +226,8 @@ export const SkillAPI = {
   search: skillSearch,
   fixManifest: skillFixManifest,
   readSkillMd: skillReadSkillMd,
+  checkSync: skillCheckSync,
+  updateManifest: skillUpdateManifest,
 };
 
 export type SkillAPIType = typeof SkillAPI;

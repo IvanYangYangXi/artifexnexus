@@ -1,0 +1,29 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "unity_editor_control",
+  "display_name": "Unity 编辑器控制",
+  "description": "Unity Editor state control via run_unity_python: undo/redo, play mode, build, console, menu execution, and editor preferences. Use when AI needs to: (1) undo or redo editor operations, (2) enter/exit Play Mode, (3) trigger builds (Build Player), (4) read Unity console logs, (5) execute editor menu items, (6) refresh the project, (7) get editor/project preferences, (8) open editor windows or inspector. NOT for: scene operations (use unity-scene-ops), asset management (use unity-asset-ops).",
+  "version": "1.0.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "unity",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [
+    "unity",
+    "editor",
+    "undo",
+    "redo",
+    "play-mode",
+    "build",
+    "console",
+    "menu"
+  ],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

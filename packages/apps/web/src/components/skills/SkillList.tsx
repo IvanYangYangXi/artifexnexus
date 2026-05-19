@@ -100,7 +100,12 @@ export function SkillList() {
   const filtered = skills
     .filter((s) => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (dccFilter !== "all" && s.software !== dccFilter) return false;
+      if (dccFilter !== "all" && s.software !== dccFilter) {
+        // "general" (前端) ↔ "universal" (后端) 互认
+        if (!(dccFilter === "general" && s.software === "universal")) {
+          return false;
+        }
+      }
       if (sourceFilter !== "all" && layerToSource(s.layer) !== sourceFilter) return false;
       if (favoritesOnly && !s.favorited) return false;
       return true;
@@ -366,9 +371,12 @@ function DCCIcon({ software }: { software: string }) {
     blender: "bg-orange-500/20 text-orange-400", maya: "bg-cyan-500/20 text-cyan-400",
     "3ds_max": "bg-yellow-500/20 text-yellow-400", unreal_engine: "bg-sky-500/20 text-sky-400",
     houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400",
+    substance_painter: "bg-rose-500/20 text-rose-400", substance_designer: "bg-fuchsia-500/20 text-fuchsia-400",
+    unity: "bg-indigo-500/20 text-indigo-400",
   };
   const icons: Record<string, string> = {
     blender: "B", maya: "M", "3ds_max": "3", unreal_engine: "U", houdini: "H", comfyui: "C",
+    substance_painter: "P", substance_designer: "D", unity: "N",
   };
   const key = software?.toLowerCase() || "";
   return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[key] || "bg-muted text-muted-foreground"}`}>

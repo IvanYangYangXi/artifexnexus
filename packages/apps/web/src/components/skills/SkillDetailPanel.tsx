@@ -23,10 +23,13 @@ import {
   Wand2,
   Puzzle,
   CheckCircle2,
+  Save,
+  Upload,
+  RefreshCw,
 } from "lucide-react";
-import { Button, cn } from "@artifex-nexus/ui";
+import { Button, cn, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { type SkillDetail, skillDetail, skillFixManifest, skillReadSkillMd } from "../../lib/skill/skill-api";
+import { type SkillDetail, skillDetail, skillFixManifest, skillReadSkillMd, skillUpdateManifest, skillPublish } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
@@ -35,13 +38,6 @@ import remarkGfm from "remark-gfm";
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
 type TabId = "info" | "readme" | "errors";
-
-const RISK_LABELS: Record<string, { label: string; color: string }> = {
-  low: { label: "低风险", color: "text-emerald-400 bg-emerald-500/10" },
-  medium: { label: "中风险", color: "text-amber-400 bg-amber-500/10" },
-  high: { label: "高风险", color: "text-orange-400 bg-orange-500/10" },
-  critical: { label: "严重", color: "text-red-400 bg-red-500/10" },
-};
 
 function layerToSource(layer: string): string {
   if (layer.startsWith("00_")) return "official";
@@ -74,7 +70,8 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
       setError(null);
       const d = await skillDetail(skillName);
       setDetail(d);
-      // 如果有格式问题，默认切到 errors 标签
+      // 默认显示基本信息；有格式问题时自动切到 errors 标签
+      setActiveTab("info");
       if (d.entry.validation_error) {
         setActiveTab("errors");
       }
@@ -148,7 +145,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
       {/* Tab 内容 */}
       <ScrollFade className="flex-1">
         <div className="p-3">
-          {activeTab === "info" && <InfoTab entry={entry} installPath={detail.install_path} labelCls={labelCls} compact={compact} />}
+          {activeTab === "info" && <InfoTab entry={entry} detail={detail} labelCls={labelCls} compact={compact} onDetailRefresh={loadDetail} />}
           {activeTab === "readme" && <ReadmeTab skillName={skillName} />}
           {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} onFixed={loadDetail} />}
         </div>
@@ -161,16 +158,133 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
 // Tab 1: 基本信息
 // ═══════════════════════════════════════════════════════════════════════════
 
-function InfoTab({ entry, installPath, labelCls, compact }: {
+function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
   entry: SkillDetail["entry"];
-  installPath?: string | null;
+  detail: SkillDetail;
   labelCls: string;
   compact?: boolean;
+  onDetailRefresh: () => void;
 }) {
   const source = layerToSource(entry.layer);
+  const isInstalled = !!detail.install_path;
+
+  // ── 表单状态（初始值来自 entry） ─────────────────────────────────────
+  const [software, setSoftware] = React.useState(entry.software || "");
+  const [svMin, setSvMin] = React.useState(entry.software_version?.min || "");
+  const [svMax, setSvMax] = React.useState(entry.software_version?.max || "");
+  const [version, setVersion] = React.useState(entry.version || "");
+  const [category, setCategory] = React.useState(entry.category || "");
+  const [author, setAuthor] = React.useState(entry.author || "");
+  const [license, setLicense] = React.useState(entry.license || "");
+  const [entryPoint, setEntryPoint] = React.useState(entry.entry_point || "");
+  const [tags, setTags] = React.useState(entry.tags?.join(", ") || "");
+  const [deps, setDeps] = React.useState(entry.dependencies?.join(", ") || "");
+
+  const [saving, setSaving] = React.useState(false);
+  const [saveResult, setSaveResult] = React.useState<{ ok: boolean; warnings: string[]; errors: string[] } | null>(null);
+  const [publishing, setPublishing] = React.useState(false);
+
+  // semver 校验
+  const semverPattern = /^\d+\.\d+\.\d+(?:[-+].+)?$/;
+  const versionValid = !version || version === "0.0.0" || semverPattern.test(version);
+
+  // ── 变更检测：有修改时才能保存 ──────────────────────────────────────
+  const hasChanges = React.useMemo(() => {
+    const orig = entry;
+    if (software !== (orig.software || "")) return true;
+    if (svMin !== (orig.software_version?.min || "")) return true;
+    if (svMax !== (orig.software_version?.max || "")) return true;
+    if (version !== (orig.version || "")) return true;
+    if (category !== (orig.category || "")) return true;
+    if (author !== (orig.author || "")) return true;
+    if (license !== (orig.license || "")) return true;
+    if (entryPoint !== (orig.entry_point || "")) return true;
+    if (tags !== (orig.tags?.join(", ") || "")) return true;
+    if (deps !== (orig.dependencies?.join(", ") || "")) return true;
+    return false;
+  }, [software, svMin, svMax, version, category, author, license, entryPoint, tags, deps, entry]);
+
+  // ── 软件下拉选项（从 DCC_LABELS 的 key 列表获取，含通用选项） ──
+  const softwareOptions = React.useMemo(() => {
+    return Object.keys(DCC_LABELS);
+  }, []);
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true);
+    setSaveResult(null);
+    try {
+      const fields: Record<string, unknown> = {
+        software,
+        version,
+        category,
+        author,
+        entry_point: entryPoint,
+        license,
+        tags: tags.split(",").map(t => t.trim()).filter(Boolean),
+        dependencies: deps.split(",").map(d => d.trim()).filter(Boolean),
+      };
+      // software_version
+      if (svMin || svMax) {
+        fields.software_version = { min: svMin || null, max: svMax || null };
+      } else {
+        fields.software_version = null;
+      }
+      const result = await skillUpdateManifest(entry.name, fields);
+      setSaveResult(result);
+      if (result.ok) {
+        onDetailRefresh();
+      }
+    } catch (e) {
+      setSaveResult({ ok: false, warnings: [], errors: [String(e)] });
+    } finally {
+      setSaving(false);
+    }
+  }, [software, svMin, svMax, version, category, author, entryPoint, license, tags, deps, entry.name, onDetailRefresh]);
+
+  const handlePublish = React.useCallback(async () => {
+    setPublishing(true);
+    try {
+      await skillPublish(entry.name);
+      setSaveResult({ ok: true, warnings: ["已发布"], errors: [] });
+      onDetailRefresh();
+    } catch (e) {
+      setSaveResult({ ok: false, warnings: [], errors: [String(e)] });
+    } finally {
+      setPublishing(false);
+    }
+  }, [entry.name, onDetailRefresh]);
+
+  // 同步检测状态
+  const syncState = detail.sync_state;
+  const needsUpdate = syncState?.needs_update;
+  const needsPublish = syncState?.needs_publish;
+
+  // ── 表单字段样式 ─────────────────────────────────────────────────────
+  const inputCls = "w-full h-7 px-2 text-[11px] rounded-[8px] border border-white/[0.08] bg-white/[0.04] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 transition-colors";
+  const inputClsErr = "w-full h-7 px-2 text-[11px] rounded-[8px] border border-red-500/40 bg-red-500/[0.04] text-foreground focus:outline-none focus:border-red-500/60 transition-colors";
 
   return (
     <div className="space-y-4">
+      {/* ── 同步状态横幅 ─────────────────────────────────────────────── */}
+      {isInstalled && needsUpdate && (
+        <div className="flex items-start gap-2 rounded border border-cyan-500/20 bg-cyan-500/[0.04] px-3 py-2">
+          <RefreshCw className="h-3.5 w-3.5 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-cyan-300/80">源码有更新</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{syncState?.message}</p>
+          </div>
+        </div>
+      )}
+      {isInstalled && needsPublish && !needsUpdate && (
+        <div className="flex items-start gap-2 rounded border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
+          <Upload className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-amber-300/80">建议发布</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{syncState?.message}</p>
+          </div>
+        </div>
+      )}
+
       {/* 格式问题警告横幅 */}
       {entry.validation_error && (
         <div className="flex items-start gap-2 rounded border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
@@ -199,11 +313,16 @@ function InfoTab({ entry, installPath, labelCls, compact }: {
                 缺 manifest.json
               </span>
             )}
+            {isInstalled && (
+              <span className="rounded px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 bg-emerald-500/10">
+                可编辑
+              </span>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 描述（来自 SKILL.md） */}
+      {/* 描述（来自 SKILL.md — 只读） */}
       {entry.description && (
         <div>
           <div className={labelCls}>描述</div>
@@ -211,45 +330,126 @@ function InfoTab({ entry, installPath, labelCls, compact }: {
         </div>
       )}
 
-      {/* manifest.json 属性网格 */}
-      <div className="grid grid-cols-2 gap-2">
-        <InfoField label="版本" value={entry.version || "—"} />
-        <InfoField label="软件" value={(DCC_LABELS as Record<string, string>)[entry.software?.toLowerCase()] || entry.software || "—"} />
-        <InfoField label="分类" value={entry.category || "—"} />
-        <InfoField
-          label="风险等级"
-          value={
-            entry.risk_level ? (
-              <span className={cn("rounded px-1.5 py-0.5 text-[10px]", RISK_LABELS[entry.risk_level]?.color || "text-muted-foreground bg-muted")}>
-                {RISK_LABELS[entry.risk_level]?.label || entry.risk_level}
-              </span>
-            ) : "—"
-          }
-        />
-        <InfoField label="作者" value={entry.author || "—"} />
-        <InfoField label="许可证" value={entry.license || "—"} />
-        <InfoField label="入口文件" value={entry.entry_point || "—"} />
-        <InfoField label="层级" value={entry.layer || "—"} />
+      {/* ── 可编辑字段（仅已安装 Skill） ─────────────────────────────── */}
+
+      {/* 软件 + 版本约束 */}
+      <div>
+        <div className={labelCls}>软件</div>
+        {isInstalled ? (
+          <Select value={software} onValueChange={setSoftware}>
+            <SelectTrigger className="h-7 w-full text-[11px] bg-white/[0.04] border-white/[0.08]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {softwareOptions.map(key => (
+                <SelectItem key={key} value={key}>{(DCC_LABELS as Record<string, string>)[key] || key}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-xs text-foreground">{(DCC_LABELS as Record<string, string>)[software] || software || "—"}</p>
+        )}
+        {/* 版本约束 */}
+        {isInstalled ? (
+          <div className="flex items-center gap-2 mt-1.5">
+            <input className={inputCls} placeholder="最低版本 (min)" value={svMin} onChange={e => setSvMin(e.target.value)} />
+            <span className="text-[10px] text-muted-foreground shrink-0">~</span>
+            <input className={inputCls} placeholder="最高版本 (max)" value={svMax} onChange={e => setSvMax(e.target.value)} />
+          </div>
+        ) : (entry.software_version?.min || entry.software_version?.max) ? (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {entry.software_version?.min || "?"} ~ {entry.software_version?.max || "?"}
+          </p>
+        ) : null}
       </div>
 
-      {/* 标签 */}
-      {entry.tags && entry.tags.length > 0 && (
+      {/* ── 双列字段网格 ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+        {/* 版本 */}
+        <div>
+          <div className={labelCls}>版本</div>
+          {isInstalled ? (
+            <div>
+              <input
+                className={versionValid ? inputCls : inputClsErr}
+                placeholder="0.0.1"
+                value={version}
+                onChange={e => setVersion(e.target.value)}
+              />
+              {!versionValid && (
+                <p className="text-[10px] text-red-400 mt-0.5">版本号需符合 semver 格式 (如 0.0.1)</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-foreground">{entry.version || "—"}</p>
+          )}
+        </div>
+
+        {/* 分类 */}
+        <div>
+          <div className={labelCls}>分类</div>
+          {isInstalled ? (
+            <input className={inputCls} placeholder="分类" value={category} onChange={e => setCategory(e.target.value)} />
+          ) : (
+            <p className="text-xs text-foreground">{entry.category || "—"}</p>
+          )}
+        </div>
+
+        {/* 作者 */}
+        <div>
+          <div className={labelCls}>作者</div>
+          {isInstalled ? (
+            <input className={inputCls} placeholder="作者" value={author} onChange={e => setAuthor(e.target.value)} />
+          ) : (
+            <p className="text-xs text-foreground">{entry.author || "—"}</p>
+          )}
+        </div>
+
+        {/* 许可证 */}
+        <div>
+          <div className={labelCls}>许可证</div>
+          {isInstalled ? (
+            <input className={inputCls} placeholder="如 MIT" value={license} onChange={e => setLicense(e.target.value)} />
+          ) : (
+            <p className="text-xs text-foreground">{entry.license || "—"}</p>
+          )}
+        </div>
+
+        {/* 入口文件 */}
+        <div>
+          <div className={labelCls}>入口文件</div>
+          {isInstalled ? (
+            <input className={inputCls} placeholder="__init__.py" value={entryPoint} onChange={e => setEntryPoint(e.target.value)} />
+          ) : (
+            <p className="text-xs text-foreground">{entry.entry_point || "—"}</p>
+          )}
+        </div>
+
+        {/* 标签 */}
         <div>
           <div className={labelCls}>标签</div>
-          <div className="flex flex-wrap gap-1">
-            {entry.tags.map((tag, i) => (
-              <span key={i} className="rounded bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
-                {tag}
-              </span>
-            ))}
-          </div>
+          {isInstalled ? (
+            <input className={inputCls} placeholder="标签1, 标签2" value={tags} onChange={e => setTags(e.target.value)} />
+          ) : entry.tags && entry.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {entry.tags.map((tag, i) => (
+                <span key={i} className="rounded bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">—</p>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* 依赖 */}
-      {entry.dependencies && entry.dependencies.length > 0 && (
-        <div>
-          <div className={labelCls}>依赖</div>
+      {/* 依赖（全宽） */}
+      <div>
+        <div className={labelCls}>依赖</div>
+        {isInstalled ? (
+          <input className={inputCls} placeholder="skill_a, skill_b" value={deps} onChange={e => setDeps(e.target.value)} />
+        ) : entry.dependencies && entry.dependencies.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {entry.dependencies.map((dep, i) => (
               <span key={i} className="rounded bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
@@ -257,6 +457,64 @@ function InfoTab({ entry, installPath, labelCls, compact }: {
               </span>
             ))}
           </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">—</p>
+        )}
+      </div>
+
+      {/* 层级（只读） */}
+      <div>
+        <div className={labelCls}>层级</div>
+        <p className="text-xs text-foreground">{entry.layer || "—"}</p>
+      </div>
+
+      {/* ── 保存 / 发布 按钮 ─────────────────────────────────────────── */}
+      {isInstalled && (
+        <div className="space-y-2 pt-1">
+          <Button
+            size="sm"
+            className="w-full h-8 text-xs"
+            onClick={handleSave}
+            disabled={saving || !versionValid || !hasChanges}
+            title={!hasChanges ? "无修改" : undefined}
+          >
+            {saving ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />保存中</> : <><Save className="mr-1 h-3 w-3" />保存到安装目录</>}
+          </Button>
+
+          {saveResult && (
+            <div className={cn(
+              "rounded px-3 py-2 text-xs",
+              saveResult.ok
+                ? "border border-emerald-500/20 bg-emerald-500/[0.06]"
+                : "border border-red-500/20 bg-red-500/[0.04]",
+            )}>
+              {saveResult.ok ? (
+                <div className="space-y-2">
+                  <p className="flex items-center gap-1 text-emerald-300/80">
+                    <CheckCircle2 className="h-3 w-3" />{saveResult.warnings.join("; ") || "保存成功"}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handlePublish}
+                    disabled={publishing}
+                  >
+                    {publishing ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />发布中</> : <><Upload className="mr-1 h-3 w-3" />发布到源目录</>}
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <p className="flex items-center gap-1 text-red-300/80">
+                    <AlertCircle className="h-3 w-3" />保存失败
+                  </p>
+                  {saveResult.errors.map((err, i) => (
+                    <p key={i} className="text-[10px] text-red-400/70 mt-1">{err}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -281,13 +539,13 @@ function InfoTab({ entry, installPath, labelCls, compact }: {
       )}
 
       {/* 安装路径（仅已安装 Skill 且与源路径不同时显示） */}
-      {installPath && installPath !== entry.path && (
+      {detail.install_path && detail.install_path !== entry.path && (
         <div>
           <div className={labelCls}>安装路径</div>
           <button
             onClick={async () => {
               try {
-                await invoke("shell_open_path", { path: installPath });
+                await invoke("shell_open_path", { path: detail.install_path! });
               } catch (e) {
                 console.error("打开路径失败:", e);
               }
@@ -295,19 +553,10 @@ function InfoTab({ entry, installPath, labelCls, compact }: {
             className="flex w-full items-center gap-1.5 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-2 py-1.5 font-mono text-[10px] text-muted-foreground break-all hover:border-primary/40 hover:text-foreground transition-colors text-left"
           >
             <ExternalLink className="h-3 w-3 shrink-0" />
-            {installPath}
+            {detail.install_path}
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-function InfoField({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded bg-muted/20 px-2 py-1.5">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="truncate text-[11px]">{value || "—"}</div>
     </div>
   );
 }
@@ -434,13 +683,13 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
     issues.push({
       severity: "error",
       message: "缺少 manifest.json",
-      detail: "Skill 目录下没有 manifest.json 文件。请按照 ArtClaw 格式规范创建包含以下建议字段的 manifest.json：manifest_version, name, version, software, software_version, category, risk_level, entry_point。",
+      detail: "Skill 目录下没有 manifest.json 文件。请按照 artifex nexus skill 格式规范创建包含以下建议字段的 manifest.json：manifest_version, name, version, software, software_version, category, entry_point。",
     });
   } else if (errMsg.includes("manifest.json 校验失败")) {
     issues.push({
       severity: "error",
       message: "manifest.json 校验失败",
-      detail: "manifest.json 存在但格式不符合规范。请参考 ArtClaw manifest.schema.json 检查字段类型和必需字段。",
+      detail: "manifest.json 存在但格式不符合规范。请参考 artifex nexus manifest.schema.json 检查字段类型和必需字段。",
     });
   } else if (errMsg) {
     issues.push({
@@ -545,9 +794,9 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
         </div>
       )}
 
-      {/* ArtClaw 格式规范参考 */}
+      {/* artifex nexus skill 格式规范参考 */}
       <div className="mt-4 rounded border border-border/40 bg-muted/10 px-3 py-2">
-        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">ArtClaw 格式规范</div>
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">artifex nexus skill 格式规范</div>
         <div className="text-[10px] text-muted-foreground space-y-0.5">
           <p>manifest.json 建议字段：</p>
           <ul className="list-disc list-inside ml-1 space-y-0.5 text-[10px]">
@@ -557,7 +806,6 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software</code>: DCC 软件标识</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software_version</code>: <code className="text-[9px] bg-muted/30 px-1 rounded">{"{min, max}"}</code>，DCC 版本号约束</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">category</code>: 功能分类</li>
-            <li><code className="text-[9px] bg-muted/30 px-1 rounded">risk_level</code>: low / medium / high</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">entry_point</code>: 入口文件名</li>
           </ul>
           <p className="mt-1">SKILL.md frontmatter 提供 name 和 description，manifest.json 提供其他所有字段。</p>

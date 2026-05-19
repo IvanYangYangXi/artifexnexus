@@ -43,7 +43,6 @@ def _load_template() -> dict:
             "version": "0.1.0",
             "software": "universal",
             "category": "utils",
-            "risk_level": "low",
             "entry_point": "__init__.py",
         }
 
@@ -174,7 +173,6 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     - author: metadata.artclaw.author → 回退到 ""
     - software: metadata.artclaw.software（规范化映射）
     - category: metadata.artclaw.category（规范化映射）
-    - risk_level: metadata.artclaw.risk_level → 回退到 "low"
     - tags: metadata.artclaw.tags → 回退到 []
 
     :param skill_dir: Skill 源码目录（包含 SKILL.md）。
@@ -247,13 +245,6 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     if not cat_raw:
         result["warnings"].append("category 未指定，使用默认值 utils")
     manifest["category"] = _normalize_category(cat_raw) if cat_raw else "utils"
-
-    # risk_level
-    rl = str(artclaw.get("risk_level", "low")).strip().lower()
-    if rl not in ("low", "medium", "high", "critical"):
-        result["warnings"].append(f"risk_level '{rl}' 不合法，使用默认值 low")
-        rl = "low"
-    manifest["risk_level"] = rl
 
     # tags
     tags = artclaw.get("tags", [])

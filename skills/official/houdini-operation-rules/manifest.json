@@ -1,0 +1,20 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "houdini_operation_rules",
+  "display_name": "houdini-operation-rules",
+  "description": "Houdini 操作通用规则和最佳实践。所有涉及 Houdini 场景修改的操作都必须遵守。 AI 在执行任何 Houdini 场景操作任务前应先读取此 Skill。 包含：坐标系、Undo 包装、节点操作基础、Cook 机制、上下文规则等强制规则。 Use when AI needs to: (1) perform any Houdini scene modification, (2) check post-operation best practices, (3) understand Houdini coordinate system, (4) learn node-based workflow fundamentals. Houdini only (run_python).",
+  "version": "0.1.0",
+  "author": "ArtClaw",
+  "license": "MIT",
+  "software": "houdini",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}
