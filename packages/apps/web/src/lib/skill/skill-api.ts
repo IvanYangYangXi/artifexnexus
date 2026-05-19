@@ -53,6 +53,7 @@ export interface SkillDetail {
   loaded: boolean;
   layer: string;
   source_path?: string;
+  install_path?: string | null;
   load_error?: string | null;
   tool_count?: number;
 }

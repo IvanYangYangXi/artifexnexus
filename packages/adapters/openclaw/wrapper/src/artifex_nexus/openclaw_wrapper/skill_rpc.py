@@ -135,6 +135,12 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
             detail["load_error"] = instance.load_error
             detail["tool_count"] = len(instance.tools)
 
+        # 计算安装路径（已安装的 Skill 在 workspace/skills/ 下）
+        installer = _get_skill_installer()
+        install_dir = installer._target_skill_dir("02_user", skill_name)
+        if install_dir.exists():
+            detail["install_path"] = str(install_dir)
+
         return _ok(req_id, detail)
     except Exception as e:
         logger.exception("skill.detail failed")

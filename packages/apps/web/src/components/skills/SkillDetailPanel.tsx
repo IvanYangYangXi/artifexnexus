@@ -148,7 +148,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
       {/* Tab 内容 */}
       <ScrollFade className="flex-1">
         <div className="p-3">
-          {activeTab === "info" && <InfoTab entry={entry} labelCls={labelCls} compact={compact} />}
+          {activeTab === "info" && <InfoTab entry={entry} installPath={detail.install_path} labelCls={labelCls} compact={compact} />}
           {activeTab === "readme" && <ReadmeTab skillName={skillName} />}
           {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} onFixed={loadDetail} />}
         </div>
@@ -161,8 +161,9 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
 // Tab 1: 基本信息
 // ═══════════════════════════════════════════════════════════════════════════
 
-function InfoTab({ entry, labelCls, compact }: {
+function InfoTab({ entry, installPath, labelCls, compact }: {
   entry: SkillDetail["entry"];
+  installPath?: string | null;
   labelCls: string;
   compact?: boolean;
 }) {
@@ -275,6 +276,26 @@ function InfoTab({ entry, labelCls, compact }: {
           >
             <ExternalLink className="h-3 w-3 shrink-0" />
             {entry.path}
+          </button>
+        </div>
+      )}
+
+      {/* 安装路径（仅已安装 Skill 且与源路径不同时显示） */}
+      {installPath && installPath !== entry.path && (
+        <div>
+          <div className={labelCls}>安装路径</div>
+          <button
+            onClick={async () => {
+              try {
+                await invoke("shell_open_path", { path: installPath });
+              } catch (e) {
+                console.error("打开路径失败:", e);
+              }
+            }}
+            className="flex w-full items-center gap-1.5 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-2 py-1.5 font-mono text-[10px] text-muted-foreground break-all hover:border-primary/40 hover:text-foreground transition-colors text-left"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            {installPath}
           </button>
         </div>
       )}

@@ -254,6 +254,7 @@ export function SkillList() {
             <ItemCard key={skill.name} viewMode={viewMode}
               selected={selectMode ? selectedIds.has(skill.name) : undefined}
               onSelect={selectMode ? (() => toggleSelect(skill.name)) : undefined}
+              onTitleClick={() => handleDetail(skill.name)}
               icon={<DCCIcon software={skill.software} />}
               title={skill.display_name || skill.name}
               titleBadge={skill.validation_error || !skill.has_manifest ? { label: "⚠", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" } : undefined}
