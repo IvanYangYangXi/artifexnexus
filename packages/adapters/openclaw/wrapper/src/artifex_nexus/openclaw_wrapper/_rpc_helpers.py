@@ -193,17 +193,37 @@ def _err_invalid_params(req_id: Any, message: str) -> dict:
 
 
 def _entry_to_dict(entry: Any) -> dict:
-    """将 SkillEntry 转为可序列化的 dict。"""
+    """将 SkillEntry 转为可序列化的 dict。
+
+    数据源规则（与 artclaw 格式标准对齐）：
+    - name / description → 来自 SKILL.md（entry.manifest 中已覆盖）
+    - 其他所有字段 → 来自 manifest.json
+    - manifest.json 缺失时除 name/description 外全部留空/默认值
+    """
     from artifex_nexus.skill import software_value
+    manifest = entry.manifest
+    has_manifest = (entry.path / "manifest.json").exists() if entry.path else False
     return {
         "name": entry.name,
-        "display_name": entry.display_name,
+        "display_name": manifest.display_name or entry.name,
+        "description": getattr(entry, "description", "") or "",
         "layer": entry.layer,
-        "category": entry.category,
-        "software": software_value(entry.software),
-        "version": entry.version,
+        "category": manifest.category,
+        "software": software_value(manifest.software),
+        "version": manifest.version,
         "priority": entry.priority,
         "path": str(entry.path) if entry.path else "",
+        "validation_error": getattr(entry, "validation_error", None),
+        # manifest.json 独有字段（不存在时为空/默认值）
+        "author": manifest.author or "",
+        "tags": manifest.tags or [],
+        "risk_level": str(manifest.risk_level) if hasattr(manifest, "risk_level") else "low",
+        "dependencies": manifest.dependencies or [],
+        "entry_point": manifest.entry_point or "__init__.py",
+        "license": manifest.license or "",
+        "has_manifest": has_manifest,
+        "skill_tools": [t.model_dump() if hasattr(t, "model_dump") else {"name": t.name, "description": t.description}
+                        for t in (manifest.skill_tools or [])],
     }
 
 

@@ -21,13 +21,14 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..categories import ALL_SOFTWARE, ALL_RISK_LEVELS, CATEGORY_PATTERN, RiskLevel, Software
+from ..categories import ALL_SOFTWARE, ALL_RISK_LEVELS, CATEGORY_PATTERN, RiskLevel
 
 
 # ── 正则常量 ────────────────────────────────────────────────────────────────
 
-# name 约束：小写字母开头，后接小写字母/数字/下划线，最长 64 字符
-_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+# name 约束：小写字母开头，后接小写字母/数字/下划线/连字符，最长 64 字符
+# （允许连字符以兼容 SKILL.md frontmatter 的 name 格式）
+_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 # semver 正则（与 artclaw_bridge manifest.py 对齐）
 _SEMVER_PATTERN = re.compile(
@@ -96,15 +97,15 @@ class SkillManifest(BaseModel):
     )
     name: str = Field(
         ...,
-        description="Skill 名称（snake_case，64 字符内）",
+        description="Skill 名称（小写字母开头，可含连字符/下划线/数字，64 字符内）",
     )
     version: str = Field(
-        ...,
-        description="semver 版本号，如 '1.0.0'",
+        default="0.0.0",
+        description="semver 版本号，如 '1.0.0'（缺省时使用 0.0.0）",
     )
-    software: Software = Field(
-        ...,
-        description="目标 DCC 软件类型",
+    software: str = Field(
+        default="unknown",
+        description="目标 DCC 软件类型（缺省时为 unknown）",
     )
 
     # ── 可选元数据 ──────────────────────────────────────────────────────
@@ -168,6 +169,8 @@ class SkillManifest(BaseModel):
     @field_validator("version")
     @classmethod
     def _validate_version(cls, v: str) -> str:
+        if v == "0.0.0":
+            return v  # 缺省值，不校验
         if not _SEMVER_PATTERN.match(v):
             raise ValueError(
                 f"version '{v}' 不符合 semver 格式 (MAJOR.MINOR.PATCH)"
@@ -185,17 +188,9 @@ class SkillManifest(BaseModel):
             )
         return v
 
-    @field_validator("manifest_version")
-    @classmethod
-    def _validate_manifest_version(cls, v: str) -> str:
-        if v != "1.0":
-            raise ValueError(f"manifest_version 必须为 '1.0'，实际为 '{v}'")
-        return v
-
     @model_validator(mode="after")
     def _validate_skill_tools_non_empty(self) -> "SkillManifest":
-        if not self.skill_tools:
-            raise ValueError("skill_tools 数组至少包含一个元素")
+        # 允许空 skill_tools（仅有 SKILL.md 文档的 Skill 可以不声明 tools）
         return self
 
     # ── 便捷方法 ────────────────────────────────────────────────────────

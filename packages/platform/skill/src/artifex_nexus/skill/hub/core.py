@@ -21,12 +21,16 @@ Skill 加载生命周期：
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional
+
+import yaml
 
 from ..categories import software_value
 from ..conflict import LAYER_PRIORITY
@@ -49,20 +53,22 @@ _DEFAULT_SKILLS_ROOT = Path.home() / ".artifexnexus" / ".openclaw" / "workspace"
 class SkillEntry:
     """扫描阶段（未加载 Python 模块）的 Skill 记录。
 
-    只包含从 manifest.json 中读取的元数据，不做 Python import。
-    这样可以快速扫描大量 Skill 而不会有副作用。
+    名称和描述以 SKILL.md frontmatter 为唯一源。
+    其他属性从 manifest.json 补充（不存在时使用默认值）。
 
     Attributes:
-        name: Skill 名称（manifest.name）。
+        name: Skill 名称（SKILL.md frontmatter name）。
         layer: 所属层级（'00_official' / '01_team' / '02_user' / '99_custom'）。
         path: Skill 源码目录绝对路径。
         manifest: 加载并校验后的 SkillManifest 实例。
+        validation_error: 校验错误信息（None 表示无误）。
     """
 
     name: str
     layer: str
     path: Path
     manifest: SkillManifest
+    validation_error: Optional[str] = None
 
     @property
     def priority(self) -> int:
@@ -88,6 +94,11 @@ class SkillEntry:
     def display_name(self) -> str:
         """显示名称。"""
         return self.manifest.display_name or self.name
+
+    @property
+    def description(self) -> str:
+        """Skill 描述（来自 SKILL.md frontmatter）。"""
+        return self.manifest.description or ""
 
 
 # ── SkillHub ──────────────────────────────────────────────────────────────────
@@ -169,16 +180,18 @@ class SkillHub:
     # ── 扫描 ──────────────────────────────────────────────────────────────
 
     def scan_all_skills(self) -> int:
-        """扫描所有层级目录，发现 Skill（只读 manifest.json，不 import Python）。
+        """扫描所有层级目录，发现 Skill（以 SKILL.md 为识别标志）。
 
         每次调用会**清空**已有记录并重新扫描。
 
         扫描流程：
         1. 遍历 ``self._layer_sources`` 中每个层级的源目录
-        2. 递归查找 ``manifest.json``
+        2. 递归查找 ``SKILL.md``
         3. 跳过 ``templates/`` 目录（模板包含 TODO 占位符）
-        4. 通过 ``load_manifest_model()`` 校验 manifest
-        5. 校验失败记录 warning 日志并跳过该 Skill
+        4. 解析 SKILL.md YAML frontmatter 获取 name/description
+        5. 尝试加载同目录 manifest.json 补充属性
+        6. manifest.json 不存在或校验失败 → 构建合成 manifest（使用默认值）
+        7. 校验失败不跳过，记录 validation_error 字段
 
         :return: 发现的 Skill 条目总数（去重前，含所有层级）。
         """
@@ -351,7 +364,9 @@ class SkillHub:
     def _scan_layer(self, layer: str, source_dir: Path) -> int:
         """扫描单个层级目录。
 
-        递归查找 ``manifest.json``，通过 ``load_manifest_model()`` 校验。
+        以 ``SKILL.md`` 为发现标志（而非 manifest.json）。
+        解析 SKILL.md YAML frontmatter 获取 name/description，
+        manifest.json 作为补充属性源（不存在则构建合成 manifest）。
 
         :param layer: 层级名称。
         :param source_dir: 层级源目录。
@@ -360,14 +375,13 @@ class SkillHub:
         count = 0
 
         try:
-            for manifest_path in source_dir.rglob("manifest.json"):
-                # 跳过模板目录（模板包含 TODO 占位符，不是有效 Skill）
-                if "templates" in manifest_path.parts:
+            for skill_md_path in source_dir.rglob("SKILL.md"):
+                # 跳过模板目录
+                if "templates" in skill_md_path.parts:
                     continue
 
-                entry = self._load_entry_from_manifest(layer, manifest_path)
+                entry = self._build_skill_entry(layer, skill_md_path)
                 if entry is not None:
-                    # 注册到索引
                     self._entries.setdefault(entry.name, []).append(entry)
                     count += 1
         except OSError as exc:
@@ -375,24 +389,106 @@ class SkillHub:
 
         return count
 
-    def _load_entry_from_manifest(
-        self, layer: str, manifest_path: Path
-    ) -> Optional[SkillEntry]:
-        """从 manifest.json 构建 SkillEntry。
+    @staticmethod
+    def _parse_skill_md_frontmatter(skill_md_path: Path) -> Optional[dict]:
+        """解析 SKILL.md 的 YAML frontmatter。
 
-        :param layer: 所属层级。
-        :param manifest_path: manifest.json 文件路径。
-        :return: SkillEntry，校验失败返回 None。
+        返回包含 ``name``、``description``、``metadata`` 等字段的 dict。
+        解析失败返回 None。
         """
-        manifest = load_manifest_model(manifest_path)
-        if manifest is None:
+        try:
+            text = skill_md_path.read_text(encoding="utf-8")
+        except OSError:
             return None
 
+        # 匹配 YAML frontmatter: ---\n...\n---
+        m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
+        if not m:
+            return None
+
+        try:
+            return yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            return None
+
+    def _build_skill_entry(
+        self, layer: str, skill_md_path: Path
+    ) -> Optional[SkillEntry]:
+        """从 SKILL.md 构建 SkillEntry。
+
+        流程：
+        1. 解析 SKILL.md frontmatter → 获取 name/description
+        2. 尝试加载同目录 manifest.json → 补充属性
+        3. manifest.json 不存在 → validation_error="缺少 manifest.json"，合成最简 manifest
+        4. 始终返回 SkillEntry（校验失败也返回，记录 validation_error）
+
+        **数据源规则**（与 artclaw 格式标准对齐）：
+        - name / description → 唯一源为 SKILL.md frontmatter
+        - 其他所有字段 → 唯一源为 manifest.json
+        - manifest.json 缺失 → 除 name/description 外全部留空/默认值
+
+        :param layer: 所属层级。
+        :param skill_md_path: SKILL.md 文件路径。
+        :return: SkillEntry，无法解析 name 时返回 None。
+        """
+        skill_dir = skill_md_path.parent
+        frontmatter = self._parse_skill_md_frontmatter(skill_md_path)
+
+        # 必须有 frontmatter 且包含 name
+        if not frontmatter or not frontmatter.get("name"):
+            logger.warning("SKILL.md 缺少 name 字段: %s", skill_md_path)
+            return None
+
+        skill_name = str(frontmatter["name"]).strip()
+        skill_description = str(frontmatter.get("description", "")).strip()
+
+        validation_error: Optional[str] = None
+        manifest: Optional[SkillManifest] = None
+
+        # 尝试加载 manifest.json
+        manifest_path = skill_dir / "manifest.json"
+        if manifest_path.exists():
+            manifest = load_manifest_model(manifest_path)
+            if manifest is None:
+                validation_error = "manifest.json 校验失败"
+                logger.warning("manifest 校验失败: %s", manifest_path)
+        else:
+            # manifest.json 不存在 → 标记为格式问题
+            validation_error = "缺少 manifest.json"
+            logger.warning("缺少 manifest.json: %s", skill_dir)
+
+        # 如果没有 manifest（或校验失败），构建最简合成 manifest
+        # 只设置 name/description（来自 SKILL.md），其他字段留空/默认值
+        if manifest is None:
+            try:
+                manifest = SkillManifest(
+                    name=skill_name,
+                    description=skill_description,
+                    skill_tools=[],
+                )
+            except Exception as exc:
+                validation_error = (validation_error or "") + f"; 合成 manifest 失败: {exc}"
+                logger.error("合成 manifest 失败 (%s): %s", skill_name, exc)
+                # 用最简模型兜底
+                manifest = SkillManifest(
+                    name=skill_name,
+                    description=skill_description,
+                    skill_tools=[],
+                )
+        else:
+            # manifest 加载成功：用 SKILL.md 的 name/description 覆盖
+            # （SKILL.md 是 name/description 的唯一源）
+            manifest = manifest.model_copy(update={
+                "name": skill_name,
+                "description": skill_description,
+            })
+
         return SkillEntry(
-            name=manifest.name,
+            name=skill_name,
             layer=layer,
-            path=manifest_path.parent.resolve(),
+            path=skill_dir.resolve(),
             manifest=manifest,
+            validation_error=validation_error if validation_error else None,
         )
 
     def _do_load(self, entry: SkillEntry) -> Optional[SkillInstance]:

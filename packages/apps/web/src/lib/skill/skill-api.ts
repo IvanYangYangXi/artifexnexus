@@ -12,12 +12,24 @@ import { invoke } from "@tauri-apps/api/core";
 export interface SkillEntry {
   name: string;
   display_name: string;
+  description: string;
   layer: string;
-  category: string;
+  category: string | null;
   software: string;
   version: string;
   priority: number;
   path: string;
+  validation_error?: string | null;
+  /** manifest.json 是否存在 */
+  has_manifest: boolean;
+  /** manifest.json 独有字段 */
+  author: string;
+  tags: string[];
+  risk_level: string;
+  dependencies: string[];
+  entry_point: string;
+  license: string;
+  skill_tools: Array<{ name: string; description: string }>;
 }
 
 export interface SkillItem extends SkillEntry {

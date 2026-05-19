@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
@@ -150,13 +151,20 @@ class SkillInstaller:
 
     # ── 路径辅助 ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _is_skill_dir(dir_path: Path) -> bool:
+        """目录是否包含 SKILL.md 或 manifest.json（至少其一即为有效 Skill 目录）。"""
+        return dir_path.is_dir() and (
+            (dir_path / "SKILL.md").exists() or (dir_path / "manifest.json").exists()
+        )
+
     def _source_skill_dir(self, source_layer: str, skill_name: str) -> Path:
         """获取 Skill 源目录路径。
 
         查找策略（按优先级）：
-        1. naive 拼接：source_base / skill_name
-        2. fallback 扫描：在 source_base 下递归查找 manifest.json，
-           匹配 name 字段（处理目录名用连字符、manifest.name 用下划线等不匹配场景）
+        1. naive 拼接：source_base / skill_name（检查 SKILL.md 或 manifest.json）
+        2. fallback 扫描：在 source_base 下递归查找 SKILL.md 的 frontmatter name
+           或 manifest.json 的 name 字段（处理目录名与声明名不匹配的场景）
 
         若 source_layer 在 layer_sources 中 → 使用映射目录作为 base；
         否则回退到 install root 下的对应层级。
@@ -168,13 +176,33 @@ class SkillInstaller:
             # 扁平化目标：不在 layer_sources 中的层级直接查 install root
             base_dir = self._root
 
-        # 策略 1: naive 拼接
+        # 策略 1: naive 拼接（SKILL.md 或 manifest.json 均可）
         naive = base_dir / skill_name
-        if naive.is_dir() and (naive / "manifest.json").exists():
+        if self._is_skill_dir(naive):
             return naive
 
-        # 策略 2: fallback 扫描（处理目录名 ≠ manifest.name 的情况）
+        # 策略 2: fallback 扫描（处理目录名 ≠ 声明名的情况）
         try:
+            # 2a. 先从 SKILL.md frontmatter 找
+            for skill_md in base_dir.rglob("SKILL.md"):
+                if "templates" in skill_md.parts:
+                    continue
+                try:
+                    import re as _re
+                    text = skill_md.read_text("utf-8")
+                    m = _re.match(r"^---\s*\n(.*?)\n---", text, _re.DOTALL)
+                    if m:
+                        fm = yaml.safe_load(m.group(1)) or {}
+                        if fm.get("name") == skill_name:
+                            logger.debug(
+                                "_source_skill_dir: SKILL.md fallback 命中 '%s': %s",
+                                skill_name, skill_md.parent,
+                            )
+                            return skill_md.parent
+                except Exception:
+                    continue
+
+            # 2b. 再从 manifest.json name 字段找
             for manifest_path in base_dir.rglob("manifest.json"):
                 # 跳过模板目录
                 if "templates" in manifest_path.parts:
@@ -241,11 +269,10 @@ class SkillInstaller:
                 installed_path=target_dir,
             )
 
-        # 确认 manifest 有效
-        manifest_path = source_dir / "manifest.json"
-        if not manifest_path.exists():
+        # 确认源目录有效（至少包含 SKILL.md 或 manifest.json）
+        if not self._is_skill_dir(source_dir):
             return InstallResult(
-                False, skill_name, f"源目录缺少 manifest.json: {source_dir}"
+                False, skill_name, f"源目录缺少 SKILL.md 或 manifest.json: {source_dir}"
             )
 
         try:
@@ -421,7 +448,7 @@ class SkillInstaller:
     ) -> List[SyncResult]:
         """批量同步所有已安装的 Skill。
 
-        扁平化目标目录：直接遍历 install root 下每个有 manifest.json 的子目录。
+        扁平化目标目录：直接遍历 install root 下每个有效 Skill 目录（包含 SKILL.md 或 manifest.json）。
 
         :param source_layer: 源层级。
         :param target_layer: 目标层级（保留兼容，扁平化后不使用）。
@@ -433,9 +460,7 @@ class SkillInstaller:
             return results
 
         for skill_dir in sorted(self._root.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-            if not (skill_dir / "manifest.json").exists():
+            if not self._is_skill_dir(skill_dir):
                 continue
             skill_name = skill_dir.name
             result = self.sync(skill_name, source_layer, target_layer)
@@ -468,7 +493,7 @@ class SkillInstaller:
                 False, skill_name, "", message="Skill 未安装，请先 install"
             )
 
-        # 读取版本号
+        # 读取版本号（优先 manifest.json，回退到 SKILL.md frontmatter）
         version = "unknown"
         manifest_file = skill_dir / "manifest.json"
         if manifest_file.exists():
@@ -476,6 +501,20 @@ class SkillInstaller:
                 manifest_data = json.loads(manifest_file.read_text("utf-8"))
                 version = manifest_data.get("version", "unknown")
             except (json.JSONDecodeError, OSError):
+                pass
+        elif (skill_dir / "SKILL.md").exists():
+            try:
+                import re as _re2
+                text = (skill_dir / "SKILL.md").read_text("utf-8")
+                m = _re2.match(r"^---\s*\n(.*?)\n---", text, _re2.DOTALL)
+                if m:
+                    fm = yaml.safe_load(m.group(1)) or {}
+                    meta = fm.get("metadata", {})
+                    if isinstance(meta, dict):
+                        artclaw = meta.get("artclaw", {})
+                        if isinstance(artclaw, dict):
+                            version = str(artclaw.get("version", "unknown"))
+            except Exception:
                 pass
 
         logger.info(

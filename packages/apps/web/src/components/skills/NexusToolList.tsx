@@ -18,6 +18,17 @@ const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400", marketplace: "text-purple-400", user: "text-green-400",
 };
 
+// ── localStorage helpers ──────────────────────────────────────────────────────
+const VIEW_KEY = "artifex.skills.toolViewMode";
+const loadViewPref = (): "card" | "list" => {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (v === "card" || v === "list") return v;
+  } catch { /* ignore */ }
+  return "card";
+};
+const saveViewPref = (val: string) => { try { localStorage.setItem(VIEW_KEY, val); } catch { /* ignore */ } };
+
 const IMPL_LABELS: Record<string, string> = {
   skill_wrapper: "包装", script: "脚本", composite: "组合",
 };
@@ -27,7 +38,7 @@ export function NexusToolList() {
   const [dccFilter, setDccFilter] = React.useState("all");
   const [sourceFilter, setSourceFilter] = React.useState("all");
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
-  const [viewMode, setViewMode] = React.useState<"card" | "list">("card");
+  const [viewMode, setViewMode] = React.useState<"card" | "list">(loadViewPref);
   const [tools, setTools] = React.useState<NexusToolItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -143,7 +154,7 @@ export function NexusToolList() {
           <Loader2 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8"
-          onClick={() => setViewMode(viewMode === "card" ? "list" : "card")}>
+          onClick={() => { const next = viewMode === "card" ? "list" : "card"; setViewMode(next); saveViewPref(next); }}>
           {viewMode === "card" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
       </div>

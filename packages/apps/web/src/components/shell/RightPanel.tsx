@@ -31,6 +31,7 @@ import {
 import { ScrollFade } from "../chat/ScrollFade";
 import { PreviewFileContext, PreviewContext, PinnedSkillsContext } from "./AppShell";
 import { ToolDetailPanel } from "../skills/ToolDetailPanel";
+import { SkillDetailPanel } from "../skills/SkillDetailPanel";
 import { RunPanel } from "../skills/RunPanel";
 import {
   type SkillItem,
@@ -329,6 +330,12 @@ function PreviewRenderer({ payload, onClose }: {
     const data = payload.data as { toolId: string; toolName: string; refreshKey?: number } | undefined;
     if (!data?.toolId) return <FallbackPreview payload={payload} />;
     return <ToolDetailPanel toolId={data.toolId} compact refreshKey={data.refreshKey} />;
+  }
+
+  if (payload.kind === "skill-detail") {
+    const data = payload.data as { skillName: string } | undefined;
+    if (!data?.skillName) return <FallbackPreview payload={payload} />;
+    return <SkillDetailPanel skillName={data.skillName} compact />;
   }
 
   if (payload.kind === "nexus-tool-run") {

@@ -13,7 +13,7 @@ import { Badge, Button, cn } from "@artifex-nexus/ui";
 export interface ItemCardProps {
   icon: React.ReactNode;
   title: string;
-  titleBadge?: { label: string };
+  titleBadge?: { label: string; className?: string };
   source: { label: string; color: string };
   status?: { label: string; color: string };
   description: string;
@@ -67,7 +67,7 @@ function ItemCardView({
               {title}
             </span>
             {titleBadge && (
-              <Badge variant="secondary" className="text-[10px]">{titleBadge.label}</Badge>
+              <Badge variant="secondary" className={cn("text-[10px]", titleBadge.className)}>{titleBadge.label}</Badge>
             )}
           </div>
         </div>
@@ -130,7 +130,7 @@ function ItemListRow({
           onClick={onTitleClick}
         >{title}</span>
         {titleBadge && (
-          <Badge variant="secondary" className="text-[9px]">{titleBadge.label}</Badge>
+          <Badge variant="secondary" className={cn("text-[9px]", titleBadge.className)}>{titleBadge.label}</Badge>
         )}
         {status && (
         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.color)}>

@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox, CheckSquare, Download } from "lucide-react";
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@artifex-nexus/ui";
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
+import { PreviewContext } from "../shell/AppShell";
 import {
   skillList, skillInstall, skillUninstall, skillEnable, skillDisable,
-  skillPin, skillUnpin, skillFavorite, skillUnfavorite, skillDetail,
+  skillPin, skillUnpin, skillFavorite, skillUnfavorite,
   skillSync, skillPublish, skillBatch,
   type SkillItem,
 } from "../../lib/skill/skill-api";
@@ -25,21 +26,32 @@ const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400", marketplace: "text-purple-400", user: "text-green-400",
 };
 
+// ── localStorage helpers ──────────────────────────────────────────────────────
+const VIEW_KEY = "artifex.skills.skillViewMode";
+const loadViewPref = (): "card" | "list" => {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (v === "card" || v === "list") return v;
+  } catch { /* ignore */ }
+  return "card";
+};
+const saveViewPref = (val: string) => { try { localStorage.setItem(VIEW_KEY, val); } catch { /* ignore */ } };
+
 export function SkillList() {
   const [search, setSearch] = React.useState("");
   const [dccFilter, setDccFilter] = React.useState("all");
   const [sourceFilter, setSourceFilter] = React.useState("all");
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
-  const [viewMode, setViewMode] = React.useState<"card" | "list">("card");
+  const [viewMode, setViewMode] = React.useState<"card" | "list">(loadViewPref);
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [detailSkill, setDetailSkill] = React.useState<SkillItem | null>(null);
-  const [detailLoading, setDetailLoading] = React.useState(false);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [batchInstalling, setBatchInstalling] = React.useState(false);
+
+  const { setPreview } = React.useContext(PreviewContext);
 
   // 加载列表
   const loadSkills = React.useCallback(async () => {
@@ -74,25 +86,14 @@ export function SkillList() {
     }
   }, [loadSkills]);
 
-  const handleDetail = React.useCallback(async (id: string) => {
-    setDetailLoading(true);
-    try {
-      const detail = await skillDetail(id);
-      // detail.entry has SkillEntry data, convert to SkillItem for display
-      const item: SkillItem = {
-        ...detail.entry,
-        enabled: detail.config.enabled,
-        pinned: detail.config.pinned,
-        favorited: detail.config.favorited,
-        installed: false, // detail 不返回 installed 字段，默认 false
-      };
-      setDetailSkill(item);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+  /** 点击 Skill → 在 D5 右侧面板打开详情 */
+  const handleDetail = React.useCallback((name: string) => {
+    setPreview({
+      kind: "skill-detail",
+      title: name,
+      data: { skillName: name },
+    });
+  }, [setPreview]);
 
   const isBusy = (id: string) => actionLoading.has(id);
 
@@ -218,7 +219,7 @@ export function SkillList() {
           <Loader2 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8"
-          onClick={() => setViewMode(viewMode === "card" ? "list" : "card")}>
+          onClick={() => { const next = viewMode === "card" ? "list" : "card"; setViewMode(next); saveViewPref(next); }}>
           {viewMode === "card" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
       </div>
@@ -255,6 +256,7 @@ export function SkillList() {
               onSelect={selectMode ? (() => toggleSelect(skill.name)) : undefined}
               icon={<DCCIcon software={skill.software} />}
               title={skill.display_name || skill.name}
+              titleBadge={skill.validation_error || !skill.has_manifest ? { label: "⚠", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" } : undefined}
               source={{ label: SOURCE_LABELS[layerToSource(skill.layer)] || layerToSource(skill.layer), color: SOURCE_COLORS[layerToSource(skill.layer)] }}
               status={{
                 label: !skill.installed ? "未安装" : skill.enabled ? "已安装" : "已禁用",
@@ -264,7 +266,7 @@ export function SkillList() {
                     ? "bg-emerald-500/15 text-emerald-400"
                     : "bg-red-500/15 text-red-400",
               }}
-              description={skill.category}
+              description={skill.description || skill.category || ""}
               meta={<>
                 <span>{skill.version}</span>
                 <span>·</span><span>{skill.software}</span>
@@ -354,22 +356,6 @@ export function SkillList() {
           ))}
         </div>
       </ScrollFade>
-
-      <Dialog open={!!detailSkill} onOpenChange={() => setDetailSkill(null)}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader><DialogTitle>{detailSkill?.display_name || detailSkill?.name}</DialogTitle>
-            <DialogDescription>{layerToSource(detailSkill?.layer || "")} · {detailSkill?.version} · {detailSkill?.software}</DialogDescription>
-          </DialogHeader>
-          {detailSkill && <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">{detailSkill.category}</p>
-            <div className="flex flex-wrap gap-1.5">
-              <span className="rounded bg-muted px-2 py-0.5 text-xs">{detailSkill.software}</span>
-              <span className="rounded bg-muted px-2 py-0.5 text-xs">{detailSkill.version}</span>
-              <span className="rounded bg-muted px-2 py-0.5 text-xs">优先级 {detailSkill.priority}</span>
-            </div>
-          </div>}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
