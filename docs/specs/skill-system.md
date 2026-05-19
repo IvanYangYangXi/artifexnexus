@@ -16,7 +16,7 @@ packages/platform/skill/src/artifex_nexus/skill/
 ├── __init__.py           # 统一门面：from artifex_nexus.skill import skill_tool, SkillToolResult, execute_skill_tool, ...
 ├── decorator/            # @skill_tool 装饰器、参数 schema 推导（基于 type hints）
 ├── manifest/             # SkillManifest pydantic v2 模型 + Category / RiskLevel 枚举
-├── loader/               # 分层加载（00_official > 01_team > 02_user > 99_custom）
+├── loader/               # 分层加载（00_official > 01_marketplace > 01_team > 02_user > 99_custom）
 ├── version/              # 版本解析/比较（基于 packaging）+ 软件版本匹配
 ├── hub/                  # SkillHub：execute / list / get / reload（运行时入口）
 ├── conflict/             # 多层级命名冲突检测
@@ -87,11 +87,32 @@ print(result)
 
 ## 6. 分层与冲突
 
-加载优先级（数字越小越高）：
-- `00_official` ← `packages/skills/official/`（项目内官方源码）
-- `01_team`     ← 团队 Git 仓库
-- `02_user`     ← `~/.artifexnexus/skills/`（用户自建）
-- `99_custom`   ← 运行时动态注册
+### 源码目录（项目管理用，按层级区分）
+
+```
+skills/
+├── official/              ← 00_official  官方 Skill（维护在 git 仓库中）
+└── marketplace/           ← 01_marketplace  技能市场
+```
+
+> 用户自建 Skill 不放在源码目录中，通过 SkillHub 动态注册。
+
+### 安装目标（OpenClaw 平台规则，扁平结构）
+
+```
+~/.artifexnexus/.openclaw/workspace/skills/{skill-name}/
+```
+
+> 所有已安装 Skill 直接放在此目录下，**不按 official/team/user 分目录**。
+> 由 `SkillInstaller` 通过 copy + version 元数据管理，**不使用 symlink**。
+
+### 加载优先级（数字越小越高）
+
+- `00_official`     ← `skills/official/`（项目内官方源码）
+- `01_marketplace`  ← `skills/marketplace/`（技能市场）
+- `01_team`         ← 团队共享（publish metadata，无独立源目录）
+- `02_user`         ← 用户安装（逻辑区分，安装路径扁平）
+- `99_custom`       ← `~/.artifexnexus/.openclaw/workspace/skills/`（已安装目录扫描）
 
 同名时高优先级覆盖低优先级，由 `conflict.py` 检测冲突并通过 `events.py` 广播 `SkillEvent.SHADOWED`。
 

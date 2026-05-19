@@ -129,9 +129,11 @@ def _get_skill_installer() -> Any:
     global _skill_installer
     if _skill_installer is None:
         from artifex_nexus.skill import SkillInstaller
+        hub = _get_skill_hub()
         _skill_installer = SkillInstaller(
-            hub=_get_skill_hub(),
-            config=_get_skill_config(),
+            hub=hub,
+            config_path=_DEFAULT_CONFIG_PATH,
+            layer_sources=getattr(hub, "_layer_sources", None),
         )
     return _skill_installer
 

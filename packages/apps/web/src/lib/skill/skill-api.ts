@@ -24,6 +24,7 @@ export interface SkillItem extends SkillEntry {
   enabled: boolean;
   pinned: boolean;
   favorited: boolean;
+  installed: boolean;
 }
 
 export interface SkillToolItem {

@@ -58,13 +58,17 @@ def _handle_skill_list(req_id: Any, params: dict) -> dict:
         page_entries = entries[start:end]
 
         config = _get_skill_config()
+        installer = _get_skill_installer()
         items = []
         for entry in page_entries:
+            # 检测是否已安装：02_user 层下是否存在该 Skill 目录
+            installed = installer._target_skill_dir("02_user", entry.name).exists()
             item = _entry_to_dict(entry)
             item.update({
                 "enabled": not config.is_disabled(entry.name),
                 "pinned": config.is_pinned(entry.name),
                 "favorited": config.is_favorite(entry.name),
+                "installed": installed,
             })
             items.append(item)
 
@@ -152,7 +156,13 @@ def _handle_skill_install(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         installer = _get_skill_installer()
-        source_layer = params.get("source_layer", "00_official")
+        source_layer = params.get("source_layer")
+        if source_layer is None:
+            # 自动从 Hub 检测 Skill 所属层级
+            hub = _get_skill_hub()
+            hub.scan_all_skills()
+            entry = hub.get_entry(skill_name)
+            source_layer = entry.layer if entry else "00_official"
         target_layer = params.get("target_layer", "02_user")
 
         result = installer.install(skill_name, source_layer=source_layer, target_layer=target_layer)
@@ -324,7 +334,13 @@ def _handle_skill_sync(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         installer = _get_skill_installer()
-        source_layer = params.get("source_layer", "00_official")
+        source_layer = params.get("source_layer")
+        if source_layer is None:
+            # 自动从 Hub 检测 Skill 所属层级
+            hub = _get_skill_hub()
+            hub.scan_all_skills()
+            entry = hub.get_entry(skill_name)
+            source_layer = entry.layer if entry else "00_official"
         target_layer = params.get("target_layer", "02_user")
 
         result = installer.sync(skill_name, source_layer=source_layer, target_layer=target_layer)
@@ -433,6 +449,7 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
 
         all_entries = hub.list_entries()
         cfg = _get_skill_config()
+        installer = _get_skill_installer()
 
         items: list[dict] = []
         for entry in all_entries:
@@ -442,11 +459,13 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
                 (entry.category or "").lower(),
             ])
             if query in searchable:
+                installed = installer._target_skill_dir("02_user", entry.name).exists()
                 item = _entry_to_dict(entry)
                 item.update({
                     "enabled": not cfg.is_disabled(entry.name),
                     "pinned": cfg.is_pinned(entry.name),
                     "favorited": cfg.is_favorite(entry.name),
+                    "installed": installed,
                 })
                 items.append(item)
 

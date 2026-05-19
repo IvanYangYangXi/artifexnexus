@@ -89,11 +89,20 @@ class PublishResult:
 class SkillInstaller:
     """Skill 安装/卸载/同步/发布管理。
 
-    操作目标层级约定：
-        - 安装目标：``02_user``（用户层）
-        - 卸载目标：``02_user``（用户层）
-        - 同步源：``00_official``（官方），目标：``02_user``
-        - 发布源：``02_user``，目标：``01_team``（团队）或 ``00_official``
+    安装目标（OpenClaw 要求扁平结构）：
+        所有 Skill 直接安装在 ``workspace/skills/<skill_name>/`` 下，
+        不再按 official/team/user 分目录。
+        ``target_layer`` 参数仅保留用于兼容，不影响实际路径。
+
+    源目录（项目管理用，按层级区分）：
+        - ``00_official`` → ``skills/official/``
+        - ``01_marketplace`` → ``skills/marketplace/``
+
+    操作约定：
+        - install:  源 → 目标（默认 00_official → workspace/skills/）
+        - uninstall: 删除 workspace/skills/<name>/
+        - sync:     对比源与目标
+        - publish:  扁平化后源=目标，改为 metadata 操作（标记已发布）
 
     使用方式：
 
@@ -108,12 +117,13 @@ class SkillInstaller:
             hub.reload_skills()
     """
 
-    # 默认 Skill 安装层级结构
+    # 层级定义（源目录管理用，目标安装不分区）
     DEFAULT_LAYERS: Dict[str, str] = {
-        "00_official": "官方 Skill",
-        "01_team": "团队共享",
-        "02_user": "用户安装",
-        "99_custom": "自定义/开发",
+        "00_official": "官方 Skill（源）",
+        "01_marketplace": "技能市场（源）",
+        "01_team": "团队共享（仅 publish target，无独立目录）",
+        "02_user": "用户安装（仅逻辑区分，安装路径扁平）",
+        "99_custom": "自定义/开发（已安装目录扫描）",
     }
 
     def __init__(
@@ -121,10 +131,13 @@ class SkillInstaller:
         hub: "SkillHub",
         skills_root: Optional[Path] = None,
         config_path: Optional[Path] = None,
+        layer_sources: Optional[Dict[str, Path]] = None,
     ) -> None:
         """:param hub: SkillHub 运行时实例（install/uninstall 后需调用其 reload）。
         :param skills_root: Skill 安装根目录。None 则使用默认路径。
         :param config_path: 配置文件路径。None 则使用默认路径。
+        :param layer_sources: 源码层路径映射（如 {"00_official": Path, ...})。
+                             用于 install/sync 时查找源文件。None 则回退到 skills_root。
         """
         self._hub = hub
         self._root = (
@@ -133,16 +146,65 @@ class SkillInstaller:
             else _DEFAULT_SKILLS_ROOT
         )
         self._config = SkillConfig(config_path)
+        self._layer_sources = layer_sources or {}
 
     # ── 路径辅助 ──────────────────────────────────────────────────────────
 
-    def _layer_dir(self, layer: str) -> Path:
-        """获取层级目录路径。"""
-        return self._root / layer
+    def _source_skill_dir(self, source_layer: str, skill_name: str) -> Path:
+        """获取 Skill 源目录路径。
 
-    def _skill_dir(self, layer: str, skill_name: str) -> Path:
-        """获取指定层级下 Skill 目录路径。"""
-        return self._layer_dir(layer) / skill_name
+        查找策略（按优先级）：
+        1. naive 拼接：source_base / skill_name
+        2. fallback 扫描：在 source_base 下递归查找 manifest.json，
+           匹配 name 字段（处理目录名用连字符、manifest.name 用下划线等不匹配场景）
+
+        若 source_layer 在 layer_sources 中 → 使用映射目录作为 base；
+        否则回退到 install root 下的对应层级。
+        """
+        # 确定源基础目录
+        if source_layer in self._layer_sources:
+            base_dir = self._layer_sources[source_layer]
+        else:
+            # 扁平化目标：不在 layer_sources 中的层级直接查 install root
+            base_dir = self._root
+
+        # 策略 1: naive 拼接
+        naive = base_dir / skill_name
+        if naive.is_dir() and (naive / "manifest.json").exists():
+            return naive
+
+        # 策略 2: fallback 扫描（处理目录名 ≠ manifest.name 的情况）
+        try:
+            for manifest_path in base_dir.rglob("manifest.json"):
+                # 跳过模板目录
+                if "templates" in manifest_path.parts:
+                    continue
+                try:
+                    data = json.loads(manifest_path.read_text("utf-8"))
+                    if data.get("name") == skill_name:
+                        logger.debug(
+                            "_source_skill_dir: fallback 扫描命中 '%s': %s",
+                            skill_name, manifest_path.parent,
+                        )
+                        return manifest_path.parent
+                except (json.JSONDecodeError, OSError):
+                    continue
+        except OSError:
+            pass
+
+        # 未找到，返回 naive 路径（调用方检查 exists() 会得到清晰错误）
+        return naive
+
+    def _target_skill_dir(self, target_layer: str, skill_name: str) -> Path:
+        """获取 Skill 安装目标目录路径。
+
+        OpenClaw 要求扁平结构：所有已安装 Skill 直接放在 workspace/skills/ 下，
+        不再按 official/team/user 分层。
+
+        :param target_layer: 目标层级（保留参数以兼容调用方，路径中不再使用）。
+        :param skill_name: Skill 名称。
+        """
+        return self._root / skill_name
 
     # ── install ───────────────────────────────────────────────────────────
 
@@ -161,8 +223,8 @@ class SkillInstaller:
         :param target_layer: 目标层级（默认用户层）。
         :return: InstallResult。
         """
-        source_dir = self._skill_dir(source_layer, skill_name)
-        target_dir = self._skill_dir(target_layer, skill_name)
+        source_dir = self._source_skill_dir(source_layer, skill_name)
+        target_dir = self._target_skill_dir(target_layer, skill_name)
 
         if not source_dir.exists():
             return InstallResult(
@@ -209,7 +271,7 @@ class SkillInstaller:
         :param target_layer: 目标层级（默认用户层）。
         :return: InstallResult。
         """
-        target_dir = self._skill_dir(target_layer, skill_name)
+        target_dir = self._target_skill_dir(target_layer, skill_name)
 
         if not target_dir.exists():
             return InstallResult(
@@ -247,8 +309,8 @@ class SkillInstaller:
         :param target_layer: 目标层级。
         :return: SyncResult。
         """
-        source_dir = self._skill_dir(source_layer, skill_name)
-        target_dir = self._skill_dir(target_layer, skill_name)
+        source_dir = self._source_skill_dir(source_layer, skill_name)
+        target_dir = self._target_skill_dir(target_layer, skill_name)
 
         if not source_dir.exists():
             return SyncResult(
@@ -357,20 +419,23 @@ class SkillInstaller:
         source_layer: str = "00_official",
         target_layer: str = "02_user",
     ) -> List[SyncResult]:
-        """批量同步目标层中所有已安装的 Skill。
+        """批量同步所有已安装的 Skill。
+
+        扁平化目标目录：直接遍历 install root 下每个有 manifest.json 的子目录。
 
         :param source_layer: 源层级。
-        :param target_layer: 目标层级（会遍历其下所有子目录作为 Skill）。
+        :param target_layer: 目标层级（保留兼容，扁平化后不使用）。
         :return: SyncResult 列表。
         """
         results: List[SyncResult] = []
-        target_layer_dir = self._layer_dir(target_layer)
 
-        if not target_layer_dir.exists():
+        if not self._root.is_dir():
             return results
 
-        for skill_dir in sorted(target_layer_dir.iterdir()):
+        for skill_dir in sorted(self._root.iterdir()):
             if not skill_dir.is_dir():
+                continue
+            if not (skill_dir / "manifest.json").exists():
                 continue
             skill_name = skill_dir.name
             result = self.sync(skill_name, source_layer, target_layer)
@@ -386,26 +451,26 @@ class SkillInstaller:
         source_layer: str = "02_user",
         target_layer: str = "01_team",
     ) -> PublishResult:
-        """发布 Skill 到目标层（团队/官方）。
+        """发布 Skill（扁平化后为 metadata 操作）。
 
-        读取 manifest.json 获取版本号用于结果报告。
+        扁平化目标目录下，source 和 target 是同一路径，
+        不再做文件复制。此方法验证 Skill 存在、读取版本号并返回成功。
 
         :param skill_name: Skill 名称。
-        :param source_layer: 源层级（默认用户层）。
-        :param target_layer: 目标层级（默认团队层）。
+        :param source_layer: 源层级（保留兼容，扁平化后不使用）。
+        :param target_layer: 目标层级（保留兼容，扁平化后不使用）。
         :return: PublishResult。
         """
-        source_dir = self._skill_dir(source_layer, skill_name)
-        target_dir = self._skill_dir(target_layer, skill_name)
+        skill_dir = self._target_skill_dir(source_layer, skill_name)
 
-        if not source_dir.exists():
+        if not skill_dir.exists():
             return PublishResult(
-                False, skill_name, "", message="源 Skill 不存在"
+                False, skill_name, "", message="Skill 未安装，请先 install"
             )
 
         # 读取版本号
         version = "unknown"
-        manifest_file = source_dir / "manifest.json"
+        manifest_file = skill_dir / "manifest.json"
         if manifest_file.exists():
             try:
                 manifest_data = json.loads(manifest_file.read_text("utf-8"))
@@ -413,20 +478,14 @@ class SkillInstaller:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        try:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            target_dir.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(source_dir, target_dir)
-            logger.info(
-                "Skill '%s' v%s 已发布到 %s", skill_name, version, target_layer
-            )
-            return PublishResult(
-                True, skill_name, version, target_dir, "发布成功"
-            )
-        except OSError as exc:
-            logger.error("Skill '%s' 发布失败: %s", skill_name, exc)
-            return PublishResult(False, skill_name, version, message=str(exc))
+        logger.info(
+            "Skill '%s' v%s 已发布（metadata，扁平目录无需复制）",
+            skill_name, version,
+        )
+        return PublishResult(
+            True, skill_name, version, skill_dir,
+            "发布成功（扁平目录，无需文件复制）",
+        )
 
     # ── enable / disable ──────────────────────────────────────────────────
 

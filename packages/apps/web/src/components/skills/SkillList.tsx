@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox } from "lucide-react";
+import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox, CheckSquare, Download } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
 import {
   skillList, skillInstall, skillUninstall, skillEnable, skillDisable,
   skillPin, skillUnpin, skillFavorite, skillUnfavorite, skillDetail,
+  skillSync, skillPublish, skillBatch,
   type SkillItem,
 } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS, type SkillSource } from "../../lib/skillsMock";
@@ -36,6 +37,9 @@ export function SkillList() {
   const [detailSkill, setDetailSkill] = React.useState<SkillItem | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [batchInstalling, setBatchInstalling] = React.useState(false);
 
   // 加载列表
   const loadSkills = React.useCallback(async () => {
@@ -53,11 +57,15 @@ export function SkillList() {
 
   React.useEffect(() => { loadSkills(); }, [loadSkills]);
 
-  // 操作封装（支持乐观更新 + 静默重取）
+  // 操作封装（检查 result.ok）
   const doAction = React.useCallback(async (id: string, action: () => Promise<unknown>) => {
     setActionLoading((prev) => new Set(prev).add(id));
     try {
-      await action();
+      const result: any = await action();
+      if (result && typeof result === "object" && "ok" in result && !result.ok) {
+        setError((result as { message?: string }).message || "操作失败");
+        return;
+      }
       await loadSkills();
     } catch (e) {
       setError(String(e));
@@ -76,6 +84,7 @@ export function SkillList() {
         enabled: detail.config.enabled,
         pinned: detail.config.pinned,
         favorited: detail.config.favorited,
+        installed: false, // detail 不返回 installed 字段，默认 false
       };
       setDetailSkill(item);
     } catch (e) {
@@ -99,6 +108,55 @@ export function SkillList() {
       if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+
+  // ── 多选逻辑 ────────────────────────────────────────────────────────────
+  const toggleSelect = React.useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectableCount = filtered.filter((s) => !s.installed).length;
+  const selectedUninstalledCount = Array.from(selectedIds).filter((id) => {
+    const skill = skills.find((s) => s.name === id);
+    return skill && !skill.installed;
+  }).length;
+
+  const toggleSelectAll = React.useCallback(() => {
+    const uninstalled = filtered.filter((s) => !s.installed);
+    if (uninstalled.length === 0) return;
+    const allSelected = uninstalled.every((s) => selectedIds.has(s.name));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(uninstalled.map((s) => s.name)));
+    }
+  }, [filtered, selectedIds]);
+
+  const exitSelectMode = React.useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const batchInstall = React.useCallback(async () => {
+    const ids = Array.from(selectedIds).filter((id) => {
+      const skill = skills.find((s) => s.name === id);
+      return skill && !skill.installed;
+    });
+    if (ids.length === 0) return;
+    setBatchInstalling(true);
+    try {
+      await skillBatch("install", ids);
+      await loadSkills();
+      exitSelectMode();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBatchInstalling(false);
+    }
+  }, [selectedIds, skills, loadSkills, exitSelectMode]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -126,6 +184,35 @@ export function SkillList() {
           <Star className={`h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`} />
         </Button>
         <div className="flex-1" />
+        {selectMode && (
+          <>
+            <span className="text-[11px] text-muted-foreground">
+              {selectedUninstalledCount}/{selectableCount} 选中
+            </span>
+            <Button variant="ghost" size="sm" className="h-7 text-xs"
+              onClick={toggleSelectAll}
+              disabled={selectableCount === 0}>
+              全选
+            </Button>
+            <Button size="sm" className="h-7 text-xs"
+              onClick={batchInstall}
+              disabled={selectedUninstalledCount === 0 || batchInstalling}>
+              {batchInstalling
+                ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />安装中</>
+                : <><Download className="mr-1 h-3 w-3" />一键安装 ({selectedUninstalledCount})</>}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground"
+              onClick={exitSelectMode}>
+              取消
+            </Button>
+          </>
+        )}
+        {!selectMode && (
+          <Button variant="ghost" size="icon" className="h-8 w-8" title="多选安装"
+            onClick={() => setSelectMode(true)}>
+            <CheckSquare className="h-4 w-4" />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" className="h-8 w-8" title="刷新"
           onClick={loadSkills} disabled={loading}>
           <Loader2 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -142,11 +229,13 @@ export function SkillList() {
         </div>
       )}
 
-      {error && skills.length === 0 && (
-        <div className="flex flex-1 items-center justify-center gap-2 text-red-400">
-          <AlertCircle className="h-5 w-5" />
-          <span className="text-sm">sidecar 未就绪或加载失败</span>
-          <Button variant="outline" size="sm" onClick={loadSkills}>重试</Button>
+      {error && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 text-red-400 border-b border-red-500/20 bg-red-500/5">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="text-xs truncate">{error}</span>
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground"
+            onClick={() => setError(null)}>✕</Button>
         </div>
       )}
 
@@ -162,41 +251,105 @@ export function SkillList() {
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((skill) => (
             <ItemCard key={skill.name} viewMode={viewMode}
+              selected={selectMode ? selectedIds.has(skill.name) : undefined}
+              onSelect={selectMode ? (() => toggleSelect(skill.name)) : undefined}
               icon={<DCCIcon software={skill.software} />}
               title={skill.display_name || skill.name}
               source={{ label: SOURCE_LABELS[layerToSource(skill.layer)] || layerToSource(skill.layer), color: SOURCE_COLORS[layerToSource(skill.layer)] }}
               status={{
-                label: skill.enabled ? "已安装" : "已禁用",
-                color: skill.enabled ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
+                label: !skill.installed ? "未安装" : skill.enabled ? "已安装" : "已禁用",
+                color: !skill.installed
+                  ? "bg-amber-500/15 text-amber-400"
+                  : skill.enabled
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : "bg-red-500/15 text-red-400",
               }}
               description={skill.category}
               meta={<>
                 <span>{skill.version}</span>
                 <span>·</span><span>{skill.software}</span>
               </>}
-              actions={<>
+              actions={(!selectMode || skill.installed) ? <>
+                {/* 详情 — 始终显示 */}
                 <Button variant="outline" size="sm" className="h-7 text-xs"
                   onClick={() => handleDetail(skill.name)} disabled={isBusy(skill.name)}>
                   详情
                 </Button>
-                {!skill.enabled && <Button size="sm" className="h-7 text-xs"
-                  onClick={() => doAction(skill.name, () => skillEnable(skill.name))} disabled={isBusy(skill.name)}>启用</Button>}
-                {skill.enabled && <>
+
+                {/* 未安装 → 安装 */}
+                {!skill.installed && (
+                  <Button size="sm" className="h-7 text-xs"
+                    onClick={() => doAction(skill.name, () => skillInstall(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    安装
+                  </Button>
+                )}
+
+                {/* 已安装但已禁用 → 启用 */}
+                {skill.installed && !skill.enabled && (
+                  <Button size="sm" className="h-7 text-xs"
+                    onClick={() => doAction(skill.name, () => skillEnable(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    启用
+                  </Button>
+                )}
+
+                {/* 已安装且已启用 → 禁用 */}
+                {skill.installed && skill.enabled && (
                   <Button variant="outline" size="sm" className="h-7 text-xs"
-                    onClick={() => doAction(skill.name, () => skillDisable(skill.name))} disabled={isBusy(skill.name)}>禁用</Button>
+                    onClick={() => doAction(skill.name, () => skillDisable(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    禁用
+                  </Button>
+                )}
+
+                {/* 已安装 → 钉选/取消钉选 */}
+                {skill.installed && (
                   <Button variant="ghost" size="icon" className="h-7 w-7"
                     onClick={() => doAction(skill.name, () => skill.pinned ? skillUnpin(skill.name) : skillPin(skill.name))}
-                    disabled={isBusy(skill.name)}>
+                    disabled={isBusy(skill.name)}
+                    title={skill.pinned ? "取消钉选" : "钉选"}>
                     {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
                   </Button>
-                </>}
+                )}
+
+                {/* 已安装 → 卸载 */}
+                {skill.installed && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
+                    onClick={() => doAction(skill.name, () => skillUninstall(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    卸载
+                  </Button>
+                )}
+
+                {/* 已安装 + 非用户层 → 同步（从官方/市场同步最新版本） */}
+                {skill.installed && !skill.layer.startsWith("02_") && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs"
+                    onClick={() => doAction(skill.name, () => skillSync(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    同步
+                  </Button>
+                )}
+
+                {/* 已安装 + 用户层 → 发布（发布到团队/官方） */}
+                {skill.installed && skill.layer.startsWith("02_") && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs text-purple-400 hover:text-purple-300"
+                    onClick={() => doAction(skill.name, () => skillPublish(skill.name))}
+                    disabled={isBusy(skill.name)}>
+                    发布
+                  </Button>
+                )}
+
                 <div className="flex-1" />
+
+                {/* 收藏 — 始终显示 */}
                 <Button variant="ghost" size="icon" className="h-7 w-7"
                   onClick={() => doAction(skill.name, () => skill.favorited ? skillUnfavorite(skill.name) : skillFavorite(skill.name))}
-                  disabled={isBusy(skill.name)}>
+                  disabled={isBusy(skill.name)}
+                  title={skill.favorited ? "取消收藏" : "收藏"}>
                   <Star className={`h-3.5 w-3.5 ${skill.favorited ? "fill-amber-400 text-amber-400" : ""}`} />
                 </Button>
-              </>}
+              </> : null}
             />
           ))}
         </div>

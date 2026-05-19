@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, PinOff, Pin, Info, Inbox } from "lucide-react";
+import { Search, LayoutGrid, List, Star, Play, Loader2, AlertCircle, Info, Inbox } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
 import { PreviewContext } from "../shell/AppShell";
 import {
   nexusToolList, nexusToolEnable, nexusToolDisable,
-  nexusToolPin, nexusToolUnpin, nexusToolFavorite, nexusToolUnfavorite,
+  nexusToolFavorite, nexusToolUnfavorite,
+  nexusToolPublish, nexusToolDelete,
   type NexusToolItem,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
@@ -193,7 +194,7 @@ export function NexusToolList() {
                   title="查看详情">
                   <Info className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="outline" size="sm" className="h-7 text-xs"
+                <Button size="sm" className="h-7 text-xs"
                   onClick={() => setPreview({
                     kind: "nexus-tool-run",
                     title: `运行: ${tool.name}`,
@@ -206,15 +207,26 @@ export function NexusToolList() {
                     ? <Button variant="outline" size="sm" className="h-7 text-xs"
                         onClick={() => doAction(tool.id, () => nexusToolDisable(tool.id))}
                         disabled={isBusy(tool.id)}>禁用触发</Button>
-                    : <Button size="sm" className="h-7 text-xs"
+                    : <Button variant="outline" size="sm" className="h-7 text-xs"
                         onClick={() => doAction(tool.id, () => nexusToolEnable(tool.id))}
                         disabled={isBusy(tool.id)}>启用触发</Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-7 w-7"
-                  onClick={() => doAction(tool.id, () => tool.is_pinned ? nexusToolUnpin(tool.id) : nexusToolPin(tool.id))}
-                  disabled={isBusy(tool.id)}>
-                  {tool.is_pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
-                </Button>
+                {/* 用户源工具 → 发布 */}
+                {tool.source === "user" && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs text-purple-400 hover:text-purple-300"
+                    onClick={() => doAction(tool.id, () => nexusToolPublish(tool.id))}
+                    disabled={isBusy(tool.id)}>
+                    发布
+                  </Button>
+                )}
+                {/* 用户源工具 → 删除 */}
+                {tool.source === "user" && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
+                    onClick={() => doAction(tool.id, () => nexusToolDelete(tool.id))}
+                    disabled={isBusy(tool.id)}>
+                    删除
+                  </Button>
+                )}
                 <div className="flex-1" />
                 <Button variant="ghost" size="icon" className="h-7 w-7"
                   onClick={() => doAction(tool.id, () => tool.is_favorited ? nexusToolUnfavorite(tool.id) : nexusToolFavorite(tool.id))}
