@@ -222,8 +222,6 @@ def _entry_to_dict(entry: Any) -> dict:
         "entry_point": manifest.entry_point or "__init__.py",
         "license": manifest.license or "",
         "has_manifest": has_manifest,
-        "skill_tools": [t.model_dump() if hasattr(t, "model_dump") else {"name": t.name, "description": t.description}
-                        for t in (manifest.skill_tools or [])],
     }
 
 
@@ -300,6 +298,28 @@ def _skill_fix_manifest(skill_name: str) -> dict:
 
     from artifex_nexus.skill.manifest import fix_manifest
     return fix_manifest(entry.path)
+
+
+def _skill_read_skill_md(skill_name: str) -> dict:
+    """读取 Skill 目录下的 SKILL.md 原始内容。
+
+    :param skill_name: Skill 名称。
+    :return: {"ok": bool, "content": str, "path": str, "warnings": [...]}
+    """
+    hub = _get_skill_hub()
+    entry = hub.get_entry(skill_name)
+    if entry is None:
+        return {"ok": False, "content": "", "path": "", "warnings": [f"Skill '{skill_name}' 未找到"]}
+
+    skill_md_path = entry.path / "SKILL.md"
+    if not skill_md_path.exists():
+        return {"ok": False, "content": "", "path": str(skill_md_path), "warnings": ["SKILL.md 不存在"]}
+
+    try:
+        content = skill_md_path.read_text(encoding="utf-8")
+        return {"ok": True, "content": content, "path": str(skill_md_path), "warnings": []}
+    except OSError as exc:
+        return {"ok": False, "content": "", "path": str(skill_md_path), "warnings": [f"读取 SKILL.md 失败: {exc}"]}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

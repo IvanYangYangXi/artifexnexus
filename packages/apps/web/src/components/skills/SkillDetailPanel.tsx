@@ -5,7 +5,7 @@
  *
  * 标签页：
  *   1. 基本信息（Info）— 只读展示 SKILL.md 的 name/description + manifest.json 的属性
- *   2. Skill-Tools — 工具列表（来自 manifest.json）
+ *   2. SKILL.md — 完整文档内容（Markdown 渲染）
  *   3. 格式问题 — validation_error 详情（仅在有错误时显示）
  *
  * 数据源规则（与 artclaw 格式标准对齐）：
@@ -16,7 +16,7 @@
 import * as React from "react";
 import {
   Info,
-  Wrench,
+  FileText,
   AlertCircle,
   Loader2,
   ExternalLink,
@@ -26,13 +26,15 @@ import {
 } from "lucide-react";
 import { Button, cn } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { type SkillDetail, skillDetail, skillFixManifest } from "../../lib/skill/skill-api";
+import { type SkillDetail, skillDetail, skillFixManifest, skillReadSkillMd } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
-type TabId = "info" | "tools" | "errors";
+type TabId = "info" | "readme" | "errors";
 
 const RISK_LABELS: Record<string, { label: string; color: string }> = {
   low: { label: "低风险", color: "text-emerald-400 bg-emerald-500/10" },
@@ -112,7 +114,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
 
   const TABS: { id: TabId; label: string; icon: React.ReactNode; show?: boolean }[] = [
     { id: "info", label: "基本信息", icon: <Info className="h-3.5 w-3.5" /> },
-    { id: "tools", label: "工具列表", icon: <Wrench className="h-3.5 w-3.5" /> },
+    { id: "readme", label: "SKILL.md", icon: <FileText className="h-3.5 w-3.5" /> },
     { id: "errors", label: "格式问题", icon: <AlertCircle className="h-3.5 w-3.5" />, show: hasErrors },
   ];
 
@@ -139,9 +141,6 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
             {tab.id === "errors" && hasErrors && (
               <span className="ml-0.5 rounded bg-red-500/20 px-1 text-[10px] text-red-400">!</span>
             )}
-            {tab.id === "tools" && entry.skill_tools?.length > 0 && (
-              <span className="ml-0.5 rounded bg-muted px-1 text-[10px]">{entry.skill_tools.length}</span>
-            )}
           </button>
         ))}
       </div>
@@ -150,7 +149,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
       <ScrollFade className="flex-1">
         <div className="p-3">
           {activeTab === "info" && <InfoTab entry={entry} labelCls={labelCls} compact={compact} />}
-          {activeTab === "tools" && <ToolsTab entry={entry} />}
+          {activeTab === "readme" && <ReadmeTab skillName={skillName} />}
           {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} onFixed={loadDetail} />}
         </div>
       </ScrollFade>
@@ -293,34 +292,82 @@ function InfoField({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Tab 2: Skill-Tools
+// Tab 2: SKILL.md 文档（Markdown 渲染）
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ToolsTab({ entry }: { entry: SkillDetail["entry"] }) {
-  const tools = entry.skill_tools || [];
+function ReadmeTab({ skillName }: { skillName: string }) {
+  const [content, setContent] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  if (tools.length === 0) {
+  React.useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        setLoading(true);
+        const result = await skillReadSkillMd(skillName);
+        if (!cancelled) {
+          if (result.ok) {
+            setContent(result.content);
+          } else {
+            setError(result.warnings.join("; "));
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [skillName]);
+
+  if (loading) {
     return (
-      <div className="py-6 text-center text-xs text-muted-foreground">
-        <Wrench className="mx-auto mb-2 h-5 w-5 opacity-40" />
-        此 Skill 没有声明工具
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">加载 SKILL.md...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+        <FileText className="h-6 w-6 text-muted-foreground opacity-40" />
+        <p className="text-xs text-muted-foreground">无法加载 SKILL.md</p>
+        <p className="text-[10px] text-red-400/70">{error}</p>
+      </div>
+    );
+  }
+
+  if (!content) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+        <FileText className="h-6 w-6 text-muted-foreground opacity-40" />
+        <p className="text-xs text-muted-foreground">SKILL.md 为空</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1.5">
-      {tools.map((tool, idx) => (
-        <div key={idx} className="flex items-start gap-2 rounded border border-border/40 bg-muted/5 px-3 py-2">
-          <Wrench className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-          <div className="min-w-0">
-            <div className="text-xs font-medium font-mono">{tool.name}</div>
-            {tool.description && (
-              <div className="text-[10px] text-muted-foreground mt-0.5">{tool.description}</div>
-            )}
-          </div>
-        </div>
-      ))}
+    <div className="prose prose-invert prose-xs max-w-none
+      prose-headings:text-foreground prose-headings:font-semibold
+      prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
+      prose-p:text-xs prose-p:leading-relaxed prose-p:text-muted-foreground
+      prose-code:text-[10px] prose-code:bg-muted/30 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+      prose-pre:bg-muted/20 prose-pre:border prose-pre:border-border/40
+      prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+      prose-li:text-xs prose-li:text-muted-foreground
+      prose-strong:text-foreground prose-strong:font-semibold
+      prose-table:text-xs prose-th:text-muted-foreground prose-td:text-muted-foreground
+      [&_table]:border-collapse [&_th]:border [&_th]:border-border/40 [&_th]:px-2 [&_th]:py-1
+      [&_td]:border [&_td]:border-border/40 [&_td]:px-2 [&_td]:py-1
+    ">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -366,7 +413,7 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
     issues.push({
       severity: "error",
       message: "缺少 manifest.json",
-      detail: "Skill 目录下没有 manifest.json 文件。请按照 ArtClaw 格式规范创建包含以下必需字段的 manifest.json：manifest_version, name, version, software, category, risk_level, entry_point, tools。",
+      detail: "Skill 目录下没有 manifest.json 文件。请按照 ArtClaw 格式规范创建包含以下建议字段的 manifest.json：manifest_version, name, version, software, software_version, category, risk_level, entry_point。",
     });
   } else if (errMsg.includes("manifest.json 校验失败")) {
     issues.push({
@@ -481,16 +528,16 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
       <div className="mt-4 rounded border border-border/40 bg-muted/10 px-3 py-2">
         <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">ArtClaw 格式规范</div>
         <div className="text-[10px] text-muted-foreground space-y-0.5">
-          <p>manifest.json 必需字段：</p>
+          <p>manifest.json 建议字段：</p>
           <ul className="list-disc list-inside ml-1 space-y-0.5 text-[10px]">
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">manifest_version</code>: "1.0"</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">name</code>: snake_case，全局唯一</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">version</code>: semver 格式</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software</code>: DCC 软件标识</li>
+            <li><code className="text-[9px] bg-muted/30 px-1 rounded">software_version</code>: <code className="text-[9px] bg-muted/30 px-1 rounded">{"{min, max}"}</code>，DCC 版本号约束</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">category</code>: 功能分类</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">risk_level</code>: low / medium / high</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">entry_point</code>: 入口文件名</li>
-            <li><code className="text-[9px] bg-muted/30 px-1 rounded">tools</code>: 工具声明列表（至少 1 个）</li>
           </ul>
           <p className="mt-1">SKILL.md frontmatter 提供 name 和 description，manifest.json 提供其他所有字段。</p>
         </div>

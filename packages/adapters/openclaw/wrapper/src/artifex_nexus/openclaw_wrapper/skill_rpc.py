@@ -20,13 +20,13 @@ try:
     from ._rpc_helpers import (
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
-        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest,
+        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
     )
 except ImportError:
     from _rpc_helpers import (  # type: ignore[no-redef]
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
-        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest,
+        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
     )
 
 logger = logging.getLogger(__name__)
@@ -120,15 +120,8 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
                             "input_schema": ti_schema,
                         })
             else:
-                # 未加载时从 manifest 中读取
-                for skill_tool_ref in instance.manifest.skill_tools or []:
-                    tools.append({
-                        "name": getattr(skill_tool_ref, "name", ""),
-                        "description": getattr(skill_tool_ref, "description", ""),
-                        "category": getattr(skill_tool_ref, "category", "general"),
-                        "risk_level": getattr(skill_tool_ref, "risk_level", "low"),
-                        "input_schema": getattr(skill_tool_ref, "input_schema", {}),
-                    })
+                # 未加载时 tools 为空
+                pass
 
         detail = {
             "entry": _entry_to_dict(entry),
@@ -479,6 +472,32 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
 # Handler registry for sidecar METHOD_TABLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _handle_skill_fix_manifest(req_id: Any, params: dict) -> dict:
+    """skill.fix_manifest — 从 SKILL.md 自动生成 manifest.json。"""
+    try:
+        skill_name = str(params.get("id", "")).strip()
+        if not skill_name:
+            return _err_invalid_params(req_id, "缺少 id 参数")
+        result = _skill_fix_manifest(skill_name)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("skill.fix_manifest failed")
+        return _err(req_id, str(exc))
+
+
+def _handle_skill_read_skill_md(req_id: Any, params: dict) -> dict:
+    """skill.read_skill_md — 读取 SKILL.md 原始内容。"""
+    try:
+        skill_name = str(params.get("id", "")).strip()
+        if not skill_name:
+            return _err_invalid_params(req_id, "缺少 id 参数")
+        result = _skill_read_skill_md(skill_name)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("skill.read_skill_md failed")
+        return _err(req_id, str(exc))
+
+
 SKILL_METHODS = {
     "skill.list": _handle_skill_list,
     "skill.detail": _handle_skill_detail,
@@ -495,18 +514,7 @@ SKILL_METHODS = {
     "skill.batch": _handle_skill_batch,
     "skill.search": _handle_skill_search,
     "skill.fix_manifest": _handle_skill_fix_manifest,
+    "skill.read_skill_md": _handle_skill_read_skill_md,
 }
-
-def _handle_skill_fix_manifest(req_id: Any, params: dict) -> dict:
-    """skill.fix_manifest — 从 SKILL.md 自动生成 manifest.json。"""
-    try:
-        skill_name = str(params.get("id", "")).strip()
-        if not skill_name:
-            return _err_invalid_params(req_id, "缺少 id 参数")
-        result = _skill_fix_manifest(skill_name)
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("skill.fix_manifest failed")
-        return _err(req_id, str(exc))
 
 

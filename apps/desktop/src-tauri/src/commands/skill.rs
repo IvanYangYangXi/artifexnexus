@@ -192,6 +192,32 @@ pub async fn skill_search(
     manager.call("skill.search", params)
 }
 
+/// skill.fix_manifest — 从 SKILL.md 自动生成 manifest.json
+#[tauri::command]
+pub async fn skill_fix_manifest(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call("skill.fix_manifest", params)
+}
+
+/// skill.read_skill_md — 读取 SKILL.md 原始内容
+#[tauri::command]
+pub async fn skill_read_skill_md(
+    sidecar: State<'_, SidecarState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    manager.call("skill.read_skill_md", params)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Nexus-Tool commands (14, 含 run)
 // ═══════════════════════════════════════════════════════════════════════════════

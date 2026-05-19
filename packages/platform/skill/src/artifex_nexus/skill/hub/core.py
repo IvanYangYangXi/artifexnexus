@@ -464,7 +464,6 @@ class SkillHub:
                 manifest = SkillManifest(
                     name=skill_name,
                     description=skill_description,
-                    skill_tools=[],
                 )
             except Exception as exc:
                 validation_error = (validation_error or "") + f"; 合成 manifest 失败: {exc}"
@@ -473,7 +472,6 @@ class SkillHub:
                 manifest = SkillManifest(
                     name=skill_name,
                     description=skill_description,
-                    skill_tools=[],
                 )
         else:
             # manifest 加载成功：用 SKILL.md 的 name/description 覆盖

@@ -38,18 +38,6 @@
     "dependencies": { "type": "array", "items": { "type": "string" } },
     "tags": { "type": "array", "items": { "type": "string" } },
     "entry_point": { "type": "string", "default": "__init__.py" },
-    "skill_tools": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name"],
-        "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" }
-        }
-      },
-      "minItems": 1
-    },
     "hooks": {
       "type": "object",
       "description": "生命周期钩子（forward compat，STORY-0043/0044 实现）",

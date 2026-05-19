@@ -29,7 +29,6 @@ export interface SkillEntry {
   dependencies: string[];
   entry_point: string;
   license: string;
-  skill_tools: Array<{ name: string; description: string }>;
 }
 
 export interface SkillItem extends SkillEntry {
@@ -179,6 +178,11 @@ export async function skillFixManifest(id: string): Promise<{ ok: boolean; path:
   return invoke("skill_fix_manifest", { params: { id } });
 }
 
+/** 读取 SKILL.md 原始内容 */
+export async function skillReadSkillMd(id: string): Promise<{ ok: boolean; content: string; path: string; warnings: string[] }> {
+  return invoke("skill_read_skill_md", { params: { id } });
+}
+
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
 
 export const SkillAPI = {
@@ -197,6 +201,7 @@ export const SkillAPI = {
   batch: skillBatch,
   search: skillSearch,
   fixManifest: skillFixManifest,
+  readSkillMd: skillReadSkillMd,
 };
 
 export type SkillAPIType = typeof SkillAPI;

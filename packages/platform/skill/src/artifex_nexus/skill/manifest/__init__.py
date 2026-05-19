@@ -2,7 +2,6 @@
 
 导出：
     - ``SkillManifest`` — pydantic v2 模型
-    - ``SkillToolRef`` — Skill-Tool 引用
     - ``SoftwareVersionConstraint`` — DCC 版本约束
     - ``RiskLevel`` / ``Software`` — 枚举（数据源：categories.json）
     - ``load_manifest_model`` — 加载并校验 manifest.json，返回 pydantic 模型实例
@@ -19,7 +18,6 @@ from .manifest_fixer import (
 )
 from .models import (
     SkillManifest,
-    SkillToolRef,
     SoftwareVersionConstraint,
 )
 
@@ -28,7 +26,6 @@ from ..categories import RiskLevel, Software
 
 __all__ = [
     "SkillManifest",
-    "SkillToolRef",
     "SoftwareVersionConstraint",
     "RiskLevel",
     "Software",

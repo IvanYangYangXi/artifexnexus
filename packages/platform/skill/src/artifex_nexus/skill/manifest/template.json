@@ -13,7 +13,6 @@
   "dependencies": [],
   "tags": [],
   "entry_point": "__init__.py",
-  "tools": [],
   "software_version": {
     "min": "",
     "max": ""

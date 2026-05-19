@@ -10,7 +10,6 @@ manifest/models.py — Skill Manifest pydantic v2 模型
 
 模型：
     - ``SoftwareVersionConstraint`` — DCC 版本约束（min/max）
-    - ``SkillToolRef`` — Skill 内声明包含的 SkillTool 引用
     - ``SkillManifest`` — Skill 包完整元数据
 """
 
@@ -61,16 +60,6 @@ class SoftwareVersionConstraint(BaseModel):
         return str(v)
 
 
-class SkillToolRef(BaseModel):
-    """Skill 内声明的 Skill-Tool 引用。
-
-    对应 manifest.schema.json ``skill_tools[]`` 中的每一项。
-    """
-
-    name: str = Field(..., description="Skill-Tool 名称")
-    description: Optional[str] = Field(default=None, description="Skill-Tool 描述")
-
-
 # ── 主模型 ──────────────────────────────────────────────────────────────────
 
 class SkillManifest(BaseModel):
@@ -85,7 +74,6 @@ class SkillManifest(BaseModel):
     - software: 合法枚举值（来自 categories.json）
     - risk_level: 硬约束 low/medium/high/critical
     - category: 预设值或自定义（需匹配 CATEGORY_PATTERN）
-    - skill_tools: 至少包含一个元素
     """
 
     model_config = {"extra": "allow"}  # 允许额外字段（forward compat）
@@ -129,11 +117,6 @@ class SkillManifest(BaseModel):
         default=None, description="DCC 版本约束"
     )
 
-    # ── Skill-Tool 声明 ──────────────────────────────────────────────────
-    skill_tools: List[SkillToolRef] = Field(
-        default_factory=list,
-        description="Skill 内包含的 Skill-Tool 引用列表",
-    )
     entry_point: str = Field(
         default="__init__.py",
         description="入口模块文件名",
@@ -188,17 +171,7 @@ class SkillManifest(BaseModel):
             )
         return v
 
-    @model_validator(mode="after")
-    def _validate_skill_tools_non_empty(self) -> "SkillManifest":
-        # 允许空 skill_tools（仅有 SKILL.md 文档的 Skill 可以不声明 tools）
-        return self
-
     # ── 便捷方法 ────────────────────────────────────────────────────────
-
-    @property
-    def skill_tool_names(self) -> List[str]:
-        """获取所有 Skill-Tool 名称列表。"""
-        return [t.name for t in self.skill_tools]
 
     @property
     def min_software_version(self) -> Optional[str]:

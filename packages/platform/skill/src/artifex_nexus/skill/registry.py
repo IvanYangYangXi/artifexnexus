@@ -313,7 +313,6 @@ class SkillRegistry:
         - 描述（description）
         - 分类标签（category）
         - 标签（tags）
-        - Skill-Tool 名称（skill_tool_names）
 
         :param query: 搜索关键词。
         :param current_software: 可选，按 DCC 软件过滤。
@@ -340,7 +339,6 @@ class SkillRegistry:
                 entry.manifest.description or "",
                 entry.category or "",
                 " ".join(entry.manifest.tags),
-                " ".join(entry.manifest.skill_tool_names),  # Tool 名称
             ]
             if any(query_lower in text.lower() for text in searchable):
                 result.append(entry)

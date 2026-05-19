@@ -45,7 +45,6 @@ def _load_template() -> dict:
             "category": "utils",
             "risk_level": "low",
             "entry_point": "__init__.py",
-            "tools": [],
         }
 
 
@@ -177,7 +176,6 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     - category: metadata.artclaw.category（规范化映射）
     - risk_level: metadata.artclaw.risk_level → 回退到 "low"
     - tags: metadata.artclaw.tags → 回退到 []
-    - tools: 自动生成一个同名工具引用
 
     :param skill_dir: Skill 源码目录（包含 SKILL.md）。
     :return: {"ok": True/False, "manifest": dict, "path": str, "warnings": [...]}
@@ -268,15 +266,6 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     deps = artclaw.get("dependencies", [])
     if isinstance(deps, list):
         manifest["dependencies"] = [str(d) for d in deps]
-
-    # tools（自动生成一个同名工具引用）
-    skill_tool_name = manifest_name  # 工具名与 skill name 一致
-    manifest["tools"] = [
-        {
-            "name": skill_tool_name,
-            "description": manifest["description"],
-        }
-    ]
 
     result["ok"] = True
     result["manifest"] = manifest
