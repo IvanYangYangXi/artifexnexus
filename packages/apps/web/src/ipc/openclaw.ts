@@ -782,6 +782,46 @@ export { invoke };
 
 // ── Shell 配置持久化（~/.artifexnexus/config/shell.json） ──────────────────
 
+// ── 应用级设置（"设置 → 常规"页） ─────────────────────────────────────────
+
+/** 应用设置字段（与 sidecar app_settings.py DEFAULT_SETTINGS 对齐） */
+export interface AppSettings {
+  /** 通用 nexus-tool 默认超时（秒），范围 1~86400 */
+  nexusToolDefaultTimeoutSec: number;
+  /** 最大并发 nexus-tool 数，范围 1~64 */
+  nexusToolMaxConcurrent: number;
+  /** cancel 时是否递归杀子进程 */
+  nexusToolKillProcessTree: boolean;
+  /** sidecar 日志等级 */
+  logLevel: string;
+}
+
+/** app.settings.get / set / reset 返回 */
+export interface AppSettingsResponse {
+  settings: AppSettings;
+  defaults: AppSettings;
+  path: string;
+}
+
+/** 读取应用设置 */
+export async function getAppSettings(): Promise<AppSettingsResponse> {
+  return invoke<AppSettingsResponse>("app_settings_get");
+}
+
+/** 部分更新应用设置（patch 可只含部分字段） */
+export async function setAppSettings(
+  patch: Partial<AppSettings>,
+): Promise<AppSettingsResponse> {
+  return invoke<AppSettingsResponse>("app_settings_set", { patch });
+}
+
+/** 重置应用设置为默认值 */
+export async function resetAppSettings(): Promise<AppSettingsResponse> {
+  return invoke<AppSettingsResponse>("app_settings_reset");
+}
+
+// ── Shell 配置持久化（~/.artifexnexus/config/shell.json） ──────────────────
+
 export interface ShellConfig {
   panelOpen?: boolean;
   sidebarCollapsed?: boolean;

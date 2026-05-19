@@ -215,7 +215,7 @@ def handle_app_settings_set(req_id: Any, params: dict) -> dict:
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "result": {"settings": merged, "path": str(_settings_path())},
+            "result": {"settings": merged, "defaults": dict(DEFAULT_SETTINGS), "path": str(_settings_path())},
         }
     except Exception as e:
         logger.exception("app.settings.set failed")

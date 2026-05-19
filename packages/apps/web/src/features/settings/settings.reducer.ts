@@ -18,7 +18,7 @@ import type { OpenClawConfigDump } from "../../ipc/openclaw";
 // State / Action 类型
 // ---------------------------------------------------------------------------
 
-export type Tab = "providers" | "auth" | "defaultAgent";
+export type Tab = "general" | "providers" | "auth" | "defaultAgent";
 
 /** 加载状态 */
 export type LoadStatus =
@@ -115,7 +115,7 @@ export const INITIAL_DEFAULT_AGENT: DefaultAgentForm = {
 export function createInitialState(): SettingsState {
   return {
     load: { kind: "idle" },
-    tab: "providers",
+    tab: "general",
     providers: [],
     authProfiles: [],
     defaultAgent: { ...INITIAL_DEFAULT_AGENT },

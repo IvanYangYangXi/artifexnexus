@@ -1,9 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Cpu, Bot, Plus, Trash2, Eye, EyeOff, Loader2, Save } from "lucide-react";
+import { Cpu, Bot, Sliders, Plus, Trash2, Eye, EyeOff, Loader2, Save, RotateCcw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input } from "@artifex-nexus/ui";
 import { getIpc } from "../../lib/ipc";
+import {
+  getAppSettings, setAppSettings, resetAppSettings,
+  type AppSettings,
+} from "../../ipc/openclaw";
 import {
   settingsReducer, createInitialState, buildPatchFromState, validateState,
   type SettingsState, type SettingsAction,
@@ -54,7 +58,7 @@ export function SettingsPage() {
     setSaving(false);
   };
 
-  const tab = state.tab || "providers";
+  const tab = state.tab || "general";
   if (state.load.kind === "loading") return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />加载配置...</div>;
   if (state.load.kind === "error") return <div className="p-6 text-sm text-red-400">加载失败: {state.load.message} <Button variant="outline" size="sm" className="ml-2 h-6 text-xs rounded-full" onClick={loadConfig}>重试</Button></div>;
 
@@ -63,6 +67,7 @@ export function SettingsPage() {
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-muted/30 px-3">
         <Tabs value={tab} onValueChange={(v) => dispatch({ type: "SET_TAB", tab: v as any })}>
           <TabsList className="h-7">
+            <TabsTrigger value="general" className="h-6 gap-1 text-xs"><Sliders className="h-3 w-3" />常规</TabsTrigger>
             <TabsTrigger value="providers" className="h-6 gap-1 text-xs"><Cpu className="h-3 w-3" />模型 ({state.providers.length})</TabsTrigger>
             <TabsTrigger value="defaultAgent" className="h-6 gap-1 text-xs"><Bot className="h-3 w-3" />Agent</TabsTrigger>
           </TabsList>
@@ -72,6 +77,7 @@ export function SettingsPage() {
         <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleSave} disabled={!state.dirty || saving}><Save className="h-3 w-3" />{saving?"保存中…":"保存"}</Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
+        {tab === "general" && <GeneralTab />}
         {tab === "providers" && <ProvidersTab state={state} dispatch={dispatch} />}
         {tab === "defaultAgent" && <DefaultAgentTab state={state} dispatch={dispatch} />}
       </div>
@@ -362,6 +368,117 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
           {resetMsg&&<p className="mt-2 text-[11px] text-muted-foreground">{resetMsg}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 常规设置 Tab ─────────────────────────────────────────────────────────
+
+function GeneralTab() {
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [resetMsg, setResetMsg] = React.useState<string | null>(null);
+  const [saveMsg, setSaveMsg] = React.useState<string | null>(null);
+  const [settings, setSettings] = React.useState<AppSettings | null>(null);
+  const [defaults, setDefaults] = React.useState<AppSettings | null>(null);
+  const [dirty, setDirty] = React.useState(false);
+
+  const loadSettings = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await getAppSettings();
+      setSettings(r.settings);
+      setDefaults(r.defaults);
+      setDirty(false);
+    } catch (e: any) {
+      console.error("[GeneralTab] load failed:", e);
+    }
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  const patch = (p: Partial<AppSettings>) => {
+    if (!settings) return;
+    setSettings({ ...settings, ...p });
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const r = await setAppSettings(settings);
+      setSettings(r.settings);
+      setDefaults(r.defaults);
+      setDirty(false);
+      setSaveMsg("已保存");
+    } catch (e: any) {
+      setSaveMsg(e.message || String(e));
+    }
+    setSaving(false);
+  };
+
+  const handleReset = async () => {
+    setResetMsg(null);
+    try {
+      const r = await resetAppSettings();
+      setSettings(r.settings);
+      setDefaults(r.defaults);
+      setDirty(false);
+      setResetMsg("已恢复默认");
+    } catch (e: any) {
+      setResetMsg(e.message || String(e));
+    }
+  };
+
+  if (loading) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />加载常规设置...</div>;
+  if (!settings) return <div className="p-6 text-sm text-red-400">加载设置失败</div>;
+
+  return (
+    <div className="max-w-xl space-y-4">
+      {/* 工具超时 */}
+      <div className={`${GLASS} p-4 space-y-1.5`}>
+        <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">默认工具超时（秒）</label>
+        <p className="text-[11px] text-muted-foreground/70">通用 nexus-tool 执行超时上限（manifest 可单工具覆盖），范围 1~86400</p>
+        <input
+          className="mt-1 h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+          type="number" min={1} max={86400}
+          value={settings.nexusToolDefaultTimeoutSec}
+          onChange={e => { const v = parseInt(e.target.value) || 120; patch({ nexusToolDefaultTimeoutSec: Math.max(1, Math.min(86400, v)) }); }}
+        />
+        {defaults && <span className="text-[10px] text-muted-foreground/50">默认: {defaults.nexusToolDefaultTimeoutSec}s</span>}
+      </div>
+
+      {/* 最大并发 */}
+      <div className={`${GLASS} p-4 space-y-1.5`}>
+        <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">最大并发工具数</label>
+        <p className="text-[11px] text-muted-foreground/70">同时允许运行的 nexus-tool 数，超出会拒绝，范围 1~64</p>
+        <input
+          className="mt-1 h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+          type="number" min={1} max={64}
+          value={settings.nexusToolMaxConcurrent}
+          onChange={e => { const v = parseInt(e.target.value) || 3; patch({ nexusToolMaxConcurrent: Math.max(1, Math.min(64, v)) }); }}
+        />
+        {defaults && <span className="text-[10px] text-muted-foreground/50">默认: {defaults.nexusToolMaxConcurrent}</span>}
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="flex items-center gap-2">
+        <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleSave} disabled={!dirty || saving}>
+          <Save className="h-3 w-3" />{saving ? "保存中…" : "保存"}
+        </Button>
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleReset}>
+          <RotateCcw className="h-3 w-3" />恢复默认
+        </Button>
+        {saveMsg && <span className={`text-[11px] ${saveMsg === "已保存" ? "text-emerald-400" : "text-red-400"}`}>{saveMsg}</span>}
+        {resetMsg && <span className={`text-[11px] ${resetMsg === "已恢复默认" ? "text-emerald-400" : "text-red-400"}`}>{resetMsg}</span>}
+      </div>
+
+      {/* 文件路径（排错用） */}
+      <div className="text-[10px] text-muted-foreground/40 mt-2">
+        配置路径: <code className="font-mono">~/.artifexnexus/.openclaw/state/artifex/app-settings.json</code>
+      </div>
     </div>
   );
 }
