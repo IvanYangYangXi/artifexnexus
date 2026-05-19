@@ -20,15 +20,13 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
-  Tag,
-  Shield,
-  GitBranch,
-  Package,
+  Wand2,
   Puzzle,
+  CheckCircle2,
 } from "lucide-react";
 import { Button, cn } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
-import { type SkillDetail, skillDetail } from "../../lib/skill/skill-api";
+import { type SkillDetail, skillDetail, skillFixManifest } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -153,7 +151,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
         <div className="p-3">
           {activeTab === "info" && <InfoTab entry={entry} labelCls={labelCls} compact={compact} />}
           {activeTab === "tools" && <ToolsTab entry={entry} />}
-          {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} />}
+          {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} onFixed={loadDetail} />}
         </div>
       </ScrollFade>
     </div>
@@ -331,7 +329,25 @@ function ToolsTab({ entry }: { entry: SkillDetail["entry"] }) {
 // Tab 3: 格式问题
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ErrorsTab({ entry, detail }: { entry: SkillDetail["entry"]; detail: SkillDetail }) {
+function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; detail: SkillDetail; onFixed: () => void }) {
+  const [fixing, setFixing] = React.useState(false);
+  const [fixResult, setFixResult] = React.useState<{ ok: boolean; warnings: string[] } | null>(null);
+
+  const handleFix = React.useCallback(async () => {
+    setFixing(true);
+    setFixResult(null);
+    try {
+      const result = await skillFixManifest(entry.name);
+      setFixResult({ ok: result.ok, warnings: result.warnings });
+      if (result.ok) {
+        onFixed(); // 修复成功后刷新父组件
+      }
+    } catch (e) {
+      setFixResult({ ok: false, warnings: [String(e)] });
+    } finally {
+      setFixing(false);
+    }
+  }, [entry.name, onFixed]);
   if (!entry.validation_error) {
     return (
       <div className="py-6 text-center text-xs text-muted-foreground">
@@ -415,6 +431,51 @@ function ErrorsTab({ entry, detail }: { entry: SkillDetail["entry"]; detail: Ski
           )}
         </div>
       ))}
+
+      {/* 一键修复按钮 */}
+      {errMsg.includes("缺少 manifest.json") && (
+        <div className="rounded border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-amber-300/80">一键修复</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                从 SKILL.md frontmatter 自动提取字段，生成符合规范的 manifest.json
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="h-7 shrink-0 text-xs"
+              onClick={handleFix}
+              disabled={fixing}
+            >
+              {fixing ? (
+                <><Loader2 className="mr-1 h-3 w-3 animate-spin" />修复中</>
+              ) : (
+                <><Wand2 className="mr-1 h-3 w-3" />一键修复</>
+              )}
+            </Button>
+          </div>
+          {fixResult && (
+            <div className={cn(
+              "mt-2 rounded px-2 py-1.5 text-[10px]",
+              fixResult.ok
+                ? "border border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300/80"
+                : "border border-red-500/20 bg-red-500/[0.04] text-red-300/80",
+            )}>
+              {fixResult.ok ? (
+                <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />manifest.json 已生成</span>
+              ) : (
+                <span>修复失败: {fixResult.warnings.join("; ")}</span>
+              )}
+              {fixResult.warnings.length > 0 && (
+                <ul className="list-disc list-inside mt-1 space-y-0.5 text-[9px] opacity-70">
+                  {fixResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ArtClaw 格式规范参考 */}
       <div className="mt-4 rounded border border-border/40 bg-muted/10 px-3 py-2">

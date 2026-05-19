@@ -1,0 +1,21 @@
+{
+  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "manifest_version": "1.0",
+  "name": "",
+  "display_name": "",
+  "description": "",
+  "version": "0.1.0",
+  "author": "",
+  "license": "MIT",
+  "software": "universal",
+  "category": "utils",
+  "risk_level": "low",
+  "dependencies": [],
+  "tags": [],
+  "entry_point": "__init__.py",
+  "tools": [],
+  "software_version": {
+    "min": "",
+    "max": ""
+  }
+}

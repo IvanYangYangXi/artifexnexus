@@ -174,6 +174,11 @@ export async function skillSearch(query: string): Promise<SkillItem[]> {
   return invoke<SkillItem[]>("skill_search", { params: { query } });
 }
 
+/** 一键修复 manifest.json（从 SKILL.md 生成） */
+export async function skillFixManifest(id: string): Promise<{ ok: boolean; path: string; warnings: string[] }> {
+  return invoke("skill_fix_manifest", { params: { id } });
+}
+
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
 
 export const SkillAPI = {
@@ -191,6 +196,7 @@ export const SkillAPI = {
   publish: skillPublish,
   batch: skillBatch,
   search: skillSearch,
+  fixManifest: skillFixManifest,
 };
 
 export type SkillAPIType = typeof SkillAPI;

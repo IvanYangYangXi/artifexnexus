@@ -20,13 +20,13 @@ try:
     from ._rpc_helpers import (
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
-        _entry_to_dict, _config_prefs_for_skill,
+        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest,
     )
 except ImportError:
     from _rpc_helpers import (  # type: ignore[no-redef]
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
-        _entry_to_dict, _config_prefs_for_skill,
+        _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest,
     )
 
 logger = logging.getLogger(__name__)
@@ -494,6 +494,19 @@ SKILL_METHODS = {
     "skill.publish": _handle_skill_publish,
     "skill.batch": _handle_skill_batch,
     "skill.search": _handle_skill_search,
+    "skill.fix_manifest": _handle_skill_fix_manifest,
 }
+
+def _handle_skill_fix_manifest(req_id: Any, params: dict) -> dict:
+    """skill.fix_manifest — 从 SKILL.md 自动生成 manifest.json。"""
+    try:
+        skill_name = str(params.get("id", "")).strip()
+        if not skill_name:
+            return _err_invalid_params(req_id, "缺少 id 参数")
+        result = _skill_fix_manifest(skill_name)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("skill.fix_manifest failed")
+        return _err(req_id, str(exc))
 
 

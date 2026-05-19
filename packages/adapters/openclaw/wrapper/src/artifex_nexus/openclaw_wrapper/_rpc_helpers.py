@@ -287,4 +287,19 @@ def _config_prefs_for_skill(skill_name: str) -> dict:
     }
 
 
+def _skill_fix_manifest(skill_name: str) -> dict:
+    """一键修复：从 SKILL.md 生成 manifest.json。
+
+    :param skill_name: Skill 名称。
+    :return: {"ok": bool, "path": str, "warnings": [...]}
+    """
+    hub = _get_skill_hub()
+    entry = hub.get_entry(skill_name)
+    if entry is None:
+        return {"ok": False, "path": "", "warnings": [f"Skill '{skill_name}' 未找到"]}
+
+    from artifex_nexus.skill.manifest import fix_manifest
+    return fix_manifest(entry.path)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
