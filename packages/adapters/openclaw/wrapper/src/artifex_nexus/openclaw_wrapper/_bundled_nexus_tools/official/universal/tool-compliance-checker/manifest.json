@@ -70,34 +70,23 @@
       "id": "on-change",
       "name": "工具变更时检查",
       "enabled": true,
-      "trigger": {
-        "type": "watch",
-        "events": [
-          "created",
-          "modified"
-        ],
-        "debounceMs": 3000
-      },
+      "triggerType": "watch",
+      "executionMode": "notify",
       "useDefaultFilters": true,
-      "filters": {},
-      "execution": {
-        "mode": "notify",
-        "timeout": 30
-      }
+      "conditions": {},
+      "watchEvents": ["created", "modified"],
+      "debounceMs": 3000,
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     },
     {
       "id": "periodic",
       "name": "每30分钟全量检查",
       "enabled": true,
-      "trigger": {
-        "type": "schedule",
-        "mode": "interval",
-        "interval": 1800000
-      },
-      "execution": {
-        "mode": "silent",
-        "timeout": 60
-      }
+      "triggerType": "schedule",
+      "executionMode": "silent",
+      "useDefaultFilters": true,
+      "conditions": {},
+      "scheduleConfig": { "type": "interval", "interval": "30m" }
     }
   ],
   "presets": [],

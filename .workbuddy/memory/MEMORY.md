@@ -257,3 +257,23 @@ A1(decorator) → A2(manifest) → A3(hub) → B4(registry) → C1(sidecar RPC) 
 - **启用/禁用不改触发器 `enabled` 字段**（存 skills.json 的 `nexus_tools.disabled`）
 - **总闸 + 分闸独立**：`is_enabled` 是总闸，每条 trigger 的 `enabled` 是分闸，互不修改
 - **SDK `run_nexus_tool()` 已移除 `is_enabled` 门禁**（registry.py）
+
+### tool-sources.json 三端共享（2026-05-19）
+- `~/.artifexnexus/config/tool-sources.json` 是唯一数据源，被 3 个消费端读取：
+  1. Sidecar `trigger_dispatcher._load_tools()` → `tool_sources.get_all_manifest_paths()`
+  2. Blender `trigger_dispatcher._get_source_dirs()` → 直接读 JSON（无法 import sidecar 模块）
+  3. 其他 DCC addon（未来）
+- **注册环节**：`bootstrap.py`（首次安装）、`dcc_installer.py`（DCC 插件安装）、`sidecar.py main()` 启动期兜底
+- **目录类型**：`bundled`（内置工具）、`skills`（技能目录）、`user`（`~/.artifexnexus/nexus-tools/`，实例工具目录）
+- **去重**：`_normalize_path()` 剥离 Windows `\\?\` 前缀，防止同目录因前缀不同被重复注册
+
+### 实例工具 parentPath fallback 约定（2026-05-19）
+- 实例工具只有 `manifest.json`（参数副本），**无 `main.py`**，脚本沿用父工具
+- 两个 `trigger_dispatcher._execute_tool()` 必须实现 parentPath fallback：
+  ```python
+  entry_path = Path(tool_dir) / entry
+  if not entry_path.exists():
+      parent_path = manifest.get("parentPath", "")
+      if parent_path and Path(parent_path).is_dir():
+          tool_dir = parent_path
+  ```

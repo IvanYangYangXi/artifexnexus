@@ -150,6 +150,16 @@ class TriggerDispatcher:
             self._loaded = True
             return
 
+        # ── 读取用户配置：跳过被禁用的工具（工具总闸）──
+        try:
+            from artifex_nexus.core.skill_config import SkillConfig
+            _cfg = SkillConfig()
+            _disabled_tools = _cfg.get_disabled_nexus_tools()
+            if _disabled_tools:
+                logger.info("[Trigger] user-disabled tools: %s", _disabled_tools)
+        except ImportError:
+            _disabled_tools: set[str] = set()
+
         for mp in manifest_paths:
             try:
                 with open(mp, "r", encoding="utf-8") as f:
@@ -162,18 +172,26 @@ class TriggerDispatcher:
             if not tool_id:
                 continue
 
+            # 检查工具是否被用户禁用（工具总闸）
+            if tool_id in _disabled_tools:
+                logger.info("[Trigger] SKIP disabled tool=%s", tool_id)
+                continue
+
             tool_dir = str(mp.parent)
             tool_triggers = manifest.get("triggers", [])
 
-            # 筛选 event 类型的 blender 触发器
+            # 筛选 event 类型的触发器
             matched_triggers = []
             for t in tool_triggers:
-                trigger_def = t.get("trigger", {})
-                if trigger_def.get("type") != "event":
+                # 优先读新格式，fallback 旧格式（兼容 Phase A 之前创建的旧实例）
+                trigger_type = t.get("triggerType") or (t.get("trigger", {}) or {}).get("type", "")
+                dcc = t.get("dcc") or (t.get("trigger", {}) or {}).get("dcc", "")
+                event_name = t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
+                if trigger_type != "event":
                     continue
-                if trigger_def.get("dcc") != "blender":
+                # Dispatcher 当前只处理 blender（后续按 DCC 扩展）
+                if dcc != "blender":
                     continue
-                event_name = trigger_def.get("event", "")
                 if not event_name:
                     continue
                 if not t.get("enabled", True):
@@ -192,13 +210,14 @@ class TriggerDispatcher:
 
             # 索引 event → tool_id
             for t in matched_triggers:
-                event_name = t["trigger"]["event"]
+                event_name = t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
                 if event_name not in self._event_index:
                     self._event_index[event_name] = []
                 self._event_index[event_name].append(tool_id)
 
             logger.info("[Trigger] REGISTERED tool=%s events=%s",
-                         tool_id, [t["trigger"]["event"] for t in matched_triggers])
+                         tool_id, [t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
+                                   for t in matched_triggers])
 
         self._loaded = True
         total = len(self._tool_registry)
@@ -259,6 +278,15 @@ class TriggerDispatcher:
         impl = manifest.get("implementation", {})
         entry = impl.get("entry", "main.py")
         function = impl.get("function", "main")
+
+        # 实例工具 fallback：入口文件不在工具目录时，使用父工具目录
+        # （实例工具只存 manifest（参数副本），脚本沿用父工具）
+        entry_path = Path(tool_dir) / entry
+        if not entry_path.exists():
+            parent_path = manifest.get("parentPath", "")
+            if parent_path and Path(parent_path).is_dir():
+                logger.info("[Trigger] INSTANCE tool=%s → parent dir=%s", tool_id, parent_path)
+                tool_dir = parent_path
 
         logger.info("[Trigger] EXECUTING tool=%s entry=%s func=%s", tool_id, entry, function)
 

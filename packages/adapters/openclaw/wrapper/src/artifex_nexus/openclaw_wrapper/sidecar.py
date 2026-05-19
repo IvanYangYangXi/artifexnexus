@@ -2023,6 +2023,21 @@ def main() -> None:
         sys.stderr.write(f"[sidecar.boot] sdk_path auto-populate failed (non-fatal): {exc!r}\n")
         sys.stderr.flush()
 
+    # ── 确保用户实例工具目录已注册（已有安装可能缺此源，启动时自动补齐）──
+    try:
+        user_tools_dir = Path.home() / ".artifexnexus" / "nexus-tools"
+        if user_tools_dir.is_dir():
+            _ts.register_source(str(user_tools_dir), "user", "startup")
+            sys.stderr.write(
+                f"[sidecar.boot] user nexus-tools source ensured: {user_tools_dir}\n"
+            )
+            sys.stderr.flush()
+    except Exception as exc:
+        sys.stderr.write(
+            f"[sidecar.boot] user nexus-tools source ensure failed (non-fatal): {exc!r}\n"
+        )
+        sys.stderr.flush()
+
     # ─────────────────────────────────────────────────────────────────
     # 启动期主动拉起 gateway（2026-05-14 简化）
     # ─────────────────────────────────────────────────────────────────

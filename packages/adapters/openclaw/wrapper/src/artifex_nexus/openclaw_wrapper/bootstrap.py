@@ -1419,6 +1419,11 @@ def _register_default_tool_sources(ts) -> None:
         if skills.is_dir():
             ts.register_source(str(skills), "skills", "bootstrap")
 
+        # 用户实例 Nexus Tool 目录
+        user_tools = Path.home() / ".artifexnexus" / "nexus-tools"
+        if user_tools.is_dir():
+            ts.register_source(str(user_tools), "user", "bootstrap")
+
         # SDK 单一源路径（供 DCC addon 定位 artifex_nexus_sdk）
         sdk_parent = project_root / "packages" / "dcc" / "shared"
         if sdk_parent.is_dir():

@@ -73,52 +73,30 @@
   "presets": [],
   "triggers": [
     {
-      "conditions": {},
-      "dcc": "blender",
-      "description": "保存文件时自动检查对象命名规范，以气泡通知显示结果，5 秒后自动消失",
-      "enabled": true,
-      "eventType": "file.save.post",
-      "execution": {
-        "mode": "notify"
-      },
-      "executionMode": "notify",
       "id": "61a94281-bfdf-4487-b4fd-4e2993d85f7b",
       "name": "Blender保存时命名检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
-      "trigger": {
-        "dcc": "blender",
-        "event": "file.save.post",
-        "type": "event"
-      },
+      "description": "保存文件时自动检查对象命名规范，以气泡通知显示结果，5 秒后自动消失",
+      "enabled": true,
       "triggerType": "event",
-      "useDefaultFilters": true
+      "dcc": "blender",
+      "eventType": "file.save.post",
+      "executionMode": "notify",
+      "useDefaultFilters": true,
+      "conditions": {},
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     },
     {
-      "conditions": {},
-      "dcc": "blender",
-      "description": "打开文件时自动检查对象命名规范，以弹窗显示结果，需手动关闭",
-      "enabled": false,
-      "eventType": "file.open.post",
-      "execution": {
-        "mode": "notify"
-      },
-      "executionMode": "silent",
       "id": "1a9c0360-28b2-4ee1-b192-d08dda5a90a6",
       "name": "Blender打开文件时命名检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
-      "trigger": {
-        "dcc": "blender",
-        "event": "file.open.post",
-        "type": "event"
-      },
+      "description": "打开文件时自动检查对象命名规范，以弹窗显示结果，需手动关闭",
+      "enabled": false,
       "triggerType": "event",
-      "useDefaultFilters": true
+      "dcc": "blender",
+      "eventType": "file.open.post",
+      "executionMode": "silent",
+      "useDefaultFilters": true,
+      "conditions": {},
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     }
   ]
 }

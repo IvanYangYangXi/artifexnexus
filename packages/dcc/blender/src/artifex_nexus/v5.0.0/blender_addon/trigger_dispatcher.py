@@ -36,6 +36,9 @@ logger = logging.getLogger("artifex.blender.trigger")
 TOOL_SOURCES_PATH = Path.home() / ".artifexnexus" / "config" / "tool-sources.json"
 """tool-sources.json 配置文件路径（跨进程共享）"""
 
+SKILLS_CONFIG_PATH = Path.home() / ".artifexnexus" / "config" / "skills.json"
+"""skills.json 配置文件路径（含 nexus_tools.disabled 工具总闸禁用列表）"""
+
 
 # ── 配置读取（内联实现，不依赖 sidecar 的 tool_sources 模块）─────────────
 
@@ -72,6 +75,25 @@ def _get_source_dirs() -> List[str]:
         if path and Path(path).is_dir():
             sources.append(path)
     return sources
+
+
+def _get_disabled_nexus_tools() -> set:
+    """读取 skills.json 中 nexus_tools.disabled 列表（工具总闸）。
+
+    返回被用户禁用的 tool_id 集合。
+    Blender 无法 import artifex_nexus.core.skill_config，故直接读 JSON。
+    """
+    if SKILLS_CONFIG_PATH.exists():
+        try:
+            with open(SKILLS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            nexus_tools = config.get("nexus_tools", {}) if isinstance(config, dict) else {}
+            disabled = nexus_tools.get("disabled", [])
+            if isinstance(disabled, list):
+                return set(disabled)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to read skills.json: %s", e)
+    return set()
 
 
 def _find_manifest_paths(source_dirs: List[str]) -> List[Path]:
@@ -245,6 +267,11 @@ class BlenderTriggerDispatcher:
 
         logger.info("[Trigger] 扫描到 %d 个 manifest", len(manifest_paths))
 
+        # 读取工具总闸禁用列表（skills.json → nexus_tools.disabled）
+        disabled_tools = _get_disabled_nexus_tools()
+        if disabled_tools:
+            logger.info("[Trigger] user-disabled tools: %s", sorted(disabled_tools))
+
         for mp in manifest_paths:
             try:
                 with open(mp, "r", encoding="utf-8") as f:
@@ -257,18 +284,25 @@ class BlenderTriggerDispatcher:
             if not tool_id:
                 continue
 
+            # 检查工具总闸：用户是否在 UI 中禁用了此工具的触发器
+            if tool_id in disabled_tools:
+                logger.info("[Trigger] SKIP disabled tool=%s", tool_id)
+                continue
+
             tool_dir = str(mp.parent)
             tool_triggers = manifest.get("triggers", [])
 
             # 筛选 event 类型的 blender 触发器
             matched_triggers = []
             for t in tool_triggers:
-                trigger_def = t.get("trigger", {})
-                if trigger_def.get("type") != "event":
+                # 优先读新格式，fallback 旧格式（兼容 Phase A 之前创建的旧实例）
+                trigger_type = t.get("triggerType") or (t.get("trigger", {}) or {}).get("type", "")
+                dcc = t.get("dcc") or (t.get("trigger", {}) or {}).get("dcc", "")
+                event_name = t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
+                if trigger_type != "event":
                     continue
-                if trigger_def.get("dcc") != "blender":
+                if dcc != "blender":
                     continue
-                event_name = trigger_def.get("event", "")
                 if not event_name:
                     continue
                 if not t.get("enabled", True):
@@ -287,7 +321,7 @@ class BlenderTriggerDispatcher:
 
             # 索引 event → (tool_id, execution_mode)
             for t in matched_triggers:
-                event_name = t["trigger"]["event"]
+                event_name = t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
                 execution_mode = t.get("executionMode", "notify")
                 entry = (tool_id, execution_mode)
                 if event_name not in self._event_index:
@@ -296,7 +330,8 @@ class BlenderTriggerDispatcher:
                     self._event_index[event_name].append(entry)
 
             logger.info("[Trigger] REGISTERED tool=%s events=%s",
-                         tool_id, [t["trigger"]["event"] for t in matched_triggers])
+                         tool_id, [t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
+                                   for t in matched_triggers])
 
         self._loaded = True
         total = len(self._tool_registry)
@@ -340,6 +375,15 @@ class BlenderTriggerDispatcher:
         impl = manifest.get("implementation", {})
         entry = impl.get("entry", "main.py")
         function = impl.get("function", "main")
+
+        # 实例工具 fallback：入口文件不在工具目录时，使用父工具目录
+        # （实例工具只存 manifest（参数副本），脚本沿用父工具）
+        entry_path = Path(tool_dir) / entry
+        if not entry_path.exists():
+            parent_path = manifest.get("parentPath", "")
+            if parent_path and Path(parent_path).is_dir():
+                logger.info("[Trigger] INSTANCE tool=%s → parent dir=%s", tool_id, parent_path)
+                tool_dir = parent_path
 
         logger.info("[Trigger] EXECUTING tool=%s entry=%s func=%s", tool_id, entry, function)
 

@@ -47,64 +47,35 @@
   ],
   "triggers": [
     {
-      "enabled": true,
-      "execution": {
-        "mode": "silent",
-        "timeout": 60
-      },
       "id": "periodic",
       "name": "每2小时检查",
-      "trigger": {
-        "interval": 7200000,
-        "mode": "interval",
-        "type": "schedule"
-      }
+      "enabled": true,
+      "triggerType": "schedule",
+      "executionMode": "silent",
+      "useDefaultFilters": true,
+      "conditions": {},
+      "scheduleConfig": { "type": "interval", "interval": "2h" }
     },
     {
-      "enabled": true,
-      "execution": {
-        "mode": "notify",
-        "timeout": 30
-      },
-      "filters": {
-        "name": [
-          {
-            "pattern": ".*\\.(py|md|json)$"
-          }
-        ],
-        "path": [
-          {
-            "pattern": "$skills_installed/**/*.py"
-          },
-          {
-            "pattern": "$skills_installed/**/*.md"
-          },
-          {
-            "pattern": "$skills_installed/**/*.json"
-          },
-          {
-            "pattern": "$project_root/skills/**/*.py"
-          },
-          {
-            "pattern": "$project_root/skills/**/*.md"
-          },
-          {
-            "pattern": "$project_root/skills/**/*.json"
-          }
-        ]
-      },
       "id": "on-skill-change",
       "name": "Skill文件变化时检查",
-      "trigger": {
-        "debounceMs": 3000,
-        "events": [
-          "created",
-          "modified",
-          "deleted"
-        ],
-        "type": "watch"
+      "enabled": true,
+      "triggerType": "watch",
+      "executionMode": "notify",
+      "useDefaultFilters": false,
+      "conditions": {
+        "path": [
+          { "pattern": "$skills_installed/**/*.py" },
+          { "pattern": "$skills_installed/**/*.md" },
+          { "pattern": "$skills_installed/**/*.json" },
+          { "pattern": "$project_root/skills/**/*.py" },
+          { "pattern": "$project_root/skills/**/*.md" },
+          { "pattern": "$project_root/skills/**/*.json" }
+        ]
       },
-      "useDefaultFilters": false
+      "watchEvents": ["created", "modified", "deleted"],
+      "debounceMs": 3000,
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     }
   ],
   "author": "ArtClaw",

@@ -31,6 +31,19 @@ TOOL_SOURCES_PATH = Path.home() / ".artifexnexus" / "config" / "tool-sources.jso
 
 # ── 公共 API ────────────────────────────────────────────────────────────
 
+def _normalize_path(p: str) -> str:
+    """规范化路径：resolve + 移除 Windows \\?\ 前缀（如有）。
+
+    确保同一目录无论以何种前缀传入都映射到相同字符串，
+    避免去重失效导致 tool-sources.json 中出现重复条目。
+    """
+    resolved = str(Path(p).resolve())
+    # 移除 Windows NT 长路径前缀（\\?\D:\... → D:\...）
+    if resolved.startswith("\\\\?\\"):
+        resolved = resolved[4:]
+    return resolved
+
+
 def register_source(path: str, source_type: str = "bundled",
                     updated_by: str = "manual") -> bool:
     """注册一个工具源码目录。
@@ -52,13 +65,13 @@ def register_source(path: str, source_type: str = "bundled",
         sources: List[Dict[str, Any]] = config.get("sources", [])
 
         now = datetime.now(timezone.utc).isoformat()
-        abs_path = str(Path(path).resolve())
+        abs_path = _normalize_path(path)
         counts = _count_manifests(abs_path)
 
-        # 按 path 查找是否已存在
+        # 按规范化路径查找是否已存在（兼容旧 \\?\ 前缀条目）
         existing = None
         for s in sources:
-            if s.get("path") == abs_path:
+            if _normalize_path(s.get("path", "")) == abs_path:
                 existing = s
                 break
 

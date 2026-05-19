@@ -49,45 +49,37 @@
       "id": "on-static-mesh-pre-save",
       "name": "静态网格体保存前检查",
       "enabled": false,
-      "trigger": {
-        "type": "event",
-        "dcc": "unreal_engine",
-        "event": "asset.save.pre"
-      },
+      "triggerType": "event",
+      "dcc": "unreal_engine",
+      "eventType": "asset.save.pre",
+      "executionMode": "notify",
       "useDefaultFilters": true,
-      "filters": {},
-      "execution": {
-        "mode": "notify",
-        "timeout": 10
-      }
+      "conditions": {},
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     },
     {
       "id": "f25ace5e-7d8e-4b6b-8cda-0849ee6efe28",
       "name": "静态网格体放置时检查",
       "enabled": true,
-      "trigger": {
-        "type": "event",
-        "event": "asset.place.post",
-        "dcc": "unreal_engine"
-      },
-      "execution": {
-        "mode": "notify"
-      },
-      "useDefaultFilters": false
+      "triggerType": "event",
+      "dcc": "unreal_engine",
+      "eventType": "asset.place.post",
+      "executionMode": "notify",
+      "useDefaultFilters": false,
+      "conditions": {},
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     },
     {
       "id": "4e8fadcd-b2b6-4f75-b1d6-f10d23b98791",
       "name": "静态模型导入检查",
       "enabled": true,
-      "trigger": {
-        "type": "event",
-        "event": "asset.import.post",
-        "dcc": "unreal_engine"
-      },
-      "execution": {
-        "mode": "notify"
-      },
-      "useDefaultFilters": false
+      "triggerType": "event",
+      "dcc": "unreal_engine",
+      "eventType": "asset.import.post",
+      "executionMode": "notify",
+      "useDefaultFilters": false,
+      "conditions": {},
+      "scheduleConfig": { "interval": "30m", "type": "interval" }
     }
   ],
   "presets": []
