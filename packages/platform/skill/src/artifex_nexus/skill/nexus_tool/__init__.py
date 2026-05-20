@@ -13,12 +13,13 @@ nexus_tool — Nexus-Tool 子系统
 命名铁律：所有导出名必须包含 ``nexus_tool``，禁止裸 ``tool``。
 """
 
-from .models import NexusToolData, NexusToolResult, ScannedNexusTool
+from .models import DCCEntry, NexusToolData, NexusToolResult, ScannedNexusTool
 from .scanner import scan_nexus_tools
 from .registry import NexusToolRegistry
 from .installer import NexusToolInstaller
 
 __all__ = [
+    "DCCEntry",
     "NexusToolRegistry",
     "NexusToolInstaller",
     "NexusToolData",

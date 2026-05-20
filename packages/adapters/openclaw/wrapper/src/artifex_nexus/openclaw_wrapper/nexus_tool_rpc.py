@@ -187,7 +187,7 @@ def _handle_nexus_tool_create(req_id: Any, params: dict) -> dict:
     """nexus-tool.create(...) → NexusToolInfo。
 
     Required: name
-    Optional: description, version, source, target_dccs, implementation_type, manifest
+    Optional: description, version, source, target_dccs, manifest
     """
     try:
         name = params.get("name", "").strip()
@@ -201,7 +201,6 @@ def _handle_nexus_tool_create(req_id: Any, params: dict) -> dict:
             version=params.get("version", "1.0.0"),
             source=params.get("source", "user"),
             target_dccs=params.get("target_dccs"),
-            implementation_type=params.get("implementation_type", "script"),
             manifest=params.get("manifest"),
         )
         return _ok(req_id, _nt_data_to_dict(ntd))
@@ -220,7 +219,7 @@ def _handle_nexus_tool_update(req_id: Any, params: dict) -> dict:
         installer = _get_nt_installer()
         kwargs: dict[str, Any] = {}
         for key in ("name", "description", "version", "author", "source",
-                     "target_dccs", "implementation_type", "manifest"):
+                     "target_dccs", "manifest"):
             if key in params:
                 kwargs[key] = params[key]
 
@@ -502,10 +501,8 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         if not func_name:
             return _err(req_id, "manifest 未定义 implementation.function，无法确定入口函数")
 
-        target_dccs = [d.lower() for d in (ntd.target_dccs or [])]
+        target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or [])]
         is_general = "general" in target_dccs or not target_dccs
-
-        # ── 创建 task ──
         task_id = str(uuid.uuid4())[:12]
         cancel_event = threading.Event()
 
@@ -589,7 +586,7 @@ def _execute_tool_sync(
 
     task_id 用于通用工具的 cancel（注册子进程句柄）。
     """
-    target_dccs = [d.lower() for d in (ntd.target_dccs or [])]
+    target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or [])]
     is_general = "general" in target_dccs or not target_dccs
 
     if is_general:
@@ -620,7 +617,7 @@ def _execute_dcc_tool(
     import json as _json
     from pathlib import Path
 
-    target_dccs = [d.lower() for d in (ntd.target_dccs or []) if d != "general"]
+    target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or []) if e.dcc.lower() != "general"]
     dcc = target_dccs[0] if target_dccs else "blender"
     server_name = _DCC_TO_MCP_SERVER.get(dcc)
     if server_name is None:

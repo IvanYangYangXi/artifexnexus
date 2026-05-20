@@ -14,7 +14,6 @@ export interface SkillEntry {
   display_name: string;
   description: string;
   layer: string;
-  category: string | null;
   software: string;
   version: string;
   priority: number;
@@ -42,7 +41,6 @@ export interface SkillItem extends SkillEntry {
 export interface SkillToolItem {
   name: string;
   description: string;
-  category: string;
   risk_level: string;
   input_schema: Record<string, unknown>;
 }
@@ -106,7 +104,8 @@ export interface SkillBatchResult {
 }
 
 export interface SkillListFilters {
-  category?: string;
+  tags?: string[];
+  category?: string;  // 向后兼容（映射到 tags[0]）
   software?: string;
   layer?: string;
   page?: number;
@@ -168,12 +167,12 @@ export async function skillUnfavorite(id: string): Promise<SkillItem> {
 }
 
 /** 同步 */
-export async function skillSync(id: string, opts?: { sourceLayer?: string; targetLayer?: string }): Promise<SkillSyncResult> {
+export async function skillSync(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillSyncResult> {
   return invoke<SkillSyncResult>("skill_sync", { params: { id, ...opts } });
 }
 
 /** 发布 */
-export async function skillPublish(id: string, opts?: { sourceLayer?: string; targetLayer?: string }): Promise<SkillPublishResult> {
+export async function skillPublish(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillPublishResult> {
   return invoke<SkillPublishResult>("skill_publish", { params: { id, ...opts } });
 }
 

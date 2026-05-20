@@ -1,12 +1,21 @@
 /**
  * Skills/Tools mock 数据 — STORY-0035 阶段使用
  * STORY-0040 接入真实 API 后替换
+ *
+ * DCC_LABELS 硬编码作为 fallback，运行时优先从 skill.categories.get RPC 动态加载。
+ * targetDCCs 新格式: DCCEntry[] ({dcc, minVersion?, maxVersion?})，Mock 数据保留旧 string[] 用于快速原型。
  */
+
+// DCCEntry 类型（与 nexus-tool-api.ts 对齐）
+export interface DCCEntry {
+  dcc: string;
+  minVersion?: string;
+  maxVersion?: string;
+}
 
 export type SkillStatus = "installed" | "not_installed" | "update_available" | "disabled";
 export type SkillSource = "official" | "marketplace" | "user";
 export type DCC = "blender" | "maya" | "3ds_max" | "unreal_engine" | "houdini" | "comfyui" | "substance_painter" | "substance_designer" | "unity" | "general";
-export type ImplType = "skill_wrapper" | "script" | "composite";
 
 export interface MockSkill {
   id: string;
@@ -29,7 +38,6 @@ export interface MockTool {
   description: string;
   source: SkillSource;
   status: SkillStatus;
-  implType: ImplType;
   targetDCCs: DCC[];
   author: string;
   version: string;
@@ -63,12 +71,6 @@ export const STATUS_LABELS: Record<SkillStatus, string> = {
   not_installed: "可安装",
   update_available: "有更新",
   disabled: "已禁用",
-};
-
-export const IMPL_LABELS: Record<ImplType, string> = {
-  skill_wrapper: "包装",
-  script: "脚本",
-  composite: "组合",
 };
 
 export const MOCK_SKILLS: MockSkill[] = [
@@ -114,42 +116,42 @@ export const MOCK_TOOLS: MockTool[] = [
   {
     id: "t-1", name: "create_cube", skillName: "blender-modeling", skillId: "sk-1",
     description: "在 Blender 中创建立方体，支持自定义尺寸和位置",
-    source: "official", status: "installed", implType: "skill_wrapper",
+    source: "official", status: "installed",
     targetDCCs: ["blender"], author: "Artifex Team", version: "v1.2.3",
     modifiedDate: "2026-05-08", triggerCount: 2, triggerTypes: ["事件", "定时"], favorited: true,
   },
   {
     id: "t-2", name: "set_material", skillName: "blender-modeling", skillId: "sk-1",
     description: "为选中物体设置材质，支持颜色、金属度、粗糙度等参数",
-    source: "official", status: "installed", implType: "skill_wrapper",
+    source: "official", status: "installed",
     targetDCCs: ["blender"], author: "Artifex Team", version: "v1.2.3",
     modifiedDate: "2026-05-08", triggerCount: 1, triggerTypes: ["事件"], favorited: false,
   },
   {
     id: "t-3", name: "delete_object", skillName: "blender-modeling", skillId: "sk-1",
     description: "删除 Blender 场景中的指定物体",
-    source: "official", status: "installed", implType: "script",
+    source: "official", status: "installed",
     targetDCCs: ["blender"], author: "Artifex Team", version: "v1.2.3",
     modifiedDate: "2026-05-08", triggerCount: 0, triggerTypes: [], favorited: false,
   },
   {
     id: "t-4", name: "create_actor", skillName: "ue-blueprint", skillId: "sk-2",
     description: "在 Unreal 关卡中创建 Actor，支持指定类和位置",
-    source: "official", status: "installed", implType: "skill_wrapper",
+    source: "official", status: "installed",
     targetDCCs: ["unreal_engine"], author: "Artifex Team", version: "v0.9.0",
     modifiedDate: "2026-05-06", triggerCount: 3, triggerTypes: ["事件", "定时", "手动"], favorited: false,
   },
   {
     id: "t-5", name: "compile_blueprint", skillName: "ue-blueprint", skillId: "sk-2",
     description: "编译指定的蓝图，检查错误并输出编译日志",
-    source: "official", status: "installed", implType: "composite",
+    source: "official", status: "installed",
     targetDCCs: ["unreal_engine"], author: "Artifex Team", version: "v0.9.0",
     modifiedDate: "2026-05-06", triggerCount: 1, triggerTypes: ["手动"], favorited: false,
   },
   {
     id: "t-6", name: "txt2img", skillName: "image-gen", skillId: "sk-3",
     description: "文生图：输入提示词，调用 Stable Diffusion 生成图像",
-    source: "marketplace", status: "not_installed", implType: "skill_wrapper",
+    source: "marketplace", status: "not_installed",
     targetDCCs: ["comfyui"], author: "Community", version: "v2.0.1",
     modifiedDate: "2026-05-09", triggerCount: 0, triggerTypes: [], favorited: false,
   },

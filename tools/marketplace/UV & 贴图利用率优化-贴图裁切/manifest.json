@@ -1,5 +1,5 @@
 {
-  "id": "marketplace/uv-texture-optimize",
+  "id": "marketplace/UV & 贴图利用率优化-贴图裁切",
   "name": "UV & 贴图利用率优化-贴图裁切",
   "description": "分析使用同一贴图的所有 StaticMesh 的 UV 分布，计算共用 UV 包围盒，将贴图裁切到实际使用区域并重新映射 UV，提升贴图 texel density 利用率。导出 TGA，裁切后重新导入 UE。",
   "version": "1.0.0",
@@ -7,7 +7,9 @@
   "createdAt": "2026-04-23 15:00:00",
   "updatedAt": "2026-04-24 03:40:28",
   "targetDCCs": [
-    "unreal_engine"
+    {
+      "dcc": "unreal_engine"
+    }
   ],
   "defaultFilters": {
     "typeFilter": {
@@ -80,6 +82,5 @@
       "description": "包含 UV bbox、贴图裁切区域、节省比例等信息的文字报告"
     }
   ],
-  "presets": [],
-  "source": "marketplace"
+  "presets": []
 }

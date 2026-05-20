@@ -46,6 +46,7 @@ import {
   nexusToolList,
   type NexusToolDetail,
   type NexusToolParam,
+  type DCCEntry,
   type NexusToolTrigger,
   type FilterConfig,
   type TriggerType,
@@ -71,12 +72,6 @@ const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400 bg-blue-500/10",
   marketplace: "text-purple-400 bg-purple-500/10",
   user: "text-green-400 bg-green-500/10",
-};
-
-const IMPL_LABELS: Record<string, string> = {
-  script: "脚本",
-  skill_wrapper: "Skill 包装",
-  composite: "组合",
 };
 
 const PARAM_TYPE_OPTIONS = [
@@ -116,8 +111,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
   const [editedDescription, setEditedDescription] = React.useState("");
   const [editedAuthor, setEditedAuthor] = React.useState("");
   const [editedVersion, setEditedVersion] = React.useState("");
-  const [editedTargetDCCs, setEditedTargetDCCs] = React.useState<string[]>([]);
-  const [editedImplType, setEditedImplType] = React.useState("");
+  const [editedTargetDCCs, setEditedTargetDCCs] = React.useState<DCCEntry[]>([]);
   const [editedInputs, setEditedInputs] = React.useState<NexusToolParam[]>([]);
   const [editedFilters, setEditedFilters] = React.useState<FilterConfig>({});
   const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>([]);
@@ -143,7 +137,6 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setEditedAuthor(d.author || "");
       setEditedVersion(d.version);
       setEditedTargetDCCs(d.target_dccs || []);
-      setEditedImplType(d.implementation_type);
       setEditedInputs(d.inputs?.map((p) => ({ ...p })) || []);
       setEditedFilters(d.default_filters || {});
       setTriggers(d.triggers || []);
@@ -188,7 +181,6 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         author: editedAuthor,
         version: editedVersion,
         target_dccs: editedTargetDCCs,
-        implementation_type: editedImplType,
         manifest: manifestPatch,
       });
       setDirty(false);
@@ -201,7 +193,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setSaving(false);
     }
   }, [detail, editedName, editedDescription, editedAuthor, editedVersion,
-      editedTargetDCCs, editedImplType, editedInputs, editedFilters,
+      editedTargetDCCs, editedInputs, editedFilters,
       triggers, loadDetail]);
 
   // ── 另存为实例 ────────────────────────────────────────────────────────
@@ -242,7 +234,6 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         parentName: detail.name,
         parentPath: detail.nexus_tool_path,
         target_dccs: editedTargetDCCs,
-        implementation_type: editedImplType,
         version: editedVersion,
       });
       setShowSaveAs(false);
@@ -256,7 +247,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setSaving(false);
     }
   }, [detail, saveAsName, saveAsDesc, editedDescription, editedInputs,
-      editedFilters, triggers, editedTargetDCCs, editedImplType, editedVersion]);
+      editedFilters, triggers, editedTargetDCCs, editedVersion]);
 
   // ── 触发器操作（保持现有逻辑）─────────────────────────────────────────
 
@@ -351,7 +342,6 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
               editedAuthor={editedAuthor} setEditedAuthor={(v) => { setEditedAuthor(v); markDirty(); }}
               editedVersion={editedVersion} setEditedVersion={(v) => { setEditedVersion(v); markDirty(); }}
               editedTargetDCCs={editedTargetDCCs} setEditedTargetDCCs={(v) => { setEditedTargetDCCs(v); markDirty(); }}
-              editedImplType={editedImplType} setEditedImplType={(v) => { setEditedImplType(v); markDirty(); }}
               inputsCount={editedInputs.length}
               triggersCount={triggers.length}
               compact={compact}
@@ -456,7 +446,6 @@ function InfoTab({
   editedAuthor, setEditedAuthor,
   editedVersion, setEditedVersion,
   editedTargetDCCs, setEditedTargetDCCs,
-  editedImplType, setEditedImplType,
   inputsCount, triggersCount,
   compact,
 }: {
@@ -466,8 +455,7 @@ function InfoTab({
   editedDescription: string; setEditedDescription: (v: string) => void;
   editedAuthor: string; setEditedAuthor: (v: string) => void;
   editedVersion: string; setEditedVersion: (v: string) => void;
-  editedTargetDCCs: string[]; setEditedTargetDCCs: (v: string[]) => void;
-  editedImplType: string; setEditedImplType: (v: string) => void;
+  editedTargetDCCs: DCCEntry[]; setEditedTargetDCCs: (v: DCCEntry[]) => void;
   inputsCount: number; triggersCount: number;
   compact?: boolean;
 }) {
@@ -478,10 +466,10 @@ function InfoTab({
   const labelCls = "text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1";
 
   const toggleDCC = (dcc: string) => {
-    if (editedTargetDCCs.includes(dcc)) {
-      setEditedTargetDCCs(editedTargetDCCs.filter((d) => d !== dcc));
+    if (editedTargetDCCs.some((e) => e.dcc === dcc)) {
+      setEditedTargetDCCs(editedTargetDCCs.filter((e) => e.dcc !== dcc));
     } else {
-      setEditedTargetDCCs([...editedTargetDCCs, dcc]);
+      setEditedTargetDCCs([...editedTargetDCCs, { dcc }]);
     }
   };
 
@@ -560,25 +548,12 @@ function InfoTab({
         </div>
       </div>
 
-      <div>
-        <div className={labelCls}>实现方式</div>
-        <select
-          value={editedImplType}
-          onChange={(e) => setEditedImplType(e.target.value)}
-          className={selectCls}
-        >
-          {Object.entries(IMPL_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      </div>
-
       {/* 目标 DCC */}
       <div>
         <div className={labelCls}>目标软件</div>
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(DCC_LABELS).slice(0, 8).map(([dcc, label]) => {
-            const active = editedTargetDCCs.includes(dcc);
+            const active = editedTargetDCCs.some((e) => e.dcc === dcc);
             return (
               <button
                 key={dcc}
@@ -1008,11 +983,12 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
 
   React.useEffect(() => { setLocalTriggers(triggers); }, [triggers]);
 
-  const targetDCCs = detail.target_dccs?.length ? detail.target_dccs : ["blender", "unreal_engine", "maya", "3ds_max", "houdini", "comfyui"];
+  const targetDCCs = detail.target_dccs?.length ? detail.target_dccs : [{ dcc: "blender" }, { dcc: "unreal_engine" }, { dcc: "maya" }, { dcc: "3ds_max" }, { dcc: "houdini" }, { dcc: "comfyui" }];
 
   // 判断是否有目标 DCC 已连接
   const hasConnectedDCC = React.useMemo(() => {
-    return targetDCCs.some((dcc) => {
+    return targetDCCs.some((e) => {
+      const dcc = typeof e === "string" ? e : e.dcc;
       const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
       return status?.connected ?? false;
     });

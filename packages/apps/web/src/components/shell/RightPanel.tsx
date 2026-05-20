@@ -79,7 +79,8 @@ export function RightPanel() {
   const toolGroups = React.useMemo(() => {
     const map = new Map<string, NexusToolItem[]>();
     tools.forEach((t) => {
-      const key = (t.target_dccs?.[0]) || "通用";
+      const first = t.target_dccs?.[0];
+      const key = (typeof first === "string" ? first : first?.dcc) || "通用";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);
     });

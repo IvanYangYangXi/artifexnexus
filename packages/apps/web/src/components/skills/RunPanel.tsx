@@ -190,7 +190,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   // ── AI 辅助运行 ──
   const handleAIAssist = () => {
     if (!detail) return;
-    const dccs = (detail.target_dccs || []).filter((d) => d !== "general");
+    const dccs = (detail.target_dccs || []).map((e) => (typeof e === "string" ? e : e.dcc)).filter((d) => d !== "general");
     const dccLabel = dccs.length > 0 ? dccs.join(", ") : "当前 DCC";
     const inputs = detail.inputs || [];
 
@@ -277,7 +277,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
               <span>来源: {(SOURCE_LABELS as Record<string, string>)[detail.source]}</span>
             )}
             {targetDCCs.length > 0 && (
-              <span>DCC: {targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[d] || d).join(", ")}</span>
+              <span>DCC: {targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ")}</span>
             )}
           </div>
         </div>
@@ -349,8 +349,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
                 <InfoRow label="版本" value={detail.version || "0.0.0"} />
                 <InfoRow label="作者" value={detail.author || "未知"} />
                 <InfoRow label="来源" value={(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source} />
-                <InfoRow label="DCC" value={targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[d] || d).join(", ") || "通用"} />
-                <InfoRow label="实现方式" value={detail.implementation_type || "script"} />
+                <InfoRow label="DCC" value={targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ") || "通用"} />
                 <InfoRow label="ID" value={detail.id} mono />
                 <InfoRow label="路径" value={detail.nexus_tool_path} mono />
                 {detail.created_at && <InfoRow label="创建时间" value={detail.created_at.slice(0, 10)} />}

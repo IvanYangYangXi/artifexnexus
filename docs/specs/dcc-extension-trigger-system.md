@@ -85,7 +85,7 @@ status: in-progress
   "version": 1,
   "sdk_path": "/path/to/project/packages/dcc/shared",
   "sources": [
-    { "path": ".../_bundled_nexus_tools", "type": "bundled", ... },
+    { "path": ".../tools",                "type": "tools",    ... },
     { "path": ".../skills",               "type": "skills",   ... },
     { "path": "~/.artifexnexus/nexus-tools", "type": "user", ... }
   ],
@@ -118,7 +118,7 @@ status: in-progress
 
 | Type | 路径 | 内容 | 注册时机 |
 |------|------|------|---------|
-| `bundled` | `<project>/_bundled_nexus_tools/` | 内置 Nexus Tool | bootstrap + dcc_installer |
+| `tools` | `<project>/tools/` | 内置 Nexus Tool（official + marketplace） | bootstrap + dcc_installer |
 | `skills` | `<project>/skills/` | Skill 目录（含 manifest.json） | bootstrap + dcc_installer |
 | `user` | `~/.artifexnexus/nexus-tools/` | 用户创建的实例工具 | bootstrap + sidecar 启动期确保 |
 
@@ -213,7 +213,7 @@ def check_naming(event_data=None, **kwargs):
 {
   "id": "user/Example-Blender对象命名规范检查 (实例)-01",
   "instanceOf": "marketplace/Example-Blender对象命名规范检查",
-  "parentPath": "D:\\...\\_bundled_nexus_tools\\marketplace\\blender\\Blender对象命名规范检查",
+  "parentPath": "D:\\...\\tools\\marketplace\\Blender对象命名规范检查",
   "implementation": {
     "entry": "main.py",
     "function": "check_naming",

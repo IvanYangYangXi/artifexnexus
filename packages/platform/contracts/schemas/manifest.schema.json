@@ -25,11 +25,6 @@
         "max": { "type": "string" }
       }
     },
-    "category": {
-      "type": "string",
-      "pattern": "^[\\u4e00-\\u9fa5a-zA-Z0-9_-]{1,31}$",
-      "description": "分类标签。预设值见 categories.json，允许用户自定义（中文/英文/数字/下划线/连字符，1-31字符）。"
-    },
     "risk_level": {
       "type": "string",
       "enum": ["low", "medium", "high", "critical"],

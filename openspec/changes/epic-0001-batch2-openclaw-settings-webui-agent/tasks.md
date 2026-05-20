@@ -1,0 +1,1 @@
+d:/MyProject_D/artifexnexus/docs/tasks/_openspec/epic-0001-batch2.tasks.md

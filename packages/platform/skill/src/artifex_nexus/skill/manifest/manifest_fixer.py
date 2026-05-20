@@ -42,7 +42,6 @@ def _load_template() -> dict:
             "name": "",
             "version": "0.1.0",
             "software": "universal",
-            "category": "utils",
             "entry_point": "__init__.py",
         }
 
@@ -130,33 +129,31 @@ def _normalize_software(raw: str) -> str:
     return _SOFTWARE_NORMALIZE.get(raw.strip().lower(), raw.strip())
 
 
-# ── 分类名规范化 ───────────────────────────────────────────────────────────────
-
-_CATEGORY_NORMALIZE: Dict[str, str] = {
-    "scene": "scene",
-    "asset": "asset",
-    "material": "material",
-    "lighting": "lighting",
-    "render": "render",
-    "blueprint": "blueprint",
-    "animation": "animation",
-    "ui": "ui",
-    "utils": "utils",
-    "integration": "integration",
-    "workflow": "workflow",
-    "mesh": "mesh",
-    "rendering": "rendering",
-    "rigging": "rigging",
-    "vfx": "vfx",
-    "utility": "utility",
-    "knowledge": "knowledge",
-    "memory": "memory",
-    "debug": "debug",
-}
-
+# ── 标签规范化 ───────────────────────────────────────────────────────────────
 
 def _normalize_category(raw: str) -> str:
-    """将 SKILL.md 中的分类映射到 manifest 规范值。"""
+    """将 SKILL.md 中的分类词映射到 tag 规范值（category 已合并入 tags）。"""
+    _CATEGORY_NORMALIZE: Dict[str, str] = {
+        "scene": "scene",
+        "asset": "asset",
+        "material": "material",
+        "lighting": "lighting",
+        "render": "render",
+        "blueprint": "blueprint",
+        "animation": "animation",
+        "ui": "ui",
+        "utils": "utils",
+        "integration": "integration",
+        "workflow": "workflow",
+        "mesh": "mesh",
+        "rendering": "rendering",
+        "rigging": "rigging",
+        "vfx": "vfx",
+        "utility": "utility",
+        "knowledge": "knowledge",
+        "memory": "memory",
+        "debug": "debug",
+    }
     return _CATEGORY_NORMALIZE.get(raw.strip().lower(), raw.strip())
 
 
@@ -172,7 +169,7 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     - version: metadata.artclaw.version → 回退到 "0.1.0"
     - author: metadata.artclaw.author → 回退到 ""
     - software: metadata.artclaw.software（规范化映射）
-    - category: metadata.artclaw.category（规范化映射）
+    - category: metadata.artclaw.category（规范化后合并入 tags）
     - tags: metadata.artclaw.tags → 回退到 []
 
     :param skill_dir: Skill 源码目录（包含 SKILL.md）。
@@ -240,18 +237,23 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
         result["warnings"].append("software 未指定，使用默认值 universal")
     manifest["software"] = _normalize_software(sw_raw) if sw_raw else "universal"
 
-    # category
+    # category → 合并入 tags（category 字段已废弃）
     cat_raw = str(artclaw.get("category", ""))
+    normalized_cat = _normalize_category(cat_raw) if cat_raw else ""
     if not cat_raw:
-        result["warnings"].append("category 未指定，使用默认值 utils")
-    manifest["category"] = _normalize_category(cat_raw) if cat_raw else "utils"
+        result["warnings"].append("category 未指定，将不会添加标签分类")
 
-    # tags
+    # tags: 从 metadata.artclaw.tags 提取，同时合并 category 值
     tags = artclaw.get("tags", [])
     if isinstance(tags, list):
         manifest["tags"] = [str(t) for t in tags]
     elif isinstance(tags, str):
         manifest["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    else:
+        manifest["tags"] = []
+    # 将 category 加入 tags 首部（去重）
+    if normalized_cat and normalized_cat not in manifest["tags"]:
+        manifest["tags"] = [normalized_cat] + manifest["tags"]
 
     # dependencies
     deps = artclaw.get("dependencies", [])

@@ -264,7 +264,7 @@
 
 ### 6.2 Artifex Nexus
 
-**工具位置**：`_bundled_nexus_tools/marketplace/blender/`
+**工具位置**：`tools/marketplace/`
 
 **工具开发**：直接 import bpy（无独立 SDK 层）
 

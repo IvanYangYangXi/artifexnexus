@@ -5,9 +5,9 @@ nexus_tool/scanner.py — Nexus-Tool 文件系统扫描
 从 artclaw ToolManager ``services/tool_scanner.py`` 复制并适配。
 
 目录结构：
-  - 内嵌工具（official / marketplace）：由调用方通过 ``bundled_nexus_tools_path`` 传入，
-    工具随 wrapper 包分发，通过 ``importlib.resources`` 定位。
-    ``{bundled_nexus_tools_path}/{source}/{dcc?}/{name}/manifest.json``
+  - 工具根目录（tools）：项目根 ``tools/``，由调用方传入，其下为
+    ``{tools_path}/{source}/{name}/manifest.json``
+    其中官方工具在 ``tools/official/``，市集工具在 ``tools/marketplace/``。
   - 用户工具（user）：``~/.artifexnexus/nexus-tools/user/{name}/manifest.json``
 
 其中 source ∈ {official, marketplace, user}。
@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .models import ScannedNexusTool
+from .models import DCCEntry, ScannedNexusTool
 
 _VALID_SOURCES = ("official", "marketplace", "user")
 
@@ -49,7 +49,7 @@ def _parse_manifest(nexus_tool_dir: Path, source: str) -> Optional[ScannedNexusT
         return None
 
     impl = manifest.get("implementation", {})
-    impl_type = impl.get("type", "script")
+    # 保留 impl 读取供 manifest 序列化使用，但不再提取为独立字段
 
     # 从目录层级推导 source（权威），若 manifest 不一致则补丁
     manifest_source = manifest.get("source", source)
@@ -83,13 +83,26 @@ def _parse_manifest(nexus_tool_dir: Path, source: str) -> Optional[ScannedNexusT
         except Exception:
             pass
 
+    # 解析 targetDCCs：支持新格式 [{dcc, minVersion?, maxVersion?}] 和旧格式 ["blender"]
+    raw_dccs = manifest.get("targetDCCs", [])
+    target_dccs: list[DCCEntry] = []
+    for item in raw_dccs:
+        if isinstance(item, str):
+            # 向后兼容：旧格式 ["blender", "unreal_engine"]
+            target_dccs.append(DCCEntry(dcc=item))
+        elif isinstance(item, dict):
+            target_dccs.append(DCCEntry(
+                dcc=item.get("dcc", ""),
+                min_version=item.get("minVersion", ""),
+                max_version=item.get("maxVersion", ""),
+            ))
+
     return ScannedNexusTool(
         name=name,
         description=manifest.get("description", ""),
         version=manifest.get("version", "1.0.0"),
         source=source,
-        target_dccs=manifest.get("targetDCCs", []),
-        implementation_type=impl_type,
+        target_dccs=target_dccs,
         nexus_tool_path=str(nexus_tool_dir),
         manifest=manifest,
         author=author,
@@ -137,27 +150,27 @@ def _scan_source_dir(source_dir: Path, source_name: str,
 
 def scan_nexus_tools(
     nexus_tools_root: Optional[Path] = None,
-    bundled_nexus_tools_path: Optional[Path] = None,
+    tools_path: Optional[Path] = None,
 ) -> List[ScannedNexusTool]:
     """扫描所有 nexus-tool 目录并返回发现列表。
 
     双路径架构：
-      - 内嵌路径：``{bundled_nexus_tools_path}/{official,marketplace}/``（随包分发）
+      - 工具根路径：``{tools_path}/{official,marketplace}/``（项目根 tools/）
       - 用户路径：``~/.artifexnexus/nexus-tools/user/``（用户自创工具）
 
     扫描顺序（低优先级先，高优先级后覆盖）：
-      1. official   (bundled_nexus_tools_path)
-      2. marketplace (bundled_nexus_tools_path)
+      1. official   (tools_path)
+      2. marketplace (tools_path)
       3. user       (nexus_tools_root)
     """
     root = nexus_tools_root or _DEFAULT_NEXUS_TOOLS_ROOT
     results: List[ScannedNexusTool] = []
     seen: Dict[str, bool] = {}
 
-    # 1-2. 内嵌路径：official + marketplace（随 wrapper 包分发）
-    if bundled_nexus_tools_path is not None and bundled_nexus_tools_path.is_dir():
+    # 1-2. 工具根路径：official + marketplace（项目根 tools/）
+    if tools_path is not None and tools_path.is_dir():
         for source_name in ("official", "marketplace"):
-            source_dir = bundled_nexus_tools_path / source_name
+            source_dir = tools_path / source_name
             results.extend(_scan_source_dir(source_dir, source_name, seen))
 
     # 3. 用户路径：仅 user（~/.artifexnexus/nexus-tools/user/）

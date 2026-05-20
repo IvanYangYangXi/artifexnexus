@@ -145,7 +145,6 @@ def skill_tool(
     *,
     name: Optional[str] = None,
     description: str = "",
-    category: str = "general",
     risk_level: str = "low",
 ) -> Callable:
     """
@@ -162,7 +161,6 @@ def skill_tool(
     Args:
         name:        Skill-Tool 名称。默认使用函数名。
         description: Skill-Tool 描述，AI 可见。默认从 docstring 提取。
-        category:    分类标签（预设值或自定义，格式见 CATEGORY_PATTERN）。
         risk_level:  风险级别（low / medium / high / critical）。
     """
     def decorator(fn: Callable) -> Callable:

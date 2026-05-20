@@ -14,13 +14,13 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button, Input, cn } from "@artifex-nexus/ui";
 import { ObjectTypePicker } from "../common/ObjectTypePicker";
 import { Pagination } from "../common/Pagination";
-import type { FilterConfig } from "../../lib/nexus-tool/nexus-tool-api";
+import type { DCCEntry, FilterConfig } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS } from "../../lib/skillsMock";
 
 interface FiltersTabProps {
   filters: FilterConfig;
   onChange: (filters: FilterConfig) => void;
-  targetDCCs: string[];
+  targetDCCs: DCCEntry[];
   compact?: boolean;
 }
 
@@ -34,8 +34,9 @@ export function FiltersTab({
 }: FiltersTabProps) {
   const [page, setPage] = React.useState(1);
 
-  const dccOptions = ["", "general", ...targetDCCs];
-  const selectedDcc = filters.dcc || targetDCCs[0] || "";
+  const dccNames = targetDCCs.map((e) => e.dcc);
+  const dccOptions = ["", "general", ...dccNames];
+  const selectedDcc = filters.dcc || dccNames[0] || "";
   const pathRules = filters.path || [];
   const selectedTypes = filters.types || [];
 

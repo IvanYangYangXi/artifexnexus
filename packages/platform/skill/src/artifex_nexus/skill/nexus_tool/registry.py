@@ -39,11 +39,11 @@ class NexusToolRegistry:
         self,
         config: SkillConfig | None = None,
         nexus_tools_root: Path | None = None,
-        bundled_nexus_tools_path: Path | None = None,
+        tools_path: Path | None = None,
     ):
         self.config = config or SkillConfig()
         self._nexus_tools_root = nexus_tools_root
-        self._bundled_nexus_tools_path = bundled_nexus_tools_path
+        self._tools_path = tools_path
         self._cache: List[NexusToolData] = []
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -54,7 +54,7 @@ class NexusToolRegistry:
         """扫描 nexus-tools 目录并与用户偏好合并。"""
         scanned = scan_nexus_tools(
             nexus_tools_root=self._nexus_tools_root,
-            bundled_nexus_tools_path=self._bundled_nexus_tools_path,
+            tools_path=self._tools_path,
         )
         disabled_set = self.config.get_disabled_nexus_tools()
         pinned_set = self.config.get_pinned_nexus_tools()
@@ -73,7 +73,6 @@ class NexusToolRegistry:
                 target_dccs=s.target_dccs,
                 status="disabled" if is_disabled else "installed",
                 nexus_tool_path=s.nexus_tool_path,
-                implementation_type=s.implementation_type,
                 manifest=s.manifest,
                 is_enabled=not is_disabled,
                 is_pinned=nexus_tool_id in pinned_set,
@@ -194,8 +193,11 @@ class NexusToolRegistry:
             return NexusToolResult.fail(f"Nexus-Tool not found: {nexus_tool_id}")
 
         # DCC 绑定工具禁止本地执行
-        if td.target_dccs and td.target_dccs != ["general"]:
-            dcc_list = ", ".join(td.target_dccs)
+        _dcc_names = [entry.dcc for entry in td.target_dccs]
+        if _dcc_names and not all(
+            d in ("general", "universal") for d in _dcc_names
+        ):
+            dcc_list = ", ".join(_dcc_names)
             return NexusToolResult.fail(
                 f"Nexus-Tool '{nexus_tool_id}' targets DCC [{dcc_list}]. "
                 f"Please execute via OpenClaw MCP run_python in the DCC process."

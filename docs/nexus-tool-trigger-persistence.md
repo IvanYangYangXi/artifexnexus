@@ -63,7 +63,7 @@ Nexus-Tool 触发器有**三个维度**的启用/禁用控制，各自有不同�
 
 | 步骤 | 文件 | 改动 |
 |------|------|------|
-| A1 | `_bundled_nexus_tools/**/manifest.json` (3个) | 删除 `trigger:{}` 和 `execution:{}` 冗余嵌套，保留扁平字段 |
+| A1 | `tools/{official,marketplace}/*/manifest.json` (3个) | 删除 `trigger:{}` 和 `execution:{}` 冗余嵌套，保留扁平字段 |
 | A2 | `trigger_dispatcher.py:170-178` | 读 `t.get("triggerType")` / `t.get("dcc")` / `t.get("eventType")` 替代旧嵌套 |
 | A3 | 验证 `_rpc_helpers.py:_nt_data_to_dict` | 确认 triggers 透传无旧字段 |
 

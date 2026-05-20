@@ -33,14 +33,12 @@ class SkillToolInfo:
     Attributes:
         name: Skill-Tool 名称。
         description: AI 可读的描述文本。
-        category: 分类标签。
         risk_level: 风险级别。
         input_schema: JSON Schema dict（从 type hints 自动推断）。
     """
 
     name: str
     description: str = ""
-    category: str = "general"
     risk_level: str = "low"
     input_schema: Dict[str, Any] = field(default_factory=dict)
 
@@ -76,11 +74,6 @@ class SkillInstance:
     def software(self) -> str:
         """适用 DCC 软件（来自 manifest.software）。"""
         return software_value(self.manifest.software)
-
-    @property
-    def category(self) -> Optional[str]:
-        """分类标签（来自 manifest.category）。"""
-        return self.manifest.category
 
     @property
     def skill_tool_names(self) -> list:

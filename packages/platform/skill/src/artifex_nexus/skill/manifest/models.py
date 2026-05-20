@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..categories import ALL_SOFTWARE, CATEGORY_PATTERN
+from ..categories import ALL_SOFTWARE
 
 
 # ── 正则常量 ────────────────────────────────────────────────────────────────
@@ -36,8 +36,6 @@ _SEMVER_PATTERN = re.compile(
     r"(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
     r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
 )
-
-_category_pattern = re.compile(CATEGORY_PATTERN)
 
 
 # ── 子模型 ──────────────────────────────────────────────────────────────────
@@ -101,12 +99,6 @@ class SkillManifest(BaseModel):
     author: Optional[str] = Field(default=None, description="作者")
     license: Optional[str] = Field(default=None, description="许可证")
 
-    # ── 分类 ──────────────────────────────────────────────────────
-    category: Optional[str] = Field(
-        default=None,
-        description="分类标签（预设值或自定义，格式见 CATEGORY_PATTERN）",
-    )
-
     # ── 软件版本约束 ────────────────────────────────────────────────────
     software_version: Optional[SoftwareVersionConstraint] = Field(
         default=None, description="DCC 版本约束"
@@ -155,17 +147,6 @@ class SkillManifest(BaseModel):
             )
         return v
 
-    @field_validator("category")
-    @classmethod
-    def _validate_category(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        if not _category_pattern.match(v):
-            raise ValueError(
-                f"category '{v}' 不合法: 必须匹配 {CATEGORY_PATTERN}"
-            )
-        return v
-
     # ── 便捷方法 ────────────────────────────────────────────────────────
 
     @property
@@ -181,11 +162,6 @@ class SkillManifest(BaseModel):
         if self.software_version:
             return self.software_version.max
         return None
-
-    @property
-    def is_custom_category(self) -> bool:
-        """category 是否为用户自定义（不在预设列表中）。"""
-        return self.category is not None and self.category not in ALL_SOFTWARE
 
     def to_dict(self) -> Dict[str, Any]:
         """转为 dict（用于 JSON 序列化）。枚举值自动转换。"""

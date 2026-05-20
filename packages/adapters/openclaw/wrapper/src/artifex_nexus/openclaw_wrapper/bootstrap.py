@@ -1401,20 +1401,21 @@ def _try_install_default_agent_preset(openclaw_home: Path) -> None:
 def _register_default_tool_sources(ts) -> None:
     """注册默认的 Nexus Tool 和 Skill 源码目录到 tool-sources.json。
 
-    自动探测当前包中的 _bundled_nexus_tools 目录和 skills 目录。
+    自动探测项目根 tools/ 目录（含 official/ + marketplace/ 子目录）和 skills 目录。
     """
     try:
         pkg_dir = Path(__file__).resolve().parent
-
-        # bundled Nexus Tools
-        bundled = pkg_dir / "_bundled_nexus_tools"
-        if bundled.is_dir():
-            ts.register_source(str(bundled), "bundled", "bootstrap")
 
         # skills 目录（从项目根目录推导）
         # pkg_dir = .../wrapper/src/artifex_nexus/openclaw_wrapper/
         # project_root = pkg_dir.parents[5] (artifexnexus/)
         project_root = pkg_dir.parents[5]
+
+        # 统一工具根目录 tools/（其下 official/ 和 marketplace/）
+        tools_dir = project_root / "tools"
+        if tools_dir.is_dir():
+            ts.register_source(str(tools_dir), "tools", "bootstrap")
+
         skills = project_root / "skills"
         if skills.is_dir():
             ts.register_source(str(skills), "skills", "bootstrap")

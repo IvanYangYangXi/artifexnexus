@@ -173,7 +173,6 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
   const [svMin, setSvMin] = React.useState(entry.software_version?.min || "");
   const [svMax, setSvMax] = React.useState(entry.software_version?.max || "");
   const [version, setVersion] = React.useState(entry.version || "");
-  const [category, setCategory] = React.useState(entry.category || "");
   const [author, setAuthor] = React.useState(entry.author || "");
   const [license, setLicense] = React.useState(entry.license || "");
   const [entryPoint, setEntryPoint] = React.useState(entry.entry_point || "");
@@ -195,14 +194,13 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
     if (svMin !== (orig.software_version?.min || "")) return true;
     if (svMax !== (orig.software_version?.max || "")) return true;
     if (version !== (orig.version || "")) return true;
-    if (category !== (orig.category || "")) return true;
     if (author !== (orig.author || "")) return true;
     if (license !== (orig.license || "")) return true;
     if (entryPoint !== (orig.entry_point || "")) return true;
     if (tags !== (orig.tags?.join(", ") || "")) return true;
     if (deps !== (orig.dependencies?.join(", ") || "")) return true;
     return false;
-  }, [software, svMin, svMax, version, category, author, license, entryPoint, tags, deps, entry]);
+  }, [software, svMin, svMax, version, author, license, entryPoint, tags, deps, entry]);
 
   // ── 软件下拉选项（从 DCC_LABELS 的 key 列表获取，含通用选项） ──
   const softwareOptions = React.useMemo(() => {
@@ -216,7 +214,6 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
       const fields: Record<string, unknown> = {
         software,
         version,
-        category,
         author,
         entry_point: entryPoint,
         license,
@@ -239,7 +236,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
     } finally {
       setSaving(false);
     }
-  }, [software, svMin, svMax, version, category, author, entryPoint, license, tags, deps, entry.name, onDetailRefresh]);
+  }, [software, svMin, svMax, version, author, entryPoint, license, tags, deps, entry.name, onDetailRefresh]);
 
   const handlePublish = React.useCallback(async () => {
     setPublishing(true);
@@ -385,13 +382,13 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
           )}
         </div>
 
-        {/* 分类 */}
-        <div>
-          <div className={labelCls}>分类</div>
+        {/* 标签 */}
+        <div className="col-span-2">
+          <div className={labelCls}>标签</div>
           {isInstalled ? (
-            <input className={inputCls} placeholder="分类" value={category} onChange={e => setCategory(e.target.value)} />
+            <input className={inputCls} placeholder="标签（逗号分隔）" value={tags} onChange={e => setTags(e.target.value)} />
           ) : (
-            <p className="text-xs text-foreground">{entry.category || "—"}</p>
+            <p className="text-xs text-foreground">{entry.tags?.join(", ") || "—"}</p>
           )}
         </div>
 
@@ -683,7 +680,7 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
     issues.push({
       severity: "error",
       message: "缺少 manifest.json",
-      detail: "Skill 目录下没有 manifest.json 文件。请按照 artifex nexus skill 格式规范创建包含以下建议字段的 manifest.json：manifest_version, name, version, software, software_version, category, entry_point。",
+      detail: "Skill 目录下没有 manifest.json 文件。请按照 artifex nexus skill 格式规范创建包含以下建议字段的 manifest.json：manifest_version, name, version, software, tags, entry_point。",
     });
   } else if (errMsg.includes("manifest.json 校验失败")) {
     issues.push({
@@ -700,8 +697,8 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
 
   // 检查常见缺失字段
   if (entry.has_manifest) {
-    if (!entry.category) {
-      issues.push({ severity: "warning", message: "缺少 category 字段" });
+    if (!entry.tags || entry.tags.length === 0) {
+      issues.push({ severity: "warning", message: "缺少 tags 字段（建议至少有一个分类标签）" });
     }
     if (entry.version === "0.0.0") {
       issues.push({ severity: "warning", message: "version 为默认值 0.0.0，建议设置正式版本号" });
@@ -805,7 +802,7 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">version</code>: semver 格式</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software</code>: DCC 软件标识</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software_version</code>: <code className="text-[9px] bg-muted/30 px-1 rounded">{"{min, max}"}</code>，DCC 版本号约束</li>
-            <li><code className="text-[9px] bg-muted/30 px-1 rounded">category</code>: 功能分类</li>
+            <li><code className="text-[9px] bg-muted/30 px-1 rounded">tags</code>: 标签列表（至少一个分类标签）</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">entry_point</code>: 入口文件名</li>
           </ul>
           <p className="mt-1">SKILL.md frontmatter 提供 name 和 description，manifest.json 提供其他所有字段。</p>

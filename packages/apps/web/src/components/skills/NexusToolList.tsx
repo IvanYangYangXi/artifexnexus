@@ -13,6 +13,7 @@ import {
   type NexusToolItem,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
+import { PublishConfirmDialog, type ToolPublishData, type ToolPublishResult } from "./PublishConfirmDialog";
 
 const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400", marketplace: "text-purple-400", user: "text-green-400",
@@ -29,10 +30,6 @@ const loadViewPref = (): "card" | "list" => {
 };
 const saveViewPref = (val: string) => { try { localStorage.setItem(VIEW_KEY, val); } catch { /* ignore */ } };
 
-const IMPL_LABELS: Record<string, string> = {
-  skill_wrapper: "包装", script: "脚本", composite: "组合",
-};
-
 export function NexusToolList() {
   const [search, setSearch] = React.useState("");
   const [dccFilter, setDccFilter] = React.useState("all");
@@ -43,6 +40,10 @@ export function NexusToolList() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
+
+  // ── 发布弹窗状态 ──
+  const [publishTarget, setPublishTarget] = React.useState<NexusToolItem | null>(null);
+  const [publishBusy, setPublishBusy] = React.useState(false);
 
   const { setPreview, preview } = React.useContext(PreviewContext);
 
@@ -113,7 +114,7 @@ export function NexusToolList() {
   const filtered = tools
     .filter((t) => {
       if (search && !t.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (dccFilter !== "all" && !t.target_dccs?.includes(dccFilter)) return false;
+      if (dccFilter !== "all" && !t.target_dccs?.some((e) => (typeof e === "string" ? e : e.dcc) === dccFilter)) return false;
       if (sourceFilter !== "all" && t.source !== sourceFilter) return false;
       if (favoritesOnly && !t.is_favorited) return false;
       return true;
@@ -185,7 +186,7 @@ export function NexusToolList() {
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((tool) => (
             <ItemCard key={tool.id} viewMode={viewMode}
-              icon={<DCCIcon software={tool.target_dccs?.[0] || ""} />}
+              icon={<DCCIcon software={(tool.target_dccs?.[0] && typeof tool.target_dccs[0] === "string") ? tool.target_dccs[0] : (tool.target_dccs?.[0] as { dcc: string })?.dcc || ""} />}
               title={tool.name}
               onTitleClick={() => handleToolClick(tool)}
               source={{ label: (SOURCE_LABELS as Record<string, string>)[tool.source] || tool.source, color: SOURCE_COLORS[tool.source] || "" }}
@@ -196,8 +197,7 @@ export function NexusToolList() {
               description={tool.description}
               meta={<>
                 <span>{tool.version}</span>
-                <span>·</span><span>{IMPL_LABELS[tool.implementation_type] || tool.implementation_type}</span>
-                <span>·</span><span>{tool.target_dccs?.join(", ") || "通用"}</span>
+                <span>·</span><span>{(tool.target_dccs?.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc) ?? []).join(", ") || "通用"}</span>
               </>}
               actions={<>
                 <Button variant="ghost" size="icon" className="h-7 w-7"
@@ -225,7 +225,7 @@ export function NexusToolList() {
                 {/* 用户源工具 → 发布 */}
                 {tool.source === "user" && (
                   <Button variant="outline" size="sm" className="h-7 text-xs text-purple-400 hover:text-purple-300"
-                    onClick={() => doAction(tool.id, () => nexusToolPublish(tool.id))}
+                    onClick={() => setPublishTarget(tool)}
                     disabled={isBusy(tool.id)}>
                     发布
                   </Button>
@@ -249,6 +249,36 @@ export function NexusToolList() {
           ))}
         </div>
       </ScrollFade>
+
+      {/* ── 发布确认弹窗 ── */}
+      <PublishConfirmDialog
+        kind="tool"
+        open={publishTarget !== null}
+        onClose={() => setPublishTarget(null)}
+        toolData={publishTarget ? {
+          name: publishTarget.name,
+          currentVersion: publishTarget.version || "",
+          currentDescription: publishTarget.description || "",
+        } : undefined}
+        onConfirmTool={async (result: ToolPublishResult) => {
+          if (!publishTarget) return;
+          setPublishBusy(true);
+          try {
+            await nexusToolPublish(publishTarget.id, {
+              target: result.target,
+              version: result.version,
+              description: result.description,
+            });
+            setPublishTarget(null);
+            await loadTools();
+          } catch (e) {
+            setError(String(e));
+          } finally {
+            setPublishBusy(false);
+          }
+        }}
+        busy={publishBusy}
+      />
     </div>
   );
 }

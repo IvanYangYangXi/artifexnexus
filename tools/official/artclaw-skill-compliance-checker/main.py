@@ -92,8 +92,9 @@ def _resolve_path_variables() -> Dict[str, str]:
 # ============================================================================
 
 # 硬编码 fallback——与 contracts/data/categories.json §software 保持同步
-_VALID_SOFTWARE = {"universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui"}
-_VALID_DCC = _VALID_SOFTWARE  # targetDCCs 共用同一套枚举
+_VALID_SOFTWARE = {"universal", "unreal_engine", "blender", "maya", "3ds_max",
+                   "houdini", "comfyui", "substance_painter", "substance_designer",
+                   "unity"}
 
 
 def _load_categories_enum(project_root: str) -> tuple[set[str], set[str]]:
@@ -108,7 +109,7 @@ def _load_categories_enum(project_root: str) -> tuple[set[str], set[str]]:
             return sw, sw
         except Exception:
             pass
-    return _VALID_SOFTWARE, _VALID_DCC
+    return _VALID_SOFTWARE, _VALID_SOFTWARE
 
 
 def _check_enum_fields(installed_dir: str, project_root: str) -> list[dict]:
@@ -122,9 +123,10 @@ def _check_enum_fields(installed_dir: str, project_root: str) -> list[dict]:
         except Exception:
             continue
 
-        # 检查 Nexus-Tool 的 targetDCCs
+        # 检查 Nexus-Tool 的 targetDCCs（兼容新旧格式）
         if "targetDCCs" in data:
-            for dcc in data["targetDCCs"]:
+            for item in data["targetDCCs"]:
+                dcc = item.get("dcc", "") if isinstance(item, dict) else str(item)
                 if dcc not in valid_dcc:
                     issues.append({
                         "type": "enum_violation",
@@ -145,6 +147,28 @@ def _check_enum_fields(installed_dir: str, project_root: str) -> list[dict]:
                     "value": sw,
                     "valid_values": sorted(valid_software),
                 })
+
+        # 检查 tags 字段格式
+        if "tags" in data:
+            tags_val = data["tags"]
+            if not isinstance(tags_val, list):
+                issues.append({
+                    "type": "format_violation",
+                    "file": str(Path(mf_path).relative_to(installed_dir)),
+                    "field": "tags",
+                    "value": str(type(tags_val).__name__),
+                    "valid_values": ["array of strings"],
+                })
+            else:
+                for ti, tag in enumerate(tags_val):
+                    if not isinstance(tag, str):
+                        issues.append({
+                            "type": "format_violation",
+                            "file": str(Path(mf_path).relative_to(installed_dir)),
+                            "field": f"tags[{ti}]",
+                            "value": repr(tag),
+                            "valid_values": ["string"],
+                        })
 
     return issues
 

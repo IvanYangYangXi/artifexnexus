@@ -7,9 +7,10 @@ categories.py — Artifex Nexus Skill/Tool 分类与标签
 
 结构：
     - ``Software`` / ``RiskLevel`` — 动态构建的 str:Enum（硬约束）
-    - ``ALL_CATEGORIES`` — 预设分类集合（开放，用户可自定义）
     - ``ALL_SOFTWARE`` / ``ALL_RISK_LEVELS`` — 所有合法值集合
-    - ``SOFTWARE_DISPLAY`` / ``CATEGORY_DISPLAY`` / ``RISK_DISPLAY`` — 中文显示名映射
+    - ``SOFTWARE_DISPLAY`` / ``RISK_DISPLAY`` — 中文显示名映射
+
+注：category 字段已合并入 tags，不再单独存在。
 """
 
 from __future__ import annotations
@@ -55,14 +56,9 @@ def _builtin_fallback() -> dict:
     return {
         "software": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
         "risk_level": ["low", "medium", "high", "critical"],
-        "category": ["scene", "asset", "material", "lighting", "render",
-                     "blueprint", "animation", "ui",
-                     "utils", "integration", "workflow",
-                     "modeling", "rigging", "fx", "compositing"],
         "display": {
             "software": {},
             "risk_level": {},
-            "category": {},
         },
     }
 
@@ -89,13 +85,11 @@ RiskLevel.__doc__ = "Skill 风险级别（硬约束，来自 categories.json）�
 
 ALL_SOFTWARE: set[str] = set(_DATA["software"])
 ALL_RISK_LEVELS: set[str] = set(_DATA["risk_level"])
-ALL_CATEGORIES: set[str] = set(_DATA["category"])
 
 # ── 中文显示名映射 ──────────────────────────────────────────────────────────
 
 _display = _DATA.get("display", {})
 SOFTWARE_DISPLAY: dict[str, str] = _display.get("software", {})
-CATEGORY_DISPLAY: dict[str, str] = _display.get("category", {})
 RISK_DISPLAY: dict[str, str] = _display.get("risk_level", {})
 
 # ── 工具函数 ────────────────────────────────────────────────────────────────
@@ -113,9 +107,3 @@ def software_value(software: Software | str) -> str:
     if hasattr(software, "value"):
         return software.value  # type: ignore[union-attr,return-value]
     return str(software)
-
-
-# ── category 自定义格式 ─────────────────────────────────────────────────────
-
-CATEGORY_PATTERN = r"^[\u4e00-\u9fa5a-zA-Z0-9_-]{1,31}$"
-"""用户自定 category 的合法格式：中文/英文/数字/下划线/连字符，1-31 字符。"""

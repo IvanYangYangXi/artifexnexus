@@ -31,11 +31,8 @@ from .manifest import (
 )
 # 枚举从 categories.json 唯一数据源读取
 from .categories import (
-    ALL_CATEGORIES,
     ALL_RISK_LEVELS,
     ALL_SOFTWARE,
-    CATEGORY_DISPLAY,
-    CATEGORY_PATTERN,
     RISK_DISPLAY,
     SOFTWARE_DISPLAY,
     RiskLevel,
@@ -77,6 +74,7 @@ from .installer import (
 
 # ── Phase 5: nexus_tool — STORY-0045 ─────────────────────────────────────
 from .nexus_tool import (
+    DCCEntry,
     NexusToolData,
     NexusToolInstaller,
     NexusToolRegistry,
@@ -100,11 +98,8 @@ __all__ = [
     "software_value",
     "ALL_SOFTWARE",
     "ALL_RISK_LEVELS",
-    "ALL_CATEGORIES",
     "SOFTWARE_DISPLAY",
-    "CATEGORY_DISPLAY",
     "RISK_DISPLAY",
-    "CATEGORY_PATTERN",
     # version
     "parse_version",
     "compare_versions",
@@ -136,6 +131,7 @@ __all__ = [
     "PublishResult",
     "SkillConfig",
     # Phase 5: nexus_tool
+    "DCCEntry",
     "NexusToolRegistry",
     "NexusToolInstaller",
     "NexusToolData",

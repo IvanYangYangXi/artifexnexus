@@ -13,6 +13,7 @@ import {
   type SkillItem,
 } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS, type SkillSource } from "../../lib/skillsMock";
+import { PublishConfirmDialog, type SkillPublishData, type SkillPublishResult } from "./PublishConfirmDialog";
 
 // layer → source 映射
 function layerToSource(layer: string): SkillSource {
@@ -50,6 +51,10 @@ export function SkillList() {
   const [selectMode, setSelectMode] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [batchInstalling, setBatchInstalling] = React.useState(false);
+
+  // ── 发布弹窗状态 ──
+  const [publishTarget, setPublishTarget] = React.useState<SkillItem | null>(null);
+  const [publishBusy, setPublishBusy] = React.useState(false);
 
   const { setPreview } = React.useContext(PreviewContext);
 
@@ -272,7 +277,7 @@ export function SkillList() {
                     ? "bg-emerald-500/15 text-emerald-400"
                     : "bg-red-500/15 text-red-400",
               }}
-              description={skill.description || skill.category || ""}
+              description={skill.description || skill.tags?.join(", ") || ""}
               meta={<>
                 <span>{skill.version}</span>
                 <span>·</span><span>{skill.software}</span>
@@ -342,7 +347,7 @@ export function SkillList() {
                 {/* 已安装 + 用户层 → 发布（发布到团队/官方） */}
                 {skill.installed && skill.layer.startsWith("02_") && (
                   <Button variant="outline" size="sm" className="h-7 text-xs text-purple-400 hover:text-purple-300"
-                    onClick={() => doAction(skill.name, () => skillPublish(skill.name))}
+                    onClick={() => setPublishTarget(skill)}
                     disabled={isBusy(skill.name)}>
                     发布
                   </Button>
@@ -362,6 +367,38 @@ export function SkillList() {
           ))}
         </div>
       </ScrollFade>
+
+      {/* ── 发布确认弹窗 ── */}
+      <PublishConfirmDialog
+        kind="skill"
+        open={publishTarget !== null}
+        onClose={() => setPublishTarget(null)}
+        skillData={publishTarget ? {
+          name: publishTarget.name,
+          version: publishTarget.version || "unknown",
+        } : undefined}
+        onConfirmSkill={async (result: SkillPublishResult) => {
+          if (!publishTarget) return;
+          setPublishBusy(true);
+          try {
+            const res = await skillPublish(publishTarget.name, {
+              source_layer: "02_user",
+              target_layer: result.targetLayer,
+            });
+            if (!res.ok) {
+              setError("发布失败: " + JSON.stringify(res));
+              return;
+            }
+            setPublishTarget(null);
+            await loadSkills();
+          } catch (e) {
+            setError(String(e));
+          } finally {
+            setPublishBusy(false);
+          }
+        }}
+        busy={publishBusy}
+      />
     </div>
   );
 }

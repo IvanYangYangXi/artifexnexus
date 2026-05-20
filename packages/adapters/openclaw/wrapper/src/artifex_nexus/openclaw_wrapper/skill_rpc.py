@@ -39,19 +39,24 @@ logger = logging.getLogger(__name__)
 def _handle_skill_list(req_id: Any, params: dict) -> dict:
     """skill.list(filters) → (items, total)。
 
-    Supported filters: category, software, layer, page, limit, sort_by, sort_order.
+    Supported filters: tags, software, layer, page, limit, sort_by, sort_order.
     """
     try:
         hub = _get_skill_hub()
         hub.scan_all_skills()
 
         category = params.get("category")
+        tags = params.get("tags")
         software = params.get("software")
         layer = params.get("layer")
         page = max(1, int(params.get("page", 1)))
         limit = min(max(1, int(params.get("limit", 20))), 200)
 
-        entries = hub.list_entries(category=category, software=software, layer=layer)
+        # 兼容旧 category 参数（映射到 tags）
+        if category and not tags:
+            tags = [category] if isinstance(category, str) else category
+
+        entries = hub.list_entries(tags=tags, software=software, layer=layer)
         total = len(entries)
 
         # 分页切片
@@ -111,13 +116,11 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
                     if callable(attr) and getattr(attr, "_artifex_skill_tool", False):
                         ti_name = getattr(attr, "_artifex_skill_tool_name", attr_name)
                         ti_desc = getattr(attr, "_artifex_skill_tool_description", "")
-                        ti_cat = getattr(attr, "_artifex_skill_tool_category", "general")
                         ti_risk = getattr(attr, "_artifex_skill_tool_risk_level", "low")
                         ti_schema = getattr(attr, "_artifex_skill_tool_input_schema", {})
                         tools.append({
                             "name": ti_name,
                             "description": ti_desc,
-                            "category": ti_cat,
                             "risk_level": ti_risk,
                             "input_schema": ti_schema,
                         })
@@ -464,7 +467,7 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
             searchable = " ".join([
                 entry.name.lower(),
                 (entry.display_name or "").lower(),
-                (entry.category or "").lower(),
+                " ".join(entry.manifest.tags or []).lower(),
             ])
             if query in searchable:
                 installed = installer._target_skill_dir("02_user", entry.name).exists()

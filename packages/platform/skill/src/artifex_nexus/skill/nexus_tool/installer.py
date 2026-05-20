@@ -47,12 +47,12 @@ class NexusToolInstaller:
         registry: NexusToolRegistry | None = None,
         config: SkillConfig | None = None,
         nexus_tools_root: Path | None = None,
-        bundled_nexus_tools_path: Path | None = None,
+        tools_path: Path | None = None,
     ):
         self.registry = registry or NexusToolRegistry(config=config)
         self.config = config or SkillConfig()
         self._nexus_tools_root = nexus_tools_root or _DEFAULT_NEXUS_TOOLS_ROOT
-        self._bundled_nexus_tools_path = bundled_nexus_tools_path
+        self._tools_path = tools_path
 
     # ═══════════════════════════════════════════════════════════════════════
     # CRUD
@@ -66,7 +66,6 @@ class NexusToolInstaller:
         version: str = "1.0.0",
         source: str = "user",
         target_dccs: List[str] | None = None,
-        implementation_type: str = "script",
         manifest: Dict[str, Any] | None = None,
     ) -> NexusToolData:
         """创建新的 nexus-tool（写入 manifest.json 到磁盘）。
@@ -95,7 +94,7 @@ class NexusToolInstaller:
         manifest["source"] = source
         manifest["id"] = nexus_tool_id
         manifest.setdefault("targetDCCs", target_dccs or [])
-        manifest.setdefault("implementation", {"type": implementation_type})
+        manifest.setdefault("implementation", {"type": "script"})
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         manifest.setdefault("author", "")
@@ -117,7 +116,6 @@ class NexusToolInstaller:
             target_dccs=target_dccs or [],
             status="installed",
             nexus_tool_path=str(nexus_tool_dir),
-            implementation_type=implementation_type,
             manifest=manifest,
             author=manifest.get("author", ""),
             created_at=now,
@@ -154,10 +152,6 @@ class NexusToolInstaller:
                     td.author = kwargs["author"]
                 if "target_dccs" in kwargs and kwargs["target_dccs"] is not None:
                     manifest["targetDCCs"] = kwargs["target_dccs"]
-                if "implementation_type" in kwargs and kwargs["implementation_type"]:
-                    manifest.setdefault("implementation", {})[
-                        "type"
-                    ] = kwargs["implementation_type"]
                 # Safe manifest sub-keys
                 if "manifest" in kwargs and isinstance(kwargs["manifest"], dict):
                     m = kwargs["manifest"]
@@ -209,12 +203,12 @@ class NexusToolInstaller:
         """发布 user nexus-tool 到 official 或 marketplace（内嵌路径）。
 
         将 nexus-tool 从 ``~/.artifexnexus/nexus-tools/user/`` 移动到
-        ``{bundled_nexus_tools_path}/{target}/``。
+        ``{tools_path}/{target}/``。
         生产环境（site-packages 只读）时拒绝发布并给出清晰错误。
         """
-        if self._bundled_nexus_tools_path is None:
+        if self._tools_path is None:
             raise ValueError(
-                "Cannot publish: bundled_nexus_tools_path is not set. "
+                "Cannot publish: tools_path is not set. "
                 "The bundled nexus-tools directory could not be located."
             )
         if target not in ("official", "marketplace"):
@@ -235,7 +229,7 @@ class NexusToolInstaller:
             raise ValueError(f"Source nexus-tool directory not found: {source_path}")
 
         # 目标路径：内嵌 nexus-tools/{target}/ 下
-        repo_target = self._bundled_nexus_tools_path / target / td.name
+        repo_target = self._tools_path / target / td.name
 
         # 检查目标目录是否可写（生产环境 site-packages 可能只读）
         repo_target.parent.mkdir(parents=True, exist_ok=True)

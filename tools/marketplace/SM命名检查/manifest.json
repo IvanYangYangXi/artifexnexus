@@ -4,9 +4,10 @@
   "description": "静态网格体资产保存时触发前置命名检查，确保 /Game/_ToolManager 目录下的 StaticMesh 资产名称以 SM_ 为前缀，不符合则拦截保存并提示。",
   "version": "1.0.0",
   "author": "IvanYang",
-  "source": "marketplace",
   "targetDCCs": [
-    "unreal_engine"
+    {
+      "dcc": "unreal_engine"
+    }
   ],
   "createdAt": "2026-04-26 00:23:00",
   "updatedAt": "2026-04-27 03:09:28",
@@ -55,7 +56,10 @@
       "executionMode": "notify",
       "useDefaultFilters": true,
       "conditions": {},
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     },
     {
       "id": "f25ace5e-7d8e-4b6b-8cda-0849ee6efe28",
@@ -67,7 +71,10 @@
       "executionMode": "notify",
       "useDefaultFilters": false,
       "conditions": {},
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     },
     {
       "id": "4e8fadcd-b2b6-4f75-b1d6-f10d23b98791",
@@ -79,7 +86,10 @@
       "executionMode": "notify",
       "useDefaultFilters": false,
       "conditions": {},
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     }
   ],
   "presets": []

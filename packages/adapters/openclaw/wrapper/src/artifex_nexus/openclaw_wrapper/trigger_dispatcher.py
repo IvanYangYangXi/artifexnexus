@@ -3,7 +3,7 @@ trigger_dispatcher.py — Nexus Tool 触发器调度引擎
 =================================================
 
 从 MCPBridgeClient 接收 Blender trigger_event 广播，
-加载 _bundled_nexus_tools 中的 Nexus Tool manifest，
+加载 tools/ 中的 Nexus Tool manifest，
 匹配 event 触发器规则，执行匹配的工具，
 并通过 call_blender_run_python 将结果回传 Blender 显示 popup。
 
@@ -33,8 +33,8 @@ class TriggerDispatcher:
     def __init__(self, nexus_tools_root: Optional[str] = None):
         """
         Args:
-            nexus_tools_root: _bundled_nexus_tools 目录路径。
-                             默认自动探测当前包下的目录。
+            nexus_tools_root: tools/ 目录路径（含 official/ + marketplace/）。
+                             默认自动探测项目根下的 tools/ 目录。
         """
         if nexus_tools_root is None:
             nexus_tools_root = self._find_nexus_tools_root()
@@ -49,13 +49,16 @@ class TriggerDispatcher:
         logger.info("TriggerDispatcher 初始化: root=%s", self._nexus_tools_root)
 
     def _find_nexus_tools_root(self) -> Optional[str]:
-        """自动探测 _bundled_nexus_tools 目录路径。"""
-        # 尝试从本文件所在包路径推导
+        """自动探测项目根 tools/ 目录路径（含 official/ + marketplace/）。"""
         try:
-            pkg_dir = Path(__file__).resolve().parent
-            candidate = pkg_dir / "_bundled_nexus_tools"
-            if candidate.is_dir():
-                return str(candidate)
+            current = Path(__file__).resolve().parent  # openclaw_wrapper/
+            for _ in range(10):
+                if (current / "pnpm-workspace.yaml").exists():
+                    candidate = current / "tools"
+                    if candidate.is_dir():
+                        return str(candidate)
+                    break
+                current = current.parent
         except Exception:
             pass
         return None
@@ -113,7 +116,7 @@ class TriggerDispatcher:
         """扫描所有已注册的工具源码目录，加载 manifest 并索引 event 触发器。
 
         优先使用 tool-sources.json 中注册的所有源目录（bundled + skills + user），
-        以 bundled 目录（_bundled_nexus_tools/）作为 fallback。
+        以 tools/ 目录作为 fallback。
 
         工具只需在 manifest.json 中声明 triggers 字段即可被自动发现，
         无需额外的配置文件注册步骤。
@@ -138,7 +141,7 @@ class TriggerDispatcher:
             except Exception as e:
                 logger.warning("[Trigger] tool-sources.json 读取失败: %s", e)
 
-        # ── Fallback：直接扫描 _bundled_nexus_tools/ ──
+        # ── Fallback：直接扫描 tools/ ──
         if not manifest_paths and self._nexus_tools_root:
             root = Path(self._nexus_tools_root)
             manifest_paths = list(root.rglob("manifest.json"))

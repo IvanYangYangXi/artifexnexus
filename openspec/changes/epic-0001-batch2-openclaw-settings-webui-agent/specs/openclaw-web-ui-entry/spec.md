@@ -1,0 +1,1 @@
+d:/MyProject_D/artifexnexus/docs/specs/ui/installer-structure.md

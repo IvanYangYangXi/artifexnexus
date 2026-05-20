@@ -5,7 +5,9 @@
   "agentHint": "通过 Tool Manager API 执行: POST /api/v1/tools/official%2Ftool-compliance-checker/execute。或从工具详情 API 获取 tool_path 字段，执行 {tool_path}/main.py。不要运行 openclaw skills check。",
   "version": "3.0.0",
   "targetDCCs": [
-    "general"
+    {
+      "dcc": "general"
+    }
   ],
   "defaultFilters": {
     "path": [
@@ -74,9 +76,15 @@
       "executionMode": "notify",
       "useDefaultFilters": true,
       "conditions": {},
-      "watchEvents": ["created", "modified"],
+      "watchEvents": [
+        "created",
+        "modified"
+      ],
       "debounceMs": 3000,
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     },
     {
       "id": "periodic",
@@ -86,11 +94,13 @@
       "executionMode": "silent",
       "useDefaultFilters": true,
       "conditions": {},
-      "scheduleConfig": { "type": "interval", "interval": "30m" }
+      "scheduleConfig": {
+        "type": "interval",
+        "interval": "30m"
+      }
     }
   ],
   "presets": [],
   "updatedAt": "2026-04-14 10:31:43",
-  "author": "ArtClaw",
-  "source": "official"
+  "author": "ArtClaw"
 }

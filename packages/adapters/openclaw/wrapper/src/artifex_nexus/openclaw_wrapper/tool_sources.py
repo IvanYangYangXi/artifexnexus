@@ -260,7 +260,7 @@ def _write_config(config: Dict[str, Any]) -> None:
 def _count_manifests(root_path: str) -> Dict[str, int]:
     """扫描目录，统计 manifest.json 数量。
 
-    tool_count: _bundled_nexus_tools 下的 Nexus Tool manifest 数
+    tool_count: tools/{official,marketplace}/ 下的 Nexus Tool manifest 数
     skill_count: skills 目录下的 Skill manifest（含 SKILL.md）数
     """
     root = Path(root_path)

@@ -30,37 +30,39 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SKILLS_ROOT = Path.home() / ".artifexnexus" / ".openclaw" / "workspace" / "skills"
 _DEFAULT_CONFIG_PATH = Path.home() / ".artifexnexus" / "config" / "skills.json"
 _DEFAULT_NEXUS_TOOLS_ROOT = Path.home() / ".artifexnexus" / "nexus-tools"
-_BUNDLED_NEXUS_TOOLS_PATH: Optional[Path] = None
+_TOOLS_PATH: Optional[Path] = None
 
 
-def _get_bundled_nexus_tools_path() -> Optional[Path]:
-    """通过 importlib.resources 定位内嵌的 nexus-tools 目录。
+def _get_tools_path() -> Optional[Path]:
+    """定位项目根 ``tools/`` 目录（统一工具根路径）。
 
-    nexus-tools (official + marketplace) 随 ``artifex_nexus.openclaw_wrapper``
-    包分发，位于 ``_bundled_nexus_tools/`` 子目录。
+    从当前模块所在包目录向上查找 ``pnpm-workspace.yaml``，
+    找到项目根后拼接 ``tools/``，其下为 ``official/`` 和 ``marketplace/`` 子目录。
 
-    三种启动场景均覆盖：
-      - Dev / 绿色包：pip editable install → 返回源码路径
-      - NSIS 安装包：随包安装 → 返回 site-packages / 安装路径
+    三种启动场景：
+      - Dev / 绿色包：pip editable install → 返回源码路径的 tools/
+      - NSIS 安装包：无项目根 → 返回 None（不扫描工具）
     """
-    global _BUNDLED_NEXUS_TOOLS_PATH
-    if _BUNDLED_NEXUS_TOOLS_PATH is None:
+    global _TOOLS_PATH
+    if _TOOLS_PATH is None:
         try:
             from importlib.resources import files as _resources_files
-            _BUNDLED_NEXUS_TOOLS_PATH = (
-                Path(str(_resources_files("artifex_nexus.openclaw_wrapper")))
-                / "_bundled_nexus_tools"
-            )
-            if not _BUNDLED_NEXUS_TOOLS_PATH.is_dir():
-                logger.warning(
-                    "Bundled nexus-tools directory not found at %s",
-                    _BUNDLED_NEXUS_TOOLS_PATH,
-                )
-                _BUNDLED_NEXUS_TOOLS_PATH = None
+            pkg_dir = Path(str(_resources_files("artifex_nexus.openclaw_wrapper")))
+            current = pkg_dir.resolve()
+            for _ in range(10):
+                if (current / "pnpm-workspace.yaml").exists():
+                    candidate = current / "tools"
+                    if candidate.is_dir():
+                        _TOOLS_PATH = candidate
+                        logger.info("Tools path found: %s", _TOOLS_PATH)
+                    break
+                current = current.parent
+            if _TOOLS_PATH is None:
+                logger.debug("Tools path not found (no pnpm-workspace.yaml ancestor)")
         except Exception as exc:
-            logger.warning("Failed to locate bundled nexus-tools: %s", exc)
-            _BUNDLED_NEXUS_TOOLS_PATH = None
-    return _BUNDLED_NEXUS_TOOLS_PATH
+            logger.debug("Failed to locate tools path: %s", exc)
+            _TOOLS_PATH = None
+    return _TOOLS_PATH
 
 # ── 懒初始化单例 ──────────────────────────────────────────────────────────────
 
@@ -153,7 +155,7 @@ def _get_nt_registry() -> Any:
         _nt_registry = NexusToolRegistry(
             config=_get_skill_config(),
             nexus_tools_root=_DEFAULT_NEXUS_TOOLS_ROOT,
-            bundled_nexus_tools_path=_get_bundled_nexus_tools_path(),
+            tools_path=_get_tools_path(),
         )
     return _nt_registry
 
@@ -166,7 +168,7 @@ def _get_nt_installer() -> Any:
             registry=_get_nt_registry(),
             config=_get_skill_config(),
             nexus_tools_root=_DEFAULT_NEXUS_TOOLS_ROOT,
-            bundled_nexus_tools_path=_get_bundled_nexus_tools_path(),
+            tools_path=_get_tools_path(),
         )
     return _nt_installer
 
@@ -208,7 +210,6 @@ def _entry_to_dict(entry: Any) -> dict:
         "display_name": manifest.display_name or entry.name,
         "description": getattr(entry, "description", "") or "",
         "layer": entry.layer,
-        "category": manifest.category,
         "software": software_value(manifest.software),
         "version": manifest.version,
         "priority": entry.priority,
@@ -242,10 +243,12 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "description": ntd.description,
         "version": ntd.version,
         "source": ntd.source,
-        "target_dccs": ntd.target_dccs,
+        "target_dccs": [
+            {"dcc": e.dcc, "minVersion": e.min_version, "maxVersion": e.max_version}
+            for e in ntd.target_dccs
+        ] if ntd.target_dccs else [],
         "status": ntd.status,
         "nexus_tool_path": ntd.nexus_tool_path,
-        "implementation_type": ntd.implementation_type,
         "is_enabled": ntd.is_enabled,
         "is_pinned": ntd.is_pinned,
         "is_favorited": ntd.is_favorited,
@@ -273,7 +276,6 @@ def _skill_tool_info_to_dict(sti: Any) -> dict:
     return {
         "name": sti.name,
         "description": sti.description,
-        "category": sti.category,
         "risk_level": sti.risk_level,
         "input_schema": sti.input_schema,
     }
@@ -419,7 +421,7 @@ def _skill_update_manifest(skill_name: str, fields: dict) -> dict:
 
     # 合并字段（只有传入的字段才更新）
     allowed_fields = {
-        "software", "version", "category", "author",
+        "software", "version", "author",
         "entry_point", "license", "tags", "dependencies", "display_name",
         "software_version",
     }

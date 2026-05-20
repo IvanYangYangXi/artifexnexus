@@ -1,5 +1,5 @@
 {
-  "id": "marketplace/uv-repack",
+  "id": "marketplace/UV & 贴图利用率优化-UV重排",
   "name": "UV & 贴图利用率优化-UV重排",
   "description": "将 Static Mesh 的 UV 岛重排到 0-1 空间，通过 MaxRects 装箱算法最大化贴图利用率。统一缩放比例保证纹理密度一致，支持同步适配贴图（逆映射重采样），贴图尺寸自动计算（2^n 或 4 的倍数）。适用于 Unique UV 贴图模式（非 Tiling）。",
   "version": "1.1.0",
@@ -7,7 +7,9 @@
   "createdAt": "2026-04-25 15:00:00",
   "updatedAt": "2026-04-26 13:40:15",
   "targetDCCs": [
-    "unreal_engine"
+    {
+      "dcc": "unreal_engine"
+    }
   ],
   "defaultFilters": {
     "typeFilter": {
@@ -157,6 +159,5 @@
         "overwrite_texture": false
       }
     }
-  ],
-  "source": "marketplace"
+  ]
 }

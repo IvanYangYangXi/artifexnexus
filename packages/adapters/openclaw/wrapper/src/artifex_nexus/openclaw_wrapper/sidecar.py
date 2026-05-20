@@ -98,8 +98,8 @@ def _inject_sdk_path() -> None:
     """将 packages/dcc/shared/ 加入 sys.path，
     使工具脚本可以通过 ``import artifex_nexus_sdk as sdk`` 找到 SDK。
 
-    遵循单一源原则：SDK 只有一份源，位于 packages/dcc/shared/artifex_nexus_sdk/，
-    不再维护 _bundled_nexus_tools 下的副本。
+    遵循单一源原则：SDK 只有一份源，位于 packages/dcc/shared/artifex_nexus_sdk/。
+    Nexus-Tool 统一存放在项目根 tools/{official,marketplace}/ 下。
     """
     try:
         _project_root = _find_project_root()

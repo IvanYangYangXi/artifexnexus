@@ -81,11 +81,6 @@ class SkillEntry:
         return software_value(self.manifest.software)
 
     @property
-    def category(self) -> Optional[str]:
-        """分类标签。"""
-        return self.manifest.category
-
-    @property
     def version(self) -> str:
         """Skill 版本号。"""
         return self.manifest.version
@@ -231,7 +226,7 @@ class SkillHub:
 
     def list_entries(
         self,
-        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         software: Optional[str] = None,
         layer: Optional[str] = None,
     ) -> List[SkillEntry]:
@@ -239,7 +234,7 @@ class SkillHub:
 
         返回每个名称下优先级最高的 SkillEntry。
 
-        :param category: 按分类筛选。
+        :param tags: 按标签筛选（OR 匹配，任一标签命中即匹配）。
         :param software: 按适用软件筛选。
         :param layer: 按来源层级筛选。
         :return: 符合条件的 SkillEntry 列表（按名称排序）。
@@ -257,8 +252,10 @@ class SkillHub:
                 candidates = [entries[0]]
 
             for entry in candidates:
-                if category is not None and entry.category != category:
-                    continue
+                if tags is not None:
+                    entry_tags = set(entry.manifest.tags or [])
+                    if not any(t in entry_tags for t in tags):
+                        continue
                 if software is not None and entry.software != software:
                     continue
                 result.append(entry)

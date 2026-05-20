@@ -36,7 +36,7 @@ export interface TriggerFormData {
 
 interface TriggerRuleEditorProps {
   initialData?: TriggerFormData;
-  targetDCCs: string[];
+  targetDCCs: (string | { dcc: string })[];
   defaultFilters?: FilterConfig;
   onSave?: (data: TriggerFormData) => void;
   onChange?: (data: TriggerFormData) => void;
@@ -172,7 +172,7 @@ export default function TriggerRuleEditor({
               >
                 <option value="">选择 DCC</option>
                 <option value="general">通用（系统监测）</option>
-                {targetDCCs.filter(hasDCCEvents).map((dcc) => (
+                {targetDCCs.map((d) => (typeof d === "string" ? d : d.dcc)).filter(hasDCCEvents).map((dcc) => (
                   <option key={dcc} value={dcc}>
                     {(DCC_LABELS as Record<string, string>)[dcc] || dcc}
                   </option>
@@ -324,7 +324,7 @@ export default function TriggerRuleEditor({
                 <FiltersTab
                   filters={form.conditions}
                   onChange={handleFilterChange}
-                  targetDCCs={targetDCCs}
+                  targetDCCs={targetDCCs.map((d) => typeof d === "string" ? { dcc: d } : d as { dcc: string })}
                   compact
                 />
               )}

@@ -9,6 +9,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
+/** 目标 DCC 条目（支持版本约束） */
+export interface DCCEntry {
+  dcc: string;
+  minVersion?: string;
+  maxVersion?: string;
+}
+
 export interface NexusToolParam {
   id: string;
   name: string;
@@ -72,10 +79,9 @@ export interface NexusToolItem {
   description: string;
   version: string;
   source: string;
-  target_dccs: string[];
+  target_dccs: DCCEntry[];
   status: string;
   nexus_tool_path: string;
-  implementation_type: string;
   is_enabled: boolean;
   is_pinned: boolean;
   is_favorited: boolean;
@@ -166,8 +172,7 @@ export interface NexusToolCreateOptions {
   description?: string;
   version?: string;
   source?: string;
-  target_dccs?: string[];
-  implementation_type?: string;
+  target_dccs?: DCCEntry[];
   manifest?: Record<string, unknown>;
 }
 
@@ -178,8 +183,7 @@ export interface NexusToolUpdateOptions {
   author?: string;
   /** source 由文件系统决定，仅 user→user 可修改 */
   source?: string;
-  target_dccs?: string[];
-  implementation_type?: string;
+  target_dccs?: DCCEntry[];
   manifest?: Record<string, unknown>;
   /** 快捷字段：触发器列表（会合并到 manifest.triggers） */
   triggers?: NexusToolTrigger[];
@@ -236,8 +240,7 @@ export interface SaveAsInstanceOptions {
   parentId: string;
   parentName: string;
   parentPath: string;
-  target_dccs?: string[];
-  implementation_type?: string;
+  target_dccs?: DCCEntry[];
   version?: string;
 }
 
@@ -375,7 +378,6 @@ export async function nexusToolSaveAsInstance(opts: SaveAsInstanceOptions): Prom
       version: opts.version || "1.0.0",
       source: "user",
       target_dccs: opts.target_dccs || [],
-      implementation_type: opts.implementation_type || "script",
       manifest,
     },
   });

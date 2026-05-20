@@ -1273,9 +1273,10 @@ def _try_register_tool_source(src_dir: str) -> None:
             if (p / "packages").is_dir() and (p / "skills").is_dir():
                 break
             p = p.parent
-        bundled = p / "packages" / "adapters" / "openclaw" / "wrapper" / "src" / "artifex_nexus" / "openclaw_wrapper" / "_bundled_nexus_tools"
-        if bundled.is_dir():
-            _ts.register_source(str(bundled), "bundled", "installer")
+        # 统一工具根目录 tools/（其下 official/ 和 marketplace/）
+        tools_dir = p / "tools"
+        if tools_dir.is_dir():
+            _ts.register_source(str(tools_dir), "tools", "installer")
         skills = p / "skills"
         if skills.is_dir():
             _ts.register_source(str(skills), "skills", "installer")

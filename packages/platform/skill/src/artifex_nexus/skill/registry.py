@@ -275,13 +275,13 @@ class SkillRegistry:
         self,
         current_software: str,
         current_version: str,
-        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[SkillEntry]:
         """列出当前 DCC 软件+版本下所有可用的 Skill。
 
         :param current_software: 当前 DCC 软件标识。
         :param current_version: 当前 DCC 版本字符串。
-        :param category: 可选，按分类进一步筛选。
+        :param tags: 可选，按标签进一步筛选（OR 匹配）。
         :return: 可用的 SkillEntry 列表。
         """
         result: List[SkillEntry] = []
@@ -292,8 +292,10 @@ class SkillRegistry:
             entry = entries[0]  # 取优先级最高的
             if not matches_skill(entry.manifest, current_software, current_version):
                 continue
-            if category is not None and entry.category != category:
-                continue
+            if tags is not None:
+                entry_tags = set(entry.manifest.tags or [])
+                if not any(t in entry_tags for t in tags):
+                    continue
             result.append(entry)
 
         result.sort(key=lambda e: e.name)
@@ -311,7 +313,6 @@ class SkillRegistry:
         - Skill 名称（name）
         - 显示名称（display_name）
         - 描述（description）
-        - 分类标签（category）
         - 标签（tags）
 
         :param query: 搜索关键词。
@@ -337,7 +338,6 @@ class SkillRegistry:
                 entry.name,
                 entry.display_name,
                 entry.manifest.description or "",
-                entry.category or "",
                 " ".join(entry.manifest.tags),
             ]
             if any(query_lower in text.lower() for text in searchable):

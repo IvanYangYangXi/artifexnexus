@@ -1,0 +1,1 @@
+d:/MyProject_D/artifexnexus/docs/specs/openclaw-settings-panel.md

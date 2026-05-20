@@ -1,12 +1,13 @@
 {
-  "id": "marketplace/blender-object-naming-check",
+  "id": "marketplace/Blender对象命名规范检查",
   "name": "Example-Blender对象命名规范检查",
   "description": "检查 Blender 场景中的对象命名是否符合命名规范（如 SM_/SK_/BP_ 等前缀）。可挂载触发器在保存时自动检查，也可手动运行查看命名报告",
   "version": "1.0.0",
   "author": "ArtClaw",
-  "source": "marketplace",
   "targetDCCs": [
-    "blender"
+    {
+      "dcc": "blender"
+    }
   ],
   "createdAt": "2026-04-26 23:00:00",
   "updatedAt": "2026-05-18 13:03:16",
@@ -83,7 +84,10 @@
       "executionMode": "notify",
       "useDefaultFilters": true,
       "conditions": {},
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     },
     {
       "id": "1a9c0360-28b2-4ee1-b192-d08dda5a90a6",
@@ -96,7 +100,10 @@
       "executionMode": "silent",
       "useDefaultFilters": true,
       "conditions": {},
-      "scheduleConfig": { "interval": "30m", "type": "interval" }
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      }
     }
   ]
 }

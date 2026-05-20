@@ -268,19 +268,17 @@ def migrate_skills():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def migrate_nexus_tools():
-    """迁移 STORY-0048 指定的 8 个 nexus-tool。"""
+    """迁移 STORY-0048 指定的 6 个 nexus-tool。"""
     print("[3/4] 迁移 Nexus-Tools...")
     NEXUS_TOOLS_HOME.mkdir(parents=True, exist_ok=True)
 
     nexus_tools = [
-        ("official/universal/artclaw-skill-compliance-checker", "official/universal/artclaw-skill-compliance-checker"),
-        ("official/universal/tool-compliance-checker", "official/universal/tool-compliance-checker"),
-        ("marketplace/blender/Blender对象命名规范检查", "marketplace/blender/Blender对象命名规范检查"),
-        ("marketplace/blender/模型批量加前缀后缀", "marketplace/blender/模型批量加前缀后缀"),
-        ("marketplace/unreal/SM命名检查", "marketplace/unreal/SM命名检查"),
-        ("marketplace/unreal/UV & 贴图利用率优化-UV重排", "marketplace/unreal/UV & 贴图利用率优化-UV重排"),
-        ("marketplace/unreal/UV & 贴图利用率优化-贴图裁切", "marketplace/unreal/UV & 贴图利用率优化-贴图裁切"),
-        ("marketplace/unreal/资产批量改名", "marketplace/unreal/资产批量改名"),
+        ("marketplace/Blender对象命名规范检查", "marketplace/Blender对象命名规范检查"),
+        ("marketplace/模型批量加前缀后缀", "marketplace/模型批量加前缀后缀"),
+        ("marketplace/SM命名检查", "marketplace/SM命名检查"),
+        ("marketplace/UV & 贴图利用率优化-UV重排", "marketplace/UV & 贴图利用率优化-UV重排"),
+        ("marketplace/UV & 贴图利用率优化-贴图裁切", "marketplace/UV & 贴图利用率优化-贴图裁切"),
+        ("marketplace/资产批量改名", "marketplace/资产批量改名"),
     ]
 
     for src_rel, dst_rel in nexus_tools:
@@ -322,7 +320,7 @@ def verify():
     nt_count = sum(1 for _ in NEXUS_TOOLS_HOME.rglob("manifest.json"))
     print(f"  Nexus-Tools manifest.json: {nt_count}")
     if nt_count != 8:
-        errors.append(f"预期 8 个 Nexus-Tool manifest.json，实际 {nt_count}")
+        errors.append(f"预期 6 个 Nexus-Tool manifest.json，实际 {nt_count}")
 
     # 检查无 __pycache__
     pycache_count = sum(1 for _ in NEXUS_TOOLS_HOME.rglob("__pycache__"))

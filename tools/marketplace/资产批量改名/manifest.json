@@ -4,8 +4,11 @@
   "description": "批量为 UE 选中的资产添加前缀或后缀，支持自定义分隔符。",
   "version": "1.0.1",
   "author": "ArtClaw",
-  "source": "marketplace",
-  "targetDCCs": ["unreal_engine"],
+  "targetDCCs": [
+    {
+      "dcc": "unreal_engine"
+    }
+  ],
   "createdAt": "2026-04-24 18:30:00",
   "updatedAt": "2026-04-25 23:43:00",
   "defaultFilters": {
@@ -44,7 +47,11 @@
       "type": "select",
       "required": false,
       "default": "_",
-      "options": ["_", "-", "."],
+      "options": [
+        "_",
+        "-",
+        "."
+      ],
       "description": "前缀/后缀与原名之间的分隔符"
     }
   ],

@@ -372,37 +372,25 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
         issues.append({"tool_id": tool_id, "severity": "warning",
                         "message": "缺少 author 字段（建议填写作者名，官方工具用 ArtClaw）"})
 
-    # ── Rule 12: source 必填且与文件夹层级一致 ───────────────────────────────
-    valid_sources = {"official", "marketplace", "user"}
-    manifest_source = manifest.get("source", "")
-    if not manifest_source:
-        issues.append({"tool_id": tool_id, "severity": "warning",
-                        "message": "缺少 source 字段（有效值: official/marketplace/user）"})
-    elif manifest_source not in valid_sources:
-        issues.append({"tool_id": tool_id, "severity": "warning",
-                        "message": f"source 无效值: {manifest_source!r}，有效值: {sorted(valid_sources)}"})
-    else:
-        folder_layer = tool_id.split("/")[0] if "/" in tool_id else ""
-        if folder_layer and manifest_source != folder_layer:
-            issues.append({"tool_id": tool_id, "severity": "warning",
-                            "message": f"source 字段 {manifest_source!r} 与文件夹层级 {folder_layer!r} 不一致"})
-
-    # ── Rule 13: id 必填且格式正确 ──────────────────────────────────────────
+    # ── Rule 12: id 必填且格式正确（UUID 格式优先）──────────────────────────
     manifest_id = manifest.get("id", "")
+    _UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
     if not manifest_id:
         issues.append({"tool_id": tool_id, "severity": "warning",
-                        "message": "缺少 id 字段，格式应为 {source}/{name}"})
+                        "message": "缺少 id 字段，格式应为 UUID（如 a1b2c3d4-5678-9abc-def0-123456789abc）"})
+    elif _UUID_PATTERN.match(manifest_id):
+        pass  # UUID 格式 OK
     else:
         parts = manifest_id.split("/")
         if len(parts) < 2:
             issues.append({"tool_id": tool_id, "severity": "warning",
-                            "message": f"id 格式错误: {manifest_id!r}，应为 {{source}}/{{name}}"})
-        elif parts[0] not in valid_sources:
-            issues.append({"tool_id": tool_id, "severity": "warning",
-                            "message": f"id 前缀 {parts[0]!r} 不是有效 source 值（official/marketplace/user）"})
+                            "message": f"id 格式错误: {manifest_id!r}，应为 UUID 或 {{source}}/{{name}}"})
 
     # ── Rule 14: targetDCCs 必填且元素合法 ──────────────────────────────────
-    valid_dccs = {"ue5", "maya2024", "max2024", "blender", "comfyui", "sp", "sd", "houdini", "general"}
+    # 合法软件枚举（与 contracts/data/categories.json §software 保持同步）
+    valid_dccs = {"universal", "unreal_engine", "blender", "maya", "3ds_max",
+                  "houdini", "comfyui", "substance_painter", "substance_designer",
+                  "unity", "general"}
     target_dccs = manifest.get("targetDCCs", None)
     if target_dccs is None:
         issues.append({"tool_id": tool_id, "severity": "warning",
@@ -413,10 +401,22 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                         "message": f"targetDCCs 必须是数组，当前类型: {type(target_dccs).__name__}"})
         target_dccs = []
     else:
-        for dcc in target_dccs:
-            if dcc not in valid_dccs:
+        for item in target_dccs:
+            # 兼容新旧格式：string 或 {dcc, minVersion?, maxVersion?}
+            dcc = item.get("dcc", "") if isinstance(item, dict) else str(item)
+            if not dcc:
+                issues.append({"tool_id": tool_id, "severity": "error",
+                                "message": f"targetDCCs 包含空 DCC 条目: {item!r}"})
+            elif dcc not in valid_dccs:
                 issues.append({"tool_id": tool_id, "severity": "warning",
                                 "message": f"targetDCCs 包含未知 DCC: {dcc!r}，有效值: {sorted(valid_dccs)}"})
+            # 检查版本约束格式（可选字段）
+            if isinstance(item, dict):
+                for vk in ("minVersion", "maxVersion"):
+                    vv = item.get(vk, "")
+                    if vv and not isinstance(vv, str):
+                        issues.append({"tool_id": tool_id, "severity": "warning",
+                                        "message": f"targetDCCs[{dcc}].{vk} 应为字符串: {vv!r}"})
 
     # ── Rule 15–17: inputs 参数校验 ─────────────────────────────────────────
     valid_param_types = {"string", "number", "boolean", "select", "image", "object", "array"}
@@ -464,7 +464,11 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
 
     # ── Rule 19–28: triggers 触发规则校验 ────────────────────────────────────
     triggers = manifest.get("triggers", [])
-    is_general = not target_dccs or set(target_dccs) <= {"general"}
+    # 从 targetDCCs 提取 dcc 值（兼容新旧格式）
+    _dcc_names = set()
+    for item in target_dccs:
+        _dcc_names.add(item.get("dcc", "") if isinstance(item, dict) else str(item))
+    is_general = not _dcc_names or _dcc_names <= {"general"}
     if isinstance(triggers, list):
         trigger_ids: set = set()
         for ti, tr in enumerate(triggers):
@@ -552,7 +556,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                         issues.append({"tool_id": tool_id, "severity": "error",
                                         "message": f"triggers[{ti}] ({t_id}): 通用工具不能使用 event trigger（绑定 DCC {event_dcc!r}）"})
                     # Rule 27
-                    elif event_dcc not in target_dccs:
+                    elif event_dcc not in _dcc_names:
                         issues.append({"tool_id": tool_id, "severity": "warning",
                                         "message": f"triggers[{ti}] ({t_id}): event trigger dcc {event_dcc!r} 不在 targetDCCs {target_dccs} 中"})
 
@@ -725,7 +729,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             pass
 
     # Rule 32: DCC 工具应有 defaultFilters.typeFilter
-    real_dccs = [d for d in target_dccs if d and d != "general"]
+    real_dccs = [d for d in _dcc_names if d and d != "general"]
     if real_dccs:
         type_filter = manifest.get("defaultFilters", {}).get("typeFilter", None)
         if type_filter is None:
