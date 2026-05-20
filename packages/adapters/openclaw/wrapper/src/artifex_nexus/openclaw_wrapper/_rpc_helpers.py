@@ -267,6 +267,7 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "outputs": manifest.get("outputs", []),
         "presets": manifest.get("presets", []),
         "triggers": manifest.get("triggers", []),
+        "dependencies": manifest.get("dependencies", []),
         "default_filters": manifest.get("defaultFilters", {}),
         "implementation": manifest.get("implementation", {}),
         # 工具实例元数据（另存为实例时填充）

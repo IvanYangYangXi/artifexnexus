@@ -45,6 +45,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "nexusToolMaxConcurrent": 3,
     "nexusToolKillProcessTree": True,
     "logLevel": "INFO",
+    # ── 依赖管理 ────────────────────────────────────────────────────────
+    "nexusToolAutoInstallDeps": False,  # 运行前自动安装依赖（默认需用户确认）
+    "nexusToolPipMirror": "",            # pip 镜像源（空 = 默认 PyPI）
     # ── UI 偏好（跨启动持久化） ──────────────────────────────────────────
     #   skillViewMode / toolViewMode: "card" | "list"
     #   skillFavoritesOnly / toolFavoritesOnly: boolean
@@ -96,6 +99,14 @@ def _validate(settings: Dict[str, Any]) -> Optional[str]:
         lv = settings["logLevel"]
         if not isinstance(lv, str) or lv.upper() not in _LOG_LEVELS:
             return f"logLevel 必须是 {sorted(_LOG_LEVELS)} 之一"
+    if "nexusToolAutoInstallDeps" in settings and not isinstance(
+        settings["nexusToolAutoInstallDeps"], bool
+    ):
+        return "nexusToolAutoInstallDeps 必须是布尔值"
+    if "nexusToolPipMirror" in settings and not isinstance(
+        settings["nexusToolPipMirror"], str
+    ):
+        return "nexusToolPipMirror 必须是字符串"
     return None
 
 

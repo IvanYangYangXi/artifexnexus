@@ -30,8 +30,8 @@ async function getIpc() {
   try {
     const mod = await import("../ipc/openclaw");
     _ipc = {
-      getAppSettings: mod.getAppSettings as () => Promise<{ settings: Record<string, unknown> }>,
-      setAppSettings: mod.setAppSettings as (patch: Record<string, unknown>) => Promise<unknown>,
+      getAppSettings: mod.getAppSettings as unknown as () => Promise<{ settings: Record<string, unknown> }>,
+      setAppSettings: mod.setAppSettings as unknown as (patch: Record<string, unknown>) => Promise<unknown>,
     };
   } catch {
     // 非 Tauri 环境（开发浏览器预览），静默降级为 localStorage-only

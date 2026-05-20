@@ -101,6 +101,8 @@ export interface NexusToolItem {
   instance_of?: string;
   parent_name?: string;
   parent_path?: string;
+  /** Python 依赖列表（PEP 508 格式） */
+  dependencies?: string[];
 }
 
 /** nexus-tool.detail 返回的完整数据（同 NexusToolItem，保证必有 manifest 字段） */
@@ -136,9 +138,12 @@ export interface NexusToolRunStartResult {
 /** nexus-tool.result 轮询返回 */
 export interface NexusToolPollResult {
   task_id: string;
-  status: "running" | "done" | "error" | "cancelled";
+  status: "running" | "done" | "error" | "cancelled" | "dependency_missing" | "installing_deps";
   result?: NexusToolRunResult;
   error?: string;
+  missing_deps?: string[];
+  message?: string;
+  failed_deps?: string[];
 }
 
 /** nexus-tool.ack 确认返回 */
@@ -189,6 +194,21 @@ export interface NexusToolUpdateOptions {
   manifest?: Record<string, unknown>;
   /** 快捷字段：触发器列表（会合并到 manifest.triggers） */
   triggers?: NexusToolTrigger[];
+}
+
+/** nexus-tool.check-deps 返回 */
+export interface NexusToolCheckDepsResult {
+  all_ok: boolean;
+  missing: string[];
+  message?: string;
+}
+
+/** nexus-tool.install-deps 返回 */
+export interface NexusToolInstallDepsResult {
+  success: boolean;
+  installed: string[];
+  failed: string[];
+  errors?: string[];
 }
 
 // ── 筛选条件 ──────────────────────────────────────────────────────────────────
@@ -385,6 +405,16 @@ export async function nexusToolSaveAsInstance(opts: SaveAsInstanceOptions): Prom
   });
 }
 
+/** 检查 Nexus Tool 的 Python 依赖 */
+export async function nexusToolCheckDeps(id: string): Promise<NexusToolCheckDepsResult> {
+  return invoke<NexusToolCheckDepsResult>("nexus_tool_check_deps", { params: { id } });
+}
+
+/** 安装 Nexus Tool 的 Python 依赖 */
+export async function nexusToolInstallDeps(id: string): Promise<NexusToolInstallDepsResult> {
+  return invoke<NexusToolInstallDepsResult>("nexus_tool_install_deps", { params: { id } });
+}
+
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
 
 export const NexusToolAPI = {
@@ -404,6 +434,8 @@ export const NexusToolAPI = {
   batch: nexusToolBatch,
   saveTriggers: nexusToolSaveTriggers,
   saveAsInstance: nexusToolSaveAsInstance,
+  checkDeps: nexusToolCheckDeps,
+  installDeps: nexusToolInstallDeps,
 };
 
 export type NexusToolAPIType = typeof NexusToolAPI;

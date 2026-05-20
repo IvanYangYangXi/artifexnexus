@@ -282,6 +282,33 @@ class TriggerDispatcher:
         entry = impl.get("entry", "main.py")
         function = impl.get("function", "main")
 
+        # ── Pre-flight 依赖检查 ──
+        dependencies: List[str] = manifest.get("dependencies", [])
+        if dependencies:
+            missing = self._check_dependencies_importlib(dependencies)
+            if missing:
+                auto_install = self._read_auto_install_setting()
+                if auto_install:
+                    logger.info("[Trigger] auto_installing deps for tool=%s: %s", tool_id, missing)
+                    installed, failed = self._pip_install_deps(missing)
+                    if failed:
+                        logger.error("[Trigger] dep install failed: %s", failed)
+                        return {
+                            "tool_id": tool_id, "action": "error",
+                            "reason": f"依赖安装失败: {', '.join(failed)}",
+                            "missing_deps": failed,
+                        }
+                    # 清空 import 缓存，确保下次 import 用新安装的包
+                    importlib.invalidate_caches()
+                    logger.info("[Trigger] deps installed: %s", installed)
+                else:
+                    logger.warning("[Trigger] dependencies missing for tool=%s: %s", tool_id, missing)
+                    return {
+                        "tool_id": tool_id, "action": "error",
+                        "reason": f"依赖缺失，请在工具面板手动修复: {', '.join(missing)}",
+                        "missing_deps": missing,
+                    }
+
         # 实例工具 fallback：入口文件不在工具目录时，使用父工具目录
         # （实例工具只存 manifest（参数副本），脚本沿用父工具）
         entry_path = Path(tool_dir) / entry
@@ -404,3 +431,77 @@ class TriggerDispatcher:
                 logger.info("[Trigger] POPUP SENT issues=%d", len(issues))
         except Exception as e:
             logger.error("[Trigger] POPUP SEND ERROR: %s", e, exc_info=True)
+
+    # ── 依赖检查与安装 ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _check_dependencies_importlib(dependencies: List[str]) -> List[str]:
+        """在当前 Python 环境中检查哪些依赖不可 import。
+
+        用于 sidecar 内联检查，避免 subprocess 开销。
+        """
+        missing: List[str] = []
+        for dep in dependencies:
+            pkg_name = dep.split(">=")[0].split("==")[0].split("<=")[0].strip()
+            try:
+                mod = importlib.import_module(pkg_name)
+                # 版本约束检查（简单字符串比较）
+                if ">=" in dep:
+                    ver = dep.split(">=")[1].strip()
+                    inst = getattr(mod, "__version__", None) or "0"
+                    if not inst >= ver:
+                        missing.append(f"{dep}（已安装: {inst}）")
+                elif "==" in dep:
+                    ver = dep.split("==")[1].strip()
+                    inst = getattr(mod, "__version__", None) or "0"
+                    if inst != ver:
+                        missing.append(f"{dep}（已安装: {inst}）")
+            except ImportError:
+                missing.append(dep)
+        return missing
+
+    @staticmethod
+    def _pip_install_deps(dependencies: List[str]) -> tuple:
+        """在 sidecar Python 环境中安装依赖。
+
+        Returns:
+            (installed, failed): 成功和失败的包名列表。
+        """
+        import subprocess
+        installed: List[str] = []
+        failed: List[str] = []
+
+        for dep in dependencies:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", dep, "--quiet"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode == 0:
+                    installed.append(dep)
+                elif "permission" in (result.stderr or "").lower():
+                    # --user fallback
+                    result2 = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", dep, "--quiet", "--user"],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    if result2.returncode == 0:
+                        installed.append(dep)
+                    else:
+                        failed.append(dep)
+                else:
+                    failed.append(dep)
+            except Exception:
+                failed.append(dep)
+
+        return installed, failed
+
+    @staticmethod
+    def _read_auto_install_setting() -> bool:
+        """读取 app.settings.nexusToolAutoInstallDeps。"""
+        try:
+            from artifex_nexus.openclaw_wrapper import app_settings
+            settings = app_settings.get_runtime_settings()
+            return bool(settings.get("nexusToolAutoInstallDeps", False))
+        except Exception:
+            return False

@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist node_modules",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "package": "powershell -ExecutionPolicy Bypass -File ../../scripts/package.ps1",
+    "package:portable": "powershell -ExecutionPolicy Bypass -File ../../scripts/package.ps1 -PortableOnly",
+    "package:quick": "powershell -ExecutionPolicy Bypass -File ../../scripts/package.ps1 -SkipBuild -PortableOnly"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

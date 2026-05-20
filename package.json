@@ -21,7 +21,11 @@
     "py:format": "uv run ruff format .",
     "openspec:link": "node scripts/setup-openspec-links.mjs",
     "openspec:check": "node scripts/setup-openspec-links.mjs --check",
-    "openspec:clean": "node scripts/setup-openspec-links.mjs --clean"
+    "openspec:clean": "node scripts/setup-openspec-links.mjs --clean",
+    "package": "powershell -ExecutionPolicy Bypass -File scripts/package.ps1",
+    "package:deliver": "powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -PackageDir D:\\MyProject_D\\artifexnexus_packages",
+    "package:portable": "powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -PortableOnly",
+    "package:quick": "powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -SkipBuild -PortableOnly"
   },
   "devDependencies": {
     "turbo": "^2.1.0",

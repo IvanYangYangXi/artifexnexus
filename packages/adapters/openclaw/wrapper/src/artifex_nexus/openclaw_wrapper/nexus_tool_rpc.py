@@ -58,6 +58,148 @@ MAX_CONCURRENT_TASKS = 3  # 最多允许同时运行的直接执行任务
 TASK_TTL = 300  # 已完成/已取消的任务在 _task_store 中保留的秒数
 
 _task_store: Dict[str, Dict[str, Any]] = {}  # task_id → task 字典
+
+# ── 依赖检查工具函数 ──────────────────────────────────────────────────
+
+_DEP_CHECK_TIMEOUT = 30  # subprocess 依赖检查超时（秒）
+_DEP_INSTALL_TIMEOUT = 300  # 单个包 pip install 超时（秒）
+
+
+def _parse_dep_pkg_name(dep: str) -> str:
+    """从 PEP 508 格式的依赖声明中提取包名。"""
+    for sep in (">=", "==", "<=", ">", "<", "!="):
+        if sep in dep:
+            return dep.split(sep)[0].strip()
+    return dep.strip()
+
+
+def _check_dependencies_subprocess(
+    target_python: str,
+    dependencies: List[str],
+) -> tuple[bool, List[str]]:
+    """通过 subprocess 在目标 Python 中批量检查依赖（含版本约束）。
+
+    Returns:
+        (all_ok, missing): all_ok 为 True 表示全部满足；missing 为缺失/不满足的 dep 列表。
+    """
+    import json as _json
+    import subprocess
+
+    deps_json = _json.dumps(dependencies)
+    check_script = (
+        "import importlib, json, sys;"
+        "deps = json.loads(sys.argv[1]);"
+        "missing = [];"
+        "for dep in deps:"
+        "  pkg = dep.split('>=')[0].split('==')[0].split('<=')[0]"
+        "          .split('>')[0].split('<')[0].split('!=')[0].strip();"
+        "  try:"
+        "    mod = importlib.import_module(pkg);"
+        "    if '>=' in dep:"
+        "      ver = dep.split('>=')[1].strip();"
+        "      inst = getattr(mod, '__version__', None) or '0';"
+        "      if not (inst >= ver): missing.append(dep + ' (installed: ' + inst + ')')"
+        "    elif '==' in dep:"
+        "      ver = dep.split('==')[1].strip();"
+        "      inst = getattr(mod, '__version__', None) or '0';"
+        "      if inst != ver: missing.append(dep + ' (installed: ' + inst + ')')"
+        "  except ImportError:"
+        "    missing.append(dep);"
+        "print(json.dumps({'ok': len(missing)==0, 'missing': missing}))"
+    )
+    try:
+        result = subprocess.run(
+            [target_python, "-c", check_script, deps_json],
+            capture_output=True, text=True, timeout=_DEP_CHECK_TIMEOUT,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "[nt-deps] subprocess check failed rc=%d stderr=%s",
+                result.returncode, result.stderr[:200],
+            )
+            return False, dependencies  # 失败保守：全部标记缺失
+        data = _json.loads(result.stdout.splitlines()[-1])
+        return data.get("ok", False), data.get("missing", [])
+    except subprocess.TimeoutExpired:
+        logger.warning("[nt-deps] subprocess check timed out after %ss", _DEP_CHECK_TIMEOUT)
+        return False, dependencies
+    except Exception as e:
+        logger.warning("[nt-deps] subprocess check exception: %s", e)
+        return False, dependencies
+
+
+def _install_deps_subprocess(
+    target_python: str,
+    dependencies: List[str],
+) -> tuple[List[str], List[str]]:
+    """通过 subprocess 在目标 Python 中 pip install。
+
+    Returns:
+        (installed, failed): 成功安装和失败的包名列表。
+    """
+    import subprocess
+
+    installed: List[str] = []
+    failed: List[str] = []
+    mirror = _read_pip_mirror_from_settings()
+
+    for dep in dependencies:
+        cmd = [target_python, "-m", "pip", "install", dep, "--quiet"]
+        if mirror:
+            cmd.extend(["-i", mirror])
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=_DEP_INSTALL_TIMEOUT,
+            )
+            if result.returncode == 0:
+                installed.append(dep)
+                logger.info("[nt-deps] installed: %s", dep)
+            elif "permission" in (result.stderr or "").lower():
+                # --user fallback
+                logger.info("[nt-deps] permission error, retrying with --user: %s", dep)
+                cmd_user = cmd + ["--user"]
+                result2 = subprocess.run(
+                    cmd_user, capture_output=True, text=True,
+                    timeout=_DEP_INSTALL_TIMEOUT,
+                )
+                if result2.returncode == 0:
+                    installed.append(dep)
+                    logger.info("[nt-deps] installed (--user): %s", dep)
+                else:
+                    failed.append(dep)
+                    logger.error("[nt-deps] install failed (even --user): %s stderr=%s", dep, result2.stderr[:200])
+            else:
+                failed.append(dep)
+                logger.error("[nt-deps] install failed: %s stderr=%s", dep, result.stderr[:200])
+        except subprocess.TimeoutExpired:
+            failed.append(dep)
+            logger.error("[nt-deps] install timed out: %s", dep)
+        except Exception as e:
+            failed.append(dep)
+            logger.error("[nt-deps] install exception: %s %s", dep, e)
+
+    return installed, failed
+
+
+def _read_pip_mirror_from_settings() -> str:
+    """读取 app.settings 中的 pip mirror URL。"""
+    try:
+        from artifex_nexus.openclaw_wrapper import app_settings
+        settings = app_settings.get_runtime_settings()
+        return settings.get("nexusToolPipMirror", "") or ""
+    except Exception:
+        return ""
+
+
+def _dependency_missing_result(task_id: str, missing: List[str]) -> dict:
+    """构建 nexus-tool.result 的 dependency_missing 返回结构。"""
+    return {
+        "task_id": task_id,
+        "status": "dependency_missing",
+        "missing_deps": missing,
+        "message": f"发现 {len(missing)} 个 Python 依赖缺失，请在工具面板中修复",
+    }
 _task_lock = threading.Lock()
 
 
@@ -447,6 +589,78 @@ def _handle_nexus_tool_batch(req_id: Any, params: dict) -> dict:
         return _err(req_id, str(e))
 
 
+def _handle_nexus_tool_check_deps(req_id: Any, params: dict) -> dict:
+    """nexus-tool.check-deps(id) → {all_ok, missing, message}。
+
+    仅检查依赖，不运行工具。
+    """
+    try:
+        nexus_tool_id = params.get("id")
+        if not nexus_tool_id:
+            return _err_invalid_params(req_id, "缺少参数: id")
+
+        registry = _get_nt_registry()
+        ntd = registry.get_nexus_tool(nexus_tool_id)
+        if ntd is None:
+            return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
+
+        manifest = ntd.manifest or {}
+        dependencies: List[str] = manifest.get("dependencies", [])
+
+        if not dependencies:
+            return _ok(req_id, {"all_ok": True, "missing": [], "message": "无依赖声明"})
+
+        # 通用工具和 DCC 工具都用 sidecar Python 做近似检查
+        ok, missing = _check_dependencies_subprocess(sys.executable, dependencies)
+
+        return _ok(req_id, {
+            "all_ok": ok,
+            "missing": missing,
+            "message": f"发现 {len(missing)} 个依赖缺失" if missing else "所有依赖已就绪",
+        })
+    except Exception as e:
+        logger.exception("nexus-tool.check-deps failed")
+        return _err(req_id, str(e))
+
+
+def _handle_nexus_tool_install_deps(req_id: Any, params: dict) -> dict:
+    """nexus-tool.install-deps(id) → {success, installed, failed, errors?}。
+
+    安装 manifest.dependencies 中声明的所有 Python 包。
+    """
+    try:
+        nexus_tool_id = params.get("id")
+        if not nexus_tool_id:
+            return _err_invalid_params(req_id, "缺少参数: id")
+
+        registry = _get_nt_registry()
+        ntd = registry.get_nexus_tool(nexus_tool_id)
+        if ntd is None:
+            return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
+
+        manifest = ntd.manifest or {}
+        dependencies: List[str] = manifest.get("dependencies", [])
+
+        if not dependencies:
+            return _ok(req_id, {"success": True, "installed": [], "failed": [], "message": "无依赖声明"})
+
+        installed, failed = _install_deps_subprocess(sys.executable, dependencies)
+
+        errors: List[str] = []
+        if failed:
+            errors = [f"安装失败: {', '.join(failed)}"]
+
+        return _ok(req_id, {
+            "success": len(failed) == 0,
+            "installed": installed,
+            "failed": failed,
+            "errors": errors,
+        })
+    except Exception as e:
+        logger.exception("nexus-tool.install-deps failed")
+        return _err(req_id, str(e))
+
+
 # ── DCC → MCP server name 映射 ─────────────────────────────────────────────
 
 _DCC_TO_MCP_SERVER: dict[str, str] = {
@@ -460,9 +674,15 @@ _DCC_TO_MCP_SERVER: dict[str, str] = {
 
 
 def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
-    """nexus-tool.run(id, args) → {task_id, status: "started"}。
+    """nexus-tool.run(id, args, install_deps?, force?) → {task_id, status}。
 
     异步执行，立即返回 task_id。后台线程执行工具，前端通过 nexus-tool.result 轮询。
+
+    参数：
+      id:                 工具 ID
+      args:               运行参数（可选）
+      install_deps (new): true 时先安装依赖再执行
+      force (new):        true 时跳过依赖检查，强制执行
 
     执行策略：
     - DCC 工具（software 不含 "general"）→ MCP Bridge → DCC MCP Server run_python
@@ -474,6 +694,8 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         run_args = params.get("args") or {}
+        install_deps = params.get("install_deps", False)
+        force = params.get("force", False)
 
         registry = _get_nt_registry()
         registry.refresh()
@@ -482,8 +704,93 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        manifest = ntd.manifest or {}
+        dependencies: List[str] = manifest.get("dependencies", [])
+
+        # ── 依赖检查（force=false 时执行）──
+        if dependencies and not force:
+            target_dccs_pre = [e.dcc.lower() for e in (ntd.software or [])]
+            is_general_pre = "general" in target_dccs_pre or not target_dccs_pre
+            if is_general_pre:
+                target_py = sys.executable
+                ok, missing = _check_dependencies_subprocess(target_py, dependencies)
+            else:
+                # DCC 工具：暂用 subprocess 方式（MCP Bridge 路径在后续 _execute_dcc_tool 中处理）
+                # 这里先用 sidecar Python 做近似检查（同平台、常见包行为一致）
+                target_py = sys.executable
+                ok, missing = _check_dependencies_subprocess(target_py, dependencies)
+                logger.info("[nt-run] DCC tool dep check via sidecar py: ok=%s missing=%s", ok, missing)
+
+            if not ok and not install_deps:
+                # 返回 dependency_missing 状态
+                task_id = str(uuid.uuid4())[:12]
+                with _task_lock:
+                    _task_store[task_id] = {
+                        "task_id": task_id,
+                        "status": "dependency_missing",
+                        "missing_deps": missing,
+                        "message": f"发现 {len(missing)} 个 Python 依赖缺失",
+                        "created_at": time.time(),
+                    }
+                logger.info("[nt-run] task=%s status=dependency_missing deps=%s", task_id, missing)
+                return _ok(req_id, {"task_id": task_id, "status": "dependency_missing"})
+
+            if not ok and install_deps:
+                # auto-install 模式：先安装
+                task_id = str(uuid.uuid4())[:12]
+                with _task_lock:
+                    _task_store[task_id] = {
+                        "task_id": task_id,
+                        "status": "installing_deps",
+                        "missing_deps": missing,
+                        "created_at": time.time(),
+                    }
+                # 后台安装
+                def _install_and_run():
+                    try:
+                        installed, failed = _install_deps_subprocess(sys.executable, dependencies)
+                        if failed:
+                            with _task_lock:
+                                _task_store[task_id] = {
+                                    "task_id": task_id, "status": "error",
+                                    "error": f"依赖安装失败: {', '.join(failed)}",
+                                    "missing_deps": missing, "failed_deps": failed,
+                                    "created_at": time.time(),
+                                }
+                            return
+                        # 安装成功，继续执行
+                        with _task_lock:
+                            _task_store[task_id] = {
+                                "task_id": task_id, "status": "running",
+                                "created_at": time.time(),
+                                "cancel_event": threading.Event(),
+                            }
+                        run_result = _execute_tool_sync(
+                            ntd, run_args, func_name, threading.Event(), task_id=task_id,
+                        )
+                        with _task_lock:
+                            t = _task_store.get(task_id)
+                            if t:
+                                t["status"] = "done"
+                                t["result"] = run_result
+                    except Exception as e:
+                        logger.exception("install_and_run task %s failed", task_id)
+                        with _task_lock:
+                            _task_store[task_id] = {
+                                "task_id": task_id,
+                                "status": "error",
+                                "error": repr(e),
+                                "created_at": time.time(),
+                            }
+
+                func_name = manifest.get("implementation", {}).get("function", "")
+                threading.Thread(
+                    target=_install_and_run, daemon=True,
+                    name=f"nexus-tool-install-{task_id}",
+                ).start()
+                return _ok(req_id, {"task_id": task_id, "status": "installing_deps"})
+
         # ── 并发限制 + 过期任务 GC ──
-        # 用 app.settings.nexusToolMaxConcurrent 动态读取上限（fallback 到模块常量）
         max_concurrent = _resolve_max_concurrent()
         _cleanup_expired_tasks()
         with _task_lock:
@@ -495,7 +802,6 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                 )
 
         # ── 读取实现信息 ──
-        manifest = ntd.manifest or {}
         impl = manifest.get("implementation", {})
         func_name = impl.get("function", "")
         if not func_name:
@@ -1105,16 +1411,16 @@ def _clear_subprocess_handle(task_id: str) -> None:
 # ── 轮询 / 取消 / 确认 ─────────────────────────────────────────────────
 
 def _handle_nexus_tool_result(req_id: Any, params: dict) -> dict:
-    """nexus-tool.result(task_id) → {task_id, status, result?, error?}。
+    """nexus-tool.result(task_id) → {task_id, status, result?, error?, ...}。
 
-    轮询任务状态。status: "running" | "done" | "error" | "cancelled"。
+    轮询任务状态。status: "running" | "done" | "error" | "cancelled"
+         | "dependency_missing" | "installing_deps"。
     顺便触发过期任务 GC（成本 O(N)，N 通常 < 20）。
     """
     task_id = params.get("task_id")
     if not task_id:
         return _err_invalid_params(req_id, "缺少参数: task_id")
 
-    # 不阻塞 result 主流程：GC 在锁内极快（无 I/O），可以同步调
     _cleanup_expired_tasks()
 
     with _task_lock:
@@ -1124,12 +1430,20 @@ def _handle_nexus_tool_result(req_id: Any, params: dict) -> dict:
         logger.warning("[nt-result] task=%s NOT_FOUND (expired?)", task_id)
         return _err(req_id, f"task 不存在或已过期: {task_id}")
 
-    return _ok(req_id, {
+    result: dict = {
         "task_id": task_id,
         "status": t.get("status"),
         "result": t.get("result"),
         "error": t.get("error"),
-    })
+    }
+    # 透传依赖相关附加字段
+    if t.get("missing_deps"):
+        result["missing_deps"] = t["missing_deps"]
+    if t.get("message"):
+        result["message"] = t["message"]
+    if t.get("failed_deps"):
+        result["failed_deps"] = t["failed_deps"]
+    return _ok(req_id, result)
 
 
 def _handle_nexus_tool_cancel(req_id: Any, params: dict) -> dict:
@@ -1149,9 +1463,9 @@ def _handle_nexus_tool_cancel(req_id: Any, params: dict) -> dict:
 
     if t.get("status") == "done":
         return _err(req_id, "任务已完成，无需取消")
-    if t.get("status") in ("error", "cancelled"):
+    if t.get("status") in ("error", "cancelled", "dependency_missing"):
         return _err(req_id, f"任务已结束（{t.get('status')}），无需取消")
-    if t.get("status") != "running":
+    if t.get("status") != "running" and t.get("status") != "installing_deps":
         return _err(req_id, f"无法取消状态为 {t.get('status')} 的任务")
 
     t["cancel_event"].set()
@@ -1402,6 +1716,8 @@ NEXUS_TOOL_METHODS = {
     "nexus-tool.ack": _handle_nexus_tool_ack,
     "nexus-tool.fetch_types": _handle_nexus_tool_fetch_types,
     "nexus-tool.batch": _handle_nexus_tool_batch,
+    "nexus-tool.check-deps": _handle_nexus_tool_check_deps,
+    "nexus-tool.install-deps": _handle_nexus_tool_install_deps,
 }
 
 

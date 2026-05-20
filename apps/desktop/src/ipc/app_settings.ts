@@ -21,6 +21,10 @@ export interface AppSettings {
   nexusToolKillProcessTree: boolean;
   /** sidecar 日志等级（仅展示，热更新需后续迭代）。 */
   logLevel: "DEBUG" | "INFO" | "WARN" | "ERROR";
+  /** 运行工具前是否自动安装 manifest.dependencies 中缺失的 Python 包。 */
+  nexusToolAutoInstallDeps: boolean;
+  /** pip 安装镜像源 URL（为空时使用默认 PyPI）。 */
+  nexusToolPipMirror: string;
 }
 
 export interface AppSettingsResponse {

@@ -25,8 +25,12 @@ import {
   Info,
   Sparkles,
   XCircle,
+  ShieldAlert,
+  ShieldCheck,
+  PackageOpen,
 } from "lucide-react";
 import { Button, Input, cn } from "@artifex-nexus/ui";
+import { invoke } from "@tauri-apps/api/core";
 import { ScrollFade } from "../chat/ScrollFade";
 import { FiltersTab } from "./FiltersTab";
 import { ToggleSwitch } from "./ToolDetailPanel";
@@ -37,11 +41,13 @@ import {
   nexusToolResult,
   nexusToolCancel,
   nexusToolAck,
+  nexusToolInstallDeps,
   type NexusToolDetail,
   type NexusToolParam,
   type FilterConfig,
   type NexusToolRunResult,
   type NexusToolPollResult,
+  type NexusToolInstallDepsResult,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 
@@ -84,6 +90,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   // ── 临时筛选条件 ──────────────────────────────────────────────────
   const [filters, setFilters] = React.useState<FilterConfig>({});
 
+  // ── 依赖状态 ──────────────────────────────────────────────────────
+  const [depsMissing, setDepsMissing] = React.useState<string[] | null>(null);
+  const [depsInstalling, setDepsInstalling] = React.useState(false);
+  const [depsInstallResult, setDepsInstallResult] = React.useState<NexusToolInstallDepsResult | null>(null);
+
   // 加载工具详情
   const loadDetail = React.useCallback(async () => {
     setLoading(true);
@@ -114,12 +125,31 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
     cleanup();
     setRunning(true);
     setRunResult(null);
+    setDepsMissing(null);
+    setDepsInstallResult(null);
 
     try {
       // 1. 启动执行（5s 超时，立即返回 task_id）
       const startResult = await nexusToolRun(detail.id, paramValues);
       const taskId = startResult.task_id;
       taskIdRef.current = taskId;
+
+      // 检查 dependency_missing 状态（后端在异步返回前就设了）
+      if (startResult.status === "dependency_missing") {
+        cleanup();
+        setRunning(false);
+        // 立即查询一次获取 missing 列表
+        try {
+          const poll = await nexusToolResult(taskId);
+          if (poll.status === "dependency_missing" && (poll as any).missing_deps) {
+            setDepsMissing((poll as any).missing_deps);
+          }
+          nexusToolAck(taskId).catch(() => {});
+        } catch (_) {
+          setDepsMissing(["无法获取缺失依赖列表"]);
+        }
+        return;
+      }
 
       // 2. 轮询结果
       pollTimerRef.current = setInterval(async () => {
@@ -173,6 +203,70 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
     cleanup();
     setRunning(false);
     setRunResult({ success: false, error: "已取消" });
+  };
+
+  // ── 一键修复依赖 ──
+  const handleFixDeps = async () => {
+    if (!detail) return;
+    setDepsInstalling(true);
+    setDepsMissing(null);
+    setDepsInstallResult(null);
+    try {
+      const result = await nexusToolInstallDeps(detail.id);
+      setDepsInstallResult(result);
+    } catch (e) {
+      setDepsInstallResult({ success: false, installed: [], failed: [], errors: [String(e)] });
+    } finally {
+      setDepsInstalling(false);
+    }
+  };
+
+  // ── 忽略依赖并运行 ──
+  const handleIgnoreRun = async () => {
+    if (!detail) return;
+    setDepsMissing(null);
+    setDepsInstallResult(null);
+    cleanup();
+    setRunning(true);
+
+    try {
+      const startResult = await invoke("nexus_tool_run", { params: { id: detail.id, args: paramValues, force: true } }) as NexusToolRunStartResult;
+      const taskId = startResult.task_id;
+      taskIdRef.current = taskId;
+
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const poll: NexusToolPollResult = await nexusToolResult(taskId);
+          if (poll.status === "done") {
+            cleanup();
+            setRunResult(poll.result || { success: true });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          } else if (poll.status === "error") {
+            cleanup();
+            setRunResult({ success: false, error: poll.error || "执行失败" });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          } else if (poll.status === "cancelled") {
+            cleanup();
+            setRunResult({ success: false, error: "任务已取消" });
+            setRunning(false);
+            nexusToolAck(taskId).catch(() => {});
+          }
+        } catch (_e) { /* 轮询失败不中断 */ }
+      }, 1000);
+
+      timeoutTimerRef.current = setTimeout(() => {
+        cleanup();
+        setRunResult({ success: false, error: "执行超时（超过 120 秒）" });
+        setRunning(false);
+        if (taskId) nexusToolCancel(taskId).catch(() => {});
+      }, 125_000);
+    } catch (e) {
+      cleanup();
+      setRunResult({ success: false, error: String(e) });
+      setRunning(false);
+    }
   };
 
   function cleanup() {
@@ -358,6 +452,96 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             </div>
           )}
         </div>
+
+        {/* ── 依赖缺失 ── */}
+        {depsMissing && !depsInstallResult && (
+          <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/[0.03] px-3 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="text-xs font-medium text-amber-300">
+                工具运行前发现 {depsMissing.length} 个 Python 依赖缺失
+              </span>
+            </div>
+            <div className="space-y-1 mb-3">
+              {depsMissing.map((dep) => (
+                <div key={dep} className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/20 rounded px-2 py-1">
+                  <PackageOpen className="h-3 w-3 shrink-0 opacity-60" />
+                  <span className="flex-1 font-mono">{dep}</span>
+                  <span className="text-amber-400/70">未安装</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleFixDeps}
+                disabled={depsInstalling}
+              >
+                {depsInstalling ? (
+                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                ) : (
+                  <Wrench className="mr-1.5 h-3 w-3" />
+                )}
+                一键修复
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleIgnoreRun}
+                disabled={depsInstalling}
+              >
+                忽略并运行
+              </Button>
+            </div>
+            <p className="mt-2 text-[10px] text-muted-foreground/70">
+              💡 一键修复无法解决？试试 <button className="underline hover:text-foreground" onClick={handleAIAssist}>AI 辅助运行</button>
+            </p>
+          </div>
+        )}
+
+        {/* ── 依赖安装结果 ── */}
+        {depsInstallResult && (
+          <div className={cn(
+            "shrink-0 border-t px-3 py-2 max-h-[120px] overflow-y-auto",
+            depsInstallResult.success
+              ? "border-emerald-500/20 bg-emerald-500/[0.03]"
+              : "border-red-500/20 bg-red-500/[0.03]",
+          )}>
+            <div className="flex items-center gap-2 mb-1">
+              {depsInstallResult.success ? (
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <ShieldAlert className="h-4 w-4 text-red-400" />
+              )}
+              <span className="text-xs font-medium">
+                {depsInstallResult.success
+                  ? `依赖安装完成 (${depsInstallResult.installed.length} 个)`
+                  : "依赖安装失败"}
+              </span>
+            </div>
+            {depsInstallResult.installed.length > 0 && (
+              <div className="text-[10px] text-muted-foreground mt-1">
+                已安装: {depsInstallResult.installed.join(", ")}
+              </div>
+            )}
+            {depsInstallResult.failed.length > 0 && (
+              <div className="text-[10px] text-red-300/80 mt-1">
+                安装失败: {depsInstallResult.failed.join(", ")}
+              </div>
+            )}
+            {depsInstallResult.errors?.map((e, i) => (
+              <p key={i} className="text-[10px] text-red-300/80 mt-0.5">{e}</p>
+            ))}
+            {depsInstallResult.success && (
+              <p className="mt-2 text-[10px] text-emerald-400/80">
+                依赖已就绪，请重新运行工具
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ── 运行结果 ── */}
         {runResult && (

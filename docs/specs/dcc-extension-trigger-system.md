@@ -1,7 +1,7 @@
 ---
-tags: [spec, dcc, trigger, blender, architecture]
+tags: [spec, dcc, trigger, blender, architecture, dependency]
 created: 2026-05-18
-updated: 2026-05-19
+updated: 2026-05-20
 status: in-progress
 ---
 
@@ -508,8 +508,208 @@ sidecar.py main() (每次启动)
 - [ ] SDK 路径从 tool-sources.json 正确读取
 - [ ] 新旧 manifest 格式兼容
 - [ ] tool-sources.json 包含该 DCC 相关的 source 目录
+- [ ] 依赖检查在触发器执行前生效（见 §10）
+- [ ] 依赖自动安装功能可用（需 `nexusToolAutoInstallDeps=true`）
 
-## 10. 参考
+## 10. 触发器路径的 Python 依赖处理
+
+> **状态**：spec（2026-05-20），尚未实现。
+> 详见 [[nexus-tool-runtime]] §10 的完整依赖检查与自动安装规范。
+
+### 10.1 触发器中的依赖问题
+
+触发器在 DCC 进程内执行工具脚本，而 DCC 的 bundled Python 环境通常不包含 `numpy`、
+`Pillow` 等第三方库。当前触发器执行流程 **完全不检查依赖**，导致：
+
+- 触发器执行工具时 `import` 报 `ModuleNotFoundError` → 工具静默失败
+- 触发器显示 `error` 弹窗 → 用户看到"模块未找到"但不理解原因
+- 无自动修复手段
+
+### 10.2 触发器依赖处理策略
+
+两个 TriggerDispatcher 实例各司其职，但依赖处理逻辑统一：
+
+| 路径 | 运行环境 | 依赖检查位置 | pip 安装目标 |
+|------|---------|------------|------------|
+| Sidecar TriggerDispatcher | sidecar Python | `_execute_tool()` 前 | sidecar 的 `sys.executable` |
+| DCC 本地 TriggerDispatcher | DCC bundled Python | `_execute_tool()` 前 | DCC 的 `sys.executable` |
+
+### 10.3 通用声明格式
+
+与手动运行共用 `manifest.json` 的 `dependencies` 字段（见 [[nexus-tool-runtime]] §10.2）：
+
+```jsonc
+{
+  "dependencies": ["numpy>=1.21", "Pillow>=9.0"]
+}
+```
+
+### 10.4 Sidecar TriggerDispatcher 依赖检查
+
+在 `trigger_dispatcher.py` (sidecar) 的 `_execute_tool()` 中新增：
+
+```python
+def _execute_tool(self, tool_id: str, payload: dict) -> dict:
+    reg = self._tool_registry.get(tool_id)
+    manifest = reg["manifest"]
+    dependencies = manifest.get("dependencies", [])
+
+    # ── Pre-flight 依赖检查 ──
+    if dependencies:
+        missing = self._check_dependencies(dependencies)
+        if missing:
+            logger.warning(
+                "[Trigger] tool=%s deps_missing=%s auto_install=%s",
+                tool_id, missing, self._auto_install_deps,
+            )
+            if self._auto_install_deps:
+                # 自动安装（需用户开启 app.settings.nexusToolAutoInstallDeps）
+                installed, failed = self._pip_install_deps(dependencies)
+                if failed:
+                    return {
+                        "tool_id": tool_id, "action": "error",
+                        "reason": f"依赖安装失败: {', '.join(failed)}",
+                        "missing_deps": failed,
+                    }
+            else:
+                return {
+                    "tool_id": tool_id, "action": "error",
+                    "reason": f"依赖缺失，请在工具面板手动修复: {', '.join(missing)}",
+                    "missing_deps": missing,
+                }
+
+    # ... 原有 import + exec 逻辑 ...
+```
+
+**`_check_dependencies()` 实现**（内联检查，无额外 RPC）：
+
+```python
+@staticmethod
+def _check_dependencies(dependencies: List[str]) -> List[str]:
+    """检查哪些依赖包在当前 Python 环境中不可 import。"""
+    missing = []
+    for dep in dependencies:
+        pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].strip()
+        try:
+            importlib.import_module(pkg_name)
+        except ImportError:
+            missing.append(dep)
+    return missing
+```
+
+### 10.5 DCC 本地 TriggerDispatcher 依赖检查与自动安装
+
+Blender 的 `trigger_dispatcher.py` 在 `_execute_tool()` 前增依赖检查，并支持自动安装：
+
+```python
+def _execute_tool(self, tool_id: str, payload: dict) -> dict:
+    manifest = reg["manifest"]
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        missing = self._check_dependencies(dependencies)
+        if missing:
+            if self._auto_install_deps:
+                # 自动安装（读 app.settings 或 DCC 面板开关）
+                logger.info("[Trigger] auto_install deps: %s", missing)
+                installed, failed = self._pip_install_in_dcc(dependencies)
+                if failed:
+                    self._show_deps_missing_popup(tool_id, failed, installed=installed)
+                    return {"tool_id": tool_id, "action": "error",
+                            "reason": f"依赖安装失败: {', '.join(failed)}",
+                            "missing_deps": failed}
+                # 安装成功 → 清空缓存 → 继续执行
+                importlib.invalidate_caches()
+            else:
+                self._show_deps_missing_popup(tool_id, missing)
+                return {"tool_id": tool_id, "action": "error",
+                        "reason": f"依赖缺失: {', '.join(missing)}",
+                        "missing_deps": missing}
+
+    # ... 原有执行逻辑 ...
+```
+
+**`_auto_install_deps` 来源**：
+- 优先读 `app.settings.nexusToolAutoInstallDeps`
+- DCC 面板可覆盖（Blender 侧栏开关）
+- 默认 `false`
+
+**dep_missing 时在 DCC 内弹窗提示**：
+
+```python
+def _show_deps_missing_popup(self, tool_id: str, missing: List[str]):
+    """Blender popup 告知用户依赖缺失，建议进入 Artifex Nexus 面板修复。"""
+    msg = "\\n".join(
+        [f"工具 [{tool_id}] 运行前发现依赖缺失：", ""]
+        + [f"  - {d}" for d in missing]
+        + ["", "请在 Artifex Nexus 面板中运行此工具以自动安装依赖。"]
+    )
+    # 使用 bpy popup_menu 或 气泡通知展示
+```
+
+### 10.6 DCC Python 环境的 pip 安装
+
+DCC 的 bundled Python 通常包含 `pip`（或可通过 `ensurepip` 引导）。**权限策略**：
+
+- **默认**：`pip install --quiet`（安装到 DCC Python 的 site-packages）
+- **权限不足时**：自动 fallback 到 `pip install --user --quiet`
+- **--user 仍失败**：报告权限错误，引导用户以管理员身份运行一次「一键修复」
+
+```python
+def _pip_install_in_dcc(dependencies: List[str]) -> Tuple[List[str], List[str]]:
+    """在 DCC Python 环境中安装依赖。返回 (installed, failed)。"""
+    import subprocess, sys
+    installed, failed = [], []
+
+    # 确保 pip 可用（某些 DCC Python 可能缺 pip）
+    try:
+        import pip
+    except ImportError:
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "ensurepip", "--upgrade"],
+                capture_output=True, timeout=120,
+            )
+        except Exception as e:
+            logger.error("ensurepip failed: %s", e)
+
+    for pkg in dependencies:
+        result = _try_pip_install(pkg)
+        if result.returncode == 0:
+            installed.append(pkg)
+        elif "permission" in result.stderr.lower() or "access" in result.stderr.lower():
+            # --user fallback（Blender 等安装在 Program Files 时需此路径）
+            result = _try_pip_install(pkg, user=True)
+            if result.returncode == 0:
+                installed.append(pkg)
+            else:
+                failed.append(pkg)
+                logger.error("pip install %s failed even with --user: %s", pkg, result.stderr)
+        else:
+            failed.append(pkg)
+    return installed, failed
+
+def _try_pip_install(pkg: str, user: bool = False) -> subprocess.CompletedProcess:
+    """单次 pip install 尝试，支持 --user 和 mirror。"""
+    cmd = [sys.executable, "-m", "pip", "install", pkg, "--quiet"]
+    if user:
+        cmd.append("--user")
+    mirror = _read_pip_mirror()
+    if mirror:
+        cmd.extend(["-i", mirror])
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+```
+
+### 10.7 触发器依赖处理的不变量
+
+1. 依赖检查不可阻塞 DCC 主线程——importlib 检查每个包 < 2s；subprocess 方式 30s 总超时
+2. pip install 超时合理——单包 300s，整体 600s，避免工具卡死
+3. 自动安装必须由设置控制——`nexusToolAutoInstallDeps=false` 时只报告不安装
+4. 安装失败不阻止整个触发器链路——其他工具的触发器正常运行
+5. `manifest.dependencies` 为空的工具不触发依赖检查——零开销
+6. **安装成功后必须 `importlib.invalidate_caches()`**——清空 Python 导入缓存，确保下次 import 使用新安装的包
+
+## 11. 参考
 
 - [DCC 插件安装与版本管理规范](./dcc-plugin-management.md)
 - [计划：DCC 内部独立触发器系统](./dcc-trigger-system-plan.md)

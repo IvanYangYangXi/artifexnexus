@@ -1,8 +1,9 @@
 ---
-tags: [spec, openclaw, nexus-tool, runtime, sidecar, mcp]
+tags: [spec, openclaw, nexus-tool, runtime, sidecar, mcp, dependency]
 created: 2026-05-19
+updated: 2026-05-20
 status: stable
-related: [[nexus-tool-direct-run-async]], [[openclaw-wrapper-runtime]], [[skill-system]]
+related: [[nexus-tool-direct-run-async]], [[openclaw-wrapper-runtime]], [[skill-system]], [[dcc-extension-trigger-system]]
 ---
 
 # Nexus-Tool 运行时（Runtime）
@@ -287,6 +288,445 @@ python tools\diagnose_dcc_tool_run.py marketplace/<工具id> "{\"key\":\"value\"
 ```
 
 任何 nexus-tool 跑不通的 bug，先用它复现，再决定改哪一层。
+
+## 10. Python 依赖检查与自动安装
+
+> **状态**：spec（2026-05-20），尚未实现。
+
+### 10.1 问题背景
+
+DCC 软件的 Python 环境（Blender bundled Python、Maya mayapy、UE Python 等）与用户
+系统 Python 完全隔离。Nexus Tool 脚本可能依赖第三方库（如 `numpy`、`scipy`、
+`Pillow`、`requests` 等），这些库在 DCC Python 环境中**默认不存在**。
+
+当前工具运行流程**完全没有依赖检查**：
+- 手动运行 → 子进程 `import numpy` 报错 → `ModuleNotFoundError` → 前端只看到
+  `"success: false, error: No module named 'numpy'"` —— 用户无法自行修复
+- 触发器运行 → DCC 进程内 `import numpy` 报错 → 工具静默失败 → 用户完全不知情
+
+### 10.2 依赖声明格式
+
+在 `manifest.json` 中新增 **`dependencies`** 字段（顶层，已预留：`_rpc_helpers.py` line 230）：
+
+```jsonc
+{
+  "id": "marketplace/my-tool",
+  // ... 其他已有字段 ...
+  "dependencies": [
+    "numpy>=1.21",
+    "Pillow>=9.0",
+    "requests"
+  ]
+}
+```
+
+**字段规范**：
+| 规则 | 说明 |
+|------|------|
+| 格式 | 字符串列表，每个元素是 PEP 508 格式的包名（`"numpy>=1.21"`） |
+| 空值 | `[]` 或字段不存在 → 不触发依赖检查 |
+| 安装源 | `pip install`（从 `pypi.org`，未来可扩展企业内部 mirror） |
+| 安装目标 | 当前工具的 Python 可执行文件对应的 `site-packages` |
+
+#### 10.2.1 版本约束检查
+
+除了 `importlib.import_module` 检查包是否可导入，还需验证已安装版本满足约束：
+
+```python
+import importlib, re, json
+
+_PEP508_PAT = re.compile(
+    r'^([A-Za-z0-9_.-]+)'          # package name
+    r'\s*(([<>=!~]+)\s*([\w.*]+))?' # optional version constraint
+    r'(\s*;\s*.*)?$'                # optional extras marker (ignored)
+)
+
+def _parse_dep(dep: str):
+    """拆分 PEP 508 声明为 (pkg_name, op, version)"""
+    m = _PEP508_PAT.match(dep)
+    if not m:
+        return dep, None, None
+    return m.group(1), m.group(3), m.group(4)
+
+def _check_version_satisfied(pkg_name: str, constraint: str, version: str) -> bool:
+    """检查已安装版本是否满足约束。"""
+    from packaging.version import Version, parse as parse_ver
+    try:
+        installed = parse_ver(version)
+        if constraint == ">=":
+            return installed >= parse_ver(constraint)
+        elif constraint == ">":
+            return installed > parse_ver(constraint)
+        elif constraint in ("<=", "=<"):
+            return installed <= parse_ver(constraint)
+        elif constraint == "<":
+            return installed < parse_ver(constraint)
+        elif constraint in ("==", "="):
+            return installed == parse_ver(constraint)
+        elif constraint == "!=":
+            return installed != parse_ver(constraint)
+        return True
+    except Exception:
+        return False  # 解析失败保守拒绝
+
+def _check_single_dep(dep: str) -> Optional[str]:
+    """检查单个依赖。返回 None 表示满足，返回 dep 表示不满足。"""
+    pkg_name, op, ver = _parse_dep(dep)
+    try:
+        mod = importlib.import_module(pkg_name)
+    except ImportError:
+        return dep  # 包未安装
+    if op and ver:
+        installed_ver = getattr(mod, "__version__", None)
+        if installed_ver is None:
+            # 无 __version__ → 无法验证 → 保守允许
+            return None
+        if not _check_version_satisfied(pkg_name, ver, installed_ver):
+            return f"{dep}（已安装: {installed_ver}）"
+    return None
+```
+
+**`packaging` 依赖**：`_check_version_satisfied` 使用标准库无 `packaging` 时降级为简单字符串比较，但推荐在依赖检查脚本中先 `pip install packaging`。后续开发中可改为纯字符串解析（避免循环依赖）。
+
+### 10.3 手动运行流程（pre-flight check）
+
+新的运行流程在**工具执行前**插入依赖检查步骤：
+
+```
+nexus-tool.run 请求
+  │
+  ├─ 1. 读取 manifest.dependencies
+  ├─ 2. 若为空 → 跳过依赖检查 → 直接执行工具
+  ├─ 3. 确定目标 Python 可执行文件
+  │     ├─ 通用工具：sys.executable（sidecar 同版本 python）
+  │     └─ DCC 工具：MCP Bridge → DCC 进程内检查（不启动外部 Python）
+  ├─ 4. 逐个检查依赖（含版本约束，见 §10.2.1）
+  │     └─ 记录缺失 / 版本不满足的包名列表
+  ├─ 5. 若有缺失：
+  │     ├─ 返回 task 状态 "dependency_missing"，携带 missing 列表
+  │     ├─ 前端展示缺失列表 + [一键修复] [忽略并运行] [AI辅助运行]
+  │     ├─ 用户点击"忽略并运行" → 重新调用 run({install_deps: false, force: true})
+  │     └─ 用户点击"一键修复" → install-deps RPC → 重新运行
+  └─ 6. 若全部满足：
+        └─ 进入原有执行路径（§2 / §3）
+```
+
+步骤 4 的检测脚本（含版本约束检查）：
+
+```python
+# subprocess.run 调用，批量检查所有依赖
+import_check = f'''
+import importlib, json, sys
+
+# 降级版版本检查：无 packaging 时只做包存在检查
+_PEPS = {json.dumps(dependencies)}
+missing = []
+for dep in _PEPS:
+    pkg = dep.split(">=")[0].split("==")[0].split("<=")[0].split(">")[0].split("<")[0].split("!=")[0].strip()
+    try:
+        mod = importlib.import_module(pkg)
+        if ">=" in dep:
+            ver = dep.split(">=")[1].strip()
+            inst = getattr(mod, "__version__", None) or "0"
+            if not inst >= ver:
+                missing.append(dep + " (installed: " + inst + ")")
+        elif "==" in dep:
+            ver = dep.split("==")[1].strip()
+            inst = getattr(mod, "__version__", None) or "0"
+            if inst != ver:
+                missing.append(dep + " (installed: " + inst + ")")
+    except ImportError:
+        missing.append(dep)
+print(json.dumps({{"ok": len(missing)==0, "missing": missing}}))
+'''
+result = subprocess.run(
+    [target_python, "-c", import_check],
+    capture_output=True, text=True, timeout=30,  # 批量检查，30s 超时
+)
+```
+
+**超时策略**（区分两种路径）：
+| 路径 | 检查方式 | 超时 | 原因 |
+|------|---------|------|------|
+| 通用工具 subprocess | `subprocess.run` 启动外部 Python | 30s | 冷启动 + 多个 import 检查 |
+| DCC 工具 MCP Bridge | DCC 进程内 `importlib` | 10s | 进程内 import，单个包 < 1s |
+| 触发器 (importlib) | 进程内 `importlib` | 2s/包 | DCC 主线程不可阻塞 |
+
+步骤 5 的代码更新：
+```python
+def _execute_general_tool(ntd, run_args, func_name, task_id=""):
+    manifest = ntd.manifest or {}
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        missing = _check_dependencies(ntd, target_python=sys.executable, dependencies)
+        if missing:
+            return _dependency_missing_result(task_id, missing)
+
+    # ... 原有工具执行逻辑 ...
+
+def _execute_general_tool_force(ntd, run_args, func_name, task_id=""):
+    """忽略依赖检查，强制执行（force=true 调用）"""
+    # 跳过 _check_dependencies，直接进入执行路径
+    # ...
+```
+
+### 10.4 通用工具 subprocess 环境修复
+
+通用工具每次以子进程运行，**可以在 wrapper 生成前进行依赖安装**：
+
+```python
+def _execute_general_tool(ntd, run_args, func_name, task_id=""):
+    # ... 现有路径 ...
+    manifest = ntd.manifest or {}
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        # ── Pre-flight：检查 + 安装依赖 ──
+        missing = _check_dependencies(ntd, target_python=sys.executable, dependencies)
+        if missing:
+            # 返回 dependency_missing 状态，交由前端处理（见 §10.7）
+            return _dependency_missing_result(task_id, missing)
+
+    # ... 原有工具执行逻辑 ...
+```
+
+**若用户点击"一键修复"，则在此路径中主动安装**：
+
+```python
+def _execute_general_tool_with_fix(ntd, run_args, func_name, task_id=""):
+    manifest = ntd.manifest or {}
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        # 安装缺失依赖
+        for pkg in dependencies:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
+                timeout=120,
+            )
+    # 继续原有执行路径
+    return _execute_general_tool(ntd, run_args, func_name, task_id)
+```
+
+### 10.5 DCC 工具依赖检查（MCP 通道）
+
+DCC 工具的依赖安装在 DCC Python 环境中，需要特殊处理：
+
+```python
+def _execute_dcc_tool(ntd, run_args, func_name):
+    manifest = ntd.manifest or {}
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        # ── 通过 MCP Bridge 在 DCC 进程内检查依赖 ──
+        check_code = _generate_dep_check_code(dependencies)
+        bridge = MCPBridgeClient.get_instance()
+        check_result = bridge.call_tool("run_python", {"code": check_code}, timeout=30)
+
+        if not check_result.get("success") or check_result.get("missing"):
+            # 返回 dependency_missing 状态
+            return _dependency_missing_result(task_id, check_result.get("missing", []))
+
+    # ... 原有 exec 执行路径 ...
+```
+
+**DCC 内检查脚本**（通过 MCP run_python 在 Blender/Maya 内执行）：
+
+```python
+def _generate_dep_check_code(dependencies: List[str]) -> str:
+    return f'''
+import importlib, json
+missing = []
+for dep in {json.dumps(dependencies)}:
+    pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].strip()
+    try:
+        importlib.import_module(pkg_name)
+    except ImportError:
+        missing.append(dep)
+print(json.dumps({"success": len(missing)==0, "missing": missing}))
+'''
+```
+
+**DCC 内一键修复**：通过 MCP run_python 调用 `pip._internal.main` 或 `subprocess.run`：
+
+```python
+# 在 DCC Python 进程中执行 pip install
+def _generate_dep_install_code(dependencies: List[str]) -> str:
+    return f'''
+import subprocess, sys, json
+pkgs = {json.dumps(dependencies)}
+try:
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install"] + pkgs + ["--quiet"],
+        capture_output=True, text=True, timeout=300,
+    )
+    print(json.dumps({"success": result.returncode==0, "stdout": result.stdout, "stderr": result.stderr}))
+except Exception as e:
+    print(json.dumps({"success": False, "error": str(e)}))
+'''
+```
+
+**注意**：如果 DCC 的 bundled Python 没有 `pip` 模块，需使用 `ensurepip` 引导。
+
+### 10.6 RPC 扩展
+
+**`_nt_data_to_dict` 序列化更新**（`_rpc_helpers.py`）：
+
+需在 `_nt_data_to_dict()` 返回值中新增 `dependencies` 字段：
+```python
+result = {
+    # ... 现有字段 ...
+    "dependencies": manifest.get("dependencies", []),  # ← 新增
+}
+```
+
+**`installer.py` manifest safe keys**：`update_nexus_tool` 的 manifest 安全字段列表需加入 `"dependencies"`。
+
+新增 RPC 方法：
+
+| Method | params | result | 说明 |
+| --- | --- | --- | --- |
+| `nexus-tool.check-deps` | `{id}` | `{all_ok: bool, missing: [...]}` | 只检查依赖，不运行工具 |
+| `nexus-tool.run` | `{id, args, install_deps?: bool, force?: bool}` | `{task_id, status}` | 现有方法；新增 `install_deps`（安装后运行）和 `force`（跳过依赖检查） |
+| `nexus-tool.install-deps` | `{id}` | `{success, installed, errors}` | 安装指定工具的依赖 |
+
+**`nexus-tool.run` 的 status 扩展**：
+
+| status | 含义 |
+| --- | --- |
+| `"started"` | 已启动（依赖检查通过） |
+| `"dependency_missing"` | 依赖缺失，携带 `missing` 列表 |
+| `"installing_deps"` | 正在安装依赖（`install_deps=true` 时） |
+
+**`nexus-tool.result` 的 result 扩展**：
+
+```jsonc
+// 依赖缺失时
+{
+  "task_id": "abc-123",
+  "status": "dependency_missing",
+  "missing_deps": ["numpy>=1.21", "Pillow>=9.0"],
+  "message": "2 个 Python 依赖缺失"
+}
+
+// 安装完成后
+{
+  "task_id": "abc-123",
+  "status": "done",
+  "result": { "success": true, "data": {...} },
+  "deps_installed": ["numpy", "Pillow"]
+}
+```
+
+### 10.7 前端 RunPanel 展示
+
+在 RunPanel 运行结果区域（`RunPanel.tsx` line 362-386），新增依赖缺失状态呈现：
+
+```
+┌─────────────────────────────────────┐
+│ ⚠ 依赖缺失                          │
+│                                     │
+│ 工具运行前发现 2 个 Python 依赖缺失： │
+│  ┌───────────────────────────────┐  │
+│  │ 📦 numpy>=1.21    ⬜ 未安装   │  │
+│  │ 📦 Pillow>=9.0    ⬜ 未安装   │  │
+│  └───────────────────────────────┘  │
+│                                     │
+│  [🔧 一键修复] [⚠ 忽略并运行]       │
+│  [🤖 AI 辅助运行]                   │
+│                                     │
+│  💡 一键修复失败？试试 AI 辅助运行   │
+└─────────────────────────────────────┘
+```
+
+**交互流程**：
+1. 用户点击工具卡片上的「▶ 运行」
+2. 右侧 RunPanel 显示依赖缺失列表
+3. 用户选择：
+   - 「🔧 一键修复」→ 调用 `nexus-tool.install-deps` → 安装完成提示重新运行
+   - 「⚠ 忽略并运行」→ 调用 `nexus-tool.run({force: true})` → 跳过检查强制执行
+   - 「🤖 AI 辅助运行」→ 切换到 Chat 界面，让 AI 处理
+4. 如果一键修复失败 → 仍显示错误 + [忽略并运行][AI辅助运行]
+
+**UI 状态枚举**（RunPanel 新增依赖相关状态）：
+
+| 状态 | 显示 |
+|------|------|
+| `checking_deps` | 依赖检查中...（Loader2 动画） |
+| `deps_ok` | 依赖就绪 → 进入执行 |
+| `deps_missing` | 显示缺失列表 + [一键修复][AI辅助运行] |
+| `installing` | 安装中...（带进度指示） |
+| `install_success` | 安装完成 ✓ → 提示用户重新运行 |
+| `install_failed` | 安装失败 ✗ → 显示错误详情 + [AI辅助运行] |
+
+### 10.8 应用设置
+
+新增 `app.settings` 字段：
+
+| 字段 | 类型 | 默认 | 用途 |
+| --- | --- | --- | --- |
+| `nexusToolAutoInstallDeps` | bool | `false` | 运行时是否自动安装缺失依赖（无需用户确认） |
+| `nexusToolPipMirror` | string | `""` | pip 安装镜像源（为空时使用默认 PyPI） |
+
+**安全性考虑**：
+- 默认 `nexusToolAutoInstallDeps = false` —— 用户需手动确认
+- pip 安装只限 `manifest.dependencies` 声明的包，不随意安装
+- 安装日志完整记录到 sidecar 日志
+
+### 10.9 触发器路径（Sidecar TriggerDispatcher）
+
+在 `sidecar/trigger_dispatcher.py` 的 `_execute_tool()` 中新增依赖检查：
+
+```python
+def _execute_tool(self, tool_id: str, payload: dict) -> dict:
+    reg = self._tool_registry.get(tool_id)
+    manifest = reg["manifest"]
+    dependencies = manifest.get("dependencies", [])
+
+    if dependencies:
+        # 通用工具：sidecar Python 环境
+        # DCC 工具：需要 MCP Bridge 在 DCC 内检查
+        missing = self._check_and_resolve_deps(tool_id, manifest, dependencies)
+        if missing:
+            logger.warning("[Trigger] dependencies missing: %s", missing)
+            return {
+                "tool_id": tool_id,
+                "action": "error",
+                "reason": f"依赖缺失，请手动修复: {', '.join(missing)}",
+                "missing_deps": missing,
+            }
+    # ... 原有执行逻辑 ...
+```
+
+**触发器自动安装**（当 `nexusToolAutoInstallDeps = true` 时）：
+
+```python
+def _auto_install_deps(self, tool_id, dependencies):
+    for pkg in dependencies:
+        logger.info("[Trigger] installing dep: %s", pkg)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
+            timeout=120,
+        )
+```
+
+**DCC 本地 TriggerDispatcher**（Blender trigger_dispatcher.py）的类似处理：
+- 检查依赖在 Blender Python 进程内完成（`importlib.import_module`）
+- 安装依赖通过 `subprocess.run([sys.executable, "-m", "pip", ...])`
+- 若 Blender Python 无 pip → 先 `ensurepip` → 再 `pip install`
+
+### 10.10 不变量（新增）
+
+在修这块代码前必须保证：
+
+1. **依赖检查不能阻塞工具执行主路径**——超时 10s、失败降级为跳过检查
+2. **pip install 必须在正确的 Python 环境中**——通用工具用 `sys.executable`，DCC 工具用 DCC 的 Python
+3. **安装失败不阻止工具尝试运行**——用户可手动忽略依赖问题
+4. **依赖列表必须从 manifest 读取**——不允许运行时动态推断（安全 + 确定性）
+5. **触发器自动安装只读 `nexusToolAutoInstallDeps` 设置**——未开启则不安装
+
+---
 
 ## 9. 不变量（修这块代码前必须保证）
 
