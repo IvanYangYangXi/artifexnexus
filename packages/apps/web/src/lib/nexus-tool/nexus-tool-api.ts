@@ -89,6 +89,8 @@ export interface NexusToolItem {
   author: string;
   created_at: string;
   updated_at: string;
+  /** 标签列表 */
+  tags: string[];
   /** manifest 详情 — ToolDetailPanel 的 Info/Params/Presets/Triggers 数据源 */
   inputs?: NexusToolParam[];
   outputs?: NexusToolOutput[];

@@ -40,6 +40,7 @@ export function NexusToolList() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [actionLoading, setActionLoading] = React.useState<Set<string>>(new Set());
+  const [activeTool, setActiveTool] = React.useState<string | null>(null);
 
   // ── 发布弹窗状态 ──
   const [publishTarget, setPublishTarget] = React.useState<NexusToolItem | null>(null);
@@ -104,6 +105,7 @@ export function NexusToolList() {
 
   /** 点击工具名/图标 → 在 D5 面板打开详情 */
   const handleToolClick = React.useCallback((tool: NexusToolItem) => {
+    setActiveTool(tool.id);
     setPreview({
       kind: "nexus-tool-detail",
       title: tool.name,
@@ -186,6 +188,7 @@ export function NexusToolList() {
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((tool) => (
             <ItemCard key={tool.id} viewMode={viewMode}
+              active={activeTool === tool.id}
               icon={<DCCIcon software={(tool.software?.[0] && typeof tool.software[0] === "string") ? tool.software[0] : (tool.software?.[0] as { dcc: string })?.dcc || ""} />}
               title={tool.name}
               onTitleClick={() => handleToolClick(tool)}
@@ -206,11 +209,14 @@ export function NexusToolList() {
                   <Info className="h-3.5 w-3.5" />
                 </Button>
                 <Button size="sm" className="h-7 text-xs"
-                  onClick={() => setPreview({
-                    kind: "nexus-tool-run",
-                    title: `运行: ${tool.name}`,
-                    data: { toolId: tool.id },
-                  })}>
+                  onClick={() => {
+                    setActiveTool(tool.id);
+                    setPreview({
+                      kind: "nexus-tool-run",
+                      title: `运行: ${tool.name}`,
+                      data: { toolId: tool.id },
+                    });
+                  }}>
                   <Play className="mr-1 h-3 w-3" />运行
                 </Button>
                 {triggerState(tool) !== "none" && (

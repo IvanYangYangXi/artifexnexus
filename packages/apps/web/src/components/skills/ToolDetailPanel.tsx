@@ -56,6 +56,7 @@ import {
   SOURCE_LABELS,
   DCC_LABELS,
 } from "../../lib/skillsMock";
+import { TagEditor } from "./TagEditor";
 
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
   const [editedAuthor, setEditedAuthor] = React.useState("");
   const [editedVersion, setEditedVersion] = React.useState("");
   const [editedSoftware, setEditedSoftware] = React.useState<DCCEntry[]>([]);
+  const [editedTags, setEditedTags] = React.useState("");
   const [editedInputs, setEditedInputs] = React.useState<NexusToolParam[]>([]);
   const [editedFilters, setEditedFilters] = React.useState<FilterConfig>({});
   const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>([]);
@@ -137,6 +139,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setEditedAuthor(d.author || "");
       setEditedVersion(d.version);
       setEditedSoftware(d.software || []);
+      setEditedTags(d.tags?.join(", ") || "");
       setEditedInputs(d.inputs?.map((p) => ({ ...p })) || []);
       setEditedFilters(d.default_filters || {});
       setTriggers(d.triggers || []);
@@ -174,6 +177,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         triggers,
         defaultFilters: savedFilters,
         implementation: detail.implementation || {},
+        tags: editedTags.split(",").map(t => t.trim()).filter(Boolean),
       };
       await nexusToolUpdate(detail.id, {
         name: editedName,
@@ -193,7 +197,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setSaving(false);
     }
   }, [detail, editedName, editedDescription, editedAuthor, editedVersion,
-      editedSoftware, editedInputs, editedFilters,
+      editedSoftware, editedTags, editedInputs, editedFilters,
       triggers, loadDetail]);
 
   // ── 另存为实例 ────────────────────────────────────────────────────────
@@ -342,6 +346,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
               editedAuthor={editedAuthor} setEditedAuthor={(v) => { setEditedAuthor(v); markDirty(); }}
               editedVersion={editedVersion} setEditedVersion={(v) => { setEditedVersion(v); markDirty(); }}
               editedSoftware={editedSoftware} setEditedSoftware={(v) => { setEditedSoftware(v); markDirty(); }}
+              editedTags={editedTags} setEditedTags={(v) => { setEditedTags(v); markDirty(); }}
               inputsCount={editedInputs.length}
               triggersCount={triggers.length}
               compact={compact}
@@ -446,6 +451,7 @@ function InfoTab({
   editedAuthor, setEditedAuthor,
   editedVersion, setEditedVersion,
   editedSoftware, setEditedSoftware,
+  editedTags, setEditedTags,
   inputsCount, triggersCount,
   compact,
 }: {
@@ -456,6 +462,7 @@ function InfoTab({
   editedAuthor: string; setEditedAuthor: (v: string) => void;
   editedVersion: string; setEditedVersion: (v: string) => void;
   editedSoftware: DCCEntry[]; setEditedSoftware: (v: DCCEntry[] | ((prev: DCCEntry[]) => DCCEntry[])) => void;
+  editedTags: string; setEditedTags: (v: string) => void;
   inputsCount: number; triggersCount: number;
   compact?: boolean;
 }) {
@@ -601,6 +608,12 @@ function InfoTab({
             ))}
           </div>
         )}
+      </div>
+
+      {/* 标签 */}
+      <div>
+        <div className={labelCls}>标签</div>
+        <TagEditor tags={editedTags} onChange={setEditedTags} />
       </div>
 
       {/* 只读信息 */}

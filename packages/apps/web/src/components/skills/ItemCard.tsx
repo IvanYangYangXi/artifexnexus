@@ -24,6 +24,8 @@ export interface ItemCardProps {
   viewMode: "card" | "list";
   /** 标题/图标区域点击回调（打开详情面板） */
   onTitleClick?: () => void;
+  /** 高亮描边（最近被操作过的卡片） */
+  active?: boolean;
 }
 
 export function ItemCard(props: ItemCardProps) {
@@ -37,14 +39,19 @@ export function ItemCard(props: ItemCardProps) {
 // 布局: S-a/S-b/S-e/S-f → S-d → S-g → S-c
 
 function ItemCardView({
-  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick,
+  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick, active,
 }: ItemCardProps) {
   return (
     <div
       className={cn(
-        "flex flex-col rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-colors",
+        "flex flex-col rounded-[16px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-all",
         selected ? "border-primary/40" : "hover:border-white/[0.14] hover:bg-white/[0.06]",
       )}
+      style={{
+        outline: active ? "2px solid hsl(213 78% 65% / 0.55)" : "2px solid transparent",
+        outlineOffset: -2,
+        transition: "outline-color 0.2s ease",
+      }}
     >
       {/* 第一行: □ + S-a 图标 + S-b 名称 + S-e 来源 + S-f 状态 */}
       <div className="flex items-start gap-3">
@@ -106,13 +113,20 @@ function ItemCardView({
 // 布局: □+S-a+S-b+S-e+S-f + S-g 第一行 → S-d+S-c 第二行
 
 function ItemListRow({
-  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick,
+  icon, title, titleBadge, source, status, description, meta, actions, selected, onSelect, onTitleClick, active,
 }: ItemCardProps) {
   return (
-    <div className={cn(
-      "border-b border-border/40 transition-colors hover:bg-accent/20",
-      selected && "bg-primary/[0.04]",
-    )}>
+    <div
+      className={cn(
+        "border-b border-border/40 transition-all hover:bg-accent/20",
+        selected && "bg-primary/[0.04]",
+      )}
+      style={{
+        outline: active ? "2px solid hsl(213 78% 65% / 0.55)" : "2px solid transparent",
+        outlineOffset: -2,
+        transition: "outline-color 0.2s ease",
+      }}
+    >
       {/* 第一行: □ + S-a + S-b + S-e + S-f + S-g */}
       <div className="flex items-center gap-2 px-3 pt-2">
         {onSelect && (

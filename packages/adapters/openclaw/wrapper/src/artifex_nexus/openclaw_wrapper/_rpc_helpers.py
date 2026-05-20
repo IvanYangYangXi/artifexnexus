@@ -260,6 +260,8 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "author": getattr(ntd, "author", ""),
         "created_at": getattr(ntd, "created_at", ""),
         "updated_at": getattr(ntd, "updated_at", ""),
+        # manifest 中 tags 字段
+        "tags": manifest.get("tags", []),
         # manifest 详情字段（ToolDetailPanel 需要）
         "inputs": manifest.get("inputs", []),
         "outputs": manifest.get("outputs", []),

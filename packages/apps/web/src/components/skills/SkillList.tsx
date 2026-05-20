@@ -51,6 +51,7 @@ export function SkillList() {
   const [selectMode, setSelectMode] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [batchInstalling, setBatchInstalling] = React.useState(false);
+  const [activeSkill, setActiveSkill] = React.useState<string | null>(null);
 
   // ── 发布弹窗状态 ──
   const [publishTarget, setPublishTarget] = React.useState<SkillItem | null>(null);
@@ -93,6 +94,7 @@ export function SkillList() {
 
   /** 点击 Skill → 在 D5 右侧面板打开详情 */
   const handleDetail = React.useCallback((name: string) => {
+    setActiveSkill(name);
     setPreview({
       kind: "skill-detail",
       title: name,
@@ -260,9 +262,12 @@ export function SkillList() {
 
       <ScrollFade className="flex-1">
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
-          {filtered.map((skill) => (
+          {filtered.map((skill) => {
+            const isActive = activeSkill === skill.name;
+            return (
             <ItemCard key={skill.name} viewMode={viewMode}
               selected={selectMode ? selectedIds.has(skill.name) : undefined}
+              active={isActive}
               onSelect={selectMode ? (() => toggleSelect(skill.name)) : undefined}
               onTitleClick={() => handleDetail(skill.name)}
               icon={<DCCIcon software={(skill.software[0] && typeof skill.software[0] === "string") ? skill.software[0] : (skill.software[0] as { dcc: string })?.dcc || ""} />}
@@ -316,16 +321,6 @@ export function SkillList() {
                   </Button>
                 )}
 
-                {/* 已安装 → 钉选/取消钉选 */}
-                {skill.installed && (
-                  <Button variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => doAction(skill.name, () => skill.pinned ? skillUnpin(skill.name) : skillPin(skill.name))}
-                    disabled={isBusy(skill.name)}
-                    title={skill.pinned ? "取消钉选" : "钉选"}>
-                    {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
-                  </Button>
-                )}
-
                 {/* 已安装 → 卸载 */}
                 {skill.installed && (
                   <Button variant="outline" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
@@ -353,6 +348,16 @@ export function SkillList() {
                   </Button>
                 )}
 
+                {/* 已安装 → 钉选/取消钉选 */}
+                {skill.installed && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7"
+                    onClick={() => doAction(skill.name, () => skill.pinned ? skillUnpin(skill.name) : skillPin(skill.name))}
+                    disabled={isBusy(skill.name)}
+                    title={skill.pinned ? "取消钉选" : "钉选"}>
+                    {skill.pinned ? <PinOff className="h-3.5 w-3.5 text-amber-400" /> : <Pin className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
+
                 <div className="flex-1" />
 
                 {/* 收藏 — 始终显示 */}
@@ -364,7 +369,7 @@ export function SkillList() {
                 </Button>
               </> : null}
             />
-          ))}
+          )})}
         </div>
       </ScrollFade>
 

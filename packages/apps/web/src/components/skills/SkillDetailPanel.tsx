@@ -33,6 +33,7 @@ import { type SkillDetail, skillDetail, skillFixManifest, skillReadSkillMd, skil
 import type { DCCEntry } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
+import { TagEditor } from "./TagEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -429,16 +430,6 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
           )}
         </div>
 
-        {/* 标签 */}
-        <div className="col-span-2">
-          <div className={labelCls}>标签</div>
-          {isInstalled ? (
-            <input className={inputCls} placeholder="标签（逗号分隔）" value={tags} onChange={e => setTags(e.target.value)} />
-          ) : (
-            <p className="text-xs text-foreground">{entry.tags?.join(", ") || "—"}</p>
-          )}
-        </div>
-
         {/* 作者 */}
         <div>
           <div className={labelCls}>作者</div>
@@ -473,7 +464,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         <div>
           <div className={labelCls}>标签</div>
           {isInstalled ? (
-            <input className={inputCls} placeholder="标签1, 标签2" value={tags} onChange={e => setTags(e.target.value)} />
+            <TagEditor tags={tags} onChange={setTags} />
           ) : entry.tags && entry.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {entry.tags.map((tag, i) => (

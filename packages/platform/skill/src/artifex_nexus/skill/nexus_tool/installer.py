@@ -36,6 +36,25 @@ _DEFAULT_NEXUS_TOOLS_ROOT = Path.home() / ".artifexnexus" / "nexus-tools"
 _VALID_SOURCES = ("official", "marketplace", "user")
 
 
+def _normalize_software(software: Any) -> List[DCCEntry]:
+    """将任意 software 输入规范化为 List[DCCEntry]。
+
+    前端 JSON-RPC 传入的是 dict 列表 [{dcc, minVersion, maxVersion}]，
+    需要转为 dataclass DCCEntry 实例才能正常访问 .dcc / .min_version 属性。
+    """
+    if not software:
+        return []
+    result: List[DCCEntry] = []
+    for item in software:
+        if isinstance(item, DCCEntry):
+            result.append(item)
+        elif isinstance(item, dict):
+            result.append(DCCEntry.from_dict(item))
+        elif isinstance(item, str):
+            result.append(DCCEntry.from_string(item))
+    return result
+
+
 class NexusToolInstaller:
     """Nexus-Tool 安装器：CRUD + Publish + Pin/Favorite。
 
@@ -89,12 +108,14 @@ class NexusToolInstaller:
 
         if manifest is None:
             manifest = {}
+        # 规范化 software：前端 JSON 传入的是 dict，需转为 DCCEntry
+        _sw = _normalize_software(software)
         manifest.setdefault("name", name)
         manifest.setdefault("description", description)
         manifest.setdefault("version", version)
         manifest["source"] = source
         manifest["id"] = nexus_tool_id
-        manifest.setdefault("software", [e.to_dict() for e in (software or [])])
+        manifest.setdefault("software", [e.to_dict() for e in _sw])
         manifest.setdefault("implementation", {"type": "script"})
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -114,7 +135,7 @@ class NexusToolInstaller:
             description=description,
             version=version,
             source=source,
-            software=software or [],
+            software=_sw,
             status="installed",
             nexus_tool_path=str(nexus_tool_dir),
             manifest=manifest,
@@ -132,6 +153,10 @@ class NexusToolInstaller:
         td = self.registry.get_nexus_tool(nexus_tool_id)
         if td is None:
             return None
+
+        # 规范化 software：前端 JSON-RPC 传入 dict 列表，需转为 DCCEntry
+        if "software" in kwargs and kwargs["software"] is not None:
+            kwargs["software"] = _normalize_software(kwargs["software"])
 
         for key, value in kwargs.items():
             if value is not None and hasattr(td, key):
@@ -152,13 +177,13 @@ class NexusToolInstaller:
                     manifest["author"] = kwargs["author"]
                     td.author = kwargs["author"]
                 if "software" in kwargs and kwargs["software"] is not None:
-                    manifest["software"] = [e.to_dict() if isinstance(e, DCCEntry) else e for e in kwargs["software"]]
+                    manifest["software"] = [e.to_dict() for e in kwargs["software"]]
                 # Safe manifest sub-keys
                 if "manifest" in kwargs and isinstance(kwargs["manifest"], dict):
                     m = kwargs["manifest"]
                     safe_keys = (
                         "inputs", "outputs", "presets", "triggers", "defaultFilters",
-                        "implementation", "agentHint",
+                        "implementation", "agentHint", "tags",
                     )
                     for k in safe_keys:
                         if k in m:
