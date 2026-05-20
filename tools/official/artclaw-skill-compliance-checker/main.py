@@ -98,7 +98,7 @@ _VALID_SOFTWARE = {"universal", "unreal_engine", "blender", "maya", "3ds_max",
 
 
 def _load_categories_enum(project_root: str) -> tuple[set[str], set[str]]:
-    """从 categories.json 加载合法 software / targetDCCs 枚举值。
+    """从 categories.json 加载合法 software 枚举值。
     成功：以 JSON 为准；失败：使用硬编码 fallback。
     """
     if project_root:
@@ -113,7 +113,7 @@ def _load_categories_enum(project_root: str) -> tuple[set[str], set[str]]:
 
 
 def _check_enum_fields(installed_dir: str, project_root: str) -> list[dict]:
-    """检查 Nexus-Tool manifest.json 的 targetDCCs 字段是否合规。"""
+    """检查 Nexus-Tool manifest.json 的 software/targetDCCs 字段是否合规。"""
     valid_software, valid_dcc = _load_categories_enum(project_root)
     issues = []
 
@@ -123,18 +123,19 @@ def _check_enum_fields(installed_dir: str, project_root: str) -> list[dict]:
         except Exception:
             continue
 
-        # 检查 Nexus-Tool 的 targetDCCs（兼容新旧格式）
-        if "targetDCCs" in data:
-            for item in data["targetDCCs"]:
-                dcc = item.get("dcc", "") if isinstance(item, dict) else str(item)
-                if dcc not in valid_dcc:
-                    issues.append({
-                        "type": "enum_violation",
-                        "file": str(Path(mf_path).relative_to(installed_dir)),
-                        "field": "targetDCCs",
-                        "value": dcc,
-                        "valid_values": sorted(valid_dcc),
-                    })
+        # 检查 DCC 字段（优先 software，兼容旧 targetDCCs）
+        dcc_field = data.get("software", data.get("targetDCCs", []))
+        field_name = "software" if "software" in data else "targetDCCs"
+        for item in dcc_field:
+            dcc = item.get("dcc", "") if isinstance(item, dict) else str(item)
+            if dcc not in valid_dcc:
+                issues.append({
+                    "type": "enum_violation",
+                    "file": str(Path(mf_path).relative_to(installed_dir)),
+                    "field": field_name,
+                    "value": dcc,
+                    "valid_values": sorted(valid_dcc),
+                })
 
         # 检查 Skill 的 software 字段
         if "software" in data:
@@ -692,7 +693,7 @@ def check_skill_versions(**kwargs) -> Dict[str, Any]:
     # ── D. Skill dependency check ─────────────────────────────────────────
     dep_issues = _check_skill_dependencies(installed_dir, source_map)
 
-    # ── E. 枚举字段校验（targetDCCs / software vs categories.json）────────
+    # ── E. 枚举字段校验（software / targetDCCs vs categories.json）────────
     enum_issues = _check_enum_fields(installed_dir, project_root)
     nt_dir = str(Path.home() / ".artifexnexus" / "nexus-tools")
     if Path(nt_dir).is_dir():

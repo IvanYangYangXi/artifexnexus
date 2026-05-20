@@ -83,26 +83,23 @@ def _parse_manifest(nexus_tool_dir: Path, source: str) -> Optional[ScannedNexusT
         except Exception:
             pass
 
-    # 解析 targetDCCs：支持新格式 [{dcc, minVersion?, maxVersion?}] 和旧格式 ["blender"]
-    raw_dccs = manifest.get("targetDCCs", [])
-    target_dccs: list[DCCEntry] = []
-    for item in raw_dccs:
+    # 解析 software：统一格式 [{dcc, minVersion?, maxVersion?}]
+    # 向后兼容旧字段名 targetDCCs 和旧格式 ["blender"]
+    raw_software = manifest.get("software", manifest.get("targetDCCs", []))
+    software: list[DCCEntry] = []
+    for item in raw_software:
         if isinstance(item, str):
             # 向后兼容：旧格式 ["blender", "unreal_engine"]
-            target_dccs.append(DCCEntry(dcc=item))
+            software.append(DCCEntry(dcc=item))
         elif isinstance(item, dict):
-            target_dccs.append(DCCEntry(
-                dcc=item.get("dcc", ""),
-                min_version=item.get("minVersion", ""),
-                max_version=item.get("maxVersion", ""),
-            ))
+            software.append(DCCEntry.from_dict(item))
 
     return ScannedNexusTool(
         name=name,
         description=manifest.get("description", ""),
         version=manifest.get("version", "1.0.0"),
         source=source,
-        target_dccs=target_dccs,
+        software=software,
         nexus_tool_path=str(nexus_tool_dir),
         manifest=manifest,
         author=author,

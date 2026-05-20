@@ -7,7 +7,11 @@
   "version": "1.0.0",
   "author": "ArtClaw",
   "license": "MIT",
-  "software": "unity",
+  "software": [
+    {
+      "dcc": "unity"
+    }
+  ],
   "category": "asset",
   "risk_level": "medium",
   "dependencies": [],
@@ -19,9 +23,5 @@
     "import",
     "assetdatabase"
   ],
-  "entry_point": "__init__.py",
-  "software_version": {
-    "min": "",
-    "max": ""
-  }
+  "entry_point": "__init__.py"
 }

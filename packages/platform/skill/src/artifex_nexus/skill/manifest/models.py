@@ -9,7 +9,6 @@ manifest/models.py — Skill Manifest pydantic v2 模型
 不由本模块自行定义，杜绝多源漂移。
 
 模型：
-    - ``SoftwareVersionConstraint`` — DCC 版本约束（min/max）
     - ``SkillManifest`` — Skill 包完整元数据
 """
 
@@ -20,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..categories import ALL_SOFTWARE
+from ..categories import ALL_SOFTWARE, DCCEntry
 
 
 # ── 正则常量 ────────────────────────────────────────────────────────────────
@@ -38,26 +37,6 @@ _SEMVER_PATTERN = re.compile(
 )
 
 
-# ── 子模型 ──────────────────────────────────────────────────────────────────
-
-class SoftwareVersionConstraint(BaseModel):
-    """DCC 软件版本约束。
-
-    对应 manifest.schema.json 的 ``software_version`` 字段。
-    """
-
-    min: Optional[str] = Field(default=None, description="最低版本要求，如 '5.3'")
-    max: Optional[str] = Field(default=None, description="最高版本上限，如 '5.5'")
-
-    @field_validator("min", "max", mode="before")
-    @classmethod
-    def _coerce_version(cls, v: Any) -> Optional[str]:
-        """将数字类型转为字符串，None 保持 None。"""
-        if v is None:
-            return None
-        return str(v)
-
-
 # ── 主模型 ──────────────────────────────────────────────────────────────────
 
 class SkillManifest(BaseModel):
@@ -69,8 +48,7 @@ class SkillManifest(BaseModel):
     验证规则：
     - name: 匹配 ^[a-z][a-z0-9_]{0,63}$
     - version: semver 格式
-    - software: 合法枚举值（来自 categories.json）
-    - category: 预设值或自定义（需匹配 CATEGORY_PATTERN）
+    - software: DCCEntry 列表（每个 DCC 可独立指定版本约束）
     """
 
     model_config = {"extra": "allow"}  # 允许额外字段（forward compat）
@@ -88,9 +66,9 @@ class SkillManifest(BaseModel):
         default="0.0.0",
         description="semver 版本号，如 '1.0.0'（缺省时使用 0.0.0）",
     )
-    software: str = Field(
-        default="unknown",
-        description="目标 DCC 软件类型（缺省时为 unknown）",
+    software: List[DCCEntry] = Field(
+        default_factory=lambda: [DCCEntry(dcc="universal")],
+        description="目标 DCC 软件列表，每项支持独立版本约束",
     )
 
     # ── 可选元数据 ──────────────────────────────────────────────────────
@@ -98,11 +76,6 @@ class SkillManifest(BaseModel):
     description: Optional[str] = Field(default=None, description="Skill 描述")
     author: Optional[str] = Field(default=None, description="作者")
     license: Optional[str] = Field(default=None, description="许可证")
-
-    # ── 软件版本约束 ────────────────────────────────────────────────────
-    software_version: Optional[SoftwareVersionConstraint] = Field(
-        default=None, description="DCC 版本约束"
-    )
 
     entry_point: str = Field(
         default="__init__.py",
@@ -147,25 +120,92 @@ class SkillManifest(BaseModel):
             )
         return v
 
+    @field_validator("software", mode="before")
+    @classmethod
+    def _coerce_software(cls, v: Any) -> List[DCCEntry]:
+        """向后兼容：旧格式 string → DCCEntry[]；也处理 dict 格式。"""
+        if v is None:
+            return [DCCEntry(dcc="universal")]
+        if isinstance(v, str):
+            return [DCCEntry(dcc=v)]
+        if isinstance(v, list):
+            result: List[DCCEntry] = []
+            for item in v:
+                if isinstance(item, str):
+                    result.append(DCCEntry(dcc=item))
+                elif isinstance(item, dict):
+                    result.append(DCCEntry.from_dict(item))
+                elif isinstance(item, DCCEntry):
+                    result.append(item)
+            return result if result else [DCCEntry(dcc="universal")]
+        return [DCCEntry(dcc="universal")]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_software_version(cls, data: Any) -> Any:
+        """向后兼容：旧 software_version 合并到第一个 DCCEntry。"""
+        if not isinstance(data, dict):
+            return data
+        sw_ver = data.pop("software_version", None)
+        if sw_ver and isinstance(sw_ver, dict):
+            sw_list = data.get("software", [])
+            # 如果是旧格式 string，先转为 list
+            if isinstance(sw_list, str):
+                sw_list = [DCCEntry(dcc=sw_list)]
+                data["software"] = sw_list
+            # 合并版本约束到第一个 DCC
+            if sw_list:
+                first = sw_list[0]
+                if isinstance(first, dict):
+                    if sw_ver.get("min") and not first.get("minVersion"):
+                        first["minVersion"] = str(sw_ver["min"])
+                    if sw_ver.get("max") and not first.get("maxVersion"):
+                        first["maxVersion"] = str(sw_ver["max"])
+                elif isinstance(first, DCCEntry):
+                    if sw_ver.get("min") and not first.min_version:
+                        first.min_version = str(sw_ver["min"])
+                    if sw_ver.get("max") and not first.max_version:
+                        first.max_version = str(sw_ver["max"])
+        return data
+
     # ── 便捷方法 ────────────────────────────────────────────────────────
 
     @property
-    def min_software_version(self) -> Optional[str]:
-        """获取最低 DCC 版本。"""
-        if self.software_version:
-            return self.software_version.min
-        return None
+    def software_dccs(self) -> List[str]:
+        """获取所有目标 DCC 标识列表（不含版本约束）。"""
+        return [e.dcc for e in self.software]
 
     @property
-    def max_software_version(self) -> Optional[str]:
-        """获取最高 DCC 版本。"""
-        if self.software_version:
-            return self.software_version.max
-        return None
+    def primary_dcc(self) -> str:
+        """获取首要目标 DCC 标识。"""
+        return self.software[0].dcc if self.software else "universal"
+
+    def get_version_constraint(self, dcc: str) -> Dict[str, str]:
+        """获取指定 DCC 的版本约束。
+
+        :param dcc: DCC 标识，如 'blender'。
+        :return: {'min': ..., 'max': ...} 或空 dict。
+        """
+        for entry in self.software:
+            if entry.dcc == dcc:
+                result: Dict[str, str] = {}
+                if entry.min_version:
+                    result["min"] = entry.min_version
+                if entry.max_version:
+                    result["max"] = entry.max_version
+                return result
+        return {}
 
     def to_dict(self) -> Dict[str, Any]:
-        """转为 dict（用于 JSON 序列化）。枚举值自动转换。"""
-        return self.model_dump(exclude_none=True)
+        """转为 dict（用于 JSON 序列化）。software 转为 camelCase。"""
+        data = self.model_dump(exclude_none=True, mode="python")
+        # 将 software 列表中的 DCCEntry 转为 camelCase dict
+        if "software" in data:
+            data["software"] = [
+                e.to_dict() if isinstance(e, DCCEntry) else e
+                for e in self.software
+            ]
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SkillManifest":

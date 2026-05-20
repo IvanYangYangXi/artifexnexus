@@ -41,7 +41,7 @@ def _load_template() -> dict:
             "manifest_version": "1.0",
             "name": "",
             "version": "0.1.0",
-            "software": "universal",
+            "software": [{"dcc": "universal"}],
             "entry_point": "__init__.py",
         }
 
@@ -127,6 +127,33 @@ _SOFTWARE_NORMALIZE: Dict[str, str] = {
 def _normalize_software(raw: str) -> str:
     """将 SKILL.md 中的软件名映射到 manifest 规范值。"""
     return _SOFTWARE_NORMALIZE.get(raw.strip().lower(), raw.strip())
+
+
+def _normalize_software_list(raw: Any) -> list:
+    """将 SKILL.md 中的 software 字段转为 DCCEntry 列表格式。
+
+    支持：
+    - 字符串 → [{"dcc": normalized}]
+    - 逗号分隔字符串 → [{dcc: ...}, {dcc: ...}]
+    - 列表 → [{"dcc": ...}, ...]
+    """
+    if isinstance(raw, list):
+        result = []
+        for item in raw:
+            if isinstance(item, str):
+                result.append({"dcc": _normalize_software(item)})
+            elif isinstance(item, dict):
+                result.append({
+                    "dcc": _normalize_software(item.get("dcc", "")),
+                    **({"minVersion": str(item[k])} if (k := item.get("minVersion") or item.get("min_version")) else {}),
+                    **({"maxVersion": str(item[k])} if (k := item.get("maxVersion") or item.get("max_version")) else {}),
+                })
+        return result if result else [{"dcc": "universal"}]
+    if isinstance(raw, str):
+        # 逗号分隔 → 多 DCC
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        return [{"dcc": _normalize_software(p)} for p in parts] if parts else [{"dcc": "universal"}]
+    return [{"dcc": "universal"}]
 
 
 # ── 标签规范化 ───────────────────────────────────────────────────────────────
@@ -232,10 +259,10 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
     manifest["license"] = str(lic)
 
     # software
-    sw_raw = str(artclaw.get("software", "") or artclaw.get("dcc", ""))
+    sw_raw = artclaw.get("software", "") or artclaw.get("dcc", "")
+    manifest["software"] = _normalize_software_list(sw_raw) if sw_raw else [{"dcc": "universal"}]
     if not sw_raw:
         result["warnings"].append("software 未指定，使用默认值 universal")
-    manifest["software"] = _normalize_software(sw_raw) if sw_raw else "universal"
 
     # category → 合并入 tags（category 字段已废弃）
     cat_raw = str(artclaw.get("category", ""))

@@ -6,11 +6,6 @@
   "author": "杨己力",
   "createdAt": "2026-04-23 15:00:00",
   "updatedAt": "2026-04-24 03:40:28",
-  "targetDCCs": [
-    {
-      "dcc": "unreal_engine"
-    }
-  ],
   "defaultFilters": {
     "typeFilter": {
       "source": "parameter"
@@ -82,5 +77,10 @@
       "description": "包含 UV bbox、贴图裁切区域、节省比例等信息的文字报告"
     }
   ],
-  "presets": []
+  "presets": [],
+  "software": [
+    {
+      "dcc": "unreal_engine"
+    }
+  ]
 }

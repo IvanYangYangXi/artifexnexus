@@ -4,11 +4,6 @@
   "description": "自动检查已安装Skill与源码版本同步、格式合规、文件一致性。无需配置参数，全自动从平台配置读取路径。",
   "agentHint": "通过 Tool Manager API 执行: POST /api/v1/tools/official%2Fartclaw-skill-compliance-checker/execute。或从工具详情 API 获取 tool_path 字段，执行 {tool_path}/main.py。不要运行 openclaw skills check。",
   "version": "1.3.0",
-  "targetDCCs": [
-    {
-      "dcc": "general"
-    }
-  ],
   "defaultFilters": {
     "path": [
       {
@@ -103,5 +98,10 @@
     }
   ],
   "author": "ArtClaw",
-  "updatedAt": "2026-05-16 13:32:38"
+  "updatedAt": "2026-05-16 13:32:38",
+  "software": [
+    {
+      "dcc": "general"
+    }
+  ]
 }

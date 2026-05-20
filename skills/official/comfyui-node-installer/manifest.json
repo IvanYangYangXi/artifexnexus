@@ -6,7 +6,11 @@
   "version": "0.2.0",
   "author": "ArtClaw",
   "license": "MIT",
-  "software": "comfyui",
+  "software": [
+    {
+      "dcc": "comfyui"
+    }
+  ],
   "category": "workflow",
   "risk_level": "low",
   "dependencies": [],
@@ -17,6 +21,5 @@
       "name": "comfyui_node_installer",
       "description": ""
     }
-  ],
-  "software_version": {}
+  ]
 }

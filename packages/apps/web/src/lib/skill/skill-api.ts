@@ -6,6 +6,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { DCCEntry } from "../nexus-tool/nexus-tool-api";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ export interface SkillEntry {
   display_name: string;
   description: string;
   layer: string;
-  software: string;
+  software: DCCEntry[];
   version: string;
   priority: number;
   path: string;
@@ -27,8 +28,6 @@ export interface SkillEntry {
   dependencies: string[];
   entry_point: string;
   license: string;
-  /** 软件版本约束（可选） */
-  software_version?: { min?: string; max?: string } | null;
 }
 
 export interface SkillItem extends SkillEntry {

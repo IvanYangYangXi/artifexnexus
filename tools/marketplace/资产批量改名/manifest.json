@@ -4,11 +4,6 @@
   "description": "批量为 UE 选中的资产添加前缀或后缀，支持自定义分隔符。",
   "version": "1.0.1",
   "author": "ArtClaw",
-  "targetDCCs": [
-    {
-      "dcc": "unreal_engine"
-    }
-  ],
   "createdAt": "2026-04-24 18:30:00",
   "updatedAt": "2026-04-25 23:43:00",
   "defaultFilters": {
@@ -65,6 +60,11 @@
       "id": "renamed_assets",
       "name": "改名明细",
       "type": "array"
+    }
+  ],
+  "software": [
+    {
+      "dcc": "unreal_engine"
     }
   ]
 }

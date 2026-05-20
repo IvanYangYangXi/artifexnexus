@@ -70,7 +70,7 @@ class NexusToolRegistry:
                 description=s.description,
                 version=s.version,
                 source=s.source,
-                target_dccs=s.target_dccs,
+                software=s.software,
                 status="disabled" if is_disabled else "installed",
                 nexus_tool_path=s.nexus_tool_path,
                 manifest=s.manifest,
@@ -182,7 +182,7 @@ class NexusToolRegistry:
         """运行一个 nexus-tool（通用脚本，非 DCC 绑定）。
 
         DCC 绑定工具应由 OpenClaw MCP ``run_python`` 在 DCC 进程内执行。
-        此方法仅适用于 targetDCCs 为 "general" 的通用工具。
+        此方法仅适用于 software 为 "general" 的通用工具。
 
         注意：此方法不通过 Sidecar RPC 暴露 —— 前端 [▶ 运行] 按钮
         应触发 DCC 内 run_python 而非 sidecar RPC。
@@ -193,7 +193,7 @@ class NexusToolRegistry:
             return NexusToolResult.fail(f"Nexus-Tool not found: {nexus_tool_id}")
 
         # DCC 绑定工具禁止本地执行
-        _dcc_names = [entry.dcc for entry in td.target_dccs]
+        _dcc_names = [entry.dcc for entry in td.software]
         if _dcc_names and not all(
             d in ("general", "universal") for d in _dcc_names
         ):

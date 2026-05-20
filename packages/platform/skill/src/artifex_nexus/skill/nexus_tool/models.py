@@ -6,9 +6,9 @@ nexus_tool/models.py — Nexus-Tool 数据模型
 
 命名铁律：所有类名/函数名/变量名必须包含 ``nexus_tool``，禁止裸 ``tool``。
 
-DCC 版本约束模型（v2）:
-    ``target_dccs`` 从 ``List[str]`` 升级为 ``List[DCCEntry]``，支持每种 DCC
-    独立指定版本范围。向后兼容旧的 ``string[]`` 格式。
+DCC 版本约束模型（v3）:
+    ``software`` 字段统一为 ``List[DCCEntry]``，支持每种 DCC
+    独立指定版本范围。向后兼容旧的 ``string[]`` 和 ``targetDCCs`` 格式。
 """
 
 from __future__ import annotations
@@ -16,19 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-
-@dataclass
-class DCCEntry:
-    """单个目标 DCC 软件的条目，支持版本约束。
-
-    字段：
-        - ``dcc``: 软件标识符（来自 categories.json 的 ALL_SOFTWARE）
-        - ``min_version``: 最低版本要求，如 "3.0"（可选）
-        - ``max_version``: 最高版本上限，如 "5.0"（可选）
-    """
-    dcc: str
-    min_version: str = ""
-    max_version: str = ""
+from ..categories import DCCEntry  # noqa: F401 — re-export for backward compat
 
 
 @dataclass
@@ -41,7 +29,7 @@ class ScannedNexusTool:
     description: str = ""
     version: str = "1.0.0"
     source: str = "user"  # official / marketplace / user
-    target_dccs: List[DCCEntry] = field(default_factory=list)
+    software: List[DCCEntry] = field(default_factory=list)
     nexus_tool_path: str = ""
     manifest: Dict[str, Any] = field(default_factory=dict)
     author: str = ""
@@ -57,7 +45,7 @@ class NexusToolData:
     description: str = ""
     version: str = "0.0.0"
     source: str = "user"
-    target_dccs: List[DCCEntry] = field(default_factory=list)
+    software: List[DCCEntry] = field(default_factory=list)
     status: str = "installed"  # installed / disabled
     nexus_tool_path: str = ""
     manifest: Dict[str, Any] = field(default_factory=dict)

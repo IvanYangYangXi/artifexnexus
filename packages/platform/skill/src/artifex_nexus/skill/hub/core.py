@@ -32,7 +32,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from ..categories import software_value
+from ..categories import DCCEntry, software_value
 from ..conflict import LAYER_PRIORITY
 from ..decorator import SkillToolResult
 from ..manifest import SkillManifest, load_manifest_model
@@ -76,9 +76,14 @@ class SkillEntry:
         return LAYER_PRIORITY.get(self.layer, 999)
 
     @property
-    def software(self) -> str:
-        """适用 DCC 软件标识。"""
-        return software_value(self.manifest.software)
+    def software(self) -> List[str]:
+        """适用 DCC 软件标识列表。"""
+        return self.manifest.software_dccs
+
+    @property
+    def primary_software(self) -> str:
+        """首要适用 DCC 软件标识。"""
+        return self.manifest.primary_dcc
 
     @property
     def version(self) -> str:
@@ -256,7 +261,7 @@ class SkillHub:
                     entry_tags = set(entry.manifest.tags or [])
                     if not any(t in entry_tags for t in tags):
                         continue
-                if software is not None and entry.software != software:
+                if software is not None and software not in entry.software:
                     continue
                 result.append(entry)
 

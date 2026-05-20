@@ -26,7 +26,6 @@ from __future__ import annotations
 from .decorator import SkillToolResult, artclaw_tool, skill_tool, tool as tool_legacy  # noqa
 from .manifest import (
     SkillManifest,
-    SoftwareVersionConstraint,
     load_manifest_model,
 )
 # 枚举从 categories.json 唯一数据源读取
@@ -90,7 +89,6 @@ __all__ = [
     "artclaw_tool",
     # manifest
     "SkillManifest",
-    "SoftwareVersionConstraint",
     "load_manifest_model",
     # categories (单一数据源)
     "Software",

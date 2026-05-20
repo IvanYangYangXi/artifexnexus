@@ -54,7 +54,7 @@ export function AtMentionDialog({ open, onClose, onSelect }: AtMentionDialogProp
           type: "skill",
           id: s.id,
           name: s.name,
-          icon: DCC_ICONS[s.targetDCCs[0]] || "🔧",
+          icon: DCC_ICONS[s.software[0]?.dcc as DCC] || "🔧",
         });
       }
     }
@@ -67,7 +67,7 @@ export function AtMentionDialog({ open, onClose, onSelect }: AtMentionDialogProp
           id: t.id,
           name: t.name,
           parentName: t.skillName,
-          icon: skill ? DCC_ICONS[skill.targetDCCs[0]] : "🔧",
+          icon: skill ? DCC_ICONS[skill.software[0]?.dcc as DCC] : "🔧",
         });
       }
     }

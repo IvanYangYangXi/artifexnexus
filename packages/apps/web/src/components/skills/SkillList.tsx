@@ -105,11 +105,11 @@ export function SkillList() {
   const filtered = skills
     .filter((s) => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (dccFilter !== "all" && s.software !== dccFilter) {
-        // "general" (前端) ↔ "universal" (后端) 互认
-        if (!(dccFilter === "general" && s.software === "universal")) {
-          return false;
-        }
+      if (dccFilter !== "all" && !s.software.some((e) => {
+        const d = typeof e === "string" ? e : e.dcc;
+        return d === dccFilter || (dccFilter === "general" && d === "universal");
+      })) {
+        return false;
       }
       if (sourceFilter !== "all" && layerToSource(s.layer) !== sourceFilter) return false;
       if (favoritesOnly && !s.favorited) return false;
@@ -265,7 +265,7 @@ export function SkillList() {
               selected={selectMode ? selectedIds.has(skill.name) : undefined}
               onSelect={selectMode ? (() => toggleSelect(skill.name)) : undefined}
               onTitleClick={() => handleDetail(skill.name)}
-              icon={<DCCIcon software={skill.software} />}
+              icon={<DCCIcon software={(skill.software[0] && typeof skill.software[0] === "string") ? skill.software[0] : (skill.software[0] as { dcc: string })?.dcc || ""} />}
               title={skill.display_name || skill.name}
               titleBadge={skill.validation_error || !skill.has_manifest ? { label: "⚠", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" } : undefined}
               source={{ label: SOURCE_LABELS[layerToSource(skill.layer)] || layerToSource(skill.layer), color: SOURCE_COLORS[layerToSource(skill.layer)] }}
@@ -280,7 +280,7 @@ export function SkillList() {
               description={skill.description || skill.tags?.join(", ") || ""}
               meta={<>
                 <span>{skill.version}</span>
-                <span>·</span><span>{skill.software}</span>
+                <span>·</span><span>{Array.isArray(skill.software) ? skill.software.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc).join(", ") || "通用" : "通用"}</span>
               </>}
               actions={(!selectMode || skill.installed) ? <>
                 {/* 详情 — 始终显示 */}

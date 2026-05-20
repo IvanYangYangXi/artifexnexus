@@ -194,6 +194,16 @@ def _err_invalid_params(req_id: Any, message: str) -> dict:
     return _err(req_id, message, code=-32602)
 
 
+def _serialize_software(software: Any) -> list[dict]:
+    """将 DCCEntry 列表序列化为前端可用的 [{dcc, minVersion, maxVersion}] 格式。"""
+    if not software:
+        return []
+    return [
+        {"dcc": e.dcc, "minVersion": e.min_version, "maxVersion": e.max_version}
+        for e in software
+    ]
+
+
 def _entry_to_dict(entry: Any) -> dict:
     """将 SkillEntry 转为可序列化的 dict。
 
@@ -202,7 +212,6 @@ def _entry_to_dict(entry: Any) -> dict:
     - 其他所有字段 → 来自 manifest.json
     - manifest.json 缺失时除 name/description 外全部留空/默认值
     """
-    from artifex_nexus.skill import software_value
     manifest = entry.manifest
     has_manifest = (entry.path / "manifest.json").exists() if entry.path else False
     return {
@@ -210,7 +219,7 @@ def _entry_to_dict(entry: Any) -> dict:
         "display_name": manifest.display_name or entry.name,
         "description": getattr(entry, "description", "") or "",
         "layer": entry.layer,
-        "software": software_value(manifest.software),
+        "software": _serialize_software(manifest.software),
         "version": manifest.version,
         "priority": entry.priority,
         "path": str(entry.path) if entry.path else "",
@@ -222,11 +231,6 @@ def _entry_to_dict(entry: Any) -> dict:
         "entry_point": manifest.entry_point or "__init__.py",
         "license": manifest.license or "",
         "has_manifest": has_manifest,
-        # 软件版本约束（可选字段）
-        "software_version": (
-            {"min": manifest.software_version.min, "max": manifest.software_version.max}
-            if manifest.software_version else None
-        ),
     }
 
 
@@ -243,10 +247,10 @@ def _nt_data_to_dict(ntd: Any) -> dict:
         "description": ntd.description,
         "version": ntd.version,
         "source": ntd.source,
-        "target_dccs": [
+        "software": [
             {"dcc": e.dcc, "minVersion": e.min_version, "maxVersion": e.max_version}
-            for e in ntd.target_dccs
-        ] if ntd.target_dccs else [],
+            for e in ntd.software
+        ] if ntd.software else [],
         "status": ntd.status,
         "nexus_tool_path": ntd.nexus_tool_path,
         "is_enabled": ntd.is_enabled,
@@ -423,15 +427,10 @@ def _skill_update_manifest(skill_name: str, fields: dict) -> dict:
     allowed_fields = {
         "software", "version", "author",
         "entry_point", "license", "tags", "dependencies", "display_name",
-        "software_version",
     }
     for key, value in fields.items():
         if key in allowed_fields:
             current[key] = value
-
-    # 如果是 software_version 且为 None，移除该字段
-    if current.get("software_version") is None:
-        current.pop("software_version", None)
 
     # 用 pydantic 模型校验
     from artifex_nexus.skill.manifest import SkillManifest

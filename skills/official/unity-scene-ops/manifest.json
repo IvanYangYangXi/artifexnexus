@@ -7,7 +7,11 @@
   "version": "1.0.0",
   "author": "ArtClaw",
   "license": "MIT",
-  "software": "unity",
+  "software": [
+    {
+      "dcc": "unity"
+    }
+  ],
   "category": "scene",
   "risk_level": "low",
   "dependencies": [],
@@ -18,9 +22,5 @@
     "gameobject",
     "find"
   ],
-  "entry_point": "__init__.py",
-  "software_version": {
-    "min": "",
-    "max": ""
-  }
+  "entry_point": "__init__.py"
 }

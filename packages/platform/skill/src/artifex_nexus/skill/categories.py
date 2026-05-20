@@ -17,10 +17,51 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import List
 
 logger = logging.getLogger("artifex_nexus.skill.categories")
+
+
+# ── DCC 条目数据类 ──────────────────────────────────────────────────────────
+
+@dataclass
+class DCCEntry:
+    """单个目标 DCC 软件的条目，支持版本约束。
+
+    字段：
+        - ``dcc``: 软件标识符（来自 ALL_SOFTWARE）
+        - ``min_version``: 最低版本要求，如 "3.0"（可选）
+        - ``max_version``: 最高版本上限，如 "5.0"（可选）
+    """
+    dcc: str
+    min_version: str = ""
+    max_version: str = ""
+
+    def to_dict(self) -> dict:
+        """转为 manifest JSON 兼容的 dict（字段名使用 camelCase）。"""
+        result: dict = {"dcc": self.dcc}
+        if self.min_version:
+            result["minVersion"] = self.min_version
+        if self.max_version:
+            result["maxVersion"] = self.max_version
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DCCEntry":
+        """从 dict 创建 DCCEntry（兼容新旧字段名）。"""
+        return cls(
+            dcc=data.get("dcc", ""),
+            min_version=data.get("minVersion", data.get("min_version", "")),
+            max_version=data.get("maxVersion", data.get("max_version", "")),
+        )
+
+    @classmethod
+    def from_string(cls, dcc: str) -> "DCCEntry":
+        """从旧格式纯字符串创建 DCCEntry。"""
+        return cls(dcc=dcc)
 
 
 # ── 加载唯一数据源 ──────────────────────────────────────────────────────────

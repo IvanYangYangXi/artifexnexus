@@ -190,7 +190,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   // ── AI 辅助运行 ──
   const handleAIAssist = () => {
     if (!detail) return;
-    const dccs = (detail.target_dccs || []).map((e) => (typeof e === "string" ? e : e.dcc)).filter((d) => d !== "general");
+    const dccs = (detail.software || []).map((e) => (typeof e === "string" ? e : e.dcc)).filter((d) => d !== "general");
     const dccLabel = dccs.length > 0 ? dccs.join(", ") : "当前 DCC";
     const inputs = detail.inputs || [];
 
@@ -248,7 +248,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
 
   const isInstance = !!detail.instance_of;
   const inputs = detail.inputs || [];
-  const targetDCCs = detail.target_dccs || [];
+  const dccList = detail.software || [];
   const inputCls =
     "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-2 text-xs focus:outline-none focus:border-primary/40 transition-colors font-mono";
 
@@ -276,8 +276,8 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             {(SOURCE_LABELS as Record<string, string>)[detail.source] && (
               <span>来源: {(SOURCE_LABELS as Record<string, string>)[detail.source]}</span>
             )}
-            {targetDCCs.length > 0 && (
-              <span>DCC: {targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ")}</span>
+            {dccList.length > 0 && (
+              <span>DCC: {dccList.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ")}</span>
             )}
           </div>
         </div>
@@ -335,7 +335,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
               <FiltersTab
                 filters={filters}
                 onChange={setFilters}
-                targetDCCs={targetDCCs}
+                software={dccList}
                 compact
               />
             </div>
@@ -349,7 +349,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
                 <InfoRow label="版本" value={detail.version || "0.0.0"} />
                 <InfoRow label="作者" value={detail.author || "未知"} />
                 <InfoRow label="来源" value={(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source} />
-                <InfoRow label="DCC" value={targetDCCs.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ") || "通用"} />
+                <InfoRow label="DCC" value={dccList.map((d) => (DCC_LABELS as Record<string, string>)[typeof d === "string" ? d : d.dcc] || (typeof d === "string" ? d : d.dcc)).join(", ") || "通用"} />
                 <InfoRow label="ID" value={detail.id} mono />
                 <InfoRow label="路径" value={detail.nexus_tool_path} mono />
                 {detail.created_at && <InfoRow label="创建时间" value={detail.created_at.slice(0, 10)} />}

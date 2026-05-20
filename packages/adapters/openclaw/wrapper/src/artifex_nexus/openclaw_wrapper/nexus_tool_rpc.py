@@ -187,7 +187,7 @@ def _handle_nexus_tool_create(req_id: Any, params: dict) -> dict:
     """nexus-tool.create(...) → NexusToolInfo。
 
     Required: name
-    Optional: description, version, source, target_dccs, manifest
+    Optional: description, version, source, software, manifest
     """
     try:
         name = params.get("name", "").strip()
@@ -200,7 +200,7 @@ def _handle_nexus_tool_create(req_id: Any, params: dict) -> dict:
             description=params.get("description", ""),
             version=params.get("version", "1.0.0"),
             source=params.get("source", "user"),
-            target_dccs=params.get("target_dccs"),
+            software=params.get("software"),
             manifest=params.get("manifest"),
         )
         return _ok(req_id, _nt_data_to_dict(ntd))
@@ -219,7 +219,7 @@ def _handle_nexus_tool_update(req_id: Any, params: dict) -> dict:
         installer = _get_nt_installer()
         kwargs: dict[str, Any] = {}
         for key in ("name", "description", "version", "author", "source",
-                     "target_dccs", "manifest"):
+                     "software", "manifest"):
             if key in params:
                 kwargs[key] = params[key]
 
@@ -465,7 +465,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
     异步执行，立即返回 task_id。后台线程执行工具，前端通过 nexus-tool.result 轮询。
 
     执行策略：
-    - DCC 工具（target_dccs 不含 "general"）→ MCP Bridge → DCC MCP Server run_python
+    - DCC 工具（software 不含 "general"）→ MCP Bridge → DCC MCP Server run_python
     - 通用工具（含 "general" 或无 DCC）→ subprocess + importlib wrapper
     """
     try:
@@ -501,7 +501,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         if not func_name:
             return _err(req_id, "manifest 未定义 implementation.function，无法确定入口函数")
 
-        target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or [])]
+        target_dccs = [e.dcc.lower() for e in (ntd.software or [])]
         is_general = "general" in target_dccs or not target_dccs
         task_id = str(uuid.uuid4())[:12]
         cancel_event = threading.Event()
@@ -586,7 +586,7 @@ def _execute_tool_sync(
 
     task_id 用于通用工具的 cancel（注册子进程句柄）。
     """
-    target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or [])]
+    target_dccs = [e.dcc.lower() for e in (ntd.software or [])]
     is_general = "general" in target_dccs or not target_dccs
 
     if is_general:
@@ -617,7 +617,7 @@ def _execute_dcc_tool(
     import json as _json
     from pathlib import Path
 
-    target_dccs = [e.dcc.lower() for e in (ntd.target_dccs or []) if e.dcc.lower() != "general"]
+    target_dccs = [e.dcc.lower() for e in (ntd.software or []) if e.dcc.lower() != "general"]
     dcc = target_dccs[0] if target_dccs else "blender"
     server_name = _DCC_TO_MCP_SERVER.get(dcc)
     if server_name is None:

@@ -6,11 +6,6 @@
   "author": "柒",
   "createdAt": "2026-04-25 15:00:00",
   "updatedAt": "2026-04-26 13:40:15",
-  "targetDCCs": [
-    {
-      "dcc": "unreal_engine"
-    }
-  ],
   "defaultFilters": {
     "typeFilter": {
       "types": [
@@ -158,6 +153,11 @@
         "dry_run": false,
         "overwrite_texture": false
       }
+    }
+  ],
+  "software": [
+    {
+      "dcc": "unreal_engine"
     }
   ]
 }

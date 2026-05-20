@@ -20,7 +20,7 @@ import { DCC_LABELS } from "../../lib/skillsMock";
 interface FiltersTabProps {
   filters: FilterConfig;
   onChange: (filters: FilterConfig) => void;
-  targetDCCs: DCCEntry[];
+  software: DCCEntry[];
   compact?: boolean;
 }
 
@@ -29,12 +29,12 @@ const PAGE_SIZE = 5;
 export function FiltersTab({
   filters,
   onChange,
-  targetDCCs,
+  software,
   compact,
 }: FiltersTabProps) {
   const [page, setPage] = React.useState(1);
 
-  const dccNames = targetDCCs.map((e) => e.dcc);
+  const dccNames = software.map((e) => e.dcc);
   const dccOptions = ["", "general", ...dccNames];
   const selectedDcc = filters.dcc || dccNames[0] || "";
   const pathRules = filters.path || [];

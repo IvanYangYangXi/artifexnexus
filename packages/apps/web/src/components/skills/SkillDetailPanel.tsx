@@ -27,9 +27,10 @@ import {
   Upload,
   RefreshCw,
 } from "lucide-react";
-import { Button, cn, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
+import { Button, cn, Input } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { type SkillDetail, skillDetail, skillFixManifest, skillReadSkillMd, skillUpdateManifest, skillPublish } from "../../lib/skill/skill-api";
+import type { DCCEntry } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
@@ -169,9 +170,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
   const isInstalled = !!detail.install_path;
 
   // ── 表单状态（初始值来自 entry） ─────────────────────────────────────
-  const [software, setSoftware] = React.useState(entry.software || "");
-  const [svMin, setSvMin] = React.useState(entry.software_version?.min || "");
-  const [svMax, setSvMax] = React.useState(entry.software_version?.max || "");
+  const [software, setSoftware] = React.useState<DCCEntry[]>(entry.software || []);
   const [version, setVersion] = React.useState(entry.version || "");
   const [author, setAuthor] = React.useState(entry.author || "");
   const [license, setLicense] = React.useState(entry.license || "");
@@ -190,9 +189,14 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
   // ── 变更检测：有修改时才能保存 ──────────────────────────────────────
   const hasChanges = React.useMemo(() => {
     const orig = entry;
-    if (software !== (orig.software || "")) return true;
-    if (svMin !== (orig.software_version?.min || "")) return true;
-    if (svMax !== (orig.software_version?.max || "")) return true;
+    // Compare software arrays
+    const origSoftware = orig.software || [];
+    if (software.length !== origSoftware.length) return true;
+    for (let i = 0; i < software.length; i++) {
+      if (software[i].dcc !== origSoftware[i].dcc) return true;
+      if ((software[i].minVersion || "") !== (origSoftware[i].minVersion || "")) return true;
+      if ((software[i].maxVersion || "") !== (origSoftware[i].maxVersion || "")) return true;
+    }
     if (version !== (orig.version || "")) return true;
     if (author !== (orig.author || "")) return true;
     if (license !== (orig.license || "")) return true;
@@ -200,11 +204,23 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
     if (tags !== (orig.tags?.join(", ") || "")) return true;
     if (deps !== (orig.dependencies?.join(", ") || "")) return true;
     return false;
-  }, [software, svMin, svMax, version, author, license, entryPoint, tags, deps, entry]);
+  }, [software, version, author, license, entryPoint, tags, deps, entry]);
 
-  // ── 软件下拉选项（从 DCC_LABELS 的 key 列表获取，含通用选项） ──
-  const softwareOptions = React.useMemo(() => {
-    return Object.keys(DCC_LABELS);
+  // ── 软件 toggle ────────────────────────────────────────────────────
+  const toggleDCC = React.useCallback((dcc: string) => {
+    setSoftware((prev) => {
+      const exists = prev.some((e) => e.dcc === dcc);
+      if (exists) {
+        return prev.filter((e) => e.dcc !== dcc);
+      }
+      return [...prev, { dcc }];
+    });
+  }, []);
+
+  const updateDCCVersion = React.useCallback((dcc: string, field: "minVersion" | "maxVersion", value: string) => {
+    setSoftware((prev) =>
+      prev.map((e) => (e.dcc === dcc ? { ...e, [field]: value } : e))
+    );
   }, []);
 
   const handleSave = React.useCallback(async () => {
@@ -220,12 +236,6 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         tags: tags.split(",").map(t => t.trim()).filter(Boolean),
         dependencies: deps.split(",").map(d => d.trim()).filter(Boolean),
       };
-      // software_version
-      if (svMin || svMax) {
-        fields.software_version = { min: svMin || null, max: svMax || null };
-      } else {
-        fields.software_version = null;
-      }
       const result = await skillUpdateManifest(entry.name, fields);
       setSaveResult(result);
       if (result.ok) {
@@ -236,7 +246,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
     } finally {
       setSaving(false);
     }
-  }, [software, svMin, svMax, version, author, entryPoint, license, tags, deps, entry.name, onDetailRefresh]);
+  }, [software, version, author, entryPoint, license, tags, deps, entry.name, onDetailRefresh]);
 
   const handlePublish = React.useCallback(async () => {
     setPublishing(true);
@@ -331,33 +341,70 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
 
       {/* 软件 + 版本约束 */}
       <div>
-        <div className={labelCls}>软件</div>
+        <div className={labelCls}>目标软件</div>
         {isInstalled ? (
-          <Select value={software} onValueChange={setSoftware}>
-            <SelectTrigger className="h-7 w-full text-[11px] bg-white/[0.04] border-white/[0.08]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {softwareOptions.map(key => (
-                <SelectItem key={key} value={key}>{(DCC_LABELS as Record<string, string>)[key] || key}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <p className="text-xs text-foreground">{(DCC_LABELS as Record<string, string>)[software] || software || "—"}</p>
-        )}
-        {/* 版本约束 */}
-        {isInstalled ? (
-          <div className="flex items-center gap-2 mt-1.5">
-            <input className={inputCls} placeholder="最低版本 (min)" value={svMin} onChange={e => setSvMin(e.target.value)} />
-            <span className="text-[10px] text-muted-foreground shrink-0">~</span>
-            <input className={inputCls} placeholder="最高版本 (max)" value={svMax} onChange={e => setSvMax(e.target.value)} />
+          <div className="space-y-2">
+            {/* DCC 多选 toggle 按钮 */}
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(DCC_LABELS).map(([dcc, label]) => {
+                const active = software.some((e) => e.dcc === dcc);
+                return (
+                  <button
+                    key={dcc}
+                    onClick={() => toggleDCC(dcc)}
+                    className={cn(
+                      "px-2 py-0.5 rounded text-[11px] border transition-colors",
+                      active
+                        ? "bg-primary/15 text-primary border-primary/30"
+                        : "bg-muted/20 text-muted-foreground border-border/40 hover:border-border/60",
+                    )}
+                  >
+                    {label as string}
+                  </button>
+                );
+              })}
+            </div>
+            {/* 每个选中 DCC 的版本号输入 */}
+            {software.map((entry) => (
+              <div key={entry.dcc} className="flex items-center gap-2 pl-1">
+                <span className="text-[10px] text-muted-foreground w-20 shrink-0 truncate">
+                  {(DCC_LABELS as Record<string, string>)[entry.dcc] || entry.dcc}
+                </span>
+                <input
+                  className={inputCls}
+                  placeholder="最低版本"
+                  value={entry.minVersion || ""}
+                  onChange={(e) => updateDCCVersion(entry.dcc, "minVersion", e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground shrink-0">~</span>
+                <input
+                  className={inputCls}
+                  placeholder="最高版本"
+                  value={entry.maxVersion || ""}
+                  onChange={(e) => updateDCCVersion(entry.dcc, "maxVersion", e.target.value)}
+                />
+              </div>
+            ))}
           </div>
-        ) : (entry.software_version?.min || entry.software_version?.max) ? (
-          <p className="text-[10px] text-muted-foreground mt-0.5">
-            {entry.software_version?.min || "?"} ~ {entry.software_version?.max || "?"}
-          </p>
-        ) : null}
+        ) : (
+          <div className="space-y-1">
+            {software.map((entry) => {
+              const label = (DCC_LABELS as Record<string, string>)[entry.dcc] || entry.dcc;
+              const hasVer = entry.minVersion || entry.maxVersion;
+              return (
+                <div key={entry.dcc} className="flex items-center gap-2 text-xs">
+                  <span className="text-foreground">{label}</span>
+                  {hasVer && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {entry.minVersion || "?"} ~ {entry.maxVersion || "?"}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {software.length === 0 && <p className="text-xs text-muted-foreground">—</p>}
+          </div>
+        )}
       </div>
 
       {/* ── 双列字段网格 ────────────────────────────────────────────── */}
@@ -801,7 +848,7 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">name</code>: snake_case，全局唯一</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">version</code>: semver 格式</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">software</code>: DCC 软件标识</li>
-            <li><code className="text-[9px] bg-muted/30 px-1 rounded">software_version</code>: <code className="text-[9px] bg-muted/30 px-1 rounded">{"{min, max}"}</code>，DCC 版本号约束</li>
+            <li><code className="text-[9px] bg-muted/30 px-1 rounded">software</code>: <code className="text-[9px] bg-muted/30 px-1 rounded">[{"{dcc, minVersion?, maxVersion?}"}]</code>，目标 DCC 及版本约束</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">tags</code>: 标签列表（至少一个分类标签）</li>
             <li><code className="text-[9px] bg-muted/30 px-1 rounded">entry_point</code>: 入口文件名</li>
           </ul>

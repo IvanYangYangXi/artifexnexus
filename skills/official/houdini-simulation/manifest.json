@@ -7,14 +7,14 @@
   "version": "0.1.0",
   "author": "ArtClaw",
   "license": "MIT",
-  "software": "houdini",
+  "software": [
+    {
+      "dcc": "houdini"
+    }
+  ],
   "category": "utils",
   "risk_level": "low",
   "dependencies": [],
   "tags": [],
-  "entry_point": "__init__.py",
-  "software_version": {
-    "min": "",
-    "max": ""
-  }
+  "entry_point": "__init__.py"
 }

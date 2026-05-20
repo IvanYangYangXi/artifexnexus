@@ -75,11 +75,11 @@ export function RightPanel() {
   }, []);
   React.useEffect(() => { loadTools(); }, [loadTools]);
 
-  // ─── Tool 分组（按 source → target_dccs 聚合）────────────────────
+  // ─── Tool 分组（按 source → software 聚合）────────────────────
   const toolGroups = React.useMemo(() => {
     const map = new Map<string, NexusToolItem[]>();
     tools.forEach((t) => {
-      const first = t.target_dccs?.[0];
+      const first = t.software?.[0];
       const key = (typeof first === "string" ? first : first?.dcc) || "通用";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);

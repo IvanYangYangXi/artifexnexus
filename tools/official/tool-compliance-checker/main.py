@@ -386,19 +386,19 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             issues.append({"tool_id": tool_id, "severity": "warning",
                             "message": f"id 格式错误: {manifest_id!r}，应为 UUID 或 {{source}}/{{name}}"})
 
-    # ── Rule 14: targetDCCs 必填且元素合法 ──────────────────────────────────
+    # ── Rule 14: software/targetDCCs 必填且元素合法 ──────────────────────────────────
     # 合法软件枚举（与 contracts/data/categories.json §software 保持同步）
     valid_dccs = {"universal", "unreal_engine", "blender", "maya", "3ds_max",
                   "houdini", "comfyui", "substance_painter", "substance_designer",
                   "unity", "general"}
-    target_dccs = manifest.get("targetDCCs", None)
+    target_dccs = manifest.get("software", manifest.get("targetDCCs"))
     if target_dccs is None:
         issues.append({"tool_id": tool_id, "severity": "warning",
-                        "message": "缺少 targetDCCs 字段（通用工具用 [] 或 [\"general\"]）"})
+                        "message": "缺少 software 字段（通用工具用 [] 或 [\"general\"]）"})
         target_dccs = []
     elif not isinstance(target_dccs, list):
         issues.append({"tool_id": tool_id, "severity": "error",
-                        "message": f"targetDCCs 必须是数组，当前类型: {type(target_dccs).__name__}"})
+                        "message": f"software 必须是数组，当前类型: {type(target_dccs).__name__}"})
         target_dccs = []
     else:
         for item in target_dccs:
@@ -406,10 +406,10 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             dcc = item.get("dcc", "") if isinstance(item, dict) else str(item)
             if not dcc:
                 issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": f"targetDCCs 包含空 DCC 条目: {item!r}"})
+                                "message": f"software 包含空 DCC 条目: {item!r}"})
             elif dcc not in valid_dccs:
                 issues.append({"tool_id": tool_id, "severity": "warning",
-                                "message": f"targetDCCs 包含未知 DCC: {dcc!r}，有效值: {sorted(valid_dccs)}"})
+                                "message": f"software 包含未知 DCC: {dcc!r}，有效值: {sorted(valid_dccs)}"})
             # 检查版本约束格式（可选字段）
             if isinstance(item, dict):
                 for vk in ("minVersion", "maxVersion"):

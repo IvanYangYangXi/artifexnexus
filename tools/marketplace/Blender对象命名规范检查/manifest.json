@@ -4,11 +4,6 @@
   "description": "检查 Blender 场景中的对象命名是否符合命名规范（如 SM_/SK_/BP_ 等前缀）。可挂载触发器在保存时自动检查，也可手动运行查看命名报告",
   "version": "1.0.0",
   "author": "ArtClaw",
-  "targetDCCs": [
-    {
-      "dcc": "blender"
-    }
-  ],
   "createdAt": "2026-04-26 23:00:00",
   "updatedAt": "2026-05-18 13:03:16",
   "defaultFilters": {
@@ -104,6 +99,11 @@
         "interval": "30m",
         "type": "interval"
       }
+    }
+  ],
+  "software": [
+    {
+      "dcc": "blender"
     }
   ]
 }

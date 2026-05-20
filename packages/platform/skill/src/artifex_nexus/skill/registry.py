@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .categories import software_value
+from .categories import DCCEntry, software_value
 from .conflict import LAYER_PRIORITY
 from .hub.core import SkillEntry, SkillHub
 from .manifest import SkillManifest
@@ -30,37 +30,71 @@ from .version.parser import compare_versions as _compare_versions, parse_version
 # Skill 匹配函数（纯函数，无副作用）
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _extract_version_constraint(manifest: Any) -> Dict[str, str]:
-    """从 manifest（dict 或 SkillManifest 实例）提取 software_version 约束。
+def _extract_version_constraint(manifest: Any, dcc: str = "") -> Dict[str, str]:
+    """从 manifest（dict 或 SkillManifest 实例）提取指定 DCC 的版本约束。
 
     :param manifest: manifest 字典或 SkillManifest 实例。
+    :param dcc: 目标 DCC 标识，如 'blender'。空字符串表示取第一个 DCC 的约束。
     :return: {"min": "5.3", "max": "5.5"} 或 {}。
     """
     if isinstance(manifest, SkillManifest):
-        sv = manifest.software_version
-        if sv is None:
-            return {}
-        result: Dict[str, str] = {}
-        if sv.min is not None:
-            result["min"] = str(sv.min)
-        if sv.max is not None:
-            result["max"] = str(sv.max)
-        return result
+        if dcc:
+            return manifest.get_version_constraint(dcc)
+        # 无指定 DCC → 取第一个
+        sw = manifest.software
+        if sw:
+            result: Dict[str, str] = {}
+            if sw[0].min_version:
+                result["min"] = sw[0].min_version
+            if sw[0].max_version:
+                result["max"] = sw[0].max_version
+            return result
+        return {}
     if isinstance(manifest, dict):
-        return manifest.get("software_version", {}) or {}
+        # 新格式：software 是 DCCEntry 列表
+        sw_list = manifest.get("software", [])
+        if isinstance(sw_list, str):
+            # 旧格式：software 是纯字符串（无版本约束）
+            return {}
+        if isinstance(sw_list, list) and sw_list:
+            target = None
+            if dcc:
+                for item in sw_list:
+                    if isinstance(item, dict) and item.get("dcc") == dcc:
+                        target = item
+                        break
+            if target is None:
+                target = sw_list[0] if isinstance(sw_list[0], dict) else {}
+            r: Dict[str, str] = {}
+            if target.get("minVersion"):
+                r["min"] = str(target["minVersion"])
+            if target.get("maxVersion"):
+                r["max"] = str(target["maxVersion"])
+            return r
+        # 兼容旧 software_version 字段
+        old_ver = manifest.get("software_version", {}) or {}
+        return dict(old_ver)
     return {}
 
 
-def _extract_software(manifest: Any) -> str:
-    """从 manifest 提取 software 字段。
+def _extract_software(manifest: Any) -> List[str]:
+    """从 manifest 提取 software 字段（DCC 标识列表）。
 
-    :return: 软件标识字符串（'universal' 或 'unreal'/'blender'/...）。
+    :return: DCC 标识字符串列表（如 ['blender', 'unreal_engine']）。
     """
     if isinstance(manifest, SkillManifest):
-        return software_value(manifest.software)
+        return manifest.software_dccs
     if isinstance(manifest, dict):
-        return manifest.get("software", "universal")
-    return "universal"
+        sw = manifest.get("software", [])
+        if isinstance(sw, str):
+            return [sw]
+        if isinstance(sw, list):
+            return [
+                item.get("dcc", item) if isinstance(item, dict) else item
+                for item in sw
+            ]
+        return []
+    return []
 
 
 def matches_software_version(
@@ -98,8 +132,8 @@ def matches_skill(
     """检查 Skill manifest 是否与当前 DCC 软件 + 版本匹配。
 
     匹配规则：
-        1. ``manifest.software == "universal"``，或者 ``manifest.software == current_software``
-        2. 如果 manifest 有 ``software_version``，当前版本必须在范围内
+        1. ``manifest.software`` 中包含 "universal"，或者包含 ``current_software``
+        2. 如果对应 DCC 有版本约束，当前版本必须在范围内
 
     :param manifest: SkillManifest 实例或 dict。
     :param current_software: 当前 DCC 软件标识，如 ``"unreal_engine"``。
@@ -107,9 +141,10 @@ def matches_skill(
     :return: True 表示匹配。
     """
     skill_software = _extract_software(manifest)
-    if skill_software != "universal" and skill_software != current_software:
+    # universal 匹配所有，或者当前 DCC 在列表中
+    if "universal" not in skill_software and current_software not in skill_software:
         return False
-    sw_ver = _extract_version_constraint(manifest)
+    sw_ver = _extract_version_constraint(manifest, current_software)
     if sw_ver and not matches_software_version(sw_ver, current_version):
         return False
     return True

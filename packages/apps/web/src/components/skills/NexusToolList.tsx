@@ -114,7 +114,7 @@ export function NexusToolList() {
   const filtered = tools
     .filter((t) => {
       if (search && !t.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (dccFilter !== "all" && !t.target_dccs?.some((e) => (typeof e === "string" ? e : e.dcc) === dccFilter)) return false;
+      if (dccFilter !== "all" && !t.software?.some((e) => (typeof e === "string" ? e : e.dcc) === dccFilter)) return false;
       if (sourceFilter !== "all" && t.source !== sourceFilter) return false;
       if (favoritesOnly && !t.is_favorited) return false;
       return true;
@@ -186,7 +186,7 @@ export function NexusToolList() {
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((tool) => (
             <ItemCard key={tool.id} viewMode={viewMode}
-              icon={<DCCIcon software={(tool.target_dccs?.[0] && typeof tool.target_dccs[0] === "string") ? tool.target_dccs[0] : (tool.target_dccs?.[0] as { dcc: string })?.dcc || ""} />}
+              icon={<DCCIcon software={(tool.software?.[0] && typeof tool.software[0] === "string") ? tool.software[0] : (tool.software?.[0] as { dcc: string })?.dcc || ""} />}
               title={tool.name}
               onTitleClick={() => handleToolClick(tool)}
               source={{ label: (SOURCE_LABELS as Record<string, string>)[tool.source] || tool.source, color: SOURCE_COLORS[tool.source] || "" }}
@@ -197,7 +197,7 @@ export function NexusToolList() {
               description={tool.description}
               meta={<>
                 <span>{tool.version}</span>
-                <span>·</span><span>{(tool.target_dccs?.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc) ?? []).join(", ") || "通用"}</span>
+                <span>·</span><span>{(tool.software?.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc) ?? []).join(", ") || "通用"}</span>
               </>}
               actions={<>
                 <Button variant="ghost" size="icon" className="h-7 w-7"

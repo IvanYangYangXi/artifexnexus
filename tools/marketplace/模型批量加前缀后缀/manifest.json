@@ -4,11 +4,6 @@
   "description": "批量为 Blender 选中的对象添加命名前缀和/或后缀，支持自定义指定字符，符合资产命名规范标准",
   "version": "1.0.1",
   "author": "ArtClaw",
-  "targetDCCs": [
-    {
-      "dcc": "blender"
-    }
-  ],
   "createdAt": "2026-04-13 18:00:00",
   "updatedAt": "2026-04-26 16:11:44",
   "defaultFilters": {
@@ -77,5 +72,10 @@
     }
   ],
   "presets": [],
-  "triggers": []
+  "triggers": [],
+  "software": [
+    {
+      "dcc": "blender"
+    }
+  ]
 }

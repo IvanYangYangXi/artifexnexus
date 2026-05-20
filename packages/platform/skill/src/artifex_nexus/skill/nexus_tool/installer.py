@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from artifex_nexus.core.skill_config import SkillConfig
 
+from ..categories import DCCEntry
 from .models import NexusToolData
 from .registry import NexusToolRegistry
 
@@ -65,7 +66,7 @@ class NexusToolInstaller:
         description: str = "",
         version: str = "1.0.0",
         source: str = "user",
-        target_dccs: List[str] | None = None,
+        software: List[DCCEntry] | None = None,
         manifest: Dict[str, Any] | None = None,
     ) -> NexusToolData:
         """创建新的 nexus-tool（写入 manifest.json 到磁盘）。
@@ -93,7 +94,7 @@ class NexusToolInstaller:
         manifest.setdefault("version", version)
         manifest["source"] = source
         manifest["id"] = nexus_tool_id
-        manifest.setdefault("targetDCCs", target_dccs or [])
+        manifest.setdefault("software", [e.to_dict() for e in (software or [])])
         manifest.setdefault("implementation", {"type": "script"})
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -113,7 +114,7 @@ class NexusToolInstaller:
             description=description,
             version=version,
             source=source,
-            target_dccs=target_dccs or [],
+            software=software or [],
             status="installed",
             nexus_tool_path=str(nexus_tool_dir),
             manifest=manifest,
@@ -150,8 +151,8 @@ class NexusToolInstaller:
                 if "author" in kwargs and kwargs["author"] is not None:
                     manifest["author"] = kwargs["author"]
                     td.author = kwargs["author"]
-                if "target_dccs" in kwargs and kwargs["target_dccs"] is not None:
-                    manifest["targetDCCs"] = kwargs["target_dccs"]
+                if "software" in kwargs and kwargs["software"] is not None:
+                    manifest["software"] = [e.to_dict() if isinstance(e, DCCEntry) else e for e in kwargs["software"]]
                 # Safe manifest sub-keys
                 if "manifest" in kwargs and isinstance(kwargs["manifest"], dict):
                     m = kwargs["manifest"]

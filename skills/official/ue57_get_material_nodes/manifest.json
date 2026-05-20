@@ -6,7 +6,12 @@
   "version": "1.0.0",
   "author": "Ivan(杨己力)",
   "license": "MIT",
-  "software": "unreal_engine",
+  "software": [
+    {
+      "dcc": "unreal_engine",
+      "minVersion": "5.7"
+    }
+  ],
   "category": "material",
   "risk_level": "low",
   "dependencies": [],
@@ -17,9 +22,6 @@
     "analysis"
   ],
   "entry_point": "__init__.py",
-  "software_version": {
-    "min": "5.7"
-  },
   "skill_tools": [
     {
       "name": "ue57_get_material_nodes",

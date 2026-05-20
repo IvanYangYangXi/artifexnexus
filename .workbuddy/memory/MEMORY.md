@@ -13,7 +13,7 @@
 
 ## 设计原则
 
-- **targetDCCs 升级为 DCCEntry[]**（2026-05-19）：`targetDCCs` 从 `string[]` → `[{dcc: string, minVersion?: string, maxVersion?: string}]`。后端 scanner 自动兼容旧 string[] 格式。前端/reducer 遍历需提取 `.dcc` 字段。
+- **software 统一为 DCCEntry[]**（2026-05-19 完成）：全部 tool/skill 的 `targetDCCs`/`target_dccs`/`software` 统一为 `[{dcc: string, minVersion?: string, maxVersion?: string}]`。RPC JSON key 统一为 `"software"`。前端 TS 属性统一为 `.software`。`SoftwareVersionConstraint` 类已删除，版本约束嵌入 DCCEntry。向后兼容：scanner 仍读 `targetDCCs`，Pydantic validators 自动转换旧格式。
 - **category→tags 合并**（2026-05-19）：manifest 的 `category` 字段已废弃，统一使用 `tags`（OR 匹配语义）。manifest_fixer 一键修复时 category 值合并入 tags 首部。
 - **枚举唯一数据源**：`contracts/data/categories.json` 为 Software 枚举的唯一数据源。categories.py 和 manifest.schema.json 均从此读取，禁止各自定义。前端 TS 也应从此 JSON 取枚举值。
 - **SDK 单一源**：`artifex_nexus_sdk` 只有一份源，位于 `packages/dcc/shared/artifex_nexus_sdk/`。不再维护 `_bundled_nexus_tools/` 下的副本。所有工具、sidecar、trigger_dispatcher 通过注入 `packages/dcc/shared/` 到 sys.path 来解析 `import artifex_nexus_sdk`。

@@ -111,7 +111,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
   const [editedDescription, setEditedDescription] = React.useState("");
   const [editedAuthor, setEditedAuthor] = React.useState("");
   const [editedVersion, setEditedVersion] = React.useState("");
-  const [editedTargetDCCs, setEditedTargetDCCs] = React.useState<DCCEntry[]>([]);
+  const [editedSoftware, setEditedSoftware] = React.useState<DCCEntry[]>([]);
   const [editedInputs, setEditedInputs] = React.useState<NexusToolParam[]>([]);
   const [editedFilters, setEditedFilters] = React.useState<FilterConfig>({});
   const [triggers, setTriggers] = React.useState<NexusToolTrigger[]>([]);
@@ -136,7 +136,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setEditedDescription(d.description || "");
       setEditedAuthor(d.author || "");
       setEditedVersion(d.version);
-      setEditedTargetDCCs(d.target_dccs || []);
+      setEditedSoftware(d.software || []);
       setEditedInputs(d.inputs?.map((p) => ({ ...p })) || []);
       setEditedFilters(d.default_filters || {});
       setTriggers(d.triggers || []);
@@ -180,7 +180,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         description: editedDescription,
         author: editedAuthor,
         version: editedVersion,
-        target_dccs: editedTargetDCCs,
+        software: editedSoftware,
         manifest: manifestPatch,
       });
       setDirty(false);
@@ -193,7 +193,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setSaving(false);
     }
   }, [detail, editedName, editedDescription, editedAuthor, editedVersion,
-      editedTargetDCCs, editedInputs, editedFilters,
+      editedSoftware, editedInputs, editedFilters,
       triggers, loadDetail]);
 
   // ── 另存为实例 ────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         parentId: detail.id,
         parentName: detail.name,
         parentPath: detail.nexus_tool_path,
-        target_dccs: editedTargetDCCs,
+        software: editedSoftware,
         version: editedVersion,
       });
       setShowSaveAs(false);
@@ -247,7 +247,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
       setSaving(false);
     }
   }, [detail, saveAsName, saveAsDesc, editedDescription, editedInputs,
-      editedFilters, triggers, editedTargetDCCs, editedVersion]);
+      editedFilters, triggers, editedSoftware, editedVersion]);
 
   // ── 触发器操作（保持现有逻辑）─────────────────────────────────────────
 
@@ -341,7 +341,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
               editedDescription={editedDescription} setEditedDescription={(v) => { setEditedDescription(v); markDirty(); }}
               editedAuthor={editedAuthor} setEditedAuthor={(v) => { setEditedAuthor(v); markDirty(); }}
               editedVersion={editedVersion} setEditedVersion={(v) => { setEditedVersion(v); markDirty(); }}
-              editedTargetDCCs={editedTargetDCCs} setEditedTargetDCCs={(v) => { setEditedTargetDCCs(v); markDirty(); }}
+              editedSoftware={editedSoftware} setEditedSoftware={(v) => { setEditedSoftware(v); markDirty(); }}
               inputsCount={editedInputs.length}
               triggersCount={triggers.length}
               compact={compact}
@@ -360,7 +360,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
             <FiltersTab
               filters={editedFilters}
               onChange={(v) => { setEditedFilters(v); markDirty(); }}
-              targetDCCs={editedTargetDCCs.length > 0 ? editedTargetDCCs : detail.target_dccs || []}
+              software={editedSoftware.length > 0 ? editedSoftware : detail.software || []}
               compact={compact}
             />
           )}
@@ -445,7 +445,7 @@ function InfoTab({
   editedDescription, setEditedDescription,
   editedAuthor, setEditedAuthor,
   editedVersion, setEditedVersion,
-  editedTargetDCCs, setEditedTargetDCCs,
+  editedSoftware, setEditedSoftware,
   inputsCount, triggersCount,
   compact,
 }: {
@@ -455,7 +455,7 @@ function InfoTab({
   editedDescription: string; setEditedDescription: (v: string) => void;
   editedAuthor: string; setEditedAuthor: (v: string) => void;
   editedVersion: string; setEditedVersion: (v: string) => void;
-  editedTargetDCCs: DCCEntry[]; setEditedTargetDCCs: (v: DCCEntry[]) => void;
+  editedSoftware: DCCEntry[]; setEditedSoftware: (v: DCCEntry[] | ((prev: DCCEntry[]) => DCCEntry[])) => void;
   inputsCount: number; triggersCount: number;
   compact?: boolean;
 }) {
@@ -466,11 +466,17 @@ function InfoTab({
   const labelCls = "text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1";
 
   const toggleDCC = (dcc: string) => {
-    if (editedTargetDCCs.some((e) => e.dcc === dcc)) {
-      setEditedTargetDCCs(editedTargetDCCs.filter((e) => e.dcc !== dcc));
+    if (editedSoftware.some((e) => e.dcc === dcc)) {
+      setEditedSoftware(editedSoftware.filter((e) => e.dcc !== dcc));
     } else {
-      setEditedTargetDCCs([...editedTargetDCCs, { dcc }]);
+      setEditedSoftware([...editedSoftware, { dcc }]);
     }
+  };
+
+  const updateDCCVersion = (dcc: string, field: "minVersion" | "maxVersion", value: string) => {
+    setEditedSoftware((prev) =>
+      prev.map((e) => (e.dcc === dcc ? { ...e, [field]: value } : e))
+    );
   };
 
   return (
@@ -552,8 +558,8 @@ function InfoTab({
       <div>
         <div className={labelCls}>目标软件</div>
         <div className="flex flex-wrap gap-1.5">
-          {Object.entries(DCC_LABELS).slice(0, 8).map(([dcc, label]) => {
-            const active = editedTargetDCCs.some((e) => e.dcc === dcc);
+          {Object.entries(DCC_LABELS).map(([dcc, label]) => {
+            const active = editedSoftware.some((e) => e.dcc === dcc);
             return (
               <button
                 key={dcc}
@@ -570,6 +576,31 @@ function InfoTab({
             );
           })}
         </div>
+        {/* 每个选中 DCC 的版本号输入 */}
+        {editedSoftware.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {editedSoftware.map((entry) => (
+              <div key={entry.dcc} className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground w-20 shrink-0 truncate">
+                  {(DCC_LABELS as Record<string, string>)[entry.dcc] || entry.dcc}
+                </span>
+                <input
+                  className={fieldCls}
+                  placeholder="最低版本"
+                  value={entry.minVersion || ""}
+                  onChange={(e) => updateDCCVersion(entry.dcc, "minVersion", e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground shrink-0">~</span>
+                <input
+                  className={fieldCls}
+                  placeholder="最高版本"
+                  value={entry.maxVersion || ""}
+                  onChange={(e) => updateDCCVersion(entry.dcc, "maxVersion", e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 只读信息 */}
@@ -983,16 +1014,16 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
 
   React.useEffect(() => { setLocalTriggers(triggers); }, [triggers]);
 
-  const targetDCCs = detail.target_dccs?.length ? detail.target_dccs : [{ dcc: "blender" }, { dcc: "unreal_engine" }, { dcc: "maya" }, { dcc: "3ds_max" }, { dcc: "houdini" }, { dcc: "comfyui" }];
+  const dccList = detail.software?.length ? detail.software : [{ dcc: "blender" }, { dcc: "unreal_engine" }, { dcc: "maya" }, { dcc: "3ds_max" }, { dcc: "houdini" }, { dcc: "comfyui" }];
 
   // 判断是否有目标 DCC 已连接
   const hasConnectedDCC = React.useMemo(() => {
-    return targetDCCs.some((e) => {
+    return dccList.some((e) => {
       const dcc = typeof e === "string" ? e : e.dcc;
       const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
       return status?.connected ?? false;
     });
-  }, [targetDCCs, dccStatus]);
+  }, [dccList, dccStatus]);
 
   const defaultFilters = detail.default_filters;
 
@@ -1190,7 +1221,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
                   <div className="mt-2 mb-1">
                     <TriggerRuleEditor
                       initialData={triggerToForm(t)}
-                      targetDCCs={targetDCCs}
+                      software={dccList}
                       defaultFilters={defaultFilters}
                       onSave={(data) => handleUpdate(t.id, data)}
                       onCancel={() => setEditingId(null)}
@@ -1213,7 +1244,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
       {/* ── 新建编辑器 ── */}
       {showNew ? (
         <TriggerRuleEditor
-          targetDCCs={targetDCCs}
+          software={dccList}
           defaultFilters={defaultFilters}
           onSave={handleCreate}
           onCancel={() => setShowNew(false)}

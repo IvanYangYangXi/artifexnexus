@@ -14,15 +14,20 @@
     "author": { "type": "string" },
     "license": { "type": "string" },
     "software": {
-      "type": "string",
-      "enum": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
-      "description": "目标 DCC 软件类型。与 contracts/data/categories.json §software 同步。"
-    },
-    "software_version": {
-      "type": "object",
-      "properties": {
-        "min": { "type": "string" },
-        "max": { "type": "string" }
+      "type": "array",
+      "minItems": 1,
+      "description": "目标 DCC 软件列表，每项支持独立版本约束。与 contracts/data/categories.json §software 同步。",
+      "items": {
+        "type": "object",
+        "required": ["dcc"],
+        "properties": {
+          "dcc": {
+            "type": "string",
+            "enum": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"]
+          },
+          "minVersion": { "type": "string", "description": "最低版本要求，如 '5.3'" },
+          "maxVersion": { "type": "string", "description": "最高版本上限，如 '5.5'" }
+        }
       }
     },
     "risk_level": {

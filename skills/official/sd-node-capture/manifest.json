@@ -7,14 +7,14 @@
   "version": "2.0.0",
   "author": "ArtClaw",
   "license": "MIT",
-  "software": "substance_designer",
+  "software": [
+    {
+      "dcc": "substance_designer"
+    }
+  ],
   "category": "utils",
   "risk_level": "low",
   "dependencies": [],
   "tags": [],
-  "entry_point": "__init__.py",
-  "software_version": {
-    "min": "",
-    "max": ""
-  }
+  "entry_point": "__init__.py"
 }

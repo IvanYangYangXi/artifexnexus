@@ -79,7 +79,7 @@ export interface NexusToolItem {
   description: string;
   version: string;
   source: string;
-  target_dccs: DCCEntry[];
+  software: DCCEntry[];
   status: string;
   nexus_tool_path: string;
   is_enabled: boolean;
@@ -172,7 +172,7 @@ export interface NexusToolCreateOptions {
   description?: string;
   version?: string;
   source?: string;
-  target_dccs?: DCCEntry[];
+  software?: DCCEntry[];
   manifest?: Record<string, unknown>;
 }
 
@@ -183,7 +183,7 @@ export interface NexusToolUpdateOptions {
   author?: string;
   /** source 由文件系统决定，仅 user→user 可修改 */
   source?: string;
-  target_dccs?: DCCEntry[];
+  software?: DCCEntry[];
   manifest?: Record<string, unknown>;
   /** 快捷字段：触发器列表（会合并到 manifest.triggers） */
   triggers?: NexusToolTrigger[];
@@ -240,7 +240,7 @@ export interface SaveAsInstanceOptions {
   parentId: string;
   parentName: string;
   parentPath: string;
-  target_dccs?: DCCEntry[];
+  software?: DCCEntry[];
   version?: string;
 }
 
@@ -377,7 +377,7 @@ export async function nexusToolSaveAsInstance(opts: SaveAsInstanceOptions): Prom
       description: opts.description || "",
       version: opts.version || "1.0.0",
       source: "user",
-      target_dccs: opts.target_dccs || [],
+      software: opts.software || [],
       manifest,
     },
   });
