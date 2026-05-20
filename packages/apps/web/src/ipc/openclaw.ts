@@ -794,6 +794,11 @@ export interface AppSettings {
   nexusToolKillProcessTree: boolean;
   /** sidecar 日志等级 */
   logLevel: string;
+  // ── UI 偏好（跨启动持久化） ────────────────────────────────────────
+  skillViewMode?: "card" | "list";
+  toolViewMode?: "card" | "list";
+  skillFavoritesOnly?: boolean;
+  toolFavoritesOnly?: boolean;
 }
 
 /** app.settings.get / set / reset 返回 */

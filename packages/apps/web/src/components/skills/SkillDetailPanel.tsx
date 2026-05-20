@@ -34,6 +34,7 @@ import type { DCCEntry } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
 import { TagEditor } from "./TagEditor";
+import { useGlobalTagSuggestions } from "../../lib/useTagSuggestions";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -65,6 +66,8 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<TabId>("info");
+  // 全局标签推荐（module-level 缓存，全 App 只请求一次）
+  const globalTagSuggestions = useGlobalTagSuggestions("skill");
 
   const loadDetail = React.useCallback(async () => {
     try {
@@ -147,7 +150,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
       {/* Tab 内容 */}
       <ScrollFade className="flex-1">
         <div className="p-3">
-          {activeTab === "info" && <InfoTab entry={entry} detail={detail} labelCls={labelCls} compact={compact} onDetailRefresh={loadDetail} />}
+          {activeTab === "info" && <InfoTab entry={entry} detail={detail} labelCls={labelCls} compact={compact} onDetailRefresh={loadDetail} globalTagSuggestions={globalTagSuggestions} />}
           {activeTab === "readme" && <ReadmeTab skillName={skillName} />}
           {activeTab === "errors" && <ErrorsTab entry={entry} detail={detail} onFixed={loadDetail} />}
         </div>
@@ -160,12 +163,13 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
 // Tab 1: 基本信息
 // ═══════════════════════════════════════════════════════════════════════════
 
-function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
+function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh, globalTagSuggestions }: {
   entry: SkillDetail["entry"];
   detail: SkillDetail;
   labelCls: string;
   compact?: boolean;
   onDetailRefresh: () => void;
+  globalTagSuggestions?: string[];
 }) {
   const source = layerToSource(entry.layer);
   const isInstalled = !!detail.install_path;
@@ -271,6 +275,13 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
   const inputCls = "w-full h-7 px-2 text-[11px] rounded-[8px] border border-white/[0.08] bg-white/[0.04] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 transition-colors";
   const inputClsErr = "w-full h-7 px-2 text-[11px] rounded-[8px] border border-red-500/40 bg-red-500/[0.04] text-foreground focus:outline-none focus:border-red-500/60 transition-colors";
 
+  // 标签推荐：全局列表 + 当前 entry 自身的标签合并去重
+  const allTagSuggestions = React.useMemo(() => {
+    const set = new Set<string>(globalTagSuggestions || []);
+    (entry.tags || []).forEach(t => { if (t.trim()) set.add(t.trim()); });
+    return Array.from(set).sort();
+  }, [globalTagSuggestions, entry.tags]);
+
   return (
     <div className="space-y-4">
       {/* ── 同步状态横幅 ─────────────────────────────────────────────── */}
@@ -304,7 +315,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         </div>
       )}
 
-      {/* 标题 */}
+      {/* ── 标题 ─────────────────────────────────────────────────────── */}
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
           <Puzzle className="h-5 w-5" />
@@ -330,7 +341,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         </div>
       </div>
 
-      {/* 描述（来自 SKILL.md — 只读） */}
+      {/* ── 1. 描述（来自 SKILL.md — 只读） ────────────────────────── */}
       {entry.description && (
         <div>
           <div className={labelCls}>描述</div>
@@ -338,14 +349,11 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         </div>
       )}
 
-      {/* ── 可编辑字段（仅已安装 Skill） ─────────────────────────────── */}
-
-      {/* 软件 + 版本约束 */}
+      {/* ── 2. 目标软件 + 版本约束 ──────────────────────────────────── */}
       <div>
         <div className={labelCls}>目标软件</div>
         {isInstalled ? (
           <div className="space-y-2">
-            {/* DCC 多选 toggle 按钮 */}
             <div className="flex flex-wrap gap-1.5">
               {Object.entries(DCC_LABELS).map(([dcc, label]) => {
                 const active = software.some((e) => e.dcc === dcc);
@@ -365,7 +373,6 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
                 );
               })}
             </div>
-            {/* 每个选中 DCC 的版本号输入 */}
             {software.map((entry) => (
               <div key={entry.dcc} className="flex items-center gap-2 pl-1">
                 <span className="text-[10px] text-muted-foreground w-20 shrink-0 truncate">
@@ -408,7 +415,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         )}
       </div>
 
-      {/* ── 双列字段网格 ────────────────────────────────────────────── */}
+      {/* ── 3. 版本 + 作者（双列） ──────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
         {/* 版本 */}
         <div>
@@ -439,17 +446,28 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
             <p className="text-xs text-foreground">{entry.author || "—"}</p>
           )}
         </div>
+      </div>
 
-        {/* 许可证 */}
-        <div>
-          <div className={labelCls}>许可证</div>
-          {isInstalled ? (
-            <input className={inputCls} placeholder="如 MIT" value={license} onChange={e => setLicense(e.target.value)} />
-          ) : (
-            <p className="text-xs text-foreground">{entry.license || "—"}</p>
-          )}
-        </div>
+      {/* ── 4. 标签（全宽） ─────────────────────────────────────────── */}
+      <div>
+        <div className={labelCls}>标签</div>
+        {isInstalled ? (
+          <TagEditor tags={tags} onChange={setTags} suggestions={allTagSuggestions} />
+        ) : entry.tags && entry.tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {entry.tags.map((tag, i) => (
+              <span key={i} className="rounded bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">—</p>
+        )}
+      </div>
 
+      {/* ── 其他字段（追加，靠后显示） ──────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
         {/* 入口文件 */}
         <div>
           <div className={labelCls}>入口文件</div>
@@ -460,26 +478,18 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
           )}
         </div>
 
-        {/* 标签 */}
+        {/* 许可证（靠后） */}
         <div>
-          <div className={labelCls}>标签</div>
+          <div className={labelCls}>许可证</div>
           {isInstalled ? (
-            <TagEditor tags={tags} onChange={setTags} />
-          ) : entry.tags && entry.tags.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {entry.tags.map((tag, i) => (
-                <span key={i} className="rounded bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
-                  {tag}
-                </span>
-              ))}
-            </div>
+            <input className={inputCls} placeholder="如 MIT" value={license} onChange={e => setLicense(e.target.value)} />
           ) : (
-            <p className="text-xs text-muted-foreground">—</p>
+            <p className="text-xs text-foreground">{entry.license || "—"}</p>
           )}
         </div>
       </div>
 
-      {/* 依赖（全宽） */}
+      {/* ── 依赖（全宽，追加） ───────────────────────────────────────── */}
       <div>
         <div className={labelCls}>依赖</div>
         {isInstalled ? (
@@ -497,7 +507,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh }: {
         )}
       </div>
 
-      {/* 层级（只读） */}
+      {/* 层级（只读，追加） */}
       <div>
         <div className={labelCls}>层级</div>
         <p className="text-xs text-foreground">{entry.layer || "—"}</p>

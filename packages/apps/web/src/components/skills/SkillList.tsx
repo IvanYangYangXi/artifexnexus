@@ -14,6 +14,7 @@ import {
 } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS, type SkillSource } from "../../lib/skillsMock";
 import { PublishConfirmDialog, type SkillPublishData, type SkillPublishResult } from "./PublishConfirmDialog";
+import { useUiPref } from "../../lib/useUiPref";
 
 // layer → source 映射
 function layerToSource(layer: string): SkillSource {
@@ -27,23 +28,12 @@ const SOURCE_COLORS: Record<string, string> = {
   official: "text-blue-400", marketplace: "text-purple-400", user: "text-green-400",
 };
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
-const VIEW_KEY = "artifex.skills.skillViewMode";
-const loadViewPref = (): "card" | "list" => {
-  try {
-    const v = localStorage.getItem(VIEW_KEY);
-    if (v === "card" || v === "list") return v;
-  } catch { /* ignore */ }
-  return "card";
-};
-const saveViewPref = (val: string) => { try { localStorage.setItem(VIEW_KEY, val); } catch { /* ignore */ } };
-
 export function SkillList() {
   const [search, setSearch] = React.useState("");
   const [dccFilter, setDccFilter] = React.useState("all");
   const [sourceFilter, setSourceFilter] = React.useState("all");
-  const [favoritesOnly, setFavoritesOnly] = React.useState(false);
-  const [viewMode, setViewMode] = React.useState<"card" | "list">(loadViewPref);
+  const [favoritesOnly, setFavoritesOnly] = useUiPref<boolean>("skillFavoritesOnly", false);
+  const [viewMode, setViewMode] = useUiPref<"card" | "list">("skillViewMode", "card");
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -231,7 +221,7 @@ export function SkillList() {
           <Loader2 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8"
-          onClick={() => { const next = viewMode === "card" ? "list" : "card"; setViewMode(next); saveViewPref(next); }}>
+          onClick={() => setViewMode(viewMode === "card" ? "list" : "card")}>
           {viewMode === "card" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
       </div>

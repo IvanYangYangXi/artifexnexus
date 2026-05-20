@@ -45,6 +45,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "nexusToolMaxConcurrent": 3,
     "nexusToolKillProcessTree": True,
     "logLevel": "INFO",
+    # ── UI 偏好（跨启动持久化） ──────────────────────────────────────────
+    #   skillViewMode / toolViewMode: "card" | "list"
+    #   skillFavoritesOnly / toolFavoritesOnly: boolean
+    "skillViewMode": "card",
+    "toolViewMode": "card",
+    "skillFavoritesOnly": False,
+    "toolFavoritesOnly": False,
 }
 
 # 校验范围（防止前端写脏数据让 sidecar 卡死）

@@ -57,6 +57,7 @@ import {
   DCC_LABELS,
 } from "../../lib/skillsMock";
 import { TagEditor } from "./TagEditor";
+import { useGlobalTagSuggestions } from "../../lib/useTagSuggestions";
 
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,8 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const [saveMsg, setSaveMsg] = React.useState<string | null>(null);
+  // 全局标签推荐（module-level 缓存，全 App 只请求一次）
+  const globalTagSuggestions = useGlobalTagSuggestions("nexus_tool");
 
   // ── 编辑态 ────────────────────────────────────────────────────────────
 
@@ -350,6 +353,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
               inputsCount={editedInputs.length}
               triggersCount={triggers.length}
               compact={compact}
+              globalTagSuggestions={globalTagSuggestions}
             />
           )}
           {activeTab === "params" && (
@@ -453,7 +457,7 @@ function InfoTab({
   editedSoftware, setEditedSoftware,
   editedTags, setEditedTags,
   inputsCount, triggersCount,
-  compact,
+  compact, globalTagSuggestions,
 }: {
   detail: NexusToolDetail;
   isInstance: boolean;
@@ -465,11 +469,10 @@ function InfoTab({
   editedTags: string; setEditedTags: (v: string) => void;
   inputsCount: number; triggersCount: number;
   compact?: boolean;
+  globalTagSuggestions?: string[];
 }) {
   const fieldCls =
     "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-3 text-xs focus:outline-none focus:border-primary/40 transition-colors w-full appearance-none";
-  const selectCls =
-    "h-8 w-full rounded-md border border-input bg-input px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:dark] [&_option]:bg-card [&_option]:text-foreground";
   const labelCls = "text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1";
 
   const toggleDCC = (dcc: string) => {
@@ -485,6 +488,13 @@ function InfoTab({
       prev.map((e) => (e.dcc === dcc ? { ...e, [field]: value } : e))
     );
   };
+
+  // 标签推荐：全局列表 + 当前 tool 自身的标签合并去重
+  const allTagSuggestions = React.useMemo(() => {
+    const set = new Set<string>(globalTagSuggestions || []);
+    (detail.tags || []).forEach((t: string) => { if (t.trim()) set.add(t.trim()); });
+    return Array.from(set).sort();
+  }, [globalTagSuggestions, detail.tags]);
 
   return (
     <div className="space-y-4">
@@ -526,13 +536,13 @@ function InfoTab({
         </div>
       </div>
 
-      {/* ── 可编辑字段 ── */}
-
+      {/* ── 1. 名称 ────────────────────────────────────────────────── */}
       <div>
         <div className={labelCls}>名称</div>
         <input value={editedName} onChange={(e) => setEditedName(e.target.value)} className={fieldCls} />
       </div>
 
+      {/* ── 2. 描述 ────────────────────────────────────────────────── */}
       <div>
         <div className={labelCls}>描述</div>
         <textarea
@@ -543,25 +553,7 @@ function InfoTab({
         />
       </div>
 
-      <div>
-        <div className={labelCls}>作者</div>
-        <input value={editedAuthor} onChange={(e) => setEditedAuthor(e.target.value)} placeholder="作者名称" className={fieldCls} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <div className={labelCls}>版本</div>
-          <input value={editedVersion} onChange={(e) => setEditedVersion(e.target.value)} className={fieldCls} />
-        </div>
-        <div>
-          <div className={labelCls}>来源</div>
-          <div className={cn("flex h-7 items-center px-2 rounded bg-muted/10 border border-border/30 text-xs text-muted-foreground")}>
-            {(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source}
-          </div>
-        </div>
-      </div>
-
-      {/* 目标 DCC */}
+      {/* ── 3. 目标软件 ────────────────────────────────────────────── */}
       <div>
         <div className={labelCls}>目标软件</div>
         <div className="flex flex-wrap gap-1.5">
@@ -583,7 +575,6 @@ function InfoTab({
             );
           })}
         </div>
-        {/* 每个选中 DCC 的版本号输入 */}
         {editedSoftware.length > 0 && (
           <div className="mt-2 space-y-1.5">
             {editedSoftware.map((entry) => (
@@ -610,18 +601,36 @@ function InfoTab({
         )}
       </div>
 
-      {/* 标签 */}
-      <div>
-        <div className={labelCls}>标签</div>
-        <TagEditor tags={editedTags} onChange={setEditedTags} />
+      {/* ── 4. 版本 + 作者（双列） ──────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className={labelCls}>版本</div>
+          <input value={editedVersion} onChange={(e) => setEditedVersion(e.target.value)} className={fieldCls} />
+        </div>
+        <div>
+          <div className={labelCls}>作者</div>
+          <input value={editedAuthor} onChange={(e) => setEditedAuthor(e.target.value)} placeholder="作者名称" className={fieldCls} />
+        </div>
       </div>
 
-      {/* 只读信息 */}
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <InfoField label="创建日期" value={detail.created_at?.slice(0, 10) || "—"} />
+      {/* ── 5. 标签（全宽） ─────────────────────────────────────────── */}
+      <div>
+        <div className={labelCls}>标签</div>
+        <TagEditor tags={editedTags} onChange={setEditedTags} suggestions={allTagSuggestions} />
+      </div>
+
+      {/* ── 追加字段：来源 + 日期 ─────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className={labelCls}>来源</div>
+          <div className={cn("flex h-7 items-center px-2 rounded bg-muted/10 border border-border/30 text-xs text-muted-foreground")}>
+            {(SOURCE_LABELS as Record<string, string>)[detail.source] || detail.source}
+          </div>
+        </div>
         <InfoField label="更新日期" value={detail.updated_at?.slice(0, 10) || "—"} />
       </div>
 
+      {/* 执行入口（追加） */}
       {detail.implementation && (
         <div>
           <div className={labelCls}>执行入口</div>
@@ -633,6 +642,7 @@ function InfoTab({
         </div>
       )}
 
+      {/* 工具路径（追加） */}
       {detail.nexus_tool_path && (
         <div>
           <div className={labelCls}>工具路径</div>
@@ -652,7 +662,7 @@ function InfoTab({
         </div>
       )}
 
-      {/* 统计 */}
+      {/* 统计（追加） */}
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <span>使用 {detail.use_count || 0} 次</span>
         <span>·</span>
