@@ -68,7 +68,7 @@ class SkillConfig:
             return
         try:
             loaded = json.loads(self._path.read_text("utf-8"))
-            for key in ("disabled", "pinned", "favorites"):
+            for key in ("disabled", "pinned", "favorites", "nexus_tools"):
                 if key in loaded:
                     self._data[key] = loaded[key]
         except (json.JSONDecodeError, OSError) as exc:
