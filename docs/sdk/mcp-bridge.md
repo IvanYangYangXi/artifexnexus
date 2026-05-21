@@ -218,6 +218,57 @@ mcp_{server-name}_{tool-name}
 4. 编译部署 + `openclaw plugins registry --refresh`
 5. 更新本文档
 
+## 重连策略与日志抑制
+
+> **为未来新增 DCC 插件（Maya / UE 等）提供统一的连接管理和刷屏抑制策略。**
+
+### 场景
+
+DCC 启动/关闭是常态操作。当 DCC 未运行时，其 MCP Server 端口不可达，
+Gateway 和 Sidecar 会持续尝试重连。如果不加抑制，每分钟产生数十条日志。
+
+### 实现（双端）
+
+两端各维护一个失败计数器，前 N 次正常打印，之后静默重试。
+连接成功后计数器归零，确保下次断连从 0 开始。
+
+#### Gateway 端（`McpWebSocketClient` — `index.ts`）
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `reconnectDelay` | 5000ms | 基础重连间隔 |
+| `maxReconnectDelay` | 30000ms | 指数退避上限（1.5^n） |
+| `logSuppressThreshold` | 3 | 前 3 次打印 INFO/ERROR，之后静默 |
+
+#### Sidecar 端（`MCPBridgeClient` — `mcp_bridge.py`）
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `_connect_fail_count` | 0（每次成功归零） | 连续失败计数 |
+| `_connect_fail_log_threshold` | 3 | 前 3 次打印 WARNING，之后静默 |
+
+### 行为示例
+
+```
+# 第 1~3 次 — 正常日志
+[sidecar.mcp] 连接 Blender MCP Server 失败: [WinError 1225] 远程计算机拒绝网络连接。
+[mcp-bridge] Reconnecting to "blender-editor" in 5000ms (attempt 2)
+[mcp-bridge] Reconnect failed for "blender-editor": Failed to connect
+
+# 第 4 次起 — 静默
+（无输出，后台指数退避到 30s 间隔）
+
+# 连接恢复 — 计数器归零
+[mcp-bridge] Reconnected to "blender-editor" successfully
+```
+
+### 新增 DCC 时注意
+
+- Gateway 和 Sidecar 两端**都要**实现抑制（本次 blender-editor 的特殊教训）
+- 阈值建议 3：足够调试初始连接，但不过度刷屏
+- 退避算法保持一致：`delay * 1.5^(attempts-1)`，上限 30s
+- 不要忘记部署后更新 `deploy-manifest.json` 的校验和
+
 ## 相关
 
 - `[[dcc-installer]]` — DCC 插件安装 SDK（自动触发 mcp-bridge 部署）

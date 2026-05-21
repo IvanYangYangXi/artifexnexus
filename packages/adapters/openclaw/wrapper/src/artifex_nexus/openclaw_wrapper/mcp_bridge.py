@@ -132,6 +132,9 @@ class MCPBridgeClient:
         self._reader_task: Optional[asyncio.Task] = None
         # trigger_event 回调
         self._trigger_handler: Optional[Callable] = None
+        # 连接失败日志抑制：避免 Blender 未启动时刷屏
+        self._connect_fail_count = 0
+        self._connect_fail_log_threshold = 3
 
     def _ensure_loop(self):
         """确保持久化 event loop 在后台运行"""
@@ -203,9 +206,12 @@ class MCPBridgeClient:
                     logger.warning("connect: _async_connect 返回但状态不一致")
                     return False
                 logger.info(f"已连接 Blender MCP Server: {self.server_address}")
+                self._connect_fail_count = 0  # 成功后重置计数
                 return True
             except Exception as e:
-                logger.warning(f"连接 Blender MCP Server 失败: {e}")
+                self._connect_fail_count += 1
+                if self._connect_fail_count <= self._connect_fail_log_threshold:
+                    logger.warning(f"连接 Blender MCP Server 失败: {e}")
                 self._ws = None
                 self._connected = False
                 return False

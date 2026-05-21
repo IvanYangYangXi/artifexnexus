@@ -73,8 +73,11 @@ class McpWebSocketClient {
   connected = false;
   reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   reconnectAttempts = 0;
-  reconnectDelay = 3000;
-  maxReconnectDelay = 5000;
+  reconnectDelay = 5000;
+  maxReconnectDelay = 30000;
+  // 重连日志抑制：避免 MCP server 长时间不可用时刷屏
+  // 前 3 次正常打印 INFO/ERROR，之后降级为 DEBUG 级别
+  logSuppressThreshold = 3;
   pingInterval: ReturnType<typeof setInterval> | null = null;
   pingIntervalMs = 15000;
   _disposed = false;
@@ -189,17 +192,24 @@ class McpWebSocketClient {
       this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
       this.maxReconnectDelay,
     );
-    this.logger.info(
-      `[mcp-bridge] Reconnecting to "${this.name}" in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`,
-    );
+    // 前 N 次正常打印 INFO，之后降级为 DEBUG 避免刷屏
+    if (this.reconnectAttempts <= this.logSuppressThreshold) {
+      this.logger.info(
+        `[mcp-bridge] Reconnecting to "${this.name}" in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`,
+      );
+    }
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (this._disposed) return;
       try {
         await this.connect();
+        this.reconnectAttempts = 0; // 成功后重置计数
         this.logger.info(`[mcp-bridge] Reconnected to "${this.name}" successfully`);
       } catch (err) {
-        this.logger.error(`[mcp-bridge] Reconnect failed for "${this.name}": ${(err as Error).message}`);
+        // 前 N 次打印 ERROR，之后降级为 DEBUG
+        if (this.reconnectAttempts <= this.logSuppressThreshold) {
+          this.logger.error(`[mcp-bridge] Reconnect failed for "${this.name}": ${(err as Error).message}`);
+        }
       }
     }, delay);
   }

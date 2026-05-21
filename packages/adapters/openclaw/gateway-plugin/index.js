@@ -50,8 +50,9 @@ var McpWebSocketClient = class {
   connected = false;
   reconnectTimer = null;
   reconnectAttempts = 0;
-  reconnectDelay = 3e3;
-  maxReconnectDelay = 5e3;
+  reconnectDelay = 5e3;
+  maxReconnectDelay = 3e4;
+  logSuppressThreshold = 3;
   pingInterval = null;
   pingIntervalMs = 15e3;
   _disposed = false;
@@ -146,17 +147,22 @@ var McpWebSocketClient = class {
       this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
       this.maxReconnectDelay
     );
-    this.logger.info(
-      `[mcp-bridge] Reconnecting to "${this.name}" in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`
-    );
+    if (this.reconnectAttempts <= this.logSuppressThreshold) {
+      this.logger.info(
+        `[mcp-bridge] Reconnecting to "${this.name}" in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`
+      );
+    }
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (this._disposed) return;
       try {
         await this.connect();
+        this.reconnectAttempts = 0;
         this.logger.info(`[mcp-bridge] Reconnected to "${this.name}" successfully`);
       } catch (err) {
-        this.logger.error(`[mcp-bridge] Reconnect failed for "${this.name}": ${err.message}`);
+        if (this.reconnectAttempts <= this.logSuppressThreshold) {
+          this.logger.error(`[mcp-bridge] Reconnect failed for "${this.name}": ${err.message}`);
+        }
       }
     }, delay);
   }
