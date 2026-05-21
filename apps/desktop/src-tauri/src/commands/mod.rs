@@ -3,6 +3,7 @@
 
 pub mod app_settings;
 pub mod echo;
+pub mod file_ops;
 pub mod frontend_log;
 pub mod openclaw;
 pub mod openclaw_config;

@@ -65,6 +65,7 @@ pub fn run() {
     let manager = SidecarManager::new(sidecar_path);
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(Mutex::new(manager) as SidecarState)
         .invoke_handler(tauri::generate_handler![
@@ -169,6 +170,10 @@ pub fn run() {
             commands::app_settings::app_settings_get,
             commands::app_settings::app_settings_set,
             commands::app_settings::app_settings_reset,
+            // 文件操作（资源管理器 D4）
+            commands::file_ops::list_dir,
+            commands::file_ops::read_file_text,
+            commands::file_ops::search_dir,
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

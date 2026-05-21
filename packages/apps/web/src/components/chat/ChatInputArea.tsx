@@ -204,8 +204,23 @@ export function ChatInputArea({
       return;
     }
     uiLog.send("ChatInput", "send", { textLen: text.length, isStreaming, pendingCount, isWsDegraded });
-    onSend(text);
+
+    // 钉选 Skill 自动注入：在消息前附加指令，引导 Agent 使用指定 Skill
+    let finalText = text;
+    const pinned = [...pinnedSkills];
+    if (pinned.length > 0) {
+      const skillList = pinned.map((n) => `@${n}`).join("、");
+      finalText = `请使用 ${skillList} 来执行以下任务：\n\n${text}`;
+    }
+
+    onSend(finalText);
     setText("");
+
+    // 发送后自动取消钉选
+    if (pinned.length > 0) {
+      pinned.forEach((name) => togglePin(name));
+    }
+
     textareaRef.current?.focus();
   };
 

@@ -51,6 +51,7 @@ import {
   type NexusToolInstallDepsResult,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
+import { addRecentTool } from "../../lib/useRecentStore";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             cleanup();
             setRunResult(poll.result || { success: true });
             setRunning(false);
+            if (detail) addRecentTool(detail.id, detail.name);
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "error") {
             cleanup();
@@ -242,6 +244,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             cleanup();
             setRunResult(poll.result || { success: true });
             setRunning(false);
+            if (detail) addRecentTool(detail.id, detail.name);
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "error") {
             cleanup();

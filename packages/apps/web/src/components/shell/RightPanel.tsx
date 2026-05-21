@@ -18,7 +18,7 @@ import {
   PinOff,
   Play,
   Puzzle,
-  RefreshCw,
+  Search,
   Wrench,
   Loader2,
 } from "lucide-react";
@@ -27,12 +27,14 @@ import {
   Button,
   CollapsiblePanel,
   CollapsiblePanelGroup,
+  Input,
 } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { PreviewFileContext, PreviewContext, PinnedSkillsContext } from "./AppShell";
 import { ToolDetailPanel } from "../skills/ToolDetailPanel";
 import { SkillDetailPanel } from "../skills/SkillDetailPanel";
 import { RunPanel } from "../skills/RunPanel";
+import { ResourceExplorer } from "./ResourceExplorer";
 import {
   type SkillItem,
   skillList,
@@ -42,11 +44,13 @@ import {
   nexusToolList,
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS } from "../../lib/skillsMock";
+import { useRecentStore } from "../../lib/useRecentStore";
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
   const { preview, setPreview, clearPreview } = React.useContext(PreviewContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
+  const { recentItems, addRecentSkill, addRecentTool } = useRecentStore();
   // tool run panel: triggered via PreviewContext, see PreviewRenderer
 
   // ─── 真实 API：Skill 列表 ─────────────────────────────────────────
@@ -75,17 +79,65 @@ export function RightPanel() {
   }, []);
   React.useEffect(() => { loadTools(); }, [loadTools]);
 
+  // ─── 搜索状态 ────────────────────────────────────────────────
+  const [skillSearch, setSkillSearch] = React.useState("");
+  const [toolSearch, setToolSearch] = React.useState("");
+
+  // ─── 过滤列表 ─────────────────────────────────────────────────
+  const filteredSkills = React.useMemo(() => {
+    // 只显示已安装的 Skill
+    const installed = skills.filter((s) => s.installed);
+    if (!skillSearch.trim()) return installed;
+    const q = skillSearch.toLowerCase();
+    return installed.filter((s) =>
+      (s.display_name || s.name).toLowerCase().includes(q)
+    );
+  }, [skills, skillSearch]);
+
+  const filteredTools = React.useMemo(() => {
+    if (!toolSearch.trim()) return tools;
+    const q = toolSearch.toLowerCase();
+    return tools.filter((t) => t.name.toLowerCase().includes(q));
+  }, [tools, toolSearch]);
+
+  // ─── Skill 点击 → D5 预览 ─────────────────────────────────────
+  const handleSkillClick = React.useCallback((s: SkillItem) => {
+    setPreview({
+      kind: "skill-detail",
+      title: s.display_name || s.name,
+      data: { skillName: s.name },
+    });
+  }, [setPreview]);
+
+  /** 从最近使用记录中跳转到 Skill 详情（只传必要字段，不构造假 SkillItem） */
+  const handleRecentSkillClick = React.useCallback((skillName: string, displayName: string) => {
+    setPreview({
+      kind: "skill-detail",
+      title: displayName || skillName,
+      data: { skillName },
+    });
+  }, [setPreview]);
+
+  /** 从最近使用记录中跳转到 Tool 详情（只传必要字段，不构造假 NexusToolItem） */
+  const handleRecentToolClick = React.useCallback((toolId: string, toolName: string) => {
+    setPreview({
+      kind: "nexus-tool-detail",
+      title: toolName,
+      data: { toolId, toolName },
+    });
+  }, [setPreview]);
+
   // ─── Tool 分组（按 source → software 聚合）────────────────────
   const toolGroups = React.useMemo(() => {
     const map = new Map<string, NexusToolItem[]>();
-    tools.forEach((t) => {
+    filteredTools.forEach((t) => {
       const first = t.software?.[0];
       const key = (typeof first === "string" ? first : first?.dcc) || "general";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);
     });
     return Array.from(map.entries()).map(([dcc, items]) => ({ dcc, items }));
-  }, [tools]);
+  }, [filteredTools]);
 
   const handleToolClick = React.useCallback((tool: NexusToolItem) => {
     setPreview({
@@ -96,12 +148,13 @@ export function RightPanel() {
   }, [setPreview]);
 
   const handleToolRunFromPanel = React.useCallback((tool: NexusToolItem) => {
+    addRecentTool(tool.id, tool.name);
     setPreview({
       kind: "nexus-tool-run",
       title: `运行: ${tool.name}`,
       data: { toolId: tool.id },
     });
-  }, [setPreview]);
+  }, [setPreview, addRecentTool]);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
       <CollapsiblePanelGroup autoSaveId="artifex.shell.dpanel">
@@ -111,40 +164,80 @@ export function RightPanel() {
           order={1}
           title="最近使用"
           icon={<Clock className="h-3 w-3" />}
-          badge={tools.filter(t => t.use_count > 0).length || undefined}
+          badge={recentItems.length || undefined}
           defaultSize={20}
           minSize={10}
-          actions={
-            <Button size="icon" variant="ghost" className="h-5 w-5" aria-label="刷新" onClick={loadTools}>
-              <RefreshCw className="h-3 w-3" />
-            </Button>
-          }
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            {toolsLoading ? (
-              <div className="flex items-center justify-center py-4 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-              </div>
-            ) : (
-              <ul className="space-y-px py-1 text-xs">
-                {tools.filter(t => t.use_count > 0).slice(0, 10).map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
-                    onClick={() => handleToolClick(t)}
+            <ul className="space-y-px py-1 text-xs">
+              {recentItems.map((item) => (
+                <li
+                  key={`${item.type}-${item.type === "pin" ? item.name : item.id}`}
+                  className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
+                >
+                  {item.type === "pin" ? (
+                    <Pin className="h-3 w-3 text-amber-400 shrink-0" />
+                  ) : (
+                    <Play className="h-3 w-3 text-emerald-400 shrink-0" />
+                  )}
+                  <span
+                    className="truncate text-[11px] cursor-pointer flex-1 min-w-0"
+                    onClick={() => {
+                      if (item.type === "pin") {
+                        handleRecentSkillClick(item.name, item.displayName);
+                      } else {
+                        handleRecentToolClick(item.id, item.name);
+                      }
+                    }}
                   >
-                    <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
-                    <span className="truncate">{t.name}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
-                      {t.use_count}次
-                    </span>
-                  </li>
-                ))}
-                {tools.filter(t => t.use_count > 0).length === 0 && (
-                  <li className="px-2 py-2 text-muted-foreground">暂无使用记录</li>
-                )}
-              </ul>
-            )}
+                    {"displayName" in item ? item.displayName : item.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatRecentTime(item.timestamp)}
+                  </span>
+                  {item.type === "pin" ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!pinnedSkills.includes(item.name)) {
+                          addRecentSkill(item.name, item.displayName);
+                        }
+                        togglePin(item.name);
+                      }}
+                    >
+                      {pinnedSkills.includes(item.name) ? (
+                        <PinOff className="h-3 w-3 text-amber-400" />
+                      ) : (
+                        <Pin className="h-3 w-3" />
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addRecentTool(item.id, item.name);
+                        setPreview({
+                          kind: "nexus-tool-run",
+                          title: `运行: ${item.name}`,
+                          data: { toolId: item.id },
+                        });
+                      }}
+                    >
+                      <Play className="h-3 w-3" />
+                    </Button>
+                  )}
+                </li>
+              ))}
+              {recentItems.length === 0 && (
+                <li className="px-2 py-2 text-muted-foreground">暂无使用记录</li>
+              )}
+            </ul>
           </ScrollFade>
         </CollapsiblePanel>
 
@@ -154,51 +247,74 @@ export function RightPanel() {
           order={2}
           title="Skill 列表"
           icon={<Puzzle className="h-3 w-3" />}
-          badge={skills.length || undefined}
+          badge={filteredSkills.length || undefined}
           defaultSize={25}
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            {skillsLoading ? (
-              <div className="flex items-center justify-center py-4 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-              </div>
-            ) : (
-              <ul className="space-y-px py-1 text-xs">
-                {skills.map((s) => (
-                  <li
-                    key={s.name}
-                    className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
-                    />
-                    <span className="truncate">{s.display_name || s.name}</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {s.version}
-                    </span>
-                    <div className="flex-1" />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5"
-                      onClick={() => togglePin(s.name)}
-                    >
-                      {pinnedSkills.includes(s.name) ? (
-                        <PinOff className="h-3 w-3 text-amber-400" />
-                      ) : (
-                        <Pin className="h-3 w-3" />
-                      )}
-                    </Button>
-                  </li>
-                ))}
-                {skills.length === 0 && !skillsLoading && (
-                  <li className="px-2 py-2 text-muted-foreground">暂无 Skill</li>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="relative shrink-0 px-2 pb-1">
+              <Search className="absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-6 pl-6 text-[11px]"
+                placeholder="搜索 Skill..."
+                value={skillSearch}
+                onChange={(e) => setSkillSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
+                {skillsLoading ? (
+                  <div className="flex items-center justify-center py-4 text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
+                ) : (
+                  <ul className="space-y-px py-1 text-xs">
+                    {filteredSkills.map((s) => (
+                      <li
+                        key={s.name}
+                        className="flex h-6 cursor-pointer items-center gap-2 rounded px-2 hover:bg-accent/40"
+                        onClick={() => handleSkillClick(s)}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`}
+                        />
+                        <span className="truncate">{s.display_name || s.name}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {s.version}
+                        </span>
+                        <div className="flex-1" />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const isCurrentlyPinned = pinnedSkills.includes(s.name);
+                            if (!isCurrentlyPinned) {
+                              addRecentSkill(s.name, s.display_name || s.name);
+                            }
+                            togglePin(s.name);
+                          }}
+                        >
+                          {pinnedSkills.includes(s.name) ? (
+                            <PinOff className="h-3 w-3 text-amber-400" />
+                          ) : (
+                            <Pin className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </li>
+                    ))}
+                    {filteredSkills.length === 0 && !skillsLoading && (
+                      <li className="px-2 py-2 text-muted-foreground">
+                        {skillSearch.trim() ? "无匹配 Skill" : "暂无 Skill"}
+                      </li>
+                    )}
+                  </ul>
                 )}
-              </ul>
-            )}
-          </ScrollFade>
+              </ScrollFade>
+            </div>
+          </div>
         </CollapsiblePanel>
 
         {/* D3 Tool 列表 */}
@@ -207,52 +323,67 @@ export function RightPanel() {
           order={3}
           title="Tool 列表"
           icon={<Wrench className="h-3 w-3" />}
-          badge={tools.length || undefined}
+          badge={filteredTools.length || undefined}
           defaultSize={25}
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            {toolsLoading ? (
-              <div className="flex items-center justify-center py-4 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-              </div>
-            ) : (
-              <div className="py-1 text-xs">
-                {toolGroups.map((g) => (
-                  <div key={g.dcc} className="mb-1">
-                    <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                      {DCC_LABELS[g.dcc as keyof typeof DCC_LABELS] || g.dcc}
-                    </div>
-                    <ul className="space-y-px">
-                      {g.items.map((t) => (
-                        <li
-                          key={t.id}
-                          className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
-                          onClick={() => handleToolClick(t)}
-                        >
-                          <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="truncate">{t.name}</span>
-                          <div className="flex-1" />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            onClick={(e) => { e.stopPropagation(); handleToolRunFromPanel(t); }}
-                          >
-                            <Play className="h-3 w-3" />
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="relative shrink-0 px-2 pb-1">
+              <Search className="absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-6 pl-6 text-[11px]"
+                placeholder="搜索 Tool..."
+                value={toolSearch}
+                onChange={(e) => setToolSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
+                {toolsLoading ? (
+                  <div className="flex items-center justify-center py-4 text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   </div>
-                ))}
-                {tools.length === 0 && !toolsLoading && (
-                  <div className="px-2 py-2 text-muted-foreground">暂无 Tool</div>
+                ) : (
+                  <div className="py-1 text-xs">
+                    {toolGroups.map((g) => (
+                      <div key={g.dcc} className="mb-1">
+                        <div className="px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                          {DCC_LABELS[g.dcc as keyof typeof DCC_LABELS] || g.dcc}
+                        </div>
+                        <ul className="space-y-px">
+                          {g.items.map((t) => (
+                            <li
+                              key={t.id}
+                              className="flex h-6 cursor-pointer items-center gap-2 rounded px-3 font-mono hover:bg-accent/40"
+                              onClick={() => handleToolClick(t)}
+                            >
+                              <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{t.name}</span>
+                              <div className="flex-1" />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={(e) => { e.stopPropagation(); handleToolRunFromPanel(t); }}
+                              >
+                                <Play className="h-3 w-3" />
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                    {filteredTools.length === 0 && !toolsLoading && (
+                      <div className="px-2 py-2 text-muted-foreground">
+                        {toolSearch.trim() ? "无匹配 Tool" : "暂无 Tool"}
+                      </div>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </ScrollFade>
+              </ScrollFade>
+            </div>
+          </div>
         </CollapsiblePanel>
 
         {/* D4 资源管理器 */}
@@ -265,11 +396,7 @@ export function RightPanel() {
           minSize={10}
           defaultOpen={false}
         >
-          <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
-            <div className="px-2 py-2 text-xs text-muted-foreground">
-              <p>占位 · STORY-0038 接入真实文件树</p>
-            </div>
-          </ScrollFade>
+          <ResourceExplorer />
         </CollapsiblePanel>
 
         {/* D5 上下文预览（STORY-0047 + ToolDetailPanel） */}
@@ -345,6 +472,21 @@ function PreviewRenderer({ payload, onClose }: {
     return <RunPanel toolId={data.toolId} compact />;
   }
 
+  if (payload.kind === "file-preview") {
+    const data = payload.data as { content: string; filePath: string } | undefined;
+    if (!data) return <FallbackPreview payload={payload} />;
+    return (
+      <div className="px-3 py-2">
+        <div className="mb-1 text-[10px] text-muted-foreground break-all">
+          {data.filePath}
+        </div>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[400px]">
+          {data.content.length > 5000 ? data.content.slice(0, 5000) + "\n...(文件较大，仅显示前 5000 字符)" : data.content}
+        </pre>
+      </div>
+    );
+  }
+
   // fallback: raw JSON
   return <FallbackPreview payload={payload} />;
 }
@@ -355,4 +497,13 @@ function FallbackPreview({ payload }: { payload: { kind: string; title: string; 
       {JSON.stringify(payload, null, 2)}
     </pre>
   );
+}
+
+/** 相对时间格式化（刚刚/n分钟前/n小时前/n天前） */
+function formatRecentTime(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`;
+  return `${Math.floor(diff / 86_400_000)}天前`;
 }

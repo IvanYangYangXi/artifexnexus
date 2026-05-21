@@ -38,14 +38,23 @@ export function ScrollFade({ children, className, fadeFrom = "from-background", 
     el.addEventListener("scroll", check, { passive: true });
 
     // ResizeObserver 监听内容高度变化（面板展开/折叠时）
+    // 用双 requestAnimationFrame 确保动画/布局完成后才判断，避免遮罩抖动。
+    let pendingRaf1 = 0;
+    let pendingRaf2 = 0;
     const ro = new ResizeObserver(() => {
-      setTimeout(check, 50);
+      cancelAnimationFrame(pendingRaf1);
+      cancelAnimationFrame(pendingRaf2);
+      pendingRaf1 = requestAnimationFrame(() => {
+        pendingRaf2 = requestAnimationFrame(() => check());
+      });
     });
     ro.observe(el);
 
     setTimeout(check, 100);
     return () => {
       el.removeEventListener("scroll", check);
+      cancelAnimationFrame(pendingRaf1);
+      cancelAnimationFrame(pendingRaf2);
       ro.disconnect();
     };
   }, [check]);

@@ -1,0 +1,191 @@
+// 文件操作 Tauri Commands：列出目录、读取文件文本。
+// 文件行数硬上限 300。
+
+use serde::Serialize;
+use std::fs;
+use std::path::Path;
+
+/// 目录条目
+#[derive(Debug, Serialize, Clone)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+/// 文件文本读取结果
+#[derive(Debug, Serialize, Clone)]
+pub struct ReadFileResult {
+    pub ok: bool,
+    pub content: String,
+    pub error: Option<String>,
+}
+
+/// 列出目录内容（仅第一层，不递归）。
+/// 文件夹在前，文件在后，各自按名称排序。
+#[tauri::command]
+pub fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
+    let dir = Path::new(&path);
+    if !dir.is_dir() {
+        return Err(format!("不是目录: {path}"));
+    }
+
+    let mut dirs: Vec<FileEntry> = Vec::new();
+    let mut files: Vec<FileEntry> = Vec::new();
+
+    let entries = fs::read_dir(dir).map_err(|e| format!("读取目录失败: {e}"))?;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        // 跳过隐藏文件/目录（以 . 开头）
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let path = entry.path().to_string_lossy().to_string();
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.len() };
+
+        let fe = FileEntry { name, path, is_dir, size };
+
+        if is_dir {
+            dirs.push(fe);
+        } else {
+            files.push(fe);
+        }
+    }
+
+    // 按名称排序
+    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    dirs.append(&mut files);
+    Ok(dirs)
+}
+
+/// 读取文本文件内容（UTF-8）。
+/// 仅支持小于 1MB 的文本文件，二进制文件返回错误。
+#[tauri::command]
+pub fn read_file_text(path: String) -> Result<ReadFileResult, String> {
+    let p = Path::new(&path);
+
+    if !p.is_file() {
+        return Ok(ReadFileResult {
+            ok: false,
+            content: String::new(),
+            error: Some(format!("不是文件: {path}")),
+        });
+    }
+
+    // 大小限制 1MB
+    let metadata = p.metadata().map_err(|e| format!("读取文件元数据失败: {e}"))?;
+    if metadata.len() > 1_048_576 {
+        return Ok(ReadFileResult {
+            ok: false,
+            content: String::new(),
+            error: Some("文件超过 1MB，无法预览".to_string()),
+        });
+    }
+
+    match fs::read_to_string(p) {
+        Ok(content) => Ok(ReadFileResult {
+            ok: true,
+            content,
+            error: None,
+        }),
+        Err(e) => {
+            // 可能是二进制文件
+            Ok(ReadFileResult {
+                ok: false,
+                content: String::new(),
+                error: Some(format!("读取失败（可能为二进制文件）: {e}")),
+            })
+        }
+    }
+}
+
+/// 递归搜索目录，返回所有匹配搜索词的文件/文件夹。
+/// 最大深度 5 层，跳过隐藏目录和 node_modules/.git 等。
+#[tauri::command]
+pub fn search_dir(path: String, query: String, max_depth: u32) -> Result<Vec<FileEntry>, String> {
+    let root = Path::new(&path);
+    if !root.is_dir() {
+        return Err(format!("不是目录: {path}"));
+    }
+
+    let q = query.to_lowercase();
+    let mut results: Vec<FileEntry> = Vec::new();
+    let max = max_depth.min(8); // 硬上限
+
+    fn walk(dir: &Path, q: &str, depth: u32, max: u32, results: &mut Vec<FileEntry>) {
+        if depth > max {
+            return;
+        }
+
+        let entries = match fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let path = entry.path().to_string_lossy().to_string();
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            let is_dir = metadata.is_dir();
+            let size = if is_dir { 0 } else { metadata.len() };
+
+            // 跳过大型不相关目录
+            if is_dir && (name == "node_modules" || name == ".git" || name == "target" || name == "__pycache__") {
+                continue;
+            }
+
+            if name.to_lowercase().contains(q) {
+                results.push(FileEntry {
+                    name,
+                    path,
+                    is_dir,
+                    size,
+                });
+            }
+
+            if is_dir {
+                walk(&entry.path(), q, depth + 1, max, results);
+            }
+        }
+    }
+
+    walk(root, &q, 0, max, &mut results);
+
+    // 文件夹在前
+    results.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    Ok(results)
+}
