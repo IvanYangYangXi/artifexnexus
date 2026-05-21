@@ -298,6 +298,42 @@ def _config_prefs_for_skill(skill_name: str) -> dict:
     }
 
 
+def _resolve_skill_install_dir(skill_name: str) -> Path:
+    """解析 Skill 的实际安装目录。
+
+    先按 name 直接拼接路径，若不存在则扫描已安装目录，
+    匹配 SKILL.md 的 name 字段。
+
+    用于处理目录名与 SKILL.md name 不一致的边缘情况。
+    """
+    installer = _get_skill_installer()
+    install_dir = installer._target_skill_dir("02_user", skill_name)
+    if install_dir.exists():
+        return install_dir
+
+    # fallback: 扫描已安装目录的 SKILL.md name
+    root = getattr(installer, "_root", None)
+    if root and root.is_dir():
+        import re as _re_fb
+        import yaml as _yaml_fb
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            skill_md = d / "SKILL.md"
+            if not skill_md.exists():
+                continue
+            try:
+                text = skill_md.read_text("utf-8")
+                m = _re_fb.match(r"^---\s*\n(.*?)\n---", text, _re_fb.DOTALL)
+                if m:
+                    fm = _yaml_fb.safe_load(m.group(1)) or {}
+                    if fm.get("name") == skill_name:
+                        return d
+            except Exception:
+                pass
+    return install_dir  # 未找到，返回 naive 路径（调用方检查 exists()）
+
+
 def _skill_fix_manifest(skill_name: str) -> dict:
     """一键修复：从 SKILL.md 生成 manifest.json。
 
@@ -347,8 +383,7 @@ def _skill_check_sync(skill_name: str) -> dict:
     if entry is None:
         return {"ok": False, "state": None, "message": f"Skill '{skill_name}' 未找到"}
 
-    installer = _get_skill_installer()
-    install_dir = installer._target_skill_dir("02_user", skill_name)
+    install_dir = _resolve_skill_install_dir(skill_name)
     if not install_dir.exists():
         return {
             "ok": True, "state": "not_installed",
@@ -409,8 +444,7 @@ def _skill_update_manifest(skill_name: str, fields: dict) -> dict:
     :param fields: 要更新的字段 dict（部分字段）。
     :return: {"ok": bool, "path": str, "warnings": [...], "errors": [...]}
     """
-    installer = _get_skill_installer()
-    install_dir = installer._target_skill_dir("02_user", skill_name)
+    install_dir = _resolve_skill_install_dir(skill_name)
     manifest_path = install_dir / "manifest.json"
 
     if not install_dir.exists():

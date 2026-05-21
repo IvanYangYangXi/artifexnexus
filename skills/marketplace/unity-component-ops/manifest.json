@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "unity_component_ops",
   "display_name": "Unity 组件操作",
   "description": "Unity Editor component management: add, remove, get, and modify components on GameObjects via run_unity_python. Use when AI needs to: (1) add components (Rigidbody, Collider, Light, Camera, AudioSource, etc.), (2) remove components, (3) get component property values, (4) set component property values (serialized fields), (5) list all components on a GameObject. NOT for: creating GameObjects (use unity-gameobject-ops), script creation (use unity-editor-control).",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

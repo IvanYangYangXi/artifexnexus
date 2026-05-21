@@ -9,9 +9,9 @@ description: >
   NOT for: final production export, 3D viewport screenshot.
   Substance Designer only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 2.0.0
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_designer
 ---
 

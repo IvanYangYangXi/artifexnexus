@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "sd_node_capture",
   "display_name": "sd-node-capture",
   "description": "捕获 SD 节点输出纹理用于 AI 视觉分析。支持按节点 ID、按输出通道批量截图。 Use when AI needs to: (1) see what a node's output looks like, (2) capture all PBR outputs for quality review, (3) inspect intermediate node results to guide optimization, (4) visually verify material correctness after building a graph. NOT for: final production export, 3D viewport screenshot. Substance Designer only (run_python).",
   "version": "2.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

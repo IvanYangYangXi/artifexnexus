@@ -67,7 +67,7 @@ class SkillManifest(BaseModel):
         description="semver 版本号，如 '1.0.0'（缺省时使用 0.0.0）",
     )
     software: List[DCCEntry] = Field(
-        default_factory=lambda: [DCCEntry(dcc="universal")],
+        default_factory=lambda: [DCCEntry(dcc="general")],
         description="目标 DCC 软件列表，每项支持独立版本约束",
     )
 
@@ -125,7 +125,7 @@ class SkillManifest(BaseModel):
     def _coerce_software(cls, v: Any) -> List[DCCEntry]:
         """向后兼容：旧格式 string → DCCEntry[]；也处理 dict 格式。"""
         if v is None:
-            return [DCCEntry(dcc="universal")]
+            return [DCCEntry(dcc="general")]
         if isinstance(v, str):
             return [DCCEntry(dcc=v)]
         if isinstance(v, list):
@@ -137,8 +137,8 @@ class SkillManifest(BaseModel):
                     result.append(DCCEntry.from_dict(item))
                 elif isinstance(item, DCCEntry):
                     result.append(item)
-            return result if result else [DCCEntry(dcc="universal")]
-        return [DCCEntry(dcc="universal")]
+            return result if result else [DCCEntry(dcc="general")]
+        return [DCCEntry(dcc="general")]
 
     @model_validator(mode="before")
     @classmethod
@@ -178,7 +178,7 @@ class SkillManifest(BaseModel):
     @property
     def primary_dcc(self) -> str:
         """获取首要目标 DCC 标识。"""
-        return self.software[0].dcc if self.software else "universal"
+        return self.software[0].dcc if self.software else "general"
 
     def get_version_constraint(self, dcc: str) -> Dict[str, str]:
         """获取指定 DCC 的版本约束。

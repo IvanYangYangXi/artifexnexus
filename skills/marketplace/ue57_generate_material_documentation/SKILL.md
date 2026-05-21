@@ -1,16 +1,17 @@
 ---
-name: generate-material-documentation
+name: ue57_generate_material_documentation
 description: >
   Read a master material's blueprint, extract all parameters (scalar, vector, texture,
   static switch), and generate a comprehensive Markdown documentation file. Use when AI
   needs to: (1) document material parameters for artists, (2) generate technical reference
   for master materials, (3) create handoff documentation for material setups. Saves output
   to Saved/MaterialDocs/. Only reads material data (no modifications). Requires UE Editor
-  running with ArtClaw plugin.
+  running with Artifex Nexus plugin.
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 1.0.3
-    author: ArtClaw
+    author: Artifex Nexus
+    software: unreal_engine
 ---
 
 # 生成材质使用文档

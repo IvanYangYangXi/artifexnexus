@@ -1,8 +1,8 @@
 {
-  "id": "official/artclaw-skill-compliance-checker",
-  "name": "artclaw-Skill合规检查器",
-  "description": "自动检查已安装Skill与源码版本同步、格式合规、文件一致性。无需配置参数，全自动从平台配置读取路径。",
-  "agentHint": "通过 Tool Manager API 执行: POST /api/v1/tools/official%2Fartclaw-skill-compliance-checker/execute。或从工具详情 API 获取 tool_path 字段，执行 {tool_path}/main.py。不要运行 openclaw skills check。",
+  "id": "f00b1d41-d479-45d1-8786-57d6ca4380c1",
+  "name": "Skill 合规检查器",
+  "description": "检查 SKILL.md frontmatter（metadata.artifex_nexus.*）、manifest.json schema、software/dcc 枚举、依赖完整性、tags 格式、@skill_tool 合规。从 categories.json 运行时读取枚举。",
+  "agentHint": "Python API: sys.path.insert(0, '{tool_dir}'); from main import check_skill_compliance; result = check_skill_compliance(source_root='skills', installed_root='~/.artifexnexus/.openclaw/workspace/skills')",
   "version": "1.3.0",
   "defaultFilters": {
     "path": [
@@ -97,7 +97,7 @@
       }
     }
   ],
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "updatedAt": "2026-05-16 13:32:38",
   "software": [
     {

@@ -1,6 +1,9 @@
 ---
 name: ue5-performance-packaging
 description: UE5.6/UE5.7 performance and packaging readiness workflow. Use when requests involve PIE performance checks, runtime stat review, pre-package validation, build configuration sanity, and release readiness checklists.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

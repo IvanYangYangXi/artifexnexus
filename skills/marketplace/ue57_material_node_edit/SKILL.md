@@ -1,7 +1,7 @@
 ---
-name: artclaw-material
+name: ue57_material_node_edit
 description: >
-  ArtClaw official Material node graph write operations for UE5. Create, delete, connect,
+  Artifex Nexus official Material node graph write operations for UE5. Create, delete, connect,
   and edit MaterialExpression nodes in a Material's node graph, create new Material assets,
   set material properties, and recompile materials. Use when AI needs to: (1) build materials
   from scratch by assembling expression nodes, (2) modify existing material node graphs,
@@ -9,13 +9,16 @@ description: >
   (4) set material-level properties (BlendMode, ShadingModel, TwoSided), (5) help users
   author procedural or texture-based materials. Works with Material assets (not MaterialInstance
   — use material_ops.py tools for instance parameter overrides). Requires UE Editor running
-  with ArtClaw plugin. NOT for: reading node graphs (use get-material-nodes skill), material
+  with Artifex Nexus plugin. NOT for: reading node graphs (use get-material-nodes skill), material
   instance parameter queries (use get_material_parameters tool).
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
-# ArtClaw Material — 材质节点图操作接口
+# Artifex Nexus Material — 材质节点图操作接口
 
-Official ArtClaw skill providing atomic tools for Material node graph manipulation.
+Official Artifex Nexus skill providing atomic tools for Material node graph manipulation.
 All tools are registered via `@ue_tool` and exposed through MCP.
 
 ## Architecture
@@ -176,9 +179,9 @@ Common compile failures:
 
 ## Deployment
 
-Copy `scripts/material_node_ops.py` to the ArtClaw Skills directory:
+Copy `scripts/material_node_ops.py` to the Artifex Nexus Skills directory:
 ```
 {UEPlugin}/Content/Python/Skills/material_node_ops.py
 ```
-Or place in `00_official/artclaw-material/` as a manifest-based skill.
+Or place in `00_official/artifex_nexus-material/` as a manifest-based skill.
 Skill Hub auto-discovers `@ue_tool` decorated functions on file save.

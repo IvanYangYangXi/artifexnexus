@@ -444,6 +444,15 @@ class SkillHub:
         skill_name = str(frontmatter["name"]).strip()
         skill_description = str(frontmatter.get("description", "")).strip()
 
+        # 检测 SKILL.md name 与目录名不一致（常见于安装/重命名后遗留问题）
+        dir_name = skill_dir.name
+        if skill_name != dir_name:
+            logger.warning(
+                "SKILL.md name '%s' 与目录名 '%s' 不一致: %s。"
+                "目录名应为 skill 的规范名称，建议修正 SKILL.md 的 name 字段。",
+                skill_name, dir_name, skill_dir,
+            )
+
         validation_error: Optional[str] = None
         manifest: Optional[SkillManifest] = None
 

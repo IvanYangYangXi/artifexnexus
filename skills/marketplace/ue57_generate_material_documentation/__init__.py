@@ -257,7 +257,7 @@ def _generate_markdown(mat_info: dict, params: dict, expressions: list,
 
     # 生成时间
     lines.append("---")
-    lines.append("_此文档由 ArtClaw `generate_material_documentation` Skill 自动生成。_")
+    lines.append("_此文档由 Artifex Nexus `generate_material_documentation` Skill 自动生成。_")
     lines.append("")
 
     return "\n".join(lines)

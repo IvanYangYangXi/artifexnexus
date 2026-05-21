@@ -1,15 +1,15 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "ue5_ui_umg_slate",
   "display_name": "ue5-ui-umg-slate",
   "description": "UE5.6/UE5.7 UI development workflow using UMG and Slate integration. Use when requests involve Widget Blueprint setup, Slate host widgets, lifecycle binding, input and focus handling, tooltip behavior, or viewport clamping logic.",
   "version": "0.1.0",
-  "author": "",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {
-      "dcc": "universal"
+      "dcc": "unreal_engine"
     }
   ],
   "category": "utils",

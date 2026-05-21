@@ -4,7 +4,7 @@
   "display_name": "Ue5 Architecture",
   "description": "UE5.6/UE5.7 architecture planning and module boundary design for Unreal projects. Use when requests involve module layout, Build.cs dependencies, reflection exposure strategy, Public/Private API boundaries, naming conventions, and preventing circular dependencies.",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

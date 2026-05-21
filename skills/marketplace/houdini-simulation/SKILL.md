@@ -6,8 +6,8 @@ description: >
   (3) build Pyro/RBD/FLIP/Vellum setups.
   Houdini only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: houdini
 ---
 
@@ -52,7 +52,7 @@ Pyro（烟火）、RBD（刚体）、FLIP（流体）、Vellum（柔体/布料�
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: Pyro 仿真搭建"):
+with hou.undos.group("Artifex Nexus: Pyro 仿真搭建"):
     # 创建 geo 节点
     geo = hou.node("/obj").createNode("geo", "pyro_sim")
     for child in geo.children():
@@ -99,7 +99,7 @@ print("提示: 点击 Pyro Solver 的 Play 按钮开始仿真")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: Pyro DOP 搭建"):
+with hou.undos.group("Artifex Nexus: Pyro DOP 搭建"):
     geo = hou.node("/obj").createNode("geo", "pyro_dop")
     for child in geo.children():
         child.destroy()
@@ -159,7 +159,7 @@ print("Pyro DOP 节点搭建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: RBD 仿真搭建"):
+with hou.undos.group("Artifex Nexus: RBD 仿真搭建"):
     geo = hou.node("/obj").createNode("geo", "rbd_sim")
     for child in geo.children():
         child.destroy()
@@ -214,7 +214,7 @@ print("提示: 按 Play 播放时间线开始仿真")
 import hou
 
 # 在 fracture 后添加 Attribute Wrangle 设置自定义属性
-with hou.undos.group("ArtClaw: RBD 属性设置"):
+with hou.undos.group("Artifex Nexus: RBD 属性设置"):
     geo = hou.node("/obj/rbd_sim")
     fracture = geo.node("fracture")
 
@@ -254,7 +254,7 @@ print("RBD 属性设置完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: FLIP 仿真搭建"):
+with hou.undos.group("Artifex Nexus: FLIP 仿真搭建"):
     geo = hou.node("/obj").createNode("geo", "flip_sim")
     for child in geo.children():
         child.destroy()
@@ -302,7 +302,7 @@ print("提示: 先在低分辨率下测试，确认效果后再提高 particlese
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: FLIP 碰撞体"):
+with hou.undos.group("Artifex Nexus: FLIP 碰撞体"):
     geo = hou.node("/obj/flip_sim")
     flip_solver = geo.node("flip_solver")
 
@@ -346,7 +346,7 @@ print("FLIP 碰撞体添加完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: Vellum 布料仿真"):
+with hou.undos.group("Artifex Nexus: Vellum 布料仿真"):
     geo = hou.node("/obj").createNode("geo", "vellum_sim")
     for child in geo.children():
         child.destroy()
@@ -405,7 +405,7 @@ print("Vellum 布料仿真节点搭建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: Vellum 柔体"):
+with hou.undos.group("Artifex Nexus: Vellum 柔体"):
     geo = hou.node("/obj").createNode("geo", "vellum_soft")
     for child in geo.children():
         child.destroy()

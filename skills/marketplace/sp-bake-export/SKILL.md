@@ -6,9 +6,9 @@ description: >
   (3) configure export settings.
   Substance Painter only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.0.1
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_painter
 ---
 

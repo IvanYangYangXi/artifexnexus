@@ -1,5 +1,5 @@
 ---
-name: ue57-viewport-capture
+name: ue57_viewport_capture
 description: >
   Capture UE viewport screenshots (color, depth, normal buffers) and build AI
   analysis context. Use when AI needs to: (1) take a screenshot of the current
@@ -8,8 +8,8 @@ description: >
   transform for scene analysis. NOT for: runtime game screenshots, cinematic
   rendering, Sequencer captures.
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: unreal_engine
     version: 1.0.0
 ---

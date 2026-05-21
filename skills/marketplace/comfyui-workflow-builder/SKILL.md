@@ -6,11 +6,12 @@ description: >
   (2) understand node connections, (3) use txt2img/img2img templates.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 90
+    software: comfyui
 ---
 
 # ComfyUI Workflow 构建指南

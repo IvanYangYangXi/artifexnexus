@@ -2,7 +2,7 @@
 name = "artifex-nexus-desktop"
 version = "0.0.0"
 description = "Artifex Nexus Desktop Shell — Tauri 2 wrapper for OpenClaw"
-authors = ["@ivan"]
+authors = ["Ivan(杨己力)"]
 edition = "2021"
 rust-version = "1.77"
 

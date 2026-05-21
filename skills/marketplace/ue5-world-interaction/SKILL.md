@@ -1,6 +1,9 @@
 ---
 name: ue5-world-interaction
 description: UE5.6/UE5.7 world interaction systems for pickups, spawners, overlap/trace checks, and visual feedback. Use when requests involve interactive world actors, spawn logic, pickup behavior, interaction radius checks, success/failure feedback, and actor lifecycle control.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

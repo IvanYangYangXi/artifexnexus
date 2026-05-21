@@ -7,8 +7,8 @@ description: >
   (4) handle Chinese Blender node name differences.
   Blender only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: blender
     category: material
 ---

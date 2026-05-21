@@ -6,9 +6,9 @@ description: >
   (3) set parameters, (4) build material graphs.
   Substance Designer only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.0.2
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_designer
 ---
 

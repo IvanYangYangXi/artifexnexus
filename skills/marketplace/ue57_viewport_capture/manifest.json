@@ -4,7 +4,7 @@
   "display_name": "UE Viewport Capture & Analysis",
   "description": "Capture UE viewport screenshots (color/depth/normal) and build AI analysis context for scene composition, lighting, performance review.",
   "version": "1.0.1",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "software": [
     {
       "dcc": "unreal_engine"

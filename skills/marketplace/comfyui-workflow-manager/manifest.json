@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_workflow_manager",
   "display_name": "comfyui-workflow-manager",
   "description": "ComfyUI Workflow 模板库管理：发现、使用、管理、发布 Workflow 模板。 支持官方模板、社区模板、个人模板三级体系。 Use when AI needs to: (1) find and use workflow templates, (2) manage personal workflow library, (3) publish workflows to community. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

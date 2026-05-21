@@ -9,8 +9,8 @@ description: >
   runtime game camera (PlayerCameraManager), Sequencer camera cuts, Maya/Max
   cameras.
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: unreal_engine
 ---
 

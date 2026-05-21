@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_workflow_repair",
   "display_name": "comfyui-workflow-repair",
   "description": "ComfyUI Workflow 自动诊断与修复。检测缺失节点、参数错误、连接问题， 并提供自动修复方案或手动修复指导。 Use when AI needs to: (1) fix a broken workflow, (2) migrate workflow to new ComfyUI version, (3) optimize workflow structure. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

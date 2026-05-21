@@ -9,8 +9,8 @@ description: >
   (3) understand 3ds Max coordinate system.
   3ds Max only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: 3ds_max
 ---
 
@@ -60,12 +60,12 @@ box.rotation = rt.EulerAngles(45, 0, 0)  # 绕 X 轴旋转 45°
 from pymxs import runtime as rt
 
 # 方式 1：undo 上下文（推荐）
-with rt.undo(True, 'ArtClaw_BatchOperation'):
+with rt.undo(True, 'Artifex Nexus_BatchOperation'):
     # ... 所有修改操作 ...
     pass
 
 # 方式 2：MAXScript undo
-rt.execute('undo "ArtClaw Op" on ( /* operations */ )')
+rt.execute('undo "Artifex Nexus Op" on ( /* operations */ )')
 ```
 
 ### 何时使用 Undo 包裹
@@ -125,7 +125,7 @@ JPN/  (日文)
 ```python
 from pymxs import runtime as rt
 
-with rt.undo(True, 'ArtClaw_Operation'):
+with rt.undo(True, 'Artifex Nexus_Operation'):
     # ... 所有操作代码 ...
     pass
 

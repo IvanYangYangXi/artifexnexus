@@ -6,10 +6,11 @@ description: >
   (2) tune sampling parameters, (3) add LoRA to generation pipeline.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
+    software: comfyui
 ---
 
 # ComfyUI 文生图 (txt2img)

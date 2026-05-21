@@ -1,15 +1,15 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "ue5_auto_assistant",
   "display_name": "ue5-auto-assistant",
   "description": "UE5.6/UE5.7 automatic assistant entry for beginners. Use when users ask Unreal questions without naming a specific skill. Auto-route to the most precise UE5 skill and recommend dedicated MCP tools.",
   "version": "0.1.0",
-  "author": "",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {
-      "dcc": "universal"
+      "dcc": "unreal_engine"
     }
   ],
   "category": "utils",

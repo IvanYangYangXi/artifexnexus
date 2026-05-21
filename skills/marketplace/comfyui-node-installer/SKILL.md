@@ -7,11 +7,12 @@ description: >
   (3) search and install node packages from ComfyUI registry.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.2.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 98
+    software: comfyui
 ---
 
 # ComfyUI 节点安装器

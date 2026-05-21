@@ -7,11 +7,12 @@ description: >
   (2) check if nodes are available, (3) debug workflow issues.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 95
+    software: comfyui
 ---
 
 # ComfyUI Workflow 验证器

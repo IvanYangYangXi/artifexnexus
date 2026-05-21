@@ -95,7 +95,7 @@ def _load_categories_json() -> dict:
 def _builtin_fallback() -> dict:
     """内置 fallback（categories.json 不可用时的最小保证）。"""
     return {
-        "software": ["universal", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
+        "software": ["general", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
         "risk_level": ["low", "medium", "high", "critical"],
         "display": {
             "software": {},
@@ -143,7 +143,7 @@ def software_value(software: Software | str) -> str:
     ``hasattr(s, 'value')`` 模式。
 
     :param software: ``Software`` 枚举成员或裸字符串。
-    :return: 软件标识字符串（'universal' / 'unreal' / 'blender' / ...）。
+    :return: 软件标识字符串（'general' / 'unreal' / 'blender' / ...）。
     """
     if hasattr(software, "value"):
         return software.value  # type: ignore[union-attr,return-value]

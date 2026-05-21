@@ -3,6 +3,9 @@ name: ue5-blueprint-workflow
 description: >
   UE5.6/UE5.7 Blueprint graph workflow for feature implementation, input events, node wiring, and graph validation.
   Use when requests involve adding Blueprint logic, keyboard input behavior, function chains, event graph edits, or pin-level connection guidance.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Blueprint Graph Editing — Python API Reference
@@ -10,7 +13,7 @@ description: >
 > 📋 **通用节点图工作流**（伪代码→映射→分组创建→验证→布局）见 `dcc-node-graph-workflow` skill。
 > 本 skill 专注 UE 蓝图的 **API 细节、已知陷阱和节点类名速查**。
 
-ArtClaw 插件通过 `UEClawBridgeAPI` C++ 模块暴露了完整蓝图图编辑 API，Python 可直接调用。
+Artifex Nexus 插件通过 `UEClawBridgeAPI` C++ 模块暴露了完整蓝图图编辑 API，Python 可直接调用。
 
 ## API 总览
 

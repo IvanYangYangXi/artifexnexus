@@ -266,7 +266,7 @@ class TriggerDispatcher:
         """执行单个 Nexus Tool。
 
         Args:
-            tool_id: 工具 ID（e.g. "marketplace/blender-object-naming-check"）
+            tool_id: 工具 GUID（e.g. "25080280-7302-46e8-80f5-4b846cd79184"）
             payload: trigger_event 消息字典
 
         Returns:

@@ -8,9 +8,9 @@ description: >
   NOT for: runtime scene loading (Application.LoadScene), asset creation, component editing.
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity 场景操作"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: scene
     risk_level: low

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox, CheckSquare, Download } from "lucide-react";
+import { Search, LayoutGrid, List, Plus, Pin, PinOff, Star, Loader2, AlertCircle, Inbox, CheckSquare, Download, Info } from "lucide-react";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@artifex-nexus/ui";
 import { ItemCard } from "./ItemCard";
 import { ScrollFade } from "../chat/ScrollFade";
@@ -99,7 +99,7 @@ export function SkillList() {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
       if (dccFilter !== "all" && !s.software.some((e) => {
         const d = typeof e === "string" ? e : e.dcc;
-        return d === dccFilter || (dccFilter === "general" && d === "universal");
+        return d === dccFilter;
       })) {
         return false;
       }
@@ -275,13 +275,17 @@ export function SkillList() {
               description={skill.description || skill.tags?.join(", ") || ""}
               meta={<>
                 <span>{skill.version}</span>
-                <span>·</span><span>{Array.isArray(skill.software) ? skill.software.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc).join(", ") || "通用" : "通用"}</span>
+                <span>·</span><span>{Array.isArray(skill.software) ? skill.software.map((e: unknown) => {
+                  const d = typeof e === "string" ? e : (e as { dcc: string }).dcc;
+                  return (DCC_LABELS as Record<string, string>)[d] || d;
+                }).join(", ") || "通用" : "通用"}</span>
               </>}
               actions={(!selectMode || skill.installed) ? <>
                 {/* 详情 — 始终显示 */}
-                <Button variant="outline" size="sm" className="h-7 text-xs"
-                  onClick={() => handleDetail(skill.name)} disabled={isBusy(skill.name)}>
-                  详情
+                <Button variant="ghost" size="icon" className="h-7 w-7"
+                  onClick={() => handleDetail(skill.name)} disabled={isBusy(skill.name)}
+                  title="查看详情">
+                  <Info className="h-3.5 w-3.5" />
                 </Button>
 
                 {/* 未安装 → 安装 */}
@@ -405,10 +409,12 @@ function DCCIcon({ software }: { software: string }) {
     houdini: "bg-amber-500/20 text-amber-400", comfyui: "bg-purple-500/20 text-purple-400",
     substance_painter: "bg-rose-500/20 text-rose-400", substance_designer: "bg-fuchsia-500/20 text-fuchsia-400",
     unity: "bg-indigo-500/20 text-indigo-400",
+    general: "bg-muted text-muted-foreground",
   };
   const icons: Record<string, string> = {
     blender: "B", maya: "M", "3ds_max": "3", unreal_engine: "U", houdini: "H", comfyui: "C",
     substance_painter: "P", substance_designer: "D", unity: "N",
+    general: "G",
   };
   const key = software?.toLowerCase() || "";
   return <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${colors[key] || "bg-muted text-muted-foreground"}`}>

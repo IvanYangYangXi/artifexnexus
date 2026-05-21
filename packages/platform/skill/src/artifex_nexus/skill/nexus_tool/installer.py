@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -100,7 +101,7 @@ class NexusToolInstaller:
                 f"Official/marketplace tools live in the project source tree."
             )
 
-        nexus_tool_id = f"{source}/{name}"
+        nexus_tool_id = str(uuid.uuid4())  # GUID v4（稳定不变）
         nexus_tool_dir = self._nexus_tools_root / "user" / name
 
         if nexus_tool_dir.exists():
@@ -275,7 +276,7 @@ class NexusToolInstaller:
         if manifest_path.exists():
             manifest_data = json.loads(manifest_path.read_text("utf-8"))
             manifest_data["source"] = target
-            manifest_data["id"] = f"{target}/{td.name}"
+            # id 保持 GUID 不变（v3：改名/移动不漂移）
             if version:
                 manifest_data["version"] = version
             if description:
@@ -290,7 +291,7 @@ class NexusToolInstaller:
         self.registry._cache = []
 
         return {
-            "id": f"{target}/{td.name}",
+            "id": td.id,  # GUID v4（稳定不变）
             "message": (
                 f"Nexus-Tool '{td.name}' published to {target} successfully"
             ),

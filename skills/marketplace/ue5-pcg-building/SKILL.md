@@ -1,6 +1,9 @@
 ---
 name: ue5-pcg-building
 description: UE5.6/UE5.7 PCG building generation workflow for modular buildings, blockouts, facade rules, and runtime generation. Use when requests involve Procedural Content Generation (PCG), Shape Grammar, lot-based building spawn, deterministic random seeds, density/filter pipelines, or converting designer constraints into reusable PCG graphs.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

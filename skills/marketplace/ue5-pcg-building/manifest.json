@@ -1,15 +1,15 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "ue5_pcg_building",
   "display_name": "ue5-pcg-building",
   "description": "UE5.6/UE5.7 PCG building generation workflow for modular buildings, blockouts, facade rules, and runtime generation. Use when requests involve Procedural Content Generation (PCG), Shape Grammar, lot-based building spawn, deterministic random seeds, density/filter pipelines, or converting designer constraints into reusable PCG graphs.",
   "version": "0.1.0",
-  "author": "",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {
-      "dcc": "universal"
+      "dcc": "unreal_engine"
     }
   ],
   "category": "utils",

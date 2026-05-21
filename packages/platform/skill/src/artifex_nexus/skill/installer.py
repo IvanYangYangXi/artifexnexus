@@ -511,9 +511,9 @@ class SkillInstaller:
                     fm = yaml.safe_load(m.group(1)) or {}
                     meta = fm.get("metadata", {})
                     if isinstance(meta, dict):
-                        artclaw = meta.get("artclaw", {})
-                        if isinstance(artclaw, dict):
-                            version = str(artclaw.get("version", "unknown"))
+                        afx = meta.get("artifex_nexus", {})
+                        if isinstance(afx, dict):
+                            version = str(afx.get("version", "unknown"))
             except Exception:
                 pass
 

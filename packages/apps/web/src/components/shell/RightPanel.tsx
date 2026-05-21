@@ -80,7 +80,7 @@ export function RightPanel() {
     const map = new Map<string, NexusToolItem[]>();
     tools.forEach((t) => {
       const first = t.software?.[0];
-      const key = (typeof first === "string" ? first : first?.dcc) || "通用";
+      const key = (typeof first === "string" ? first : first?.dcc) || "general";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);
     });
@@ -318,7 +318,7 @@ function PreviewRenderer({ payload, onClose }: {
       <div className="px-3 py-2 text-xs">
         <div className="mb-2 flex items-center gap-2">
           <span className={`inline-block h-2 w-2 rounded-full ${data?.success ? "bg-emerald-400" : "bg-red-400"}`} />
-          <span className="font-medium">{data?.dcc ? `在 ${data.dcc} 上运行` : "运行结果"}</span>
+          <span className="font-medium">{data?.dcc ? `在 ${DCC_LABELS[data.dcc as keyof typeof DCC_LABELS] || data.dcc} 上运行` : "运行结果"}</span>
         </div>
         <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[300px]">
           {JSON.stringify(data, null, 2)}

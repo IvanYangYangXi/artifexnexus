@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_txt2img",
   "display_name": "comfyui-txt2img",
   "description": "ComfyUI 文生图标准工作流。checkpoint + CLIP + KSampler + VAEDecode + SaveImage。 Use when AI needs to: (1) generate images from text prompts, (2) tune sampling parameters, (3) add LoRA to generation pipeline. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

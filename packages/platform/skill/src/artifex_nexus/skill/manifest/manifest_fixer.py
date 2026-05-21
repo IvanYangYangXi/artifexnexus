@@ -41,7 +41,7 @@ def _load_template() -> dict:
             "manifest_version": "1.0",
             "name": "",
             "version": "0.1.0",
-            "software": [{"dcc": "universal"}],
+            "software": [{"dcc": "general"}],
             "entry_point": "__init__.py",
         }
 
@@ -120,7 +120,7 @@ _SOFTWARE_NORMALIZE: Dict[str, str] = {
     "sd": "substance_designer",
     "comfyui": "comfyui",
     "unity": "unity",
-    "universal": "universal",
+    "general": "general",
 }
 
 
@@ -148,12 +148,12 @@ def _normalize_software_list(raw: Any) -> list:
                     **({"minVersion": str(item[k])} if (k := item.get("minVersion") or item.get("min_version")) else {}),
                     **({"maxVersion": str(item[k])} if (k := item.get("maxVersion") or item.get("max_version")) else {}),
                 })
-        return result if result else [{"dcc": "universal"}]
+        return result if result else [{"dcc": "general"}]
     if isinstance(raw, str):
         # 逗号分隔 → 多 DCC
         parts = [p.strip() for p in raw.split(",") if p.strip()]
-        return [{"dcc": _normalize_software(p)} for p in parts] if parts else [{"dcc": "universal"}]
-    return [{"dcc": "universal"}]
+        return [{"dcc": _normalize_software(p)} for p in parts] if parts else [{"dcc": "general"}]
+    return [{"dcc": "general"}]
 
 
 # ── 标签规范化 ───────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ def generate_manifest_from_skill_dir(skill_dir: Path) -> Dict[str, Any]:
 
     # software
     sw_raw = artclaw.get("software", "") or artclaw.get("dcc", "")
-    manifest["software"] = _normalize_software_list(sw_raw) if sw_raw else [{"dcc": "universal"}]
+    manifest["software"] = _normalize_software_list(sw_raw) if sw_raw else [{"dcc": "general"}]
     if not sw_raw:
         result["warnings"].append("software 未指定，使用默认值 universal")
 

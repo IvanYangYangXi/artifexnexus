@@ -2,7 +2,7 @@
   "$schema": "https://artifexnexus.dev/schemas/categories.schema.json",
   "description": "Artifex Nexus Skill/Nexus-Tool 分类与标签 — 唯一数据源。前后端共享，manifest.schema.json 和 pydantic 模型均从此读取。",
   "software": [
-    "universal",
+    "general",
     "unreal_engine",
     "blender",
     "maya",
@@ -38,7 +38,7 @@
   ],
   "display": {
     "software": {
-      "universal": "通用",
+      "general": "通用",
       "unreal_engine": "Unreal Engine",
       "blender": "Blender",
       "maya": "Maya",

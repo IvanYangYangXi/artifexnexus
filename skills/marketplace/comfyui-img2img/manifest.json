@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_img2img",
   "display_name": "comfyui-img2img",
   "description": "ComfyUI 图生图工作流构建与执行。 Use when AI needs to: (1) generate image from another image, (2) perform image-to-image transformation, (3) apply style transfer or enhancement to existing image. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

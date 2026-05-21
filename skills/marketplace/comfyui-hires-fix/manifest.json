@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_hires_fix",
   "display_name": "comfyui-hires-fix",
   "description": "ComfyUI 高清修复工作流：低分辨率生成 → 放大 → 重采样。 支持多种放大算法和重采样策略。 Use when AI needs to: (1) upscale generated images, (2) perform high-resolution fix, (3) enhance image details. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

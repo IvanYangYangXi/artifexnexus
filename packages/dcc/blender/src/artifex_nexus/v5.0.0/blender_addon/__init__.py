@@ -27,7 +27,7 @@ logger = logging.getLogger("artifex.blender")
 # ── Blender 插件元信息 ──────────────────────────────────────────────────
 bl_info = {
     "name": "Artifex Nexus Bridge",
-    "author": "Artifex Nexus",
+    "author": "Ivan(杨己力)",
     "version": (5, 0, 0),
     "blender": (5, 0, 0),
     "blender_max": (5, 1, 9),

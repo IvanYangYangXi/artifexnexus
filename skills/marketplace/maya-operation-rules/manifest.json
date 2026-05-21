@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "maya_operation_rules",
   "display_name": "maya-operation-rules",
   "description": "Maya 操作通用规则和最佳实践。所有涉及 Maya 场景修改的操作都必须遵守。 AI 在执行任何 Maya 场景操作任务前应先读取此 Skill。 包含：坐标系、撤销块、脚本输出、中文版路径等强制规则。 Use when AI needs to: (1) perform any Maya scene modification, (2) check post-operation best practices, (3) understand Maya coordinate system. Maya only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

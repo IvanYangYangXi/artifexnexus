@@ -6,9 +6,9 @@ description: >
   (2) check post-operation best practices, (3) understand SD API constraints.
   Substance Designer only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.0.2
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_designer
 ---
 

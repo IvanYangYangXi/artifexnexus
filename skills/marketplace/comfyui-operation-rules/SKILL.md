@@ -6,11 +6,12 @@ description: >
   (2) check post-operation best practices, (3) understand ComfyUI API constraints.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 100
+    software: comfyui
 ---
 
 # ComfyUI 操作规则

@@ -13,7 +13,7 @@ app = typer.Typer(no_args_is_help=True)
 def create(
     name: str,
     category: str = typer.Option(None),
-    software: str = typer.Option("universal"),
+    software: str = typer.Option("general"),
     template: str = typer.Option("basic"),
     description: str = typer.Option(""),
 ) -> None:

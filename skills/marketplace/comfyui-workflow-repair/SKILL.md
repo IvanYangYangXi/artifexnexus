@@ -8,11 +8,12 @@ description: >
   (3) optimize workflow structure.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 97
+    software: comfyui
 ---
 
 # ComfyUI Workflow 修复器

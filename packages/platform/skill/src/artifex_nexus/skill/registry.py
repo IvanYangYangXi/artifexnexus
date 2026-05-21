@@ -132,7 +132,7 @@ def matches_skill(
     """检查 Skill manifest 是否与当前 DCC 软件 + 版本匹配。
 
     匹配规则：
-        1. ``manifest.software`` 中包含 "universal"，或者包含 ``current_software``
+        1. ``manifest.software`` 中包含 "general"，或者包含 ``current_software``
         2. 如果对应 DCC 有版本约束，当前版本必须在范围内
 
     :param manifest: SkillManifest 实例或 dict。
@@ -142,7 +142,7 @@ def matches_skill(
     """
     skill_software = _extract_software(manifest)
     # universal 匹配所有，或者当前 DCC 在列表中
-    if "universal" not in skill_software and current_software not in skill_software:
+    if "general" not in skill_software and current_software not in skill_software:
         return False
     sw_ver = _extract_version_constraint(manifest, current_software)
     if sw_ver and not matches_software_version(sw_ver, current_version):

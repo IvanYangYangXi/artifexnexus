@@ -10,8 +10,8 @@ description: >
   (4) learn node-based workflow fundamentals.
   Houdini only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: houdini
 ---
 
@@ -59,7 +59,7 @@ node.parm("tz").set(0)    # Z = 前 0
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 操作描述"):
+with hou.undos.group("Artifex Nexus: 操作描述"):
     # ... 所有修改操作放在这里 ...
     geo = hou.node("/obj").createNode("geo", "my_geo")
     box = geo.createNode("box", "my_box")
@@ -140,7 +140,7 @@ import hou
 # 切换到手动更新模式
 hou.setUpdateMode(hou.updateMode.Manual)
 
-with hou.undos.group("ArtClaw: 批量操作"):
+with hou.undos.group("Artifex Nexus: 批量操作"):
     # ... 大量节点创建/修改 ...
     for i in range(100):
         node = parent.createNode("box", f"box_{i}")
@@ -158,7 +158,7 @@ hou.setUpdateMode(hou.updateMode.AutoUpdate)
 
 | 方式 | 用途 | 说明 |
 |---|---|---|
-| `print(...)` | 脚本输出 | 输出到 Python Shell，**推荐用于 ArtClaw** |
+| `print(...)` | 脚本输出 | 输出到 Python Shell，**推荐用于 Artifex Nexus** |
 | `hou.ui.displayMessage(...)` | 用户提示 | 弹窗显示，需要用户点击确认 |
 
 ```python
@@ -206,7 +206,7 @@ box = geo.createNode("box")
 - **操作成功**：如果是复杂或首次操作，记录成功方案供后续复用
 
 ```python
-# 使用 artclaw-memory skill 进行记忆读写
+# 使用 artifex_nexus-memory skill 进行记忆读写
 # 搜索: memory_store.get_memory_store().search("houdini pyro setup")
 # 存储: memory_store.get_memory_store().store(key, value, category)
 ```
@@ -220,7 +220,7 @@ box = geo.createNode("box")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 操作名称"):
+with hou.undos.group("Artifex Nexus: 操作名称"):
     # ① 获取目标节点
     geo = hou.node("/obj/geo1")
     if not geo:

@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "houdini_context",
   "display_name": "houdini-context",
   "description": "查询 Houdini 编辑器上下文：选中节点、场景信息、节点网络结构。 Use when AI needs to: (1) get selected nodes, (2) get scene overview, (3) check current hip file, (4) inspect node networks. Houdini only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

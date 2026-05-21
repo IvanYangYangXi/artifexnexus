@@ -8,11 +8,12 @@ description: >
   (3) manage model files.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 96
+    software: comfyui
 ---
 
 # ComfyUI 模型管理器

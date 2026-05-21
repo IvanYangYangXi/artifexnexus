@@ -8,9 +8,9 @@ description: >
   NOT for: adding/removing components (use unity-component-ops), asset operations (use unity-asset-ops).
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity GameObject 操作"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: scene
     risk_level: low

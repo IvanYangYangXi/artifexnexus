@@ -6,8 +6,8 @@ description: >
   (3) set node parameters, (4) build node networks.
   Houdini only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: houdini
 ---
 
@@ -28,7 +28,7 @@ metadata:
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 创建几何体"):
+with hou.undos.group("Artifex Nexus: 创建几何体"):
     geo = hou.node("/obj").createNode("geo", "my_geo")
 
     # 删除默认的 file 节点（新建 geo 会自带）
@@ -57,7 +57,7 @@ print("创建几何体完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 创建 Transform"):
+with hou.undos.group("Artifex Nexus: 创建 Transform"):
     geo = hou.node("/obj/geo1")
     box = geo.node("box1")
 
@@ -81,7 +81,7 @@ print("Transform 创建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 合并节点"):
+with hou.undos.group("Artifex Nexus: 合并节点"):
     geo = hou.node("/obj/geo1")
 
     box = geo.createNode("box", "box1")
@@ -104,7 +104,7 @@ print("Merge 完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 创建 Group"):
+with hou.undos.group("Artifex Nexus: 创建 Group"):
     geo = hou.node("/obj/geo1")
     box = geo.node("box1")
 
@@ -270,7 +270,7 @@ node.parm("method").set("distance")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 创建子网络"):
+with hou.undos.group("Artifex Nexus: 创建子网络"):
     geo = hou.node("/obj/geo1")
 
     # 创建子网络节点
@@ -307,7 +307,7 @@ print("子网络创建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 建模工作流"):
+with hou.undos.group("Artifex Nexus: 建模工作流"):
     geo = hou.node("/obj").createNode("geo", "model_geo")
     for child in geo.children():
         child.destroy()
@@ -346,7 +346,7 @@ print("建模工作流创建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 属性操作"):
+with hou.undos.group("Artifex Nexus: 属性操作"):
     geo = hou.node("/obj/geo1")
 
     # 假设已有输入几何体 source_node
@@ -381,7 +381,7 @@ print("属性操作工作流创建完成")
 ```python
 import hou
 
-with hou.undos.group("ArtClaw: 散布工作流"):
+with hou.undos.group("Artifex Nexus: 散布工作流"):
     geo = hou.node("/obj").createNode("geo", "scatter_geo")
     for child in geo.children():
         child.destroy()

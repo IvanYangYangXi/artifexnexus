@@ -6,11 +6,12 @@ description: >
   (3) check queue status, (4) query node types and schemas, (5) get workflow history.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.2.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 99
+    software: comfyui
 ---
 
 # ComfyUI 上下文查询

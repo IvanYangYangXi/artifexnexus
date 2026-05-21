@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_civitai",
   "display_name": "comfyui-civitai",
   "description": "ComfyUI CivitAI 集成：搜索、下载 CivitAI 上的模型。 Use when AI needs to: (1) search models on CivitAI, (2) download models from CivitAI, (3) browse popular models. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

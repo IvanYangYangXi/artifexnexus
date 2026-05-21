@@ -62,7 +62,7 @@ class NexusToolRegistry:
 
         result: List[NexusToolData] = []
         for s in scanned:
-            nexus_tool_id = f"{s.source}/{s.name}"
+            nexus_tool_id = s.id  # GUID v4（稳定不变，改名/移动不漂移）
             is_disabled = nexus_tool_id in disabled_set
             td = NexusToolData(
                 id=nexus_tool_id,
@@ -195,7 +195,7 @@ class NexusToolRegistry:
         # DCC 绑定工具禁止本地执行
         _dcc_names = [entry.dcc for entry in td.software]
         if _dcc_names and not all(
-            d in ("general", "universal") for d in _dcc_names
+            d in ("general",) for d in _dcc_names
         ):
             dcc_list = ", ".join(_dcc_names)
             return NexusToolResult.fail(

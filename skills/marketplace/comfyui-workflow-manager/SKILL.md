@@ -8,11 +8,12 @@ description: >
   (3) publish workflows to community.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 92
+    software: comfyui
 ---
 
 # ComfyUI Workflow 管理器
@@ -225,7 +226,7 @@ result = submit_workflow(my_wf)
   "description": "标准的 SDXL 文生图 workflow",
   "category": "txt2img",
   "tags": ["sdxl", "official"],
-  "author": "ArtClaw",
+  "author": "Artifex Nexus",
   "source": "official",
   
   "workflow": {

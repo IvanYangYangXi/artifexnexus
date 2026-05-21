@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "ue57_operation_rules",
   "display_name": "ue57-operation-rules",
   "description": "UE Editor 操作通用规则和最佳实践。所有涉及 UE 场景修改的操作都必须遵守。 AI 在执行任何 UE 场景操作任务前应先读取此 Skill。 包含：坐标系、操作后刷新视口、Rotator 安全规则、撤销提示等强制规则。 Use when AI needs to: (1) perform any scene modification, (2) check post-operation best practices, (3) ensure viewport refresh after edits, (4) understand UE coordinate system. UE only (run_ue_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

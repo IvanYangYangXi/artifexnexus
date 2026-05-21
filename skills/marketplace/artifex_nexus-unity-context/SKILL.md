@@ -1,8 +1,8 @@
 ---
-name: artclaw-unity-context
+name: artifex_nexus-unity-context
 description: >
-  Unity Editor AI agent context and routing skill for ArtClaw Bridge.
-  Use when AI needs to: (1) understand how to operate Unity Editor via ArtClaw MCP,
+  Unity Editor AI agent context and routing skill for Artifex Nexus Bridge.
+  Use when AI needs to: (1) understand how to operate Unity Editor via Artifex Nexus MCP,
   (2) determine which Unity sub-skill to load for a task, (3) get project and environment
   context (Unity version, project path, connection status), (4) understand the run_unity_python
   execution model and C# code format.
@@ -10,9 +10,9 @@ description: >
   unity-asset-ops, unity-component-ops, unity-editor-control) for actual operations.
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity 上下文与路由"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: utils
     risk_level: low
@@ -20,7 +20,7 @@ metadata:
     tags: ["unity", "context", "routing", "mcp", "run_unity_python"]
 ---
 
-# ArtClaw Unity 上下文
+# Artifex Nexus Unity 上下文
 
 UnityClawBridge 的入口 Skill。了解 Unity 环境的接入方式，并路由到正确的操作 Skill。
 

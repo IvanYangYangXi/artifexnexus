@@ -7,11 +7,12 @@ description: >
   (3) apply style transfer or enhancement to existing image.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 95
+    software: comfyui
 ---
 
 # ComfyUI 图生图 (img2img)

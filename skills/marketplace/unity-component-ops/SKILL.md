@@ -8,9 +8,9 @@ description: >
   NOT for: creating GameObjects (use unity-gameobject-ops), script creation (use unity-editor-control).
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity 组件操作"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: scene
     risk_level: low

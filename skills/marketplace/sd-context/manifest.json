@@ -4,7 +4,7 @@
   "display_name": "Sd Context",
   "description": "查询 SD 编辑器上下文：包信息、图列表、节点结构、参数详情。 Use when AI needs to: (1) get package info, (2) list graphs, (3) inspect node network, (4) check node parameters. Substance Designer only (run_python).",
   "version": "0.0.1",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "software": [
     {
       "dcc": "substance_designer"

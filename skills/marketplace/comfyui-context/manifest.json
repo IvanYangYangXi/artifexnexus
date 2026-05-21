@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_context",
   "display_name": "comfyui-context",
   "description": "查询 ComfyUI 上下文：系统信息、模型列表、队列状态、节点类型、工作流历史。 Use when AI needs to: (1) get system info, (2) list available models, (3) check queue status, (4) query node types and schemas, (5) get workflow history. ComfyUI only (run_python).",
   "version": "0.2.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

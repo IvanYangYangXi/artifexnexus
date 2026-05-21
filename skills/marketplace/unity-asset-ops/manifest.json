@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "unity_asset_ops",
   "display_name": "Unity 资产操作",
   "description": "Unity Editor asset management via run_unity_python: import, find, create, move, and delete assets. Use when AI needs to: (1) search assets by type or name (AssetDatabase.FindAssets), (2) import external files, (3) instantiate prefabs in scene, (4) create prefabs from GameObjects, (5) create materials and assign shaders, (6) move/rename/delete assets, (7) refresh AssetDatabase, (8) get asset info (path, GUID, type). NOT for: modifying component properties (use unity-component-ops), scene hierarchy (use unity-gameobject-ops).",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

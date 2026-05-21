@@ -21,14 +21,14 @@ try:
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
         _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
-        _skill_check_sync, _skill_update_manifest,
+        _skill_check_sync, _skill_update_manifest, _resolve_skill_install_dir,
     )
 except ImportError:
     from _rpc_helpers import (  # type: ignore[no-redef]
         _get_skill_hub, _get_skill_config, _get_skill_installer, _get_skill_registry,
         _ok, _err, _err_invalid_params,
         _entry_to_dict, _config_prefs_for_skill, _skill_fix_manifest, _skill_read_skill_md,
-        _skill_check_sync, _skill_update_manifest,
+        _skill_check_sync, _skill_update_manifest, _resolve_skill_install_dir,
     )
 
 logger = logging.getLogger(__name__)
@@ -65,11 +65,11 @@ def _handle_skill_list(req_id: Any, params: dict) -> dict:
         page_entries = entries[start:end]
 
         config = _get_skill_config()
-        installer = _get_skill_installer()
+
         items = []
         for entry in page_entries:
-            # 检测是否已安装：02_user 层下是否存在该 Skill 目录
-            installed = installer._target_skill_dir("02_user", entry.name).exists()
+            # 检测是否已安装（使用 resolve 处理目录名 ≠ SKILL.md name 的情况）
+            installed = _resolve_skill_install_dir(entry.name).exists()
             item = _entry_to_dict(entry)
             item.update({
                 "enabled": not config.is_disabled(entry.name),
@@ -141,8 +141,7 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
             detail["tool_count"] = len(instance.tools)
 
         # 计算安装路径（已安装的 Skill 在 workspace/skills/ 下）
-        installer = _get_skill_installer()
-        install_dir = installer._target_skill_dir("02_user", skill_name)
+        install_dir = _resolve_skill_install_dir(skill_name)
         if install_dir.exists():
             detail["install_path"] = str(install_dir)
 
@@ -470,7 +469,7 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
                 " ".join(entry.manifest.tags or []).lower(),
             ])
             if query in searchable:
-                installed = installer._target_skill_dir("02_user", entry.name).exists()
+                installed = _resolve_skill_install_dir(entry.name).exists()
                 item = _entry_to_dict(entry)
                 item.update({
                     "enabled": not cfg.is_disabled(entry.name),

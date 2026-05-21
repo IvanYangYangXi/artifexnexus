@@ -1,12 +1,15 @@
 ---
-name: get-material-nodes
+name: ue57_get_material_nodes
 description: >
   Get the blueprint node graph (expression nodes) of a UE Material asset. BFS traversal
   from material property inputs (BaseColor, Roughness, Normal, etc.) returning node class,
   position, connections, and key properties. Use when AI needs to: (1) inspect how a material
   is wired, (2) understand node structure before editing, (3) compare materials, (4) document
-  material graphs. Requires UE Editor running with ArtClaw plugin. NOT for MaterialInstance
+  material graphs. Requires UE Editor running with Artifex Nexus plugin. NOT for MaterialInstance
   parameter queries (use get_material_parameters instead).
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Get Material Nodes — 材质节点图查询

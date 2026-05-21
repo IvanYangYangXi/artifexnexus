@@ -13,7 +13,7 @@ Blender addon。Blender 启动时扫描 addons 目录，可通过 symlink 引用
 
 bl_info = {
     "name": "Artifex Nexus",
-    "author": "Artifex Nexus contributors",
+    "author": "Ivan(杨己力)",
     "version": (0, 0, 0),
     "blender": (5, 1, 0),
     "category": "Development",

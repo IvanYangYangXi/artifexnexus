@@ -8,9 +8,9 @@ description: >
   (2) check post-operation best practices, (3) understand Blender coordinate system.
   Blender only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.0.1
-    author: ArtClaw
+    author: Artifex Nexus
     software: blender
 ---
 
@@ -53,7 +53,7 @@ obj.rotation_euler = (math.radians(90), 0, 0)  # 绕 X 轴旋转 90°
 
 ## 规则 2：Undo 管理
 
-- `execute_code` 执行前会自动调用 `bpy.ops.ed.undo_push(message="ArtClaw AI")`
+- `execute_code` 执行前会自动调用 `bpy.ops.ed.undo_push(message="Artifex Nexus AI")`
 - 用户可通过单次 **Ctrl+Z** 撤销 AI 的操作
 - **破坏性操作前**（删除对象、清空场景等），建议先打印当前状态以便确认：
 

@@ -1,6 +1,9 @@
 ---
 name: ue5-cpp-gameplay
 description: UE5.6/UE5.7 gameplay C++ implementation for Actors, Components, DataAssets, and gameplay logic. Use when requests ask to write .h/.cpp pairs, expose UPROPERTY/UFUNCTION to Blueprint, use GameplayTags, or build reusable component-based systems.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

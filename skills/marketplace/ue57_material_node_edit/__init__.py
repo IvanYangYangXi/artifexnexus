@@ -2,7 +2,7 @@
 material_node_ops.py - 材质节点图操作接口
 ==========================================
 
-ArtClaw 官方 Skill：材质节点的创建、删除、连接、属性编辑。
+Artifex Nexus 官方 Skill：材质节点的创建、删除、连接、属性编辑。
 通过 @ue_tool 装饰器注册到 Skill Hub，MCP 自动发现。
 
 接口设计原则：

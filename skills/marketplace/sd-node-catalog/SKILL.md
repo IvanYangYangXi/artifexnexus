@@ -8,9 +8,9 @@ description: >
   (3) dynamically query node params/ports before setting values.
   Substance Designer only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.3.0
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_designer
 ---
 

@@ -1,5 +1,5 @@
 {
-  "id": "official/tool-compliance-checker",
+  "id": "da791ca4-ed3d-4ac3-9391-86aaa8560d98",
   "name": "artclaw-工具合规检查器",
   "description": "定时/变更触发，硬编码检测工具是否合规（manifest格式、必填字段、脚本文件存在性等）",
   "agentHint": "通过 Tool Manager API 执行: POST /api/v1/tools/official%2Ftool-compliance-checker/execute。或从工具详情 API 获取 tool_path 字段，执行 {tool_path}/main.py。不要运行 openclaw skills check。",
@@ -97,7 +97,7 @@
   ],
   "presets": [],
   "updatedAt": "2026-04-14 10:31:43",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "software": [
     {
       "dcc": "general"

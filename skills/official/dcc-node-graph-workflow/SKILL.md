@@ -7,9 +7,9 @@ description: >
   add complex logic to an existing graph. Activate BEFORE the DCC-specific skill to plan
   the approach, then switch to the specific skill for API details.
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 1.0.1
-    author: ArtClaw
+    author: Artifex Nexus
     software: all
 ---
 
@@ -176,11 +176,4 @@ unreal.BlueprintGraphEdit.set_node_positions(BP, json.dumps(positions))
 
 ---
 
-## 配套 Skill 参考
-
-| 场景 | 使用的 Skill |
-|------|------------|
-| UE 蓝图节点图 | `ue5-blueprint-workflow` |
-| SD 材质节点图 | `sd-operation-rules` + `sd-node-ops` |
-| UE 材质节点图 | `ue57_material_node_edit` |
-| Blender 材质 | `blender-material-ops` |
+<!-- 配套 Skill 参考已移除：原文引用的均为集市 skill，如有需要由 DCC 上下文 skill 自行引导 -->

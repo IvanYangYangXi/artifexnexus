@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "unity_gameobject_ops",
   "display_name": "Unity GameObject 操作",
   "description": "Unity Editor GameObject creation, deletion, transform, and hierarchy operations via run_unity_python. Use when AI needs to: (1) create/delete/duplicate GameObjects, (2) set position/rotation/scale, (3) get or set parent-child relationships, (4) set active state, (5) get current editor selection, (6) rename GameObjects, (7) move objects in hierarchy. NOT for: adding/removing components (use unity-component-ops), asset operations (use unity-asset-ops).",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

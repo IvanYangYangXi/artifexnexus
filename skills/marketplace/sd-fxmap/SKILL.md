@@ -10,9 +10,9 @@ description: >
   (4) implement patterns that library nodes cannot achieve.
   Substance Designer only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 1.0.0
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_designer
 ---
 

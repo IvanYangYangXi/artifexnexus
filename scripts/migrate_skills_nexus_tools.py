@@ -155,7 +155,7 @@ def _generate_manifest(skill_dir: Path, parent_dcc: str) -> dict:
         "display_name": fm.get("display_name", skill_dir.name.replace("-", " ").title()),
         "description": fm.get("description", ""),
         "version": fm.get("version", "1.0.0"),
-        "author": fm.get("author", "ArtClaw"),
+        "author": fm.get("author", "Ivan(杨己力)"),
         "license": fm.get("license", "MIT"),
         "software": software,
         "category": category,

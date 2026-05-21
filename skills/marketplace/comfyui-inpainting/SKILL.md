@@ -6,11 +6,12 @@ description: >
   (2) remove or add objects, (3) change clothing or background.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 93
+    software: comfyui
 ---
 
 # ComfyUI 局部重绘 (Inpainting)

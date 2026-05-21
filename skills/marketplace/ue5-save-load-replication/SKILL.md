@@ -1,6 +1,9 @@
 ---
 name: ue5-save-load-replication
 description: UE5.6/UE5.7 save/load and multiplayer replication workflow for gameplay systems. Use when requests involve SaveGame schema design, serialization, restore pipelines, RepNotify handling, RPC entry points, and server-authoritative validation.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

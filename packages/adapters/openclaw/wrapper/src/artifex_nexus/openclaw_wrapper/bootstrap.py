@@ -1398,6 +1398,93 @@ def _try_install_default_agent_preset(openclaw_home: Path) -> None:
         logger.warning("agent_preset 注入抛出异常（已忽略）: %s", exc)
 
 
+def _try_install_official_skills(openclaw_home: Path) -> None:
+    """自动安装 skills/official/ 下所有官方 Skill。
+
+    从项目根目录下的 skills/official/ 扫描 Skill 目录，逐个安装到
+    workspace/skills/。失败仅 warn，不阻塞 bootstrap。
+
+    :param openclaw_home: ~/.artifexnexus/.openclaw/
+    """
+    try:
+        from artifex_nexus.skill import SkillHub, SkillInstaller
+    except ImportError:
+        logger.warning("SkillHub/SkillInstaller 不可用，跳过官方 Skill 自动安装")
+        return
+
+    try:
+        # 探测项目根目录
+        pkg_dir = Path(__file__).resolve().parent
+        project_root = pkg_dir.parents[5]
+        official_dir = project_root / "skills" / "official"
+        if not official_dir.is_dir():
+            logger.info("skills/official/ 目录不存在，跳过官方 Skill 安装")
+            return
+
+        # 安装目标（OpenClaw 要求的扁平结构）
+        skills_root = openclaw_home / "workspace" / "skills"
+        skills_root.mkdir(parents=True, exist_ok=True)
+
+        # 初始化 Hub + Installer
+        hub = SkillHub(
+            layer_sources={"00_official": official_dir},
+        )
+        hub.scan_all_skills()
+        installer = SkillInstaller(
+            hub=hub,
+            skills_root=skills_root,
+            layer_sources={"00_official": official_dir},
+        )
+
+        installed_count = 0
+        for skill_dir in sorted(official_dir.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            skill_name = skill_dir.name
+            # 已安装则跳过（幂等）
+            target_dir = skills_root / skill_name
+            if target_dir.is_dir():
+                # 检查是否需要同步更新
+                result = installer.sync(skill_name, source_layer="00_official")
+                if result.ok and not result.changed:
+                    continue
+                if result.changed:
+                    logger.info(
+                        "bootstrap: 官方 Skill '%s' 已更新", skill_name,
+                    )
+                installed_count += 1
+                continue
+
+            try:
+                result = installer.install(skill_name, source_layer="00_official")
+                if result.ok:
+                    installed_count += 1
+                    logger.info(
+                        "bootstrap: 官方 Skill '%s' 安装成功", skill_name,
+                    )
+                else:
+                    logger.warning(
+                        "bootstrap: 官方 Skill '%s' 安装失败: %s",
+                        skill_name, result.message,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "bootstrap: 官方 Skill '%s' 安装异常: %s",
+                    skill_name, exc,
+                )
+
+        if installed_count > 0:
+            hub.reload_skills()
+        logger.info(
+            "bootstrap: 官方 Skill 自动安装完成 (%d 个)", installed_count,
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "bootstrap: 官方 Skill 自动安装异常（不阻塞 bootstrap）: %s", exc,
+        )
+
+
 def _register_default_tool_sources(ts) -> None:
     """注册默认的 Nexus Tool 和 Skill 源码目录到 tool-sources.json。
 
@@ -1494,6 +1581,10 @@ def bootstrap(
         # 7. 注入 Artifex Nexus 默认 agent 预设（失败仅 warn，不阻塞 bootstrap）
         # EPIC-0001 第二批 #3 / STORY-0017
         _try_install_default_agent_preset(openclaw_home)
+
+        # 7b. 自动安装官方 Skill（skills/official/ → workspace/skills/）
+        #     失败仅 warn，不阻塞 bootstrap
+        _try_install_official_skills(openclaw_home)
 
         # 8. 自动部署 mcp-bridge 插件（失败仅 warn，不阻塞 bootstrap）
         # 此时 openclaw.json 已就绪 + CLI 已安装 → install_gateway_mcp_bridge()

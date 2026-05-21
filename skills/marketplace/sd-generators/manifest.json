@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "sd_generators",
   "display_name": "sd-generators",
   "description": "SD 纹理/图案生成器库节点深度分析。覆盖 21 个核心生成器的内部引擎、参数、适用场景。 分为三类：图案生成器(tile_generator/splatter等)、噪波生成器(perlin/cells/voronoi等)、 特征纹理生成器(moisture_noise/wood_fibers等)。 Use when AI needs to: (1) choose the right generator for a material, (2) understand generator parameters for fine-tuning, (3) know which generators are FX-Map vs Pixel Processor based, (4) build custom patterns by combining generators. Substance Designer only (run_python).",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

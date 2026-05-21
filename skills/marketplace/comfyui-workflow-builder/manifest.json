@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "comfyui_workflow_builder",
   "display_name": "comfyui-workflow-builder",
   "description": "ComfyUI Workflow 动态构建指南。节点类型、连接语法、常用管线模板。 Use when AI needs to: (1) build workflow JSON dynamically, (2) understand node connections, (3) use txt2img/img2img templates. ComfyUI only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

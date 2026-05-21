@@ -6,9 +6,9 @@ description: >
   (3) set blend mode/opacity, (4) manage masks.
   Substance Painter only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.0.1
-    author: ArtClaw
+    author: Artifex Nexus
     software: substance_painter
 ---
 

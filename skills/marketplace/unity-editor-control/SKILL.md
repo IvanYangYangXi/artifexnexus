@@ -9,9 +9,9 @@ description: >
   NOT for: scene operations (use unity-scene-ops), asset management (use unity-asset-ops).
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity 编辑器控制"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: utils
     risk_level: low

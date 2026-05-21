@@ -7,11 +7,12 @@ description: >
   (3) build ControlNet workflows.
   ComfyUI only (run_python).
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.0
-    author: ArtClaw
+    author: Artifex Nexus
     dcc: comfyui
     priority: 94
+    software: comfyui
 ---
 
 # ComfyUI ControlNet

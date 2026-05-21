@@ -190,7 +190,10 @@ export function NexusToolList() {
               description={tool.description}
               meta={<>
                 <span>{tool.version}</span>
-                <span>·</span><span>{(tool.software?.map((e: unknown) => typeof e === "string" ? e : (e as { dcc: string }).dcc) ?? []).join(", ") || "通用"}</span>
+                <span>·</span><span>{(tool.software?.map((e: unknown) => {
+                  const d = typeof e === "string" ? e : (e as { dcc: string }).dcc;
+                  return (DCC_LABELS as Record<string, string>)[d] || d;
+                }) ?? []).join(", ") || "通用"}</span>
               </>}
               actions={<>
                 <Button variant="ghost" size="icon" className="h-7 w-7"

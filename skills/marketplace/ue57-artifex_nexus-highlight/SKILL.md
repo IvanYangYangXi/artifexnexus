@@ -1,14 +1,17 @@
 ---
-name: ue57-artclaw-highlight
+name: ue57-artifex_nexus-highlight
 description: >
   Highlight, select, and focus actors in UE Editor viewport. Find actors by name, keyword,
   class type, or tag, then select and pilot camera to them. Use when AI needs to: (1) locate
   specific actors in the scene, (2) highlight/select multiple actors by filter, (3) focus
   viewport on a target actor. UE only (Maya/Max have no equivalent highlight API).
   Replaces old MCP tool: highlight_actors.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
-# ArtClaw Actor 高亮与定位
+# Artifex Nexus Actor 高亮与定位
 
 在 UE 编辑器中高亮、选中、聚焦指定 Actor，快速定位场景中的对象。
 
@@ -127,4 +130,4 @@ unreal.EditorLevelUtils.eject_pilot_level_actor()
 - **简单定位**: 按名称查找 + `set_selected_level_actors` + `pilot_level_actor` 三步走
 - **批量高亮**: 用模糊搜索或类型过滤选中多个 Actor，在编辑器 Outliner 中也会同步高亮
 - **聚焦后记得恢复**: 使用 `pilot_level_actor` 后视口会锁定到 Actor，操作完用 `eject_pilot_level_actor()` 恢复
-- 此功能仅限 UE，Maya/Max 中如需定位对象，请使用 `artclaw-context` Skill 查询后手动操作
+- 此功能仅限 UE，Maya/Max 中如需定位对象，请使用 `artifex_nexus-context` Skill 查询后手动操作

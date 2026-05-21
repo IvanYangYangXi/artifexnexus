@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "sd_pixel_processor",
   "display_name": "sd-pixel-processor",
   "description": "SD Pixel Processor 节点使用指南。Pixel Processor 是 SD 中最强大的像素级计算节点， 可执行任意数学运算。包含：API 创建流程、函数节点完整参考、常用着色器模式。 Use when AI needs to: (1) create custom per-pixel effects, (2) implement mathematical texture generation (voronoi, noise, gradients), (3) build procedural patterns that atom nodes cannot achieve, (4) perform pixel-level color/value transformations. Substance Designer only (run_python).",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

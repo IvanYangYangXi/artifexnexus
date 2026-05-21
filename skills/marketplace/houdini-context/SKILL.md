@@ -6,8 +6,8 @@ description: >
   (3) check current hip file, (4) inspect node networks.
   Houdini only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: houdini
 ---
 

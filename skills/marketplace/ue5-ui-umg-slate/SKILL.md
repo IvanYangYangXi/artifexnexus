@@ -1,6 +1,9 @@
 ---
 name: ue5-ui-umg-slate
 description: UE5.6/UE5.7 UI development workflow using UMG and Slate integration. Use when requests involve Widget Blueprint setup, Slate host widgets, lifecycle binding, input and focus handling, tooltip behavior, or viewport clamping logic.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

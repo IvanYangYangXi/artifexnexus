@@ -359,7 +359,7 @@ class BlenderTriggerDispatcher:
         在 Blender Python 内动态 import 工具模块并调用 entry 函数。
 
         Args:
-            tool_id: 工具 ID（e.g. "marketplace/blender-object-naming-check"）
+            tool_id: 工具 GUID（e.g. "25080280-7302-46e8-80f5-4b846cd79184"）
             payload: trigger_event 数据字典
 
         Returns:

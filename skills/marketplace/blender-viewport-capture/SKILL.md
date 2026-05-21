@@ -8,8 +8,8 @@ description: >
   NOT for: final production rendering, animation rendering.
   Blender only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: blender
 ---
 
@@ -39,7 +39,7 @@ original_format = scene.render.image_settings.file_format
 original_quality = scene.render.image_settings.quality
 
 # 设置输出
-output_dir = os.path.join(tempfile.gettempdir(), "artclaw_captures")
+output_dir = os.path.join(tempfile.gettempdir(), "artifex_nexus_captures")
 os.makedirs(output_dir, exist_ok=True)
 
 import time
@@ -85,7 +85,7 @@ scene.render.resolution_y = 1080
 scene.render.resolution_percentage = 100
 
 # 设置输出路径
-output_dir = os.path.join(tempfile.gettempdir(), "artclaw_captures")
+output_dir = os.path.join(tempfile.gettempdir(), "artifex_nexus_captures")
 os.makedirs(output_dir, exist_ok=True)
 timestamp = int(time.time())
 output_path = os.path.join(output_dir, f"viewport_{timestamp}.jpg")
@@ -137,7 +137,7 @@ scene.render.resolution_y = 576
 scene.render.resolution_percentage = 100
 
 # 临时文件
-output_dir = os.path.join(tempfile.gettempdir(), "artclaw_captures")
+output_dir = os.path.join(tempfile.gettempdir(), "artifex_nexus_captures")
 os.makedirs(output_dir, exist_ok=True)
 timestamp = int(time.time())
 output_path = os.path.join(output_dir, f"viewport_analyze_{timestamp}.jpg")
@@ -227,7 +227,7 @@ scene.render.resolution_x = 1024
 scene.render.resolution_y = 576
 scene.render.resolution_percentage = 100
 
-output_dir = os.path.join(tempfile.gettempdir(), "artclaw_captures")
+output_dir = os.path.join(tempfile.gettempdir(), "artifex_nexus_captures")
 os.makedirs(output_dir, exist_ok=True)
 timestamp = int(time.time())
 output_path = os.path.join(output_dir, f"viewport_ctx_{timestamp}.jpg")
@@ -287,7 +287,7 @@ import os
 import time
 import tempfile
 
-capture_dir = os.path.join(tempfile.gettempdir(), "artclaw_captures")
+capture_dir = os.path.join(tempfile.gettempdir(), "artifex_nexus_captures")
 if os.path.exists(capture_dir):
     max_age_hours = 24
     cutoff = time.time() - max_age_hours * 3600

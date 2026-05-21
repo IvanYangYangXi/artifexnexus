@@ -1,11 +1,11 @@
 {
-  "$schema": "https://artclaw.dev/schemas/manifest.schema.json",
+  "$schema": "https://artifex_nexus.dev/schemas/manifest.schema.json",
   "manifest_version": "1.0",
   "name": "blender_context",
   "display_name": "blender-context",
   "description": "查询 Blender 编辑器上下文：当前选择、场景信息、文件名、视口相机状态、集合结构。 Use when AI needs to: (1) get selected objects, (2) get scene overview, (3) check current file, (4) inspect viewport state, (5) get collection hierarchy. Blender only (run_python).",
   "version": "0.1.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "license": "MIT",
   "software": [
     {

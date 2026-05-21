@@ -9,8 +9,8 @@ description: >
   (3) understand Maya coordinate system.
   Maya only (run_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: maya
 ---
 
@@ -56,7 +56,7 @@ cmds.rotate(45, 0, 0, 'pCube1')  # 绕 X 轴旋转 45°
 ```python
 import maya.cmds as cmds
 
-cmds.undoInfo(openChunk=True, chunkName='ArtClaw_BatchOperation')
+cmds.undoInfo(openChunk=True, chunkName='Artifex Nexus_BatchOperation')
 try:
     # ... 所有修改操作 ...
     pass
@@ -128,7 +128,7 @@ Documents/maya/2023/scripts/
 ```python
 import maya.cmds as cmds
 
-cmds.undoInfo(openChunk=True, chunkName='ArtClaw_Operation')
+cmds.undoInfo(openChunk=True, chunkName='Artifex Nexus_Operation')
 try:
     # ... 所有操作代码 ...
     pass

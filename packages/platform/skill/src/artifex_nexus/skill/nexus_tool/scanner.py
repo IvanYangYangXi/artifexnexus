@@ -18,10 +18,20 @@ nexus_tool/scanner.py — Nexus-Tool 文件系统扫描
 from __future__ import annotations
 
 import json
+import logging
+import re
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .models import DCCEntry, ScannedNexusTool
+
+logger = logging.getLogger("artifex_nexus.skill.nexus_tool.scanner")
+
+# GUID 格式：UUID v4 (8-4-4-4-12 hex)
+_GUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
 
 _VALID_SOURCES = ("official", "marketplace", "user")
 
@@ -57,11 +67,29 @@ def _parse_manifest(nexus_tool_dir: Path, source: str) -> Optional[ScannedNexusT
         manifest = dict(manifest)
         manifest["source"] = source
 
-    # 自动生成 id: {source}/{dirname}
-    auto_id = f"{source}/{nexus_tool_dir.name}"
-    if manifest.get("id") != auto_id:
+    # 稳定 GUID id（v3）：目录名/改名不漂移
+    # - 已是合法 GUID → 保持不变
+    # - 缺失或旧格式（如 "marketplace/xxx"）→ 生成新 GUID 并写回磁盘
+    existing_id = manifest.get("id", "")
+    if not existing_id or not _GUID_PATTERN.match(existing_id):
+        new_id = str(uuid.uuid4())
         manifest = dict(manifest)
-        manifest["id"] = auto_id
+        manifest["id"] = new_id
+        # 一次性迁移：写回 manifest.json 持久化 GUID
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False), "utf-8"
+            )
+        except OSError:
+            # 只读文件系统等场景：使用确定性 UUID v5（基于目录绝对路径），
+            # 确保同一工具每次扫描得到相同 GUID，不会因写回失败而漂移
+            new_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(nexus_tool_dir.resolve())))
+            manifest["id"] = new_id
+            logger.warning(
+                "无法写回 GUID 到 %s，使用确定性 UUID v5 回退: %s",
+                manifest_path, new_id,
+            )
+    nexus_tool_id = manifest["id"]
 
     author = manifest.get("author", "")
     created_at = manifest.get("createdAt", "")
@@ -95,6 +123,7 @@ def _parse_manifest(nexus_tool_dir: Path, source: str) -> Optional[ScannedNexusT
             software.append(DCCEntry.from_dict(item))
 
     return ScannedNexusTool(
+        id=nexus_tool_id,
         name=name,
         description=manifest.get("description", ""),
         version=manifest.get("version", "1.0.0"),

@@ -1,9 +1,9 @@
 {
-  "id": "marketplace/Blender对象命名规范检查",
+  "id": "25080280-7302-46e8-80f5-4b846cd79184",
   "name": "Example-Blender对象命名规范检查",
   "description": "检查 Blender 场景中的对象命名是否符合命名规范（如 SM_/SK_/BP_ 等前缀）。可挂载触发器在保存时自动检查，也可手动运行查看命名报告",
   "version": "1.0.0",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "createdAt": "2026-04-26 23:00:00",
   "updatedAt": "2026-05-20 07:02:29",
   "defaultFilters": {

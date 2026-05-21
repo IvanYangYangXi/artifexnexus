@@ -42,11 +42,25 @@ def _resolve_path_variables() -> Dict[str, str]:
         pass
 
     return {
-        "$skills_installed": str(Path.home() / ".openclaw" / "workspace" / "skills"),
+        "$skills_installed": str(Path.home() / ".artifexnexus" / ".openclaw" / "workspace" / "skills"),
         "$project_root": project_root,
         "$tools_dir": str(Path.home() / ".artifexnexus" / "nexus-tools"),
+        "$nexus_tools_dir": str(Path.home() / ".artifexnexus" / "nexus-tools"),
         "$home": str(Path.home()),
     }
+
+
+def _load_categories_enum(project_root: str) -> set:
+    """从 categories.json 加载合法 software 枚举值（唯一数据源）。"""
+    if not project_root:
+        return set()
+    cat_path = Path(project_root) / "packages" / "platform" / "contracts" / "data" / "categories.json"
+    try:
+        data = json.loads(cat_path.read_text("utf-8"))
+        return set(data.get("software", []))
+    except Exception:
+        logger.warning("无法读取 categories.json: %s", cat_path)
+        return set()
 
 
 def _resolve_pattern(pattern: str, variables: Dict[str, str]) -> Optional[str]:
@@ -171,6 +185,9 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
     # 获取源码工具名集合
     variables = _resolve_path_variables()
     project_root = variables.get("$project_root", "")
+
+    # 加载 categories.json 枚举（唯一数据源）
+    categories_enum = _load_categories_enum(project_root)
     
     if source_only:
         try:
@@ -211,7 +228,7 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
                     if source_names is not None and tool_id not in source_names:
                         continue
                     total_checked += 1
-                    tool_issues = _check_tool_compliance(child, tool_id, fix_simple)
+                    tool_issues = _check_tool_compliance(child, tool_id, fix_simple, categories_enum)
                     issues.extend(tool_issues)
                 else:
                     # Nested layout: child is dcc dir
@@ -247,7 +264,7 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
         return sdk.result.fail("COMPLIANCE_ISSUES", report, data=result_data)
 
 
-def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> List[Dict[str, str]]:
+def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categories_enum: set) -> List[Dict[str, str]]:
     """
     检查单个工具的合规性。
     规则定义见 docs/specs/tool-manifest-spec.md（共 29 条规则）。
@@ -387,10 +404,8 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                             "message": f"id 格式错误: {manifest_id!r}，应为 UUID 或 {{source}}/{{name}}"})
 
     # ── Rule 14: software/targetDCCs 必填且元素合法 ──────────────────────────────────
-    # 合法软件枚举（与 contracts/data/categories.json §software 保持同步）
-    valid_dccs = {"universal", "unreal_engine", "blender", "maya", "3ds_max",
-                  "houdini", "comfyui", "substance_painter", "substance_designer",
-                  "unity", "general"}
+    # 从 categories.json（唯一数据源）运行时读取，不再硬编码
+    # categories_enum 为空表示无法读取数据源，跳过枚举检查
     target_dccs = manifest.get("software", manifest.get("targetDCCs"))
     if target_dccs is None:
         issues.append({"tool_id": tool_id, "severity": "warning",
@@ -407,9 +422,9 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             if not dcc:
                 issues.append({"tool_id": tool_id, "severity": "error",
                                 "message": f"software 包含空 DCC 条目: {item!r}"})
-            elif dcc not in valid_dccs:
+            elif categories_enum and dcc not in categories_enum:
                 issues.append({"tool_id": tool_id, "severity": "warning",
-                                "message": f"software 包含未知 DCC: {dcc!r}，有效值: {sorted(valid_dccs)}"})
+                                "message": f"software 包含未知 DCC: {dcc!r}，有效值: {sorted(categories_enum)}"})
             # 检查版本约束格式（可选字段）
             if isinstance(item, dict):
                 for vk in ("minVersion", "maxVersion"):
@@ -477,8 +492,17 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                                 "message": f"triggers[{ti}] 不是对象"})
                 continue
 
-            t_block = tr.get("trigger", {}) or {}
-            t_type = t_block.get("type", "")
+            # 统一 trigger 格式解析（与 trigger_dispatcher 对齐）：
+            #   Flat:   triggerType / eventType / dcc / watchEvents / scheduleMode ...
+            #   Nested: trigger.type / trigger.event / trigger.dcc / filters / execution ...
+            #   Flat 优先，Nested 回退
+            _flat = lambda k: tr.get(k, "")
+            _nested = lambda blk, k: (tr.get(blk, {}) or {}).get(k, "")
+
+            t_type = _flat("triggerType") or _nested("trigger", "type")
+            event_val = _flat("eventType") or _nested("trigger", "event")
+            event_dcc = _flat("dcc") or _nested("trigger", "dcc")
+
             filters_block = tr.get("filters", {}) or {}
             exec_block = tr.get("execution", {}) or {}
 
@@ -495,26 +519,27 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
             else:
                 trigger_ids.add(t_id)
 
-            # Rule 21: trigger.type 有效值
+            # Rule 21: triggerType/trigger.type 有效值
             valid_trigger_types = {"watch", "event", "schedule"}
             if not t_type:
                 issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": f"triggers[{ti}] ({t_id}): trigger.type 缺失"})
+                                "message": f"triggers[{ti}] ({t_id}): triggerType/trigger.type 缺失"})
             elif t_type not in valid_trigger_types:
                 issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": f"triggers[{ti}] ({t_id}): trigger.type 无效: {t_type!r}，有效值: {sorted(valid_trigger_types)}"})
+                                "message": f"triggers[{ti}] ({t_id}): triggerType/trigger.type 无效: {t_type!r}，有效值: {sorted(valid_trigger_types)}"})
 
-            # Rule 22: execution.mode 必填
-            if not exec_block.get("mode"):
+            # Rule 22: executionMode/execution.mode 必填
+            exec_mode = _flat("executionMode") or _nested("execution", "mode")
+            if not exec_mode:
                 issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": f"triggers[{ti}] ({t_id}): execution 缺少 mode（silent/notify/interactive）"})
+                                "message": f"triggers[{ti}] ({t_id}): executionMode/execution.mode 缺失（silent/notify/interactive）"})
 
             # watch 专属规则
             if t_type == "watch":
                 # Rule 23: 禁止 trigger.paths（废弃）
-                if "paths" in t_block:
+                if "paths" in tr:
                     issues.append({"tool_id": tool_id, "severity": "error",
-                                    "message": f"triggers[{ti}] ({t_id}): 使用了废弃字段 trigger.paths，请改用 filters.path + $variable"})
+                                    "message": f"triggers[{ti}] ({t_id}): 使用了废弃字段 paths，请改用 filters.path + $variable"})
                 # Rule 24/25: 必须有监听路径来源
                 use_default = tr.get("useDefaultFilters", False)
                 has_default_filters = bool(manifest.get("defaultFilters", {}).get("path"))
@@ -529,24 +554,23 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
 
             # event 专属规则
             if t_type == "event":
-                event_val = t_block.get("event", "")
-                event_dcc = t_block.get("dcc", "")
+                # _flat/_nested helpers already evaluated event_val / event_dcc above
 
-                # Rule 25.5: trigger.event 不得为空
+                # Rule 25.5: eventType/trigger.event 不得为空
                 if not event_val:
                     issues.append({"tool_id": tool_id, "severity": "error",
-                                    "message": f"triggers[{ti}] ({t_id}): trigger.event 缺失（必须为完整事件名，如 asset.save.pre）"})
-                # Rule 25.6: trigger.event 不应含已废弃的 timing 字段
-                elif t_block.get("timing"):
+                                    "message": f"triggers[{ti}] ({t_id}): eventType/trigger.event 缺失（必须为完整事件名，如 file.save.pre）"})
+                # Rule 25.6: eventType/trigger.event 不应含已废弃的 timing 字段
+                elif _nested("trigger", "timing"):
                     issues.append({"tool_id": tool_id, "severity": "error",
                                     "message": (f"triggers[{ti}] ({t_id}): 使用了废弃字段 trigger.timing，"
-                                                 f"请将 timing 合并到 event 字段，如 \"{event_val}.{t_block['timing']}\"")})
-                # Rule 25.7: trigger.event 格式检查（应包含 timing 后缀 .pre 或 .post）
+                                                 f"请将 timing 合并到 event 字段，如 \"{event_val}.{_nested('trigger', 'timing')}\"")})
+                # Rule 25.7: eventType/trigger.event 格式检查（应包含 timing 后缀 .pre 或 .post）
                 elif "." in event_val:
                     parts = event_val.split(".")
                     if parts[-1] not in ("pre", "post", "startup", "complete", "queue"):
                         issues.append({"tool_id": tool_id, "severity": "warning",
-                                        "message": (f"triggers[{ti}] ({t_id}): trigger.event {event_val!r} "
+                                        "message": (f"triggers[{ti}] ({t_id}): event {event_val!r} "
                                                      f"末段不是合法 timing（pre/post），"
                                                      f"建议使用 {event_val!r}.pre 或 {event_val!r}.post")})
 
@@ -558,7 +582,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
                     # Rule 27
                     elif event_dcc not in _dcc_names:
                         issues.append({"tool_id": tool_id, "severity": "warning",
-                                        "message": f"triggers[{ti}] ({t_id}): event trigger dcc {event_dcc!r} 不在 targetDCCs {target_dccs} 中"})
+                                        "message": f"triggers[{ti}] ({t_id}): event trigger dcc {event_dcc!r} 不在 software {target_dccs} 中"})
 
             # Rule 28: filters.path 禁止花括号扩展
             for blk_name, blk in [("filters", filters_block),
@@ -592,7 +616,10 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool) -> Li
 
             # ── 判断触发类型（影响后续多条规则）─────────────────────────────
             has_event_trigger = any(
-                isinstance(tr, dict) and (tr.get("trigger", {}) or {}).get("type") == "event"
+                isinstance(tr, dict) and (
+                    tr.get("triggerType") == "event"
+                    or (tr.get("trigger", {}) or {}).get("type") == "event"
+                )
                 for tr in triggers
             ) if isinstance(triggers, list) else False
 

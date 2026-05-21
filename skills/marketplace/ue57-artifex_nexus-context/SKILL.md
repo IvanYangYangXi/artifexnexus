@@ -1,5 +1,5 @@
 ---
-name: ue57-artclaw-context
+name: ue57-artifex_nexus-context
 description: >
   Query DCC editor context: current selection, scene info, level/file name, viewport camera,
   object counts. Use when AI needs to: (1) get selected objects, (2) get scene overview,
@@ -7,12 +7,13 @@ description: >
   Maya and Max (run_python). Replaces old MCP tools: get_editor_context, get_selected_objects,
   get_scene_info.
 metadata:
-  artclaw:
+  artifex_nexus:
     version: 0.1.1
-    author: ArtClaw
+    author: Artifex Nexus
+    software: unreal_engine
 ---
 
-# ArtClaw 编辑器上下文查询
+# Artifex Nexus 编辑器上下文查询
 
 获取当前编辑器状态、选中对象、场景信息、关卡/文件名、视口信息、对象数量等。
 

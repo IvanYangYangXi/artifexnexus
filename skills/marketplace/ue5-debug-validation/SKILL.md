@@ -1,6 +1,9 @@
 ---
 name: ue5-debug-validation
 description: UE5.6/UE5.7 debugging and validation workflow for logs, asset checks, and regression triage. Use when requests involve troubleshooting why gameplay does not work, validating expected output, narrowing minimal repro, and producing concrete fix steps.
+metadata:
+  artifex_nexus:
+    software: unreal_engine
 ---
 
 # Quick Start

@@ -9,9 +9,9 @@ description: >
   NOT for: modifying component properties (use unity-component-ops), scene hierarchy (use unity-gameobject-ops).
 license: MIT
 metadata:
-  artclaw:
+  artifex_nexus:
     display_name: "Unity 资产操作"
-    author: ArtClaw
+    author: Artifex Nexus
     software: unity
     category: asset
     risk_level: medium

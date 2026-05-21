@@ -4,7 +4,7 @@
   "display_name": "Ue5 Blueprint Workflow",
   "description": "UE5.6/UE5.7 Blueprint graph workflow for feature implementation, input events, node wiring, and graph validation. Use when requests involve adding Blueprint logic, keyboard input behavior, function chains, event graph edits, or pin-level connection guidance.",
   "version": "0.0.2",
-  "author": "ArtClaw",
+  "author": "Ivan(杨己力)",
   "software": [
     {
       "dcc": "unreal_engine"

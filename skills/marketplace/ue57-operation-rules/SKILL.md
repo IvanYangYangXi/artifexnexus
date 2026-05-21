@@ -10,8 +10,8 @@ description: >
   (4) understand UE coordinate system.
   UE only (run_ue_python).
 metadata:
-  artclaw:
-    author: ArtClaw
+  artifex_nexus:
+    author: Artifex Nexus
     software: unreal_engine
 ---
 

@@ -25,7 +25,8 @@ class ScannedNexusTool:
 
     这是扫描中间结果，尚未合并用户偏好（pin/favorite/disabled）。
     """
-    name: str
+    id: str = ""  # GUID v4，稳定不变（改名/移动不漂移）
+    name: str = ""
     description: str = ""
     version: str = "1.0.0"
     source: str = "user"  # official / marketplace / user
@@ -40,7 +41,7 @@ class ScannedNexusTool:
 @dataclass
 class NexusToolData:
     """运行时 Nexus-Tool 完整数据（扫描 + 用户偏好合并）。"""
-    id: str  # "{source}/{name}"
+    id: str  # GUID v4，稳定不变（改名/移动不漂移）
     name: str
     description: str = ""
     version: str = "0.0.0"
