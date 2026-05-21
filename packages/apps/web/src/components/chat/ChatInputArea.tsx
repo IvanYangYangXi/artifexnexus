@@ -209,8 +209,8 @@ export function ChatInputArea({
     let finalText = text;
     const pinned = [...pinnedSkills];
     if (pinned.length > 0) {
-      const skillList = pinned.map((n) => `@${n}`).join("、");
-      finalText = `请使用 ${skillList} 来执行以下任务：\n\n${text}`;
+      const skillList = pinned.map((n) => `[${n}]`).join("、");
+      finalText = `请使用skill ${skillList} 来执行以下任务：\n\n${text}`;
     }
 
     onSend(finalText);
@@ -342,7 +342,7 @@ export function ChatInputArea({
               key={name}
               className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
             >
-              @{name}
+              [{name}]
               <button
                 onClick={() => togglePin(name)}
                 className="ml-0.5 hover:text-foreground"

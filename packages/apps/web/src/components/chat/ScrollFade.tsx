@@ -70,13 +70,13 @@ export function ScrollFade({ children, className, fadeFrom = "from-background", 
       {showFade && (
         <div
           className={cn(
-            "pointer-events-none absolute bottom-0 left-0 right-0",
+            "pointer-events-none absolute bottom-0 left-0 right-0 bg-gradient-to-t to-transparent",
             fadeHeight,
             fadeFrom,
+            /* via-xxx/60 = 中间 50% 位置 60% 透明度渐变停止 */
+            `${fadeFrom.replace(/^from-/, "via-")}/60`,
           )}
           style={{
-            background:
-              "linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background)/0.6) 30%, transparent 100%)",
             maskImage:
               "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
             WebkitMaskImage:

@@ -152,10 +152,10 @@ export function useResourceExplorer() {
     };
   }, [search, currentDir]);
 
-  // 搜索过滤（空搜索 → 当前目录条目；有搜索 → 递归结果）
+  // 搜索过滤（空搜索 → 当前目录条目；有搜索 → 递归结果，截断 200 条）
   const filteredEntries = React.useMemo(() => {
     if (!search.trim()) return entries;
-    return searchResults;
+    return searchResults.length > 200 ? searchResults.slice(0, 200) : searchResults;
   }, [entries, search, searchResults]);
 
   // 收藏操作

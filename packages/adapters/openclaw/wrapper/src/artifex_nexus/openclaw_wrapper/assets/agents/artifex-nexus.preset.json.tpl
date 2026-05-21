@@ -4,7 +4,6 @@
   "name": "Artifex Nexus (DCC Bridge Default Agent)",
   "workspace": "{{OPENCLAW_WORKSPACE}}",
   "agentRuntime": { "id": "pi" },
-  "skills": ["run_python"],
   "reasoningDefault": "on",
   "thinkingDefault": "adaptive",
   "verboseDefault": "on",

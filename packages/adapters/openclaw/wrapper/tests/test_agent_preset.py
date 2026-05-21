@@ -49,7 +49,7 @@ class TestRender:
         preset = agent_preset.render_v1_0_0(fake_home)
         assert preset["id"] == "artifex-nexus"
         assert preset["default"] is True
-        assert preset["skills"] == ["run_python"]
+        assert "skills" not in preset  # 不限制，让 agent 可用所有已安装 skill
         assert preset["agentRuntime"]["id"] == "pi"
         assert preset["workspace"].endswith("workspace") or "workspace" in preset["workspace"]
         # system prompt 含关键字
