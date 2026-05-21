@@ -18,6 +18,7 @@ import type {
   ToolCall,
   ChatSession,
   GatewayChatEvent,
+  GatewayMessageBlock,
 } from "./types";
 import { CHAT_MODEL_STORAGE_KEY } from "./types";
 import { GatewayWebSocket } from "./gateway-ws";
@@ -554,6 +555,49 @@ export function useChatService(options: ChatServiceOptions) {
     return { msgId: null, isNew: false };
   }
 
+  /**
+   * 从 messageBlocks 中提取 tool_result 块，更新对应 ToolCall 的 output。
+   *
+   * 背景：非 exec 类型的 MCP 工具调用（如 web_search）不产生 command_output 事件，
+   * 工具结果仅嵌入在最终 chat message 的 content blocks 中（Anthropic 风格 tool_result）。
+   * 此函数解析这些 blocks 并将结果写入对应 ToolCall.output。
+   */
+  function _processMessageBlocks(
+    event: GatewayChatEvent,
+    dispatch: React.Dispatch<ChatAction>,
+  ): void {
+    const blocks = event.messageBlocks;
+    if (!blocks || blocks.length === 0) return;
+
+    const toolResultBlocks = blocks.filter((b): b is GatewayMessageBlock => b.type === "tool_result");
+    if (toolResultBlocks.length === 0) return;
+
+    for (const block of toolResultBlocks) {
+      const toolUseId = block.tool_use_id;
+      if (!toolUseId) continue;
+
+      const content = block.content;
+      let resultText: string | undefined;
+      if (typeof content === "string") {
+        resultText = content;
+      } else if (Array.isArray(content)) {
+        // content 可能是子 block 数组（如 [{type: "text", text: "..."}]）
+        resultText = (content as GatewayMessageBlock[])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join("\n");
+      }
+
+      if (resultText !== undefined) {
+        dispatch({
+          type: "UPDATE_TOOL_CALL",
+          toolCallId: toolUseId,
+          update: { output: resultText, status: "done" },
+        });
+      }
+    }
+  }
+
   function handleGatewayEvent(event: GatewayChatEvent) {
     const sId = state.streamingMessageId?.slice(0,10) ?? "none";
     const runIdShort = event.runId?.slice(0,8) ?? "none";
@@ -583,23 +627,57 @@ export function useChatService(options: ChatServiceOptions) {
         }
         if (event.toolCall) {
           const tc = event.toolCall;
-          dispatch({ type: "UPDATE_TOOL_CALL", toolCallId: tc.id, update: { id: tc.id, name: tc.name, input: tc.meta || tc.title, status: tc.phase === "end" ? "done" : "running", durationMs: tc.durationMs } });
+          // 根据 Gateway 状态映射：completed → done，failed → error
+          const mappedStatus =
+            tc.phase === "end"
+              ? tc.status === "failed"
+                ? "error"
+                : "done"
+              : "running";
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: tc.id,
+            update: {
+              id: tc.id,
+              name: tc.name,
+              input: tc.meta || tc.title,
+              status: mappedStatus,
+              durationMs: tc.durationMs,
+              ...(tc.error ? { output: tc.error } : {}),
+            },
+          });
         }
         if (event.toolOutput && event.toolOutput.phase === "delta") {
           dispatch({ type: "UPDATE_TOOL_CALL", toolCallId: event.toolOutput.toolCallId, update: { output: event.toolOutput.output, status: "running" } });
         }
+        // 处理 messageBlocks 中的 tool_result → 更新对应 ToolCall.output
+        _processMessageBlocks(event, dispatch);
         break;
       }
       case "final": {
         if (event.toolCall) {
           const tc = event.toolCall;
-          dispatch({ type: "UPDATE_TOOL_CALL", toolCallId: tc.id, update: { id: tc.id, name: tc.name, status: "done", durationMs: tc.durationMs } });
+          // 根据 Gateway 状态映射：completed → done，failed → error
+          const mappedStatus = tc.status === "failed" ? "error" : "done";
+          dispatch({
+            type: "UPDATE_TOOL_CALL",
+            toolCallId: tc.id,
+            update: {
+              id: tc.id,
+              name: tc.name,
+              status: mappedStatus,
+              durationMs: tc.durationMs,
+              ...(tc.error ? { output: tc.error } : {}),
+            },
+          });
           break;
         }
         if (event.toolOutput) {
           dispatch({ type: "UPDATE_TOOL_CALL", toolCallId: event.toolOutput.toolCallId, update: { output: event.toolOutput.output, status: event.toolOutput.exitCode === 0 ? "done" : "error", durationMs: event.toolOutput.durationMs } });
           break;
         }
+        // 处理 messageBlocks 中的 tool_result → 更新对应 ToolCall.output
+        _processMessageBlocks(event, dispatch);
         // 处理 final.message（gateway 可能跳过 delta 直接发 final 含完整文本）
         let targetMsgId: string | null = null;
         if (event.message) {

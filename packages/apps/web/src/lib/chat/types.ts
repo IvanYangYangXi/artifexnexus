@@ -115,8 +115,11 @@ export interface GatewayChatEvent {
     phase: "start" | "update" | "end";
     name: string;
     title: string;
+    /** Gateway 状态："in_progress" | "completed" | "failed" */
     status: string;
     meta?: string;
+    /** 失败时的错误信息 */
+    error?: string;
     startedAt?: number;
     endedAt?: number;
     durationMs?: number;

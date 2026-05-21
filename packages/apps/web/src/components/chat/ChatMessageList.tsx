@@ -154,14 +154,18 @@ const MessageBubble = React.memo(function MessageBubble({ message }: { message: 
           <div className="mt-2">
             <ToolCallGroup
               tools={message.toolCalls.map(
-                (tc): ToolCallData => ({
-                  id: tc.id,
-                  name: tc.name,
-                  status: tc.status === "done" ? "done" : tc.status === "error" ? "error" : "running",
-                  durationMs: tc.durationMs,
-                  args: tc.input ? { code: tc.input } : undefined,
-                  result: tc.output,
-                }),
+                (tc): ToolCallData => {
+                  const isError = tc.status === "error";
+                  return {
+                    id: tc.id,
+                    name: tc.name,
+                    status: isError ? "error" : tc.status === "done" ? "done" : "running",
+                    durationMs: tc.durationMs,
+                    args: tc.input ? { code: tc.input } : undefined,
+                    result: isError ? undefined : tc.output,
+                    error: isError ? tc.output : undefined,
+                  };
+                },
               )}
               defaultOpen={message.toolCalls.length <= 3}
             />

@@ -9,6 +9,9 @@
 
 ## 核心设计原则
 
+- **禁止 systemPromptOverride**（2026-05-21）：agent 配置中不设置 `systemPromptOverride`，该字段会阻断 OpenClaw 的 `buildEmbeddedSystemPrompt()`，导致 `<available_skills>` 块丢失。Agent 专属指令写 workspace 的 AGENTS.md。
+- **多 Agent Skill 共享**（2026-05-21）：所有 agent workspace 的 `skills/` 通过目录联结（Windows Junction）指向主 `workspace/skills/`，bootstrap 时自动创建。
+
 - **software 统一为 DCCEntry[]**（2026-05-19）：`[{dcc, minVersion?, maxVersion?}]`，RPC key 为 `"software"`
 - **category→tags 合并**（2026-05-19）：category 废弃，统一用 tags（OR 匹配）
 - **枚举唯一数据源**：`contracts/data/categories.json`
@@ -90,3 +93,35 @@
 - `is_enabled` 只控制触发器，不影响手动运行
 - **tool-sources.json**：`~/.artifexnexus/config/` 下唯一数据源，三端共享（Sidecar/Blender/其他DCC）
 - 实例工具只有 manifest.json，无 main.py，脚本沿用父工具（parentPath fallback）
+- **Tool ID 为 UUID v4 GUID**（2026-05-20）：scanner 自动为缺失/旧格式 id 生成 UUID 并持久化；改名/移动目录不漂移；registry/installer/skill_config 统一使用 GUID 作为唯一标识
+
+## Chat 模型选择对接（2026-05-21 修复 + 优化）
+
+**问题**：前端选 `custom/deepseek-v4-flash`，实际 Gateway 使用 agent 默认的 `deepseek-v4-pro`
+
+**根因**：OpenClaw v2026.5.4 的 `chat.send` RPC 协议 schema（`ChatSendParamsSchema`）不含 model 字段且 `additionalProperties: false`。模型必须通过 `sessions.create` / `sessions.patch` RPC 在会话层面设置。
+
+**初版修复**（每次 sendChat 前调 sessions.create）：
+- `gateway-ws.ts`：`_ensureSessionModel()` → `sendChat` 新增 `model?` 参数
+- `chat-service.ts`：`_doSend` / `_doSendMerged` 传递 `cfg.model`
+- `types.ts`：`ChatSendParams` 新增 `model?` 字段
+
+**优化版修复**（2026-05-21 晚，UI 可切换 + 按需调用）：
+- **gateway-ws.ts**：公开 `ensureSessionModel()`，策略为 sessions.patch → fallback sessions.create；**移除** sendChat 的 model 参数
+- **chat-service.ts**：新增 `changeModel(model)` → 更新 ref + 持久化 localStorage + 调用 ws.ensureSessionModel
+- **ChatControlBar.tsx**：Model 从只读 span → Select 下拉（格式对齐 NewSessionDialog：`provider/modelId`）
+- **ChatView.tsx**：onConfigChange 中 model 变更时调用 `chat.changeModel`；新会话首条消息前 await changeModel
+- **types.ts**：ChatSendParams 移除 `model?` 字段
+
+**RPC 调用时机**：
+1. UI 切换模型下拉 → `sessions.patch`（已有会话）→ fallback `sessions.create`
+2. 新建会话首条消息前 → `sessions.create`（新会话，await 确保先设模型再发消息）
+
+**教训**：OpenClaw Gateway 的 `sessions.create` / `sessions.patch` 是设置模型的唯一入口。STORY-0039 待增强项 #2 早已记录此问题但一直未修。
+
+## 合规检查器
+
+- **tool-compliance-checker**：检查 Nexus-Tool（manifest schema、software 枚举、trigger 范式、SDK 导入等）
+- **skill-compliance-checker**（2026-05-21）：检查 Skill（frontmatter、manifest schema、依赖、tags、@skill_tool）
+- **DCC 枚举唯一源**：两个 checker 均从 `contracts/data/categories.json` 运行时读取，不再硬编码
+- **合规检查闭环**：nexus-tool-creator / nexus-skill-manage 的指引要求创建/修改后必须运行对应 checker

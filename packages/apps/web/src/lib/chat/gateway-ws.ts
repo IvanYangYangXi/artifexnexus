@@ -11,7 +11,7 @@
  * - 取消支持（同 WS 发送 chat.abort）
  */
 
-import type { GatewayChatEvent } from "./types";
+import type { GatewayChatEvent, GatewayMessageBlock } from "./types";
 
 // ─── 常量 ──────────────────────────────────────────────────────────────────
 
@@ -854,13 +854,16 @@ export class GatewayWebSocket {
       if (msg.event === "chat") {
         const payload = msg.payload ?? msg;
         const state = payload.state ?? "delta";
-        const text = this._extractText(payload.message ?? "");
-        console.log(`[gw] RECV-CHAT state=${state} runId=${payload.runId?.slice(0,8)} textLen=${text.length}`);
+        const rawMessage = payload.message;
+        const messageBlocks = this._extractMessageBlocks(rawMessage);
+        const text = this._extractText(rawMessage ?? "");
+        console.log(`[gw] RECV-CHAT state=${state} runId=${payload.runId?.slice(0,8)} textLen=${text.length} blocks=${messageBlocks?.length ?? 0}`);
         const chatEvent: GatewayChatEvent = {
           state: payload.state ?? "delta",
-          message: this._extractText(payload.message ?? ""),
+          message: text,
           runId: payload.runId,
           rawError: typeof payload.rawError === "string" ? payload.rawError : undefined,
+          ...(messageBlocks && messageBlocks.length > 0 ? { messageBlocks } : {}),
         };
         this._messageHandlers.forEach((h) => h(chatEvent));
       }
@@ -884,6 +887,7 @@ export class GatewayWebSocket {
               title: data.title,
               status: data.status,
               meta: data.meta,
+              error: typeof data.error === "string" ? data.error : undefined,
               startedAt: data.startedAt,
               endedAt: data.endedAt,
               durationMs: data.endedAt && data.startedAt ? data.endedAt - data.startedAt : undefined,
@@ -933,6 +937,25 @@ export class GatewayWebSocket {
       }
     }
     return "";
+  }
+
+  /** 从 Gateway 消息对象中提取 message blocks（保留 tool_result 等块） */
+  private _extractMessageBlocks(message: unknown): GatewayMessageBlock[] | undefined {
+    if (typeof message === "object" && message !== null) {
+      const m = message as Record<string, unknown>;
+      const content = m.content;
+      if (typeof content === "string") {
+        // 纯文本消息，无 blocks
+        return undefined;
+      }
+      if (Array.isArray(content)) {
+        const blocks = content as GatewayMessageBlock[];
+        // 只有包含非 text 类型 block 时才返回（纯文本 blocks 已有 message 字段覆盖）
+        const hasNonTextBlock = blocks.some((b) => b.type !== "text");
+        return hasNonTextBlock ? blocks : undefined;
+      }
+    }
+    return undefined;
   }
 
   /** P2-8：跟踪工具调用结果，连续失败超过阈值 → MCP Bridge 标记为不可用 */

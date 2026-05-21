@@ -74,9 +74,6 @@ logs/
 openspec/specs/*
 !openspec/specs/.gitkeep
 
-# --- 临时测试文件 ---
-test_*.py
-
 # --- Tauri 构建产物 ---
 apps/desktop/staging/
 
