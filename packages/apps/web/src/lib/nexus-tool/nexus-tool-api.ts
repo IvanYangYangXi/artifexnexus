@@ -132,7 +132,8 @@ export interface NexusToolRunResult {
 /** nexus-tool.run 异步启动返回 */
 export interface NexusToolRunStartResult {
   task_id: string;
-  status: "started";
+  status: "started" | "dependency_missing";
+  missing_deps?: string[];
 }
 
 /** nexus-tool.result 轮询返回 */

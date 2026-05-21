@@ -46,6 +46,7 @@ import {
   type NexusToolParam,
   type FilterConfig,
   type NexusToolRunResult,
+  type NexusToolRunStartResult,
   type NexusToolPollResult,
   type NexusToolInstallDepsResult,
 } from "../../lib/nexus-tool/nexus-tool-api";

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import DisableContextMenu from "./DisableContextMenu";
 
 export const metadata: Metadata = {
   title: "artifex-nexus·山雀",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className="min-h-screen bg-background font-sans text-foreground antialiased"
         suppressHydrationWarning
       >
+        <DisableContextMenu />
         {children}
       </body>
     </html>

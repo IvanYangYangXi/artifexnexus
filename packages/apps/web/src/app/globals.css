@@ -29,6 +29,19 @@ body {
   background-attachment: fixed;
 }
 
+/* ── 全局禁止默认右键菜单（桌面应用模式） ──
+ * 默认屏蔽所有右键菜单。需要在特定组件上恢复右键时，
+ * 在该组件上添加 className="context-menu-auto" 即可。
+ */
+* {
+  -webkit-touch-callout: none;
+}
+
+.context-menu-auto,
+.context-menu-auto * {
+  -webkit-touch-callout: default;
+}
+
 /* ── 自定义滚动条（风格 E 玻璃感） ── */
 * {
   scrollbar-width: thin;
