@@ -100,7 +100,9 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("shell_open_path", { paths: [entry.is_dir ? entry.path : entry.path.replace(/[/\\][^/\\]+$/, "")] });
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error("[ResourceExplorer] 打开资源管理器失败:", e);
+    }
   }, []);
 
   // 右键菜单 → 复制路径
