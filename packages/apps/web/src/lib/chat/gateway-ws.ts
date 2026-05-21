@@ -392,6 +392,39 @@ export class GatewayWebSocket {
   // ─── 聊天 ──────────────────────────────────────────────────────────────
 
   /**
+   * 设置会话模型（公开方法，供 chat-service 在 UI 切换模型时调用）。
+   *
+   * 策略：先尝试 sessions.patch（更新已有会话），失败则降级到 sessions.create（新会话）。
+   * 仅在 model 非空且 sessionKey 非空时执行。
+   */
+  async ensureSessionModel(sessionKey: string, model: string): Promise<void> {
+    if (!model || !sessionKey) return;
+
+    // 提取纯 modelId（去掉 provider/ 前缀，Gateway 期望纯 model id）
+    const bareModel = model.includes("/") ? model.split("/").pop()! : model;
+
+    // 策略 1：sessions.patch（已有会话）
+    try {
+      console.log(`[gateway-ws] ensureSessionModel: patching session ${sessionKey.slice(0, 20)}... model=${bareModel}`);
+      await this.sendRpc("sessions.patch", { key: sessionKey, model: bareModel });
+      console.log(`[gateway-ws] ensureSessionModel: sessions.patch ok`);
+      return;
+    } catch (err) {
+      console.log(`[gateway-ws] ensureSessionModel: sessions.patch failed (${(err as Error).message}), trying sessions.create...`);
+    }
+
+    // 策略 2：sessions.create（新建会话，幂等）
+    try {
+      console.log(`[gateway-ws] ensureSessionModel: creating session ${sessionKey.slice(0, 20)}... model=${bareModel}`);
+      await this.sendRpc("sessions.create", { key: sessionKey, model: bareModel });
+      console.log(`[gateway-ws] ensureSessionModel: sessions.create ok`);
+    } catch (err) {
+      // 会话已存在时会报错，静默忽略
+      console.log(`[gateway-ws] ensureSessionModel: sessions.create also failed (may already exist): ${(err as Error).message}`);
+    }
+  }
+
+  /**
    * 发送聊天消息（chat.send RPC）
    *
    * v4 重构：gateway-ws 不再持有队列。

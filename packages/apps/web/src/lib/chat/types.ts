@@ -67,6 +67,11 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+// ─── 共享常量 ──────────────────────────────────────────────────────────────
+
+/** localStorage key：用户选择的聊天模型 */
+export const CHAT_MODEL_STORAGE_KEY = "artifex.chat.model";
+
 // ─── 模型/Agent ────────────────────────────────────────────────────────────
 
 /** 可选模型 */
@@ -89,6 +94,8 @@ export interface ChatSendParams {
   sessionKey: string;
   message: string;
   idempotencyKey: string;
+  /** 思考强度 */
+  thinking?: string;
 }
 
 /** Gateway chat 事件（WebSocket 接收） */

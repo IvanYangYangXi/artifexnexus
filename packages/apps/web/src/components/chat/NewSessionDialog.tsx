@@ -25,6 +25,7 @@ import {
   Skeleton,
   cn,
 } from "@artifex-nexus/ui";
+import { CHAT_MODEL_STORAGE_KEY } from "../../lib/chat/types";
 
 // ─── 思考强度选项（与 ChatControlBar 保持一致）───────────────────────────
 
@@ -40,7 +41,6 @@ const THINKING_OPTIONS = [
 ];
 
 const AGENT_KEY = "artifex.chat.agent";
-const MODEL_KEY = "artifex.chat.model";
 const EFFORT_KEY = "artifex.chat.effort";
 
 function lsGet(key: string, fallback: string): string {
@@ -69,7 +69,7 @@ export function NewSessionDialog({
   gatewayRunning,
 }: NewSessionDialogProps) {
   const [agent, setAgent] = React.useState(() => lsGet(AGENT_KEY, ""));
-  const [model, setModel] = React.useState(() => lsGet(MODEL_KEY, ""));
+  const [model, setModel] = React.useState(() => lsGet(CHAT_MODEL_STORAGE_KEY, ""));
   const [thinking, setThinking] = React.useState(() => lsGet(EFFORT_KEY, "adaptive"));
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
   const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -147,7 +147,7 @@ export function NewSessionDialog({
     if (!agent || !model) return;
     // 持久化到 localStorage
     try { localStorage.setItem(AGENT_KEY, agent); } catch { /* ignore */ }
-    try { localStorage.setItem(MODEL_KEY, model); } catch { /* ignore */ }
+    try { localStorage.setItem(CHAT_MODEL_STORAGE_KEY, model); } catch { /* ignore */ }
     try { localStorage.setItem(EFFORT_KEY, thinking); } catch { /* ignore */ }
     onConfirm({ agentId: agent, model, thinking });
   };

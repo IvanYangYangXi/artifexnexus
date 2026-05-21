@@ -30,6 +30,7 @@ import {
   EMPTY_KEY,
   NEW_KEY,
 } from "../../lib/chat/session-key";
+import { CHAT_MODEL_STORAGE_KEY } from "../../lib/chat/types";
 
 // ─── 思考强度 ──────────────────────────────────────────────────────────────
 
@@ -45,7 +46,6 @@ const THINKING_OPTIONS = [
 ];
 
 const EFFORT_KEY = "artifex.chat.effort";
-const MODEL_KEY = "artifex.chat.model";
 const AGENT_KEY = "artifex.chat.agent";
 const ACTIVE_SESSION_KEY = "artifex.chat.activeSession";
 
@@ -108,7 +108,7 @@ export function ChatControlBar({
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
   const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
   const [agent, setAgent] = React.useState(() => lsGet(AGENT_KEY, ""));
-  const [model, setModel] = React.useState(() => lsGet(MODEL_KEY, ""));
+  const [model, setModel] = React.useState(() => lsGet(CHAT_MODEL_STORAGE_KEY, ""));
   const [effort, setEffort] = React.useState(() => lsGet(EFFORT_KEY, "adaptive"));
   const [loading, setLoading] = React.useState(false);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
@@ -220,11 +220,11 @@ export function ChatControlBar({
             if (exactMatch) return prev;
             const suffixMatch = modelList.find((m) => m.id.split("/").pop() === prev);
             if (suffixMatch) {
-              lsSet(MODEL_KEY, suffixMatch.id);
+              lsSet(CHAT_MODEL_STORAGE_KEY, suffixMatch.id);
               return suffixMatch.id;
             }
             const found = modelList[0].id;
-            lsSet(MODEL_KEY, found);
+            lsSet(CHAT_MODEL_STORAGE_KEY, found);
             return found;
           });
         }
@@ -283,11 +283,26 @@ export function ChatControlBar({
     : activeSession
       ? (activeSession.model || "")
       : model;
-  // 模型 id 在不同位置可能带 ``provider/`` 前缀（如 ``custom/deepseek-v4-pro``）
-  // 也可能是裸 id（如 ``deepseek-v4-pro``）。统一剥前缀做匹配 + 兜底显示。
-  const displayModelBareId = displayModelId.includes("/")
-    ? displayModelId.split("/").pop() || displayModelId
-    : displayModelId;
+
+  /** 将会话中的裸 model ID（如 "deepseek-v4-pro"）解析为 Select 可识别的
+   *  ``provider/modelId`` 格式（如 "custom/deepseek-v4-pro"）。
+   *  已有 ``/`` 的直接返回，没有的在 models 列表中按后缀匹配。 */
+  function resolveFullModelId(raw: string): string {
+    if (!raw) return "";
+    if (raw.includes("/")) return raw;
+    const match = models.find((m) => m.id.endsWith("/" + raw) || m.id.endsWith("\\" + raw));
+    return match ? match.id : raw;
+  }
+
+  // 切换对话时同步 model 到当前会话的实际模型
+  React.useEffect(() => {
+    const sessionModel = activeSession?.model;
+    if (!sessionModel || models.length === 0) return;
+    const fullId = resolveFullModelId(sessionModel);
+    if (fullId && fullId !== model) {
+      setModel(fullId);
+    }
+  }, [activeSessionKey]); // 仅监听 key 切换，不依赖 model/models 避免回环
 
   const selectPlaceholder =
     sessionsLoading ? "加载中..." :
@@ -324,7 +339,7 @@ export function ChatControlBar({
 
       {/* 对话列表 */}
       <Select value={selectValue} onValueChange={handleConvChange}>
-        <SelectTrigger className="h-7 w-[180px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
+        <SelectTrigger className="h-7 w-[240px] gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50">
           <SelectValue placeholder={selectPlaceholder} />
         </SelectTrigger>
         <SelectContent>
@@ -408,12 +423,35 @@ export function ChatControlBar({
           : "Agent: —"}
       </span>
 
-      {/* Model 标签 — 来自活跃对话的真实 model */}
-      <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
-        {loading ? "Model: 加载中..." : gatewayRunning
-          ? `Model: ${models.find(m => m.id === displayModelBareId || m.id === displayModelId)?.name ?? (displayModelBareId || "—")}`
-          : "Model: —"}
-      </span>
+      {/* Model 下拉 — 可切换模型，格式对齐 NewSessionDialog（provider/modelId） */}
+      {loading ? (
+        <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
+          Model: 加载中...
+        </span>
+      ) : gatewayRunning && models.length > 0 ? (
+        <Select
+          value={resolveFullModelId(model || displayModelId)}
+          onValueChange={(newModel) => {
+            setModel(newModel);
+            lsSet(CHAT_MODEL_STORAGE_KEY, newModel);
+            onConfigChange?.({ model: newModel });
+          }}
+        >
+          <SelectTrigger className="h-7 gap-1 border-0 bg-transparent text-xs shadow-none hover:bg-accent/50 min-w-[160px] max-w-[240px] shrink-0 [&>span]:truncate">
+            <span className="text-[10px] text-muted-foreground mr-0.5 shrink-0">Model:</span>
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {models.map((m) => (
+              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
+          Model: —
+        </span>
+      )}
 
       {/* Thinking 标签 */}
       <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">

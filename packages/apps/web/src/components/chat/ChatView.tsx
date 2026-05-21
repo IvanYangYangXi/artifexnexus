@@ -31,6 +31,7 @@ import {
   isSentinel,
   PENDING_NEW_KEY,
 } from "../../lib/chat/session-key";
+import { CHAT_MODEL_STORAGE_KEY } from "../../lib/chat/types";
 
 export function ChatView() {
   const { pendingToolName, clearPendingTool } = React.useContext(RunToolContext);
@@ -109,7 +110,7 @@ export function ChatView() {
     setNewSessionDialogOpen(false);
     // 持久化选择到 localStorage
     try { localStorage.setItem("artifex.chat.agent", config.agentId); } catch { /* ignore */ }
-    try { localStorage.setItem("artifex.chat.model", config.model); } catch { /* ignore */ }
+    try { localStorage.setItem(CHAT_MODEL_STORAGE_KEY, config.model); } catch { /* ignore */ }
     try { localStorage.setItem("artifex.chat.effort", config.thinking); } catch { /* ignore */ }
   }
 
@@ -136,8 +137,8 @@ export function ChatView() {
     }
   }
 
-  // ─── 包装 sendMessage：新对话时先创建 sessionKey + 生成标题 ─────────
-  function handleSendMessage(text: string) {
+  // ─── 包装 sendMessage：新对话时先创建 sessionKey + 生成标题 + 设置模型 ─────────
+  async function handleSendMessage(text: string) {
     uiLog.send("ChatView", "userMessage", { textLen: text.length, hasPending: !!pendingNewConfigRef.current, sessionKey: activeSessionKey.slice(0, 30) });
     if (pendingNewConfigRef.current) {
       const config = pendingNewConfigRef.current;
@@ -149,6 +150,9 @@ export function ChatView() {
       lastRealSessionKeyRef.current = newKey;
       chat.switchSession(newKey);
       chat.setSelectedConfig(config);
+
+      // 新会话：先通过 sessions.create 设置模型，再发首条消息
+      await chat.changeModel(config.model);
 
       // 生成标题文本（日期前缀由 ChatControlBar 渲染时统一添加）
       const title = generateSessionTitle(text);
@@ -425,7 +429,10 @@ export function ChatView() {
         onSwitchSession={handleSwitchSession}
         gatewayPort={port}
         gatewayRunning={gatewayRunning}
-        onConfigChange={(cfg) => chat.setSelectedConfig(cfg)}
+        onConfigChange={(cfg) => {
+          chat.setSelectedConfig(cfg);
+          if (cfg.model) chat.changeModel(cfg.model);
+        }}
         onOpenNewSessionDialog={() => setNewSessionDialogOpen(true)}
         onDeleteSession={handleDeleteSession}
         sessionsVersion={sessionsVersion}

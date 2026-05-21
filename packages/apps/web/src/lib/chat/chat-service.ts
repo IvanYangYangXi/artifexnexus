@@ -19,6 +19,7 @@ import type {
   ChatSession,
   GatewayChatEvent,
 } from "./types";
+import { CHAT_MODEL_STORAGE_KEY } from "./types";
 import { GatewayWebSocket } from "./gateway-ws";
 import type { SendResult } from "./gateway-ws";
 
@@ -675,12 +676,39 @@ export function useChatService(options: ChatServiceOptions) {
   const selectedConfig = React.useRef<{ agentId?: string; model?: string; thinking?: string }>({});
 
   function setSelectedConfig(cfg: { agentId?: string; model?: string; thinking?: string }) {
-    selectedConfig.current = cfg;
-    // NOTE: 不在此处更新 sessionKeyRef。
+    selectedConfig.current = { ...selectedConfig.current, ...cfg };
+    // NOTE: 使用 spread 合并而非直接赋值，避免部分字段更新时丢失其他字段。
+    // 例如 ChatControlBar 模型下拉只传 { model } 时不能覆盖 agentId / thinking。
     // sessionKeyRef 由 switchSession() / createNewSession() 统一管理。
-    // 旧逻辑 `sessionKeyRef.current = 'agent:${cfg.agentId}:${state.activeSessionId}'`
-    // 在新建对话时会用残留的旧 activeSessionId 拼出错误 key，导致 Gateway 收到
-    // 无效 sessionKey → 崩溃 / WS 断连。
+  }
+
+  /**
+   * UI 切换模型时调用：更新 selectedConfig + 通过 Gateway RPC 设置会话模型。
+   *
+   * 调用 ensureSessionModel（sessions.patch → fallback sessions.create），
+   * 而非每次 sendChat 都调用，避免冗余 RPC 开销。
+   *
+   * @returns Promise，调用方可 await 确保模型设置完成后再发消息（新会话场景）
+   */
+  const _lastModelSetRef = React.useRef<string>("");
+  function changeModel(model: string): Promise<void> {
+    if (!model || model === _lastModelSetRef.current) return Promise.resolve();
+    selectedConfig.current = { ...selectedConfig.current, model };
+    _lastModelSetRef.current = model;
+
+    // 持久化到 localStorage
+    try { localStorage.setItem(CHAT_MODEL_STORAGE_KEY, model); } catch { /* ignore */ }
+
+    // 通过 Gateway RPC 设置会话模型
+    // connected 或 degraded（连接仍在但 EventLoop 繁忙）都尝试发送 RPC
+    const ws = wsRef.current;
+    const sk = sessionKeyRef.current;
+    if (ws && sk && (ws.state === "connected" || ws.state === "degraded")) {
+      return ws.ensureSessionModel(sk, model).catch((err) => {
+        console.warn("[chat-service] changeModel: ensureSessionModel failed:", err);
+      });
+    }
+    return Promise.resolve();
   }
 
   // ─── v4 重构核心：单一队列 + 单一驱动器 ─────────────────────────────
@@ -1121,6 +1149,8 @@ export function useChatService(options: ChatServiceOptions) {
     clearQueue,
     /** 更新 ChatControlBar 选中的 Agent/Model/Thinking，影响 chat.send params */
     setSelectedConfig,
+    /** UI 切换模型时调用：更新选定模型 + 通过 Gateway RPC 设置会话模型 */
+    changeModel,
     /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */
     getWs: () => wsRef.current,
     /** 发送 agentTurn keep-alive（防止 Gateway 回收会话进程） */
