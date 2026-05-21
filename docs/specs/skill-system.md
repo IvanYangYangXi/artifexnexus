@@ -131,7 +131,113 @@ artifex skill list [--category --software --source]
 artifex skill info|enable|disable|uninstall|update <name>
 ```
 
-## 8. TODO
+## 8. 多 Agent Skill 共享
+
+### 8.1 背景
+
+OpenClaw 支持多 agent（如 `artifex-nexus` + `twelve`），每个 agent 有独立 workspace。
+OpenClaw 按 `<workspace>/skills/*/SKILL.md` 扫描可用 Skill。
+
+### 8.2 共享策略：目录联结（Junction）
+
+所有非主 agent workspace 的 `skills/` 通过 **Windows `mklink /J`（目录联结）**
+指向主 `workspace/skills/`。在 Unix 上使用 `os.symlink`。
+
+```
+~/.artifexnexus/.openclaw/
+├── workspace/
+│   └── skills/                    ← 实体目录（SkillInstaller 真实安装目标）
+│       ├── nexus-skill-manage/
+│       └── ue57_material_node_edit/
+└── workspace-twelve/
+    └── skills/  ──Junction──→  workspace/skills/  （自动镜像）
+```
+
+**创建时机**：`bootstrap()` 中 `_ensure_skills_junctions()` 在官方 Skill 安装之后调用，
+遍历所有 agent 配置自动创建联结。
+
+### 8.3 Agent 配置约束
+
+**禁止 `systemPromptOverride`**：agent 条目中不设置该字段，否则 OpenClaw 的
+`buildEmbeddedSystemPrompt()` 被跳过，`<available_skills>` 块丢失。
+
+**Agent 专属指令替代方案**：写入各 workspace 的 `AGENTS.md`，OpenClaw 在会话启动时
+自动注入为 Project Context。
+
+参见 ADR `[[../decisions/0009-skill-multi-agent-junction]]`。
+
+## 9. 安装/卸载全链路架构
+
+### 9.1 调用链路
+
+```
+┌─ Web UI ──────────────────────────────────────────────────────────────────┐
+│  SkillList.tsx                                                            │
+│  "安装" 按钮 → skillInstall(name) → invoke("skill_install", {params})     │
+│  "卸载" 按钮 → skillUninstall(name) → invoke("skill_uninstall", {params}) │
+└────────────────────────────┬──────────────────────────────────────────────┘
+                             │ Tauri IPC
+┌─ Rust (Tauri) ────────────┼──────────────────────────────────────────────┐
+│  commands/skill.rs        │                                              │
+│  skill_install() → manager.call("skill.install", params)                 │
+│  skill_uninstall() → manager.call("skill.uninstall", params)             │
+└────────────────────────────┬──────────────────────────────────────────────┘
+                             │ JSON-RPC over stdio
+┌─ Python Sidecar ──────────┼──────────────────────────────────────────────┐
+│  skill_rpc.py              │                                              │
+│  _handle_skill_install()  → installer.install(skill_name)                │
+│  _handle_skill_uninstall() → installer.uninstall(skill_name)             │
+│                                                                          │
+│  _rpc_helpers.py                                                        │
+│  _resolve_skill_install_dir() → 检查 Skill 是否已安装                     │
+│  _get_skill_installer() → SkillInstaller(hub, layer_sources)             │
+│    ├── _root = ~/.artifexnexus/.openclaw/workspace/skills                │
+│    └── _target_skill_dir("02_user", name) → _root / name                 │
+└────────────────────────────┬──────────────────────────────────────────────┘
+                             │
+┌─ SkillInstaller ──────────┴──────────────────────────────────────────────┐
+│  installer.py                                                             │
+│  install(skill_name):                                                     │
+│    1. _source_skill_dir("00_official", name) → 项目 skills/official/     │
+│    2. _target_skill_dir("02_user", name) → workspace/skills/<name>/      │
+│    3. shutil.copytree(source, target)                                    │
+│    4. 若已存在 → 自动走 sync 更新                                        │
+│                                                                          │
+│  uninstall(skill_name):                                                  │
+│    _target_skill_dir("02_user", name) → workspace/skills/<name>/         │
+│    shutil.rmtree(target_dir)                                             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.2 关键路径常量
+
+| 常量 | 值 | 定义位置 |
+|------|-----|---------|
+| `_DEFAULT_SKILLS_ROOT` | `~/.artifexnexus/.openclaw/workspace/skills` | `_rpc_helpers.py:30` / `installer.py:46` |
+| `_DEFAULT_CONFIG_PATH` | `~/.artifexnexus/config/skills.json` | `_rpc_helpers.py:31` |
+| 源目录 `00_official` | `<project_root>/skills/official/` | `_find_skill_layer_sources()` |
+| 源目录 `01_marketplace` | `<project_root>/skills/marketplace/` | `_find_skill_layer_sources()` |
+
+### 9.3 重装恢复流程
+
+```
+Phase 0: _backup_for_reinstall → 备份 workspace/skills/ 到 backups/<ts>/skills/
+Phase 2: _clean_install → 删除整个 .openclaw/
+Phase 2: install_openclaw → CLI 重装
+Phase 2: bootstrap() → 创建目录布局 → 写入 openclaw.json
+         → _try_install_official_skills → 安装官方 Skill
+         → _ensure_skills_junctions → 创建 workspace-twelve/skills/ 联结
+Phase 3: _restore_from_backup → _restore_skills → 复制备份回 workspace/skills/
+         → junction 自动反映恢复后的 skills
+```
+
+### 9.4 "已安装" 判断
+
+`_resolve_skill_install_dir(skill_name)` 始终检查
+`~/.artifexnexus/.openclaw/workspace/skills/<skill_name>/`。
+从不检查 junction 路径，保证一致性。
+
+## 10. TODO
 
 - [ ] 把原 `core/version_manager.py` 完整迁移并按本文档拆包
 - [ ] 把原 5 个 OpenClaw Skill（`artifex-context` / `artifex-memory` / `artifex-knowledge` / `artifex-skill-manage` / `artifex-highlight`）的 SKILL.md 改名并迁入
@@ -142,5 +248,6 @@ artifex skill info|enable|disable|uninstall|update <name>
 ## 相关
 
 - `[[../decisions/0003-mcp-tools-minimization]]`
+- `[[../decisions/0009-skill-multi-agent-junction]]`
 - `[[../development/skill-authoring/README]]`
 - `[[../../packages/platform/skill]]`（包源码）

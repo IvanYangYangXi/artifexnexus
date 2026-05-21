@@ -17,12 +17,15 @@ status: draft
 │   │   └── v2026.5.4/
 │   │       └── node_modules/openclaw/dist/extensions/
 │   │           └── mcp-bridge/               # MCP Bridge 插件（物理拷贝自 gateway-plugin/dist/）
-│   ├── workspace/
-│   │   ├── IDENTITY.md / SOUL.md / USER.md   # 人格文件（首启预置）
-│   │   └── skills/                           # Skill 已安装目录（由 SkillInstaller 管理版本）
-│   │       ├── official/                     # 官方 Skill（从 skills/official/ 物理拷贝）
-│   │       ├── team/                         # 团队 Skill（预留）
-│   │       └── user/                         # 用户自装 Skill（预留）
+│   ├── workspace/                             # 主 agent 工作区（artifex-nexus）
+│   │   ├── IDENTITY.md / SOUL.md / USER.md    # 人格文件（首启预置）
+│   │   ├── AGENTS.md                          # Agent 专属指令（bootstrap 不覆盖，需手动维护）
+│   │   └── skills/                            # Skill 已安装目录（扁平结构，由 SkillInstaller 管理）
+│   │       ├── nexus-skill-manage/            # Skill 目录（每个 Skill 一个目录，不按层级分）
+│   │       └── ue57_material_node_edit/      # 同名即安装，无 official/team/user 子目录
+│   ├── workspace-twelve/                       # 副 agent 工作区（twelve）
+│   │   ├── AGENTS.md                          # Twelve 专属指令
+│   │   └── skills/  ──Junction──→  workspace/skills/  （多 Agent 共享 Skill，ADR 0009）
 │   ├── state/                                # OPENCLAW_STATE_DIR（lock/ + deploy-manifest.json）
 │   └── openclaw.json                         # OpenClaw 自身配置
 │
@@ -50,7 +53,7 @@ status: draft
 | OpenClaw Gateway 插件 | **copy** 从 `<install>/packages/adapters/openclaw/gateway-plugin/dist/` → `<OPENCLAW_HOME>/cli/{version}/node_modules/openclaw/dist/extensions/mcp-bridge/` | OpenClaw v2026.5.4 的 `fs.realpathSync` 安全检查不兼容 junction/symlink |
 | Blender addon | **copy** 从 `<install>/packages/dcc/blender/src/` → Blender 的 `addons/artifex_nexus/`（详见 [[dcc-plugin-management]]） | 同上；统一 copy 模型 |
 | UE 插件 | **copy** 从 `<install>/packages/dcc/unreal/` → `<Project>/Plugins/ArtifexNexusForUnreal/` | UE 路径敏感、编译产物多 |
-| 官方 Skill（仅 official/） | **copy** 从 `<install>/skills/official/` → `~/.artifexnexus/.openclaw/workspace/skills/official/` | OpenClaw 平台规则；保证 Gateway 看到的版本与 SkillInstaller 注册的一致 |
+| 官方 Skill（仅 official/） | **copy** 从 `<install>/skills/official/` → `~/.artifexnexus/.openclaw/workspace/skills/<skill_name>/`（扁平结构，不按 official/ 分目录） | OpenClaw 平台规则；保证 Gateway 看到的版本与 SkillInstaller 注册的一致 |
 | 官方 Tool（仅 official/） | **通过 tool-sources.json 注册** `<install>/tools/official/` 目录路径 | 工具保留在原目录，不复制到 `~/.artifexnexus/nexus-tools/` |
 | Marketplace Skill/Tool | **不入安装包**，用户通过 Web UI 在线安装 | 减小组件包体积；用户按需选择 |
 | OpenClaw 本身 | **薄壳安装** → `~/.artifexnexus/.openclaw/cli/<version>/` | 调用上游 install-cli.sh，按版本隔离 |

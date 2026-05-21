@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -1485,6 +1487,111 @@ def _try_install_official_skills(openclaw_home: Path) -> None:
         )
 
 
+def _is_junction(path: Path) -> bool:
+    """检测 Windows 目录是否已是 Junction（联结）。
+
+    使用 PowerShell 检测（mklink /J 创建的联结在 Python 中表现为
+    reparse point，Path.is_symlink() 返回 False）。
+
+    :param path: 待检测路径。
+    :return: True 表示已是 Junction。
+    """
+    try:
+        result = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                f"(Get-Item -Path '{path}').Attributes -band [System.IO.FileAttributes]::ReparsePoint",
+            ],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        return "True" in result.stdout
+    except Exception:
+        return False
+
+
+def _ensure_skills_junctions(openclaw_home: Path, config: dict) -> None:
+    """为所有非主 agent workspace 创建 skills/ 联结指向主 workspace/skills/。
+
+    OpenClaw 按 ``<workspace>/skills/`` 扫描每个 agent 的 Skill。
+    通过目录联结（Windows ``mklink /J`` / Unix symlink），
+    所有 agent 共享同一套已安装 Skill，无需复制。
+
+    在主 bootstrap flow 中调用，失败仅 warn 不阻塞。
+
+    :param openclaw_home: ~/.artifexnexus/.openclaw/
+    :param config: openclaw.json 解析后的 dict
+    """
+    canonical_skills = openclaw_home / "workspace" / "skills"
+    canonical_skills.mkdir(parents=True, exist_ok=True)
+    canonical_real = canonical_skills.resolve()
+
+    agents_list = config.get("agents", {}).get("list", [])
+    for agent in agents_list:
+        ws_raw = agent.get("workspace", "")
+        if not ws_raw:
+            continue
+        ws_path = Path(ws_raw)
+        if not ws_path.is_absolute():
+            ws_path = openclaw_home / ws_path
+        ws_path = ws_path.resolve()
+        ws_skills = ws_path / "skills"
+
+        # 主 workspace（已有实体 skills 目录）→ 跳过
+        try:
+            if ws_skills.resolve() == canonical_real:
+                continue
+        except OSError:
+            pass
+
+        # 已是联结/符号链接 → 跳过
+        if ws_skills.is_symlink():
+            continue
+        if platform.system() == "Windows" and _is_junction(ws_skills):
+            continue
+
+        # 已有实体目录 → warn 跳过（不覆盖用户数据）
+        if ws_skills.is_dir():
+            logger.warning(
+                "skills_junction: %s 已是实体目录（非联结），跳过（不覆盖）",
+                ws_skills,
+            )
+            continue
+
+        # 确保父目录存在
+        ws_path.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    [
+                        "cmd", "/c", "mklink", "/J",
+                        str(ws_skills), str(canonical_skills),
+                    ],
+                    capture_output=True, text=True, check=False, timeout=30,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "skills_junction: mklink /J 失败: %s → %s: %s",
+                        ws_skills, canonical_skills, result.stderr.strip(),
+                    )
+                else:
+                    logger.info(
+                        "skills_junction: 已创建 %s → %s",
+                        ws_skills, canonical_skills,
+                    )
+            else:
+                ws_skills.symlink_to(canonical_skills, target_is_directory=True)
+                logger.info(
+                    "skills_junction: 已创建 %s → %s",
+                    ws_skills, canonical_skills,
+                )
+        except Exception as exc:
+            logger.warning(
+                "skills_junction: 创建联结失败: %s → %s: %s",
+                ws_skills, canonical_skills, exc,
+            )
+
+
 def _register_default_tool_sources(ts) -> None:
     """注册默认的 Nexus Tool 和 Skill 源码目录到 tool-sources.json。
 
@@ -1585,6 +1692,10 @@ def bootstrap(
         # 7b. 自动安装官方 Skill（skills/official/ → workspace/skills/）
         #     失败仅 warn，不阻塞 bootstrap
         _try_install_official_skills(openclaw_home)
+
+        # 7c. 为所有非主 agent workspace 创建 skills/ 联结（指向主 workspace/skills/）
+        #     确保多 agent 共享同一套已安装 Skill
+        _ensure_skills_junctions(openclaw_home, config)
 
         # 8. 自动部署 mcp-bridge 插件（失败仅 warn，不阻塞 bootstrap）
         # 此时 openclaw.json 已就绪 + CLI 已安装 → install_gateway_mcp_bridge()
