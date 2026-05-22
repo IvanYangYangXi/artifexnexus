@@ -1,0 +1,38 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.0.0",
+  "FriendlyName": "Artifex Nexus for Unreal",
+  "Description": "AI-Agent bridge for Unreal Engine 5.7 — MCP-based bridge plugin. Part of Artifex Nexus.",
+  "Category": "Editor",
+  "CreatedBy": "Artifex Nexus contributors",
+  "EnabledByDefault": true,
+  "CanContainContent": true,
+  "EngineVersion": "5.7.0",
+  "Modules": [
+    {
+      "Name": "ArtifexNexus",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    },
+    {
+      "Name": "ArtifexNexusAPI",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    },
+    {
+      "Name": "XAtlasLib",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ],
+  "Plugins": [
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "EditorScriptingUtilities", "Enabled": true },
+    { "Name": "Niagara", "Enabled": true },
+    { "Name": "GameplayAbilities", "Enabled": true },
+    { "Name": "StateTree", "Enabled": true },
+    { "Name": "StructUtils", "Enabled": true },
+    { "Name": "EnhancedInput", "Enabled": true }
+  ]
+}

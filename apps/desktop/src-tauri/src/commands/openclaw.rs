@@ -326,6 +326,70 @@ pub async fn openclaw_dcc_blender_uninstall(
     manager.call("openclaw.dcc.blender.uninstall", json!({"version": version}))
 }
 
+/// 检测可用 UE 插件版本。
+///
+/// STORY-0051 M5：UE 插件安装/卸载。
+#[tauri::command]
+pub async fn openclaw_dcc_unreal_detect(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.unreal.detect", json!({}))
+}
+
+/// 安装 UE 插件到指定项目目录。
+///
+/// STORY-0051 M5：UE 插件安装/卸载。
+#[tauri::command]
+pub async fn openclaw_dcc_unreal_install(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+    project_path: String,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({"version": version, "project_path": project_path});
+    if let Some(f) = force {
+        params["force"] = serde_json::Value::Bool(f);
+    }
+
+    manager.call("openclaw.dcc.unreal.install", params)
+}
+
+/// 卸载 UE 插件。
+///
+/// STORY-0051 M5：UE 插件安装/卸载。
+#[tauri::command]
+pub async fn openclaw_dcc_unreal_uninstall(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+    project_path: String,
+    keep_lib: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({"version": version, "project_path": project_path});
+    if let Some(k) = keep_lib {
+        params["keep_lib"] = serde_json::Value::Bool(k);
+    }
+
+    manager.call("openclaw.dcc.unreal.uninstall", params)
+}
+
 /// 部署 mcp-bridge 插件到 OpenClaw plugins 目录。
 ///
 /// STORY-0028 M2：Gateway MCP Bridge 插件。

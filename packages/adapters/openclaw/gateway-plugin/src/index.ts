@@ -427,6 +427,20 @@ export default function (api: PluginAPI) {
         },
       },
     ],
+    "unreal-editor": [
+      {
+        name: "run_python",
+        description: "Execute Python code in the Unreal Editor environment. The code runs with full access to the `unreal` module and editor APIs. Pre-injected variables: S (selected actors), W (editor world), L (unreal module). All operations are wrapped in an undo transaction (Ctrl+Z to revert). Dangerous operations (os.system, subprocess, etc.) are blocked by the security scanner.\n\nQuick context: set get_context=true (no code needed) to get editor state: active_panel (viewport/content_browser), selected (items from the active panel), selected_source, viewport_selection_count, content_browser_selection_count, mode, total_actors, level_name. The 'selected' field automatically contains viewport actors or content browser assets based on which panel the user was last interacting with.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "Python code to execute in Unreal Editor" },
+            get_context: { type: "boolean", description: "Set to true to return editor context without executing code", default: false },
+          },
+          required: [],
+        },
+      },
+    ],
   };
 
   let totalRegistered = 0;

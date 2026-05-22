@@ -31,6 +31,15 @@ tags:
 
 ## Review
 
+- [ ] [[STORY-0051-ue-plugin-scaffold]]
+- [ ] [[STORY-0052-ue-blueprint-api-migration]]
+- [ ] [[STORY-0053-ue-editor-subsystem]]
+- [ ] [[STORY-0054-ue-control-panel]]
+- [ ] [[STORY-0055-ue-mcp-server-adapter]]
+- [ ] [[STORY-0056-ue-trigger-system]]
+- [ ] [[STORY-0057-ue-gateway-sidecar]]
+- [ ] [[STORY-0058-ue-bootstrap-autostart]]
+
 - [ ] [[STORY-0048-m4-migration-skill-nexus-tool]]
 - [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]
 - [ ] [[STORY-0046-m4-rpc-skill-nexus-tool]]

@@ -210,7 +210,12 @@ def _generate_default_config(
                                 "type": "websocket",
                                 "url": "ws://127.0.0.1:18083",
                                 "enabled": True,
-                            }
+                            },
+                            "unreal-editor": {
+                                "type": "websocket",
+                                "url": "ws://127.0.0.1:18080",
+                                "enabled": True,
+                            },
                         }
                     }
                 },

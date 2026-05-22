@@ -92,6 +92,10 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_blender_detect,
             commands::openclaw::openclaw_dcc_blender_install,
             commands::openclaw::openclaw_dcc_blender_uninstall,
+            // STORY-0051 M5：UE 插件安装/卸载
+            commands::openclaw::openclaw_dcc_unreal_detect,
+            commands::openclaw::openclaw_dcc_unreal_install,
+            commands::openclaw::openclaw_dcc_unreal_uninstall,
             // STORY-0028 M2：Gateway MCP Bridge 插件
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,

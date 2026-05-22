@@ -7,6 +7,12 @@
 2. **开发关卡**（编码中）：遇到任何设计不明确的点，先确认再继续
 3. **QA 关卡**（完成后）：审核代码规范、逻辑通顺、错误处理。问题分级 P0/P1/P2
 
+## UE 编译必知
+
+- **MSB4018 SetEnv 环境变量过长**（2026-05-22）：UE 5.7 生成的 vcxproj 中 IncludePath/SourcePath 超长会导致编译崩溃。解决方案：在项目根目录创建 `Directory.Build.props`，设 `<UseEnv>true</UseEnv>`。文档：`docs/development/ue-msb4018-fix.md`。来源：artclaw_bridge 项目。
+- **UE 插件多版本用 git 分支管理**（2026-05-22）：不同 UE 版本 C++ 改动大，工程内不保留多版本目录。当前主分支适配 UE 5.7。`plugin_info.py` 声明 `ue_target`（当前适配版本）+ `ue_min`/`ue_max`（兼容范围）。
+- **UE 插件安装/重装保留 Lib/**（2026-05-22）：`packages/dcc/unreal/Content/Python/Lib/` 包含 pip 安装的运行时依赖（pydantic, websockets, cryptography 等），重装插件时不可覆盖删除，应保留或合并。
+
 ## 核心设计原则
 
 - **禁止 systemPromptOverride**（2026-05-21）：agent 配置中不设置 `systemPromptOverride`，该字段会阻断 OpenClaw 的 `buildEmbeddedSystemPrompt()`，导致 `<available_skills>` 块丢失。Agent 专属指令写 workspace 的 AGENTS.md。

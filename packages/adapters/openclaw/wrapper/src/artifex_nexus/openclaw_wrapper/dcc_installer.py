@@ -2,9 +2,9 @@
 dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
 =========================================================
 
-复刻自 artclaw_bridge/install_dcc_ext.py，精简：
-  - 只保留 Blender 相关逻辑
-  - 去掉 Houdini / SP / SD / ComfyUI
+    复刻自 artclaw_bridge/install_dcc_ext.py，精简：
+  - 保留 Blender 相关逻辑
+  - 去掉 Houdini / SP / SD / ComfyUI / Unreal（UE 插件直接安装到 UE 项目目录，不走引擎扫描）
   - 去掉 Skill 安装 / Python 依赖安装（M4 再做）
   - 统一使用物理拷贝（copy），弃用 junction/symlink（2026-05-09 决策变更）
 
@@ -12,7 +12,7 @@ dcc_installer.py — DCC 插件安装/卸载/检测（Blender 首发）
   - find_blender_versions() → 扫描本机已安装版本
   - install_dcc_addon(dcc, version) → 物理拷贝安装
   - uninstall_dcc_addon(dcc, version) → 删除目录
-  - get_addon_info() → 读取 bl_info 获取兼容版本范围
+  - get_addon_info() → 读取 bl_info / plugin_info 获取兼容版本范围
   - install_gateway_mcp_bridge() → 部署 mcp-bridge 插件到 OpenClaw extensions
 """
 
@@ -146,9 +146,100 @@ def _get_addon_src_dir() -> Path:
     )
 
 
+# ── UE 插件版本常量 ──────────────────────────────────────────────────────
+
+# UE 插件多版本通过目录后缀区分（如 ArtifexNexusForUnreal_57/）。
+# 以下常量声明兼容范围，供 check_ue_version_compatibility() 使用。
+_UE_PLUGIN_DEFAULTS = {
+    "name": "Artifex Nexus for Unreal",
+    "version": (0, 1, 0),
+    "ue_min": (5, 7, 0),
+    "ue_max": (5, 7, 9),
+}
+
+# UE 插件源目录在 monorepo 中的相对路径
+_UE_PLUGIN_SRC_BASE = "packages/dcc/unreal"
+# 目录命名格式：ArtifexNexusForUnreal_<major><minor>（如 ArtifexNexusForUnreal_57）
+_UE_PLUGIN_DIR_PREFIX = "ArtifexNexusForUnreal_"
+
+
+def _parse_ue_version_suffix(ue_version: str) -> str:
+    """解析 UE 版本号为目录后缀。
+
+    只取 major.minor，忽略 patch 版本号。
+    "5.7"   → "57"
+    "5.7.4" → "57"
+    "5.6"   → "56"
+
+    Raises:
+        ValueError: 版本号格式无效
+    """
+    parts = ue_version.strip().split(".")
+    if len(parts) < 2:
+        raise ValueError(
+            f"无效的 UE 版本号: '{ue_version}'，"
+            f"需要格式如 5.7 或 5.7.4（最后一位可忽略）"
+        )
+    major = parts[0]
+    minor = parts[1]
+    if not (major.isdigit() and minor.isdigit()):
+        raise ValueError(f"无效的 UE 版本号: '{ue_version}'，主次版本号必须为数字")
+    return f"{major}{minor}"
+
+
+def _resolve_ue_src_base() -> Path:
+    """解析 packages/dcc/unreal/ 的绝对路径。
+
+    优先级：环境变量 > __file__ 相对路径 > parents 回退
+    """
+    env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root) / _UE_PLUGIN_SRC_BASE
+
+    # __file__ 位于 packages/adapters/openclaw/wrapper/src/artifex_nexus/openclaw_wrapper/
+    # 需要上溯 6 级到项目根，再下到 packages/dcc/unreal/
+    _here = Path(__file__).resolve().parent
+    for depth in (6, 7, 8):  # 尝试多个深度
+        candidate = (_here.parents[depth] / _UE_PLUGIN_SRC_BASE)
+        if candidate.is_dir():
+            return candidate
+
+    raise FileNotFoundError(
+        f"无法定位 UE 插件源目录 ({_UE_PLUGIN_SRC_BASE})。"
+        f"请设置环境变量 ARTIFEX_NEXUS_PROJECT_ROOT。"
+    )
+
+
+def _get_ue_plugin_src_dir(ue_version: str) -> Path:
+    """根据 UE 版本号查找对应的插件源目录。
+
+    Args:
+        ue_version: 如 "5.7" 或 "5.7.4"
+
+    Returns:
+        packages/dcc/unreal/ArtifexNexusForUnreal_57/ 的 Path
+
+    Raises:
+        FileNotFoundError: 没有匹配的插件目录
+    """
+    suffix = _parse_ue_version_suffix(ue_version)
+    dir_name = f"{_UE_PLUGIN_DIR_PREFIX}{suffix}"
+    target = _resolve_ue_src_base() / dir_name
+
+    if target.is_dir():
+        logger.info(f"DCC 安装器: UE {ue_version} → {target}")
+        return target
+
+    raise FileNotFoundError(
+        f"未找到 UE {ue_version} 对应的插件目录: {target}\n"
+        f"支持的目录格式: {_UE_PLUGIN_SRC_BASE}/{dir_name}/"
+    )
+
+
 # ── 通用 DCC 接口 ────────────────────────────────────────────────────────
 
 # DCC 版本扫描路径映射（key = dcc_id）
+# 注意：unreal 不在此表中 —— UE 插件直接安装到项目目录，不扫描引擎目录
 _DCC_VERSION_SCAN_PATHS: Dict[str, str] = {
     "blender": os.path.join(
         os.environ.get("APPDATA", os.path.expanduser("~/AppData/Roaming")),
@@ -160,6 +251,7 @@ _DCC_VERSION_SCAN_PATHS: Dict[str, str] = {
 }
 
 # DCC 插件安装路径模板（key = dcc_id）
+# 注意：unreal 不在此表中 —— UE 插件由用户手动放入 UE 项目 Plugins/ 目录
 _DCC_ADDON_PATH_TEMPLATES: Dict[str, str] = {
     "blender": "{base}/{version}/scripts/addons/",
     # "maya": "{base}/{version}/scripts/",
@@ -183,8 +275,11 @@ def find_dcc_versions(dcc: str) -> List[str]:
     versions = []
     try:
         for entry in os.scandir(base):
-            if entry.is_dir() and entry.name and entry.name[0].isdigit():
-                versions.append(entry.name)
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name and name[0].isdigit():
+                versions.append(name)
     except OSError:
         pass
 
@@ -231,7 +326,9 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     if not os.path.isdir(src_dir):
         return {"success": False, "method": None, "target": target_dir, "error": f"插件源目录不存在: {src_dir}"}
 
-    compatible, reason = check_version_compatibility(dcc_version)
+    compatible, reason = check_version_compatibility(dcc_version) if dcc == "blender" else (
+        True, ""
+    )
     if not compatible and not force:
         return {"success": False, "method": None, "target": target_dir, "error": reason}
 
@@ -294,9 +391,13 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
 # DCC 默认端口映射（key = dcc_id）
 _DCC_DEFAULT_PORTS: Dict[str, int] = {
     "blender": 18083,
+    "unreal": 18080,
     # "maya": 18084,
     # "3ds_max": 18085,
 }
+
+# UE MCP Server 默认端口
+UE_MCP_DEFAULT_PORT = 18080
 
 
 def get_dcc_port(dcc: str) -> Dict:
@@ -307,7 +408,7 @@ def get_dcc_port(dcc: str) -> Dict:
     Returns:
         {"port": int, "url": str, "server_name": str}
     """
-    server_name = f"{dcc}-editor" if dcc == "blender" else f"{dcc}-primary"
+    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal") else f"{dcc}-primary"
     default_port = _DCC_DEFAULT_PORTS.get(dcc, 18083)
 
     # 从 openclaw.json 读取当前配置
@@ -354,7 +455,7 @@ def set_dcc_port(dcc: str, port: int) -> Dict:
     Returns:
         {"success": bool, "port": int, "url": str, "error": str|None}
     """
-    server_name = f"{dcc}-editor" if dcc == "blender" else f"{dcc}-primary"
+    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal") else f"{dcc}-primary"
     new_url = f"ws://127.0.0.1:{port}"
 
     openclaw_home = _get_openclaw_home_dir()
@@ -437,6 +538,278 @@ def uninstall_blender_addon(blender_version: str) -> Dict:
 
 def is_addon_installed(blender_version: str) -> bool:
     return is_dcc_addon_installed("blender", blender_version)
+
+
+# ── Unreal 便捷别名 ──────────────────────────────────────────────────────
+
+def find_ue_versions() -> List[str]:
+    """扫描 packages/dcc/unreal/ 下可用的 UE 插件版本。
+
+    扫描 ArtifexNexusForUnreal_XX/ 目录，提取 UE 版本号。
+    如 ArtifexNexusForUnreal_57 → "5.7"
+
+    Returns:
+        降序排列的 UE 版本号列表，如 ["5.7", "5.6", "5.5"]
+    """
+    base = _resolve_ue_src_base()
+    if not base.is_dir():
+        return []
+
+    versions = []
+    try:
+        for entry in base.iterdir():
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name.startswith(_UE_PLUGIN_DIR_PREFIX):
+                suffix = name[len(_UE_PLUGIN_DIR_PREFIX):]
+                if suffix.isdigit() and len(suffix) >= 2:
+                    # "57" → "5.7"
+                    major = suffix[0]
+                    minor = suffix[1:]
+                    versions.append(f"{major}.{minor}")
+    except OSError:
+        pass
+
+    return sorted(versions, reverse=True)
+
+
+def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = False) -> Dict:
+    """安装 UE 插件到指定项目目录。
+
+    根据 UE 版本号自动匹配插件源目录，复制到项目 Plugins/ 下。
+
+    Args:
+        ue_version: UE 版本号，如 "5.7" 或 "5.7.4"（patch 忽略）
+        project_path: UE 项目根目录（包含 .uproject 的目录）
+        force: 是否覆盖已有安装
+
+    Returns:
+        {"success": bool, "source_dir": str, "target": str, "error": str|None}
+    """
+    # 1. 检查项目路径
+    if not project_path or not project_path.strip():
+        return {
+            "success": False,
+            "source_dir": "",
+            "target": "",
+            "error": "请指定 UE 项目根目录（包含 .uproject 的目录）",
+        }
+
+    project_root = Path(project_path.strip())
+    if not project_root.is_dir():
+        return {
+            "success": False,
+            "source_dir": "",
+            "target": str(project_root),
+            "error": f"项目目录不存在: {project_root}",
+        }
+
+    # 验证 .uproject 存在
+    uproject_files = list(project_root.glob("*.uproject"))
+    if not uproject_files:
+        return {
+            "success": False,
+            "source_dir": "",
+            "target": str(project_root),
+            "error": f"目录中未找到 .uproject 文件: {project_root}",
+        }
+
+    # 2. 查找插件源目录
+    try:
+        src_dir = _get_ue_plugin_src_dir(ue_version)
+    except (ValueError, FileNotFoundError) as e:
+        return {
+            "success": False,
+            "source_dir": "",
+            "target": str(project_root),
+            "error": str(e),
+        }
+
+    # 3. 目标路径
+    target_dir = project_root / "Plugins" / "ArtifexNexusForUnreal"
+
+    # 4. 重装检查
+    if target_dir.exists() and not force:
+        # 保留 Lib/ 目录
+        return {
+            "success": False,
+            "source_dir": str(src_dir),
+            "target": str(target_dir),
+            "error": (
+                "目标已存在，如需重装请使用 force=True。"
+                "注意：重装时会保留 Content/Python/Lib/ 目录。"
+            ),
+        }
+
+    # 5. 执行安装
+    try:
+        _install_ue_plugin_files(src_dir, target_dir)
+
+        # 记录部署清单
+        source_version = _get_source_version(src_dir)
+        deployment_id = f"ue-plugin-{ue_version}"
+        try:
+            _record_deployment(deployment_id, str(src_dir), str(target_dir), source_version)
+        except Exception as e:
+            logger.warning("UE 部署清单记录失败（不阻断安装）: %s", e)
+
+        # 注册工具源码目录
+        tools_src = str(src_dir / "Content" / "Python")
+        _try_register_tool_source(tools_src)
+
+        return {
+            "success": True,
+            "source_dir": str(src_dir),
+            "target": str(target_dir),
+            "error": None,
+        }
+    except Exception as e:
+        logger.exception("UE 插件安装失败")
+        return {
+            "success": False,
+            "source_dir": str(src_dir),
+            "target": str(target_dir),
+            "error": f"安装失败: {e}",
+        }
+
+
+def _install_ue_plugin_files(src_dir: Path, target_dir: Path) -> None:
+    """将 UE 插件文件从源目录复制到目标目录。
+
+    排除规则：
+      - Binaries/ Intermediate/ Saved/ — 编译产物
+      - Content/Python/__pycache__/ — Python 缓存
+      - Content/Python/tests/ — 测试代码
+    保留规则：
+      - Content/Python/Lib/ — 已安装的 pip 依赖（如果存在）
+    """
+    import shutil
+
+    # 保存旧 Lib/ 目录
+    old_lib = target_dir / "Content" / "Python" / "Lib"
+    saved_lib = None
+    if old_lib.is_dir():
+        import tempfile
+        saved_lib = Path(tempfile.mkdtemp(prefix="ue_lib_backup_"))
+        shutil.copytree(old_lib, saved_lib / "Lib")
+        logger.info(f"DCC 安装器: 备份旧 Lib/ → {saved_lib}")
+
+    # 清理并复制
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    _EXCLUDE_PATTERNS = [
+        "Binaries", "Intermediate", "Saved",
+        "__pycache__", "*.pyc", "tests",
+    ]
+
+    def _ignore(path, names):
+        ignored = set()
+        for name in names:
+            for pat in _EXCLUDE_PATTERNS:
+                if fnmatch.fnmatch(name, pat):
+                    ignored.add(name)
+                    break
+        return ignored
+
+    shutil.copytree(src_dir, target_dir, ignore=_ignore)
+
+    # 恢复旧 Lib/（合并而非覆盖）
+    if saved_lib:
+        lib_src = saved_lib / "Lib"
+        lib_dst = target_dir / "Content" / "Python" / "Lib"
+        lib_dst.mkdir(parents=True, exist_ok=True)
+        for item in lib_src.iterdir():
+            item_dst = lib_dst / item.name
+            if not item_dst.exists():
+                if item.is_dir():
+                    shutil.copytree(item, item_dst)
+                else:
+                    shutil.copy2(item, item_dst)
+        shutil.rmtree(saved_lib)
+        logger.info("DCC 安装器: Lib/ 已合并恢复")
+
+
+def uninstall_ue_plugin(ue_version: str, project_path: str = "", keep_lib: bool = False) -> Dict:
+    """卸载 UE 插件。
+
+    Args:
+        ue_version: UE 版本号（用于部署清单清理）
+        project_path: UE 项目根目录
+        keep_lib: True=重装场景，保留 Content/Python/Lib/；False=UI 删除，完全移除
+
+    Returns:
+        {"success": bool, "target": str, "error": str|None, "message": str|None}
+    """
+    if not project_path:
+        return {
+            "success": False,
+            "target": "",
+            "error": "请指定 UE 项目根目录",
+        }
+
+    target_dir = Path(project_path.strip()) / "Plugins" / "ArtifexNexusForUnreal"
+    if not target_dir.exists():
+        return {
+            "success": True,
+            "target": str(target_dir),
+            "error": None,
+            "message": "插件未安装，无需卸载",
+        }
+
+    try:
+        import shutil
+
+        if keep_lib:
+            # 重装场景：删除除 Lib/ 外的所有内容
+            for item in target_dir.iterdir():
+                if item.name == "Content":
+                    # Content/ 下只保留 Python/Lib/，删除其他
+                    content_dir = item
+                    for content_item in content_dir.iterdir():
+                        if content_item.name == "Python":
+                            python_dir = content_item
+                            for py_item in python_dir.iterdir():
+                                if py_item.name == "Lib":
+                                    logger.info("DCC 安装器: 卸载时保留 %s", py_item)
+                                    continue
+                                if py_item.is_dir():
+                                    shutil.rmtree(py_item)
+                                else:
+                                    py_item.unlink()
+                        elif content_item.is_dir():
+                            shutil.rmtree(content_item)
+                        else:
+                            content_item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            logger.info("DCC 安装器: UE 插件文件已清理（Lib/ 已保留）")
+        else:
+            # UI 删除：完全移除
+            shutil.rmtree(target_dir)
+            # 清理部署清单
+            deployment_id = f"ue-plugin-{ue_version}"
+            try:
+                _remove_from_manifest(deployment_id)
+            except Exception as e:
+                logger.warning("UE 部署清单清理失败（不阻断卸载）: %s", e)
+            logger.info("DCC 安装器: UE 插件已完全移除")
+
+        return {
+            "success": True,
+            "target": str(target_dir),
+            "error": None,
+            "message": "Lib/ 已保留" if keep_lib else "已完全卸载",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "target": str(target_dir),
+            "error": str(e),
+        }
 
 
 # ── 插件信息 ────────────────────────────────────────────────────────────
@@ -541,6 +914,83 @@ def check_version_compatibility(blender_version: str) -> Tuple[bool, str]:
 
     if blender_max is not None:
         max_str = ".".join(str(x) for x in blender_max)
+        return True, f"兼容 ({min_str} ~ {max_str})"
+    else:
+        return True, f"兼容 (≥ {min_str})"
+
+
+def get_ue_plugin_info(ue_version: str = "") -> Dict:
+    """获取 UE 插件版本元信息。
+
+    Args:
+        ue_version: 可选，指定版本号以获取对应目录路径
+
+    Returns:
+        {
+            "name": str,
+            "version": (major, minor, patch),
+            "ue_min": (major, minor, patch),
+            "ue_max": (major, minor, patch),
+            "source_dir": str,   # 如果指定了 ue_version
+        }
+    """
+    result = dict(_UE_PLUGIN_DEFAULTS)
+    if ue_version:
+        try:
+            result["source_dir"] = str(_get_ue_plugin_src_dir(ue_version))
+        except (ValueError, FileNotFoundError):
+            pass
+    return result
+
+
+def check_ue_version_compatibility(ue_version: str) -> Tuple[bool, str]:
+    """
+    检查 UE 引擎版本是否与插件兼容。
+
+    兼容规则：ue_min <= ue_version <= ue_max
+    同时检查是否存在匹配的插件源目录。
+
+    Args:
+        ue_version: UE 版本号，如 "5.7" 或 "5.7.4"
+
+    Returns:
+        (compatible, reason)
+    """
+    info = get_ue_plugin_info()
+    ue_min = info["ue_min"]
+    ue_max = info.get("ue_max")
+
+    try:
+        uv_parts = tuple(int(x) for x in ue_version.split("."))
+    except (ValueError, AttributeError):
+        return False, f"无法解析 UE 版本号: {ue_version}"
+
+    # 补齐到 3 位
+    while len(uv_parts) < 3:
+        uv_parts = uv_parts + (0,)
+
+    min_str = ".".join(str(x) for x in ue_min)
+
+    if uv_parts < ue_min:
+        return False, f"UE {ue_version} 低于最低要求 {min_str}"
+
+    if ue_max is not None and uv_parts > ue_max:
+        max_str = ".".join(str(x) for x in ue_max)
+        return False, f"UE {ue_version} 高于最高支持 {max_str}"
+
+    # 检查是否有匹配的插件源目录
+    try:
+        _get_ue_plugin_src_dir(ue_version)
+    except FileNotFoundError:
+        return False, (
+            f"UE {ue_version} 版本兼容，但未找到对应的插件目录。"
+            f"支持的版本: {find_ue_versions()}"
+        )
+    except ValueError:
+        pass  # 版本号解析失败，前面已经验证过了
+
+    if ue_max is not None:
+        max_str = ".".join(str(x) for x in ue_max)
         return True, f"兼容 ({min_str} ~ {max_str})"
     else:
         return True, f"兼容 (≥ {min_str})"

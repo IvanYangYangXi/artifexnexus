@@ -967,6 +967,138 @@ def _handle_openclaw_dcc_blender_uninstall(req_id: Any, params: dict) -> dict:
         }
 
 
+# ── M5 UE 插件安装/卸载 RPC ──────────────────────────────────────────────
+
+def _handle_openclaw_dcc_unreal_detect(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.unreal.detect RPC：检测可用 UE 插件版本。
+
+    返回：
+        {
+            "versions": [{"version": "5.7", "source_dir": str, "compatible": bool}, ...],
+            "plugin_info": {...}
+        }
+    """
+    try:
+        versions = _dcc_installer.find_ue_versions()
+        plugin_info = _dcc_installer.get_ue_plugin_info()
+
+        result_versions = []
+        for ver in versions:
+            try:
+                src_dir = str(_dcc_installer._get_ue_plugin_src_dir(ver))
+                compatible, reason = _dcc_installer.check_ue_version_compatibility(ver)
+            except Exception:
+                src_dir = ""
+                compatible = False
+                reason = f"目录不存在"
+            result_versions.append({
+                "version": ver,
+                "source_dir": src_dir,
+                "compatible": compatible,
+                "compat_reason": reason,
+            })
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "versions": result_versions,
+                "plugin_info": {
+                    "name": plugin_info.get("name", ""),
+                    "version": ".".join(str(x) for x in plugin_info.get("version", (0, 1, 0))),
+                    "ue_min": ".".join(str(x) for x in plugin_info.get("ue_min", (5, 7, 0))),
+                    "ue_max": ".".join(str(x) for x in plugin_info.get("ue_max", (5, 7, 9))),
+                },
+            },
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_unreal_install(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.unreal.install RPC：安装 UE 插件到指定项目目录。
+
+    参数：
+        version (str): UE 版本号，如 "5.7" 或 "5.7.4"
+        project_path (str): UE 项目根目录（包含 .uproject 的目录）
+        force (bool, 可选): 是否覆盖已有安装（重装时保留 Lib/）
+
+    返回：
+        {"success": bool, "source_dir": str, "target": str, "error": str|None}
+    """
+    version = params.get("version", "")
+    project_path = params.get("project_path", "")
+    force = bool(params.get("force", False))
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+    if not project_path:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: project_path（UE 项目根目录）"},
+        }
+
+    try:
+        result = _dcc_installer.install_ue_plugin(version, project_path=project_path, force=force)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_unreal_uninstall(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.unreal.uninstall RPC：卸载 UE 插件。
+
+    参数：
+        version (str): UE 版本号（当前未使用，保留接口一致性）
+        project_path (str): UE 项目根目录
+        keep_lib (bool, 可选): True=重装场景保留 Lib/；False=完全删除
+
+    返回：
+        {"success": bool, "target": str, "error": str|None}
+    """
+    version = params.get("version", "")
+    project_path = params.get("project_path", "")
+    keep_lib = bool(params.get("keep_lib", False))
+
+    if not project_path:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: project_path（UE 项目根目录）"},
+        }
+
+    try:
+        result = _dcc_installer.uninstall_ue_plugin(version, project_path=project_path, keep_lib=keep_lib)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> dict:
     """openclaw.gateway.mcp_bridge.install RPC：部署 mcp-bridge 插件到 OpenClaw。
 
@@ -989,15 +1121,19 @@ def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> di
 
 
 def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dict:
-    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender MCP 连通性 + 过时检测。
+    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender/UE MCP 连通性 + 过时检测。
 
     返回：
         {
             "installed": bool,
-            "blenderConnected": bool,        # MCP 握手完成 + 工具可用
+            "blenderConnected": bool,        # Blender MCP 握手完成 + 工具可用
             "blenderServerRunning": bool,    # Blender MCP Server 进程在监听端口（TCP socket，无 MCP 协议）
             "blenderAddress": str,
             "blenderError": str | None,
+            "unrealConnected": bool,         # UE MCP 握手完成 + 工具可用
+            "unrealServerRunning": bool,     # UE MCP Server 进程在监听端口（TCP socket，无 MCP 协议）
+            "unrealAddress": str,
+            "unrealError": str | None,
             "upToDate": bool,
             "sourceHash": str | None,
             "deployedHash": str | None,
@@ -1065,6 +1201,37 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
                     "address": _mcp_bridge.MCPBridgeClient.get_instance().server_address,
                     "error": "Gateway 未运行，无法检测 MCP Bridge 连通性",
                 }
+        # ── UE MCP 连通性检测（与 Blender 并行） ──
+        unreal_server_running = False
+        unreal_status = {"connected": False, "address": "ws://127.0.0.1:18080", "error": None}
+        if installed and gateway_running:
+            try:
+                unreal_server_running = _mcp_bridge.check_unreal_mcp_server_running(timeout=1.0)
+            except Exception as e:
+                logger.warning("check_unreal_mcp_server_running() failed: %s", e, exc_info=True)
+
+            if unreal_server_running:
+                try:
+                    unreal_status = _mcp_bridge.check_unreal_mcp_connection(timeout=3.0)
+                except Exception as e:
+                    unreal_status = {
+                        "connected": False,
+                        "address": unreal_status.get("address", "ws://127.0.0.1:18080"),
+                        "error": str(e),
+                    }
+            else:
+                unreal_status = {
+                    "connected": False,
+                    "address": "ws://127.0.0.1:18080",
+                    "error": "UE MCP Server 未启动（端口无监听）",
+                }
+        elif not gateway_running:
+            unreal_status = {
+                "connected": False,
+                "address": "ws://127.0.0.1:18080",
+                "error": "Gateway 未运行，无法检测 MCP Bridge 连通性",
+            }
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1074,6 +1241,10 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
                 "blenderServerRunning": blender_server_running,
                 "blenderAddress": blender_status.get("address", ""),
                 "blenderError": blender_status.get("error"),
+                "unrealConnected": unreal_status.get("connected", False),
+                "unrealServerRunning": unreal_server_running,
+                "unrealAddress": unreal_status.get("address", ""),
+                "unrealError": unreal_status.get("error"),
                 "upToDate": freshness.get("upToDate", False),
                 "sourceHash": freshness.get("sourceHash"),
                 "deployedHash": freshness.get("deployedHash"),
@@ -1709,6 +1880,10 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.blender.detect": _handle_openclaw_dcc_blender_detect,
     "openclaw.dcc.blender.install": _handle_openclaw_dcc_blender_install,
     "openclaw.dcc.blender.uninstall": _handle_openclaw_dcc_blender_uninstall,
+    # STORY-0051 M5：UE 插件安装/卸载
+    "openclaw.dcc.unreal.detect": _handle_openclaw_dcc_unreal_detect,
+    "openclaw.dcc.unreal.install": _handle_openclaw_dcc_unreal_install,
+    "openclaw.dcc.unreal.uninstall": _handle_openclaw_dcc_unreal_uninstall,
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,

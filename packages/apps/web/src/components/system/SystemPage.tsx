@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, Dial
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin } from "../../ipc/openclaw";
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
 
@@ -117,7 +118,7 @@ const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
   { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
   { id: "blender", name: "Blender", iconKey: "blender", state: "pending", expandable: true, children: [] },
-  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [{ label: "UE 5.4 主项目", version: "5.4.2", installPath: "C:\\Program Files\\Epic Games\\UE_5.4", projectPath: "D:\\Proj\\MyGame", scriptPath: "<install>/plugins/unreal_engine/init.py", state: "pending" }] },
+  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [{ label: "UE 5.7 主项目", version: "5.7.0", installPath: "D:\\Proj\\MyGame", projectPath: "", scriptPath: "", state: "pending" }] },
   { id: "3ds_max", name: "3ds Max", iconKey: "3ds_max", state: "pending", expandable: true, children: [{ label: "3ds Max 2024", version: "2024.2", installPath: "C:\\Program Files\\Autodesk\\3ds Max 2024", projectPath: "", scriptPath: "<install>/plugins/3ds_max/init.ms", state: "pending" }] },
   { id: "maya", name: "Maya", iconKey: "maya", state: "pending", expandable: true, children: [] },
   { id: "comfyui", name: "ComfyUI", iconKey: "comfyui", state: "unavailable", expandable: true, comingSoon: true, children: [] },
@@ -400,9 +401,10 @@ function InstallerTab() {
   const handleAddChild = async (parentId: string) => {
     const item = items.find((it) => it.id === parentId);
     const dccName = item?.name || parentId;
+    const isUE = parentId === "unreal_engine";
     const result = await showForm(`添加 ${dccName} 版本`, [
-      { key: "version", label: "版本号", placeholder: "如 5.1" },
-      { key: "installPath", label: "安装路径（可选）", placeholder: "留空则自动计算" },
+      { key: "version", label: "版本号", placeholder: "如 5.7" },
+      { key: "installPath", label: isUE ? "项目根目录" : "安装路径（可选）", placeholder: isUE ? "含有 .uproject 的项目根目录" : "留空则自动计算" },
     ]);
     if (!result || !result.version?.trim()) return;
     const version = result.version.trim();
@@ -411,6 +413,7 @@ function InstallerTab() {
       if (parentId === "blender") installPath = `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
       else if (parentId === "maya") installPath = `~/Documents/maya/${version}/scripts/`;
       else if (parentId === "3ds_max") installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
+      else if (parentId === "unreal_engine") installPath = "";  // UE 必须手动指定项目根目录
     }
     const label = `${dccName} ${version}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
@@ -428,9 +431,15 @@ function InstallerTab() {
         try {
           const ipc = await getIpc();
           addLog(parentId, "info", `[${label}] 正在卸载...`);
-          const r = await ipc.uninstallBlenderAddon(child.version);
-          if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
-          else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+          if (parentId === "unreal_engine") {
+            const r = await uninstallUEPlugin(child.version, child.installPath || "", false);
+            if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
+            else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+          } else {
+            const r = await ipc.uninstallBlenderAddon(child.version);
+            if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
+            else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+          }
         } catch (e: any) { addLog(parentId, "warn", `[${label}] 卸载异常: ${e.message}`); }
       })();
     }
@@ -448,10 +457,12 @@ function InstallerTab() {
       if (parentId === "blender") defaultPath = `%APPDATA%/Blender Foundation/Blender/${child.version}/scripts/addons/`;
       else if (parentId === "maya") defaultPath = `~/Documents/maya/${child.version}/scripts/`;
       else if (parentId === "3ds_max") defaultPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${child.version}/ENU/scripts/`;
+      else if (parentId === "unreal_engine") defaultPath = "";
     }
+    const isUE = parentId === "unreal_engine";
     const result = await showForm(`编辑「${child.label}」`, [
-      { key: "version", label: "版本号", defaultValue: child.version, placeholder: "如 5.1" },
-      { key: "installPath", label: "安装路径", defaultValue: defaultPath || "", placeholder: "留空则自动计算" },
+      { key: "version", label: "版本号", defaultValue: child.version, placeholder: "如 5.7" },
+      { key: "installPath", label: isUE ? "项目根目录" : "安装路径", defaultValue: defaultPath || "", placeholder: isUE ? "含有 .uproject 的项目根目录" : "留空则自动计算" },
     ]);
     if (!result) return;
     const newVersion = result.version?.trim() || child.version;
@@ -462,6 +473,7 @@ function InstallerTab() {
       if (parentId === "blender") computedPath = `%APPDATA%/Blender Foundation/Blender/${newVersion}/scripts/addons/`;
       else if (parentId === "maya") computedPath = `~/Documents/maya/${newVersion}/scripts/`;
       else if (parentId === "3ds_max") computedPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion}/ENU/scripts/`;
+      else if (parentId === "unreal_engine") computedPath = "";
     }
     const newLabel = `${item?.name ?? parentId} ${newVersion}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? {
@@ -486,18 +498,43 @@ function InstallerTab() {
     addLog(parentId, "info", `[${child.label}] ${isReinstall ? "重装" : "安装"}中...`);
     try {
       const ipc = await getIpc();
-      // 重装时先卸载
+
+      // ── UE 安装分支 ──
+      if (parentId === "unreal_engine") {
+        if (!child.installPath) {
+          throw new Error("请先设置项目根目录（包含 .uproject 的目录）");
+        }
+        addLog(parentId, "info", `[${child.label}] 项目路径: ${child.installPath}`);
+
+        // 检查并安装 mcp-bridge
+        const bs = await ipc.getMCPBridgeStatus();
+        if (!bs?.installed) {
+          addLog(parentId, "info", `[${child.label}] 部署 MCP Bridge 插件...`);
+          await ipc.invoke("openclaw_gateway_mcp_bridge_install");
+        }
+
+        const r = await installUEPlugin(child.version, child.installPath, isReinstall);
+        if (r.success) {
+          addLog(parentId, "info", `[${child.label}] ${isReinstall ? "重装" : "安装"}成功 → ${r.target}`);
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
+          } : it));
+        } else {
+          throw new Error(r.error || "安装失败");
+        }
+        return;
+      }
+
+      // ── Blender 安装分支 ──
       if (isReinstall) {
         addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
         try { await ipc.uninstallBlenderAddon(child.version); } catch {}
       }
-      // 检查并安装 mcp-bridge
       const bs = await ipc.getMCPBridgeStatus();
       if (!bs?.installed) {
         addLog(parentId, "info", `[${child.label}] 部署 MCP Bridge 插件...`);
         await ipc.invoke("openclaw_gateway_mcp_bridge_install");
       }
-      // 安装
       const r = await ipc.installBlenderAddon(child.version, false);
       if (r.success) {
         addLog(parentId, "info", `[${child.label}] ✅ 安装成功`);

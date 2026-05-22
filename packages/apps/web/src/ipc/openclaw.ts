@@ -508,6 +508,73 @@ export async function uninstallBlenderAddon(
 }
 
 // ---------------------------------------------------------------------------
+// STORY-0051 M5：UE 插件安装/卸载 IPC
+// ---------------------------------------------------------------------------
+
+/** UE 版本检测结果 */
+export interface UEDetectResult {
+  versions: Array<{
+    version: string;
+    source_dir: string;
+    compatible: boolean;
+    compat_reason: string;
+  }>;
+  plugin_info: {
+    name: string;
+    version: string;
+    ue_min: string;
+    ue_max: string;
+  };
+}
+
+/** UE 插件安装结果 */
+export interface UEInstallResult {
+  success: boolean;
+  source_dir: string;
+  target: string;
+  error: string | null;
+}
+
+/** UE 插件卸载结果 */
+export interface UEUninstallResult {
+  success: boolean;
+  target: string;
+  error: string | null;
+  message?: string;
+}
+
+/** 检测可用 UE 插件版本 */
+export async function detectUEVersions(): Promise<UEDetectResult> {
+  return invoke<UEDetectResult>("openclaw_dcc_unreal_detect");
+}
+
+/** 安装 UE 插件到指定项目目录 */
+export async function installUEPlugin(
+  version: string,
+  projectPath: string,
+  force?: boolean,
+): Promise<UEInstallResult> {
+  return invoke<UEInstallResult>("openclaw_dcc_unreal_install", {
+    version,
+    projectPath,
+    force: force ?? false,
+  });
+}
+
+/** 卸载 UE 插件 */
+export async function uninstallUEPlugin(
+  version: string,
+  projectPath: string,
+  keepLib?: boolean,
+): Promise<UEUninstallResult> {
+  return invoke<UEUninstallResult>("openclaw_dcc_unreal_uninstall", {
+    version,
+    projectPath,
+    keepLib: keepLib ?? false,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------
 

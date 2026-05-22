@@ -622,3 +622,76 @@ def check_blender_mcp_server_running(
         return True
     except (OSError, ConnectionRefusedError, TimeoutError):
         return False
+
+
+def check_unreal_mcp_server_running(
+    host: str = "127.0.0.1", port: int = 18080, timeout: float = 1.0
+) -> bool:
+    """检测 UE MCP Server 进程是否在监听端口（纯 TCP socket connect）。
+
+    与 :func:`check_blender_mcp_server_running` 行为一致，默认使用 UE MCP 端口 18080。
+
+    Args:
+        host: MCP Server 主机地址，默认 127.0.0.1。
+        port: MCP Server 端口，默认 18080。
+        timeout: 连接超时秒数，默认 1s。
+
+    Returns:
+        True 如果端口上有进程在监听。
+    """
+    import socket as _socket
+    try:
+        sock = _socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return True
+    except (OSError, ConnectionRefusedError, TimeoutError):
+        return False
+
+
+def check_unreal_mcp_connection(
+    host: str = "127.0.0.1", port: int = 18080, timeout: float = 3.0
+) -> Dict[str, Any]:
+    """检测 UE MCP Server 连通性（WebSocket + MCP initialize 握手）。
+
+    与 :func:`check_blender_mcp_connection` 行为一致，使用 asyncio.run 内部驱动。
+
+    Args:
+        host: MCP Server 主机地址，默认 127.0.0.1。
+        port: MCP Server 端口，默认 18080。
+        timeout: 连接超时秒数，默认 3s。
+
+    Returns:
+        {"connected": bool, "address": str, "error": str|None}
+    """
+    import asyncio as _asyncio
+
+    async def _connect():
+        address = f"ws://{host}:{port}"
+        try:
+            async with _asyncio.timeout(timeout):
+                async with websockets.connect(address) as ws:
+                    await ws.send(json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "artifex-nexus-sidecar", "version": "1.0.0"},
+                        },
+                    }))
+                    resp = await _asyncio.wait_for(ws.recv(), timeout=timeout)
+                    data = json.loads(resp)
+                    if "result" in data:
+                        return {"connected": True, "address": address, "error": None}
+                    err_msg = data.get("error", {}).get("message", "未知 MCP 错误")
+                    return {"connected": False, "address": address, "error": f"MCP 握手失败: {err_msg}"}
+        except Exception as e:
+            return {"connected": False, "address": address, "error": str(e)}
+
+    try:
+        return _asyncio.run(_connect())
+    except RuntimeError:
+        # 如果已有运行中的 event loop，尝试用 nest_asyncio 或回退
+        logger.warning("check_unreal_mcp_connection: 无法在已有 event loop 中运行，返回未连接")
+        return {"connected": False, "address": f"ws://{host}:{port}", "error": "异步运行时冲突"}
