@@ -61,13 +61,44 @@ const blenderProvider: DCCPreInputProvider = {
   },
 };
 
+// ─── Unreal Engine Provider ──────────────────────────────────────────────────
+
+const unrealProvider: DCCPreInputProvider = {
+  serverKey: "unreal-editor",
+  displayName: "Unreal Engine",
+
+  checkConnected(status) {
+    return status.unrealConnected;
+  },
+
+  buildConnectedMessage() {
+    return (
+      `已连接 Unreal Engine MCP Server，可用工具：\n` +
+      `- mcp_unreal-editor_run_python — 在 Unreal Editor 中执行 Python 代码。` +
+      `可设 get_context=true 获取当前编辑器状态（选中 Actors、视口/内容浏览器、模式、关卡名等）；` +
+      `也可传 code 执行任意 Unreal Python API。\n` +
+      `\n` +
+      `请描述你的需求，我会通过 MCP 工具来操作。`
+    );
+  },
+
+  buildDisconnectedToast() {
+    return (
+      `未检测到 Unreal Engine MCP Server 连接。请确认：\n` +
+      `1. 已在 UE 项目中安装 ArtifexNexusForUnreal 插件\n` +
+      `2. Unreal Editor 已打开并加载了项目\n` +
+      `3. 「系统」面板中 MCP Server 端口已配置（默认 18080）`
+    );
+  },
+};
+
 // ─── 注册表 ─────────────────────────────────────────────────────────────────
 
 /** 所有已注册的 DCC Pre-Input Provider（扩容时在此添加） */
 export const ALL_PROVIDERS: DCCPreInputProvider[] = [
   blenderProvider,
+  unrealProvider,
   // 未来扩容示例：
-  // unrealProvider,
   // mayaProvider,
 ];
 

@@ -658,6 +658,13 @@ def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = Fal
         tools_src = str(src_dir / "Content" / "Python")
         _try_register_tool_source(tools_src)
 
+        # 确保 MCP Bridge 配置中包含 unreal-editor server 条目
+        # （bootstrap 已默认创建，但安装/重装时显式确保，防止用户手动删除后缺失）
+        try:
+            set_dcc_port("unreal", UE_MCP_DEFAULT_PORT)
+        except Exception as e:
+            logger.warning("UE MCP Bridge 端口配置更新失败（不阻断安装）: %s", e)
+
         return {
             "success": True,
             "source_dir": str(src_dir),

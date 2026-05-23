@@ -422,22 +422,23 @@ export function AppShell() {
           }
         }
         const statuses: { name: string; connected: boolean }[] = [];
+        // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
+        let bridgeStatus: ipc.MCPBridgeStatus | null = null;
+        if (s.gateway_running) {
+          try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch {}
+        }
+        // ── Blender ──
         try {
           await ipc.getDCCPort("blender");
-          // 只有配置了端口的 DCC 才显示
-          let connected = false;
-          if (s.gateway_running) {
-            try {
-              const bs = await ipc.getMCPBridgeStatus();
-              // 三态逻辑：
-              // - blenderServerRunning=false → Blender 未启动 → 不显示指示器
-              // - blenderServerRunning=true + blenderConnected=false → 黄色（连接中）
-              // - blenderConnected=true → 绿色（MCP 握手完成）
-              if (bs?.blenderServerRunning) {
-                connected = bs.blenderConnected ?? false;
-                statuses.push({ name: "Blender", connected });
-              }
-            } catch {}
+          if (bridgeStatus?.blenderServerRunning) {
+            statuses.push({ name: "Blender", connected: bridgeStatus.blenderConnected ?? false });
+          }
+        } catch {}
+        // ── Unreal Engine ──
+        try {
+          await ipc.getDCCPort("unreal");
+          if (bridgeStatus?.unrealServerRunning) {
+            statuses.push({ name: "Unreal", connected: bridgeStatus.unrealConnected ?? false });
           }
         } catch {}
         setDccStatus(statuses);

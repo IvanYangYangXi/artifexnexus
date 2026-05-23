@@ -631,39 +631,66 @@ function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], 
       const ipc = await getIpc();
       // DCC 状态
       const items: {name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[] = [];
+
+      // Bug #6 修复：先检查 Gateway 是否在运行
+      let gatewayRunning = false;
+      try {
+        const ocStatus = await ipc.getOpenClawStatus();
+        gatewayRunning = ocStatus.gateway_running;
+      } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
+
+      // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
+      let bridgeStatus: any = null;
+      if (gatewayRunning) {
+        try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
+          console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
+        }
+      }
+
+      // ── Blender ──
       try {
         const p = await ipc.getDCCPort("blender");
         let mcpListening = false;
         let gatewayConnected = false;
 
-        // Bug #6 修复：先检查 Gateway 是否在运行
-        let gatewayRunning = false;
-        try {
-          const ocStatus = await ipc.getOpenClawStatus();
-          gatewayRunning = ocStatus.gateway_running;
-        } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
-
-        if (gatewayRunning) {
-          // Gateway 运行中：通过 mcp bridge status 检测真实连通性
-          try {
-            const bs = await ipc.getMCPBridgeStatus();
-            if (bs && bs.blenderConnected) {
-              gatewayConnected = true;
-              mcpListening = true;
-            } else {
-              // Gateway 运行但 bridge 没连上 → 检测 MCP Server 是否在监听
-              try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-            }
-          } catch (err) { console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
+        if (gatewayRunning && bridgeStatus) {
+          if (bridgeStatus.blenderConnected) {
+            gatewayConnected = true;
+            mcpListening = true;
+          } else {
             try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
           }
+        } else if (gatewayRunning) {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
         } else {
-          // Gateway 未运行：只探测 MCP Server 端口是否在监听
           try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
         }
 
         items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
       } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
+
+      // ── Unreal Engine ──
+      try {
+        const p = await ipc.getDCCPort("unreal");
+        let mcpListening = false;
+        let gatewayConnected = false;
+
+        if (gatewayRunning && bridgeStatus) {
+          if (bridgeStatus.unrealConnected) {
+            gatewayConnected = true;
+            mcpListening = true;
+          } else {
+            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+          }
+        } else if (gatewayRunning) {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        } else {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        }
+
+        items.push({ name: "Unreal", port: p.port, mcpListening, gatewayConnected });
+      } catch { items.push({ name: "Unreal", port: null, mcpListening: false, gatewayConnected: false }); }
+
       setDccStatus(items);
       // Sidecar 端口
       try { const st = await ipc.getStatus(); setSidecarPort(st.port ?? 19789); } catch { setSidecarPort(19789); }
@@ -1081,30 +1108,55 @@ function StatusTab() {
         const ocStatus = await ipc.getOpenClawStatus();
         gatewayRunning = ocStatus.gateway_running;
       } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getOpenClawStatus failed:", err); }
-      // Blender
+
+      // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
+      let bridgeStatus: any = null;
+      if (gatewayRunning) {
+        try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
+          console.warn("[SystemPage] StatusTab.refreshDCC getMCPBridgeStatus failed:", err);
+        }
+      }
+
+      // ── Blender ──
       try {
         const p = await ipc.getDCCPort("blender");
         let mcpListening = false;
         let gatewayConnected = false;
-        if (gatewayRunning) {
-          // Bug #6：Gateway 运行中时才检测 bridge 真实连通性
-          try {
-            const bs = await ipc.getMCPBridgeStatus();
-            if (bs && bs.blenderConnected) {
-              gatewayConnected = true;
-              mcpListening = true;
-            } else {
-              try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-            }
-          } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getMCPBridgeStatus failed:", err);
+        if (gatewayRunning && bridgeStatus) {
+          if (bridgeStatus.blenderConnected) {
+            gatewayConnected = true;
+            mcpListening = true;
+          } else {
             try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
           }
+        } else if (gatewayRunning) {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
         } else {
-          // Gateway 未运行：只探测端口
           try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
         }
         items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
       } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
+
+      // ── Unreal Engine ──
+      try {
+        const p = await ipc.getDCCPort("unreal");
+        let mcpListening = false;
+        let gatewayConnected = false;
+        if (gatewayRunning && bridgeStatus) {
+          if (bridgeStatus.unrealConnected) {
+            gatewayConnected = true;
+            mcpListening = true;
+          } else {
+            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+          }
+        } else if (gatewayRunning) {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        } else {
+          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        }
+        items.push({ name: "Unreal", port: p.port, mcpListening, gatewayConnected });
+      } catch { items.push({ name: "Unreal", port: null, mcpListening: false, gatewayConnected: false }); }
+
       setDccStatus(items);
     } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC failed:", err); }
   };

@@ -660,7 +660,7 @@ export async function getStatus(): Promise<StatusResponse> {
 
 // ── MCP Bridge 状态 ────────────────────────────────────────────────────────
 
-/** MCP Bridge 状态（含 Blender 连通性） */
+/** MCP Bridge 状态（含 Blender / UE 连通性） */
 export interface MCPBridgeStatus {
   installed: boolean;
   blenderConnected: boolean;
@@ -668,13 +668,19 @@ export interface MCPBridgeStatus {
   blenderServerRunning: boolean;
   blenderAddress: string;
   blenderError: string | null;
+  /** UE MCP Server 进程是否在监听端口（纯 TCP socket，无 MCP 协议） */
+  unrealServerRunning: boolean;
+  /** UE MCP 握手是否完成 + 工具可用 */
+  unrealConnected: boolean;
+  unrealAddress: string;
+  unrealError: string | null;
   /** mcp-bridge 插件 index.js 是否为最新（SHA-256 对比） */
   upToDate: boolean;
   sourceHash: string | null;
   deployedHash: string | null;
 }
 
-/** 查询 MCP Bridge 插件部署及 Blender 连通性状态 */
+/** 查询 MCP Bridge 插件部署及 DCC（Blender / UE）连通性状态 */
 export async function getMCPBridgeStatus(): Promise<MCPBridgeStatus> {
   return invoke<MCPBridgeStatus>("openclaw_gateway_mcp_bridge_status");
 }
