@@ -2,6 +2,7 @@
 
 #include "SequencerAPI.h"
 #include "ArtifexNexusAPI.h"
+#include "Utils/JsonHelpers.h"
 
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -30,35 +31,6 @@
 
 namespace
 {
-    FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& JsonObject)
-    {
-        if (!JsonObject.IsValid()) return TEXT("{}");
-        
-        FString OutputString;
-        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-        FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
-        return OutputString;
-    }
-
-    FString ArtifexNexusMakeError(const FString& Message)
-    {
-        TSharedPtr<FJsonObject> ErrorJson = MakeShareable(new FJsonObject);
-        ErrorJson->SetBoolField(TEXT("success"), false);
-        ErrorJson->SetStringField(TEXT("error"), Message);
-        return ArtifexNexusJsonToString(ErrorJson);
-    }
-
-    FString ArtifexNexusMakeSuccess(const FString& Data = TEXT(""))
-    {
-        TSharedPtr<FJsonObject> SuccessJson = MakeShareable(new FJsonObject);
-        SuccessJson->SetBoolField(TEXT("success"), true);
-        if (!Data.IsEmpty())
-        {
-            SuccessJson->SetStringField(TEXT("data"), Data);
-        }
-        return ArtifexNexusJsonToString(SuccessJson);
-    }
-
     ULevelSequence* LoadOrCreateSequence(const FString& AssetPath, bool bCreateIfNotExists = false)
     {
         FString PackageName = AssetPath;
@@ -96,27 +68,31 @@ FString USequencerAPI::CreateLevelSequence(const FString& AssetPath)
 
     if (AssetPath.IsEmpty())
     {
-        return ArtifexNexusMakeError(TEXT("AssetPath cannot be empty"));
+        return ArtifexNexusJson::MakeError(TEXT("AssetPath cannot be empty"));
     }
 
     ULevelSequence* Sequence = LoadOrCreateSequence(AssetPath, true);
     if (!Sequence)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to create sequence at path: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to create sequence at path: %s"), *AssetPath));
     }
 
     // Initialize movie scene
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        return ArtifexNexusMakeError(TEXT("Failed to initialize MovieScene for sequence"));
+        return ArtifexNexusJson::MakeError(TEXT("Failed to initialize MovieScene for sequence"));
     }
 
     // Set default playback range (Start=0, Duration=3000 frames)
     MovieScene->SetPlaybackRange(FFrameNumber(0), 3000);
 
     UE_LOG(LogArtifexNexusAPI, Log, TEXT("Successfully created Level Sequence: %s"), *AssetPath);
-    return ArtifexNexusMakeSuccess(AssetPath);
+    {
+        auto _obj = ArtifexNexusJson::MakeSuccess();
+        _obj->SetStringField(TEXT("data"), AssetPath);
+        return ArtifexNexusJson::ToString(_obj);
+    }
 }
 
 FString USequencerAPI::GetSequenceInfo(const FString& AssetPath)
@@ -126,13 +102,13 @@ FString USequencerAPI::GetSequenceInfo(const FString& AssetPath)
     ULevelSequence* Sequence = LoadOrCreateSequence(AssetPath, false);
     if (!Sequence)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *AssetPath));
     }
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        return ArtifexNexusMakeError(TEXT("Sequence has no MovieScene"));
+        return ArtifexNexusJson::MakeError(TEXT("Sequence has no MovieScene"));
     }
 
     TSharedPtr<FJsonObject> InfoJson = MakeShareable(new FJsonObject);
@@ -174,7 +150,7 @@ FString USequencerAPI::GetSequenceInfo(const FString& AssetPath)
     }
     InfoJson->SetArrayField(TEXT("bindings"), BindingsArray);
 
-    return ArtifexNexusJsonToString(InfoJson);
+    return ArtifexNexusJson::ToString(InfoJson);
 }
 
 FString USequencerAPI::AddTrack(const FString& SequencePath, const FString& TrackType, const FString& ActorName, const FString& PropertyPath)
@@ -184,13 +160,13 @@ FString USequencerAPI::AddTrack(const FString& SequencePath, const FString& Trac
     ULevelSequence* Sequence = LoadOrCreateSequence(SequencePath, false);
     if (!Sequence)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
     }
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        return ArtifexNexusMakeError(TEXT("Sequence has no MovieScene"));
+        return ArtifexNexusJson::MakeError(TEXT("Sequence has no MovieScene"));
     }
 
     UMovieSceneTrack* NewTrack = nullptr;
@@ -221,12 +197,12 @@ FString USequencerAPI::AddTrack(const FString& SequencePath, const FString& Trac
     }
     else
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Unsupported track type: %s"), *TrackType));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Unsupported track type: %s"), *TrackType));
     }
 
     if (!NewTrack)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to create track of type: %s"), *TrackType));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to create track of type: %s"), *TrackType));
     }
 
     // Track display name is read-only in UE 5.7, derived from track class
@@ -234,7 +210,11 @@ FString USequencerAPI::AddTrack(const FString& SequencePath, const FString& Trac
     Sequence->MarkPackageDirty();
     UE_LOG(LogArtifexNexusAPI, Log, TEXT("Successfully added track: %s"), *TrackType);
     
-    return ArtifexNexusMakeSuccess(FString::Printf(TEXT("Added %s track"), *TrackType));
+    {
+        auto _obj = ArtifexNexusJson::MakeSuccess();
+        _obj->SetStringField(TEXT("data"), FString::Printf(TEXT("Added %s track"), *TrackType));
+        return ArtifexNexusJson::ToString(_obj);
+    }
 }
 
 FString USequencerAPI::AddKeyframe(const FString& SequencePath, const FString& TrackIdentifier, float Time, const FString& ValueJson)
@@ -244,13 +224,13 @@ FString USequencerAPI::AddKeyframe(const FString& SequencePath, const FString& T
     ULevelSequence* Sequence = LoadOrCreateSequence(SequencePath, false);
     if (!Sequence)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
     }
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        return ArtifexNexusMakeError(TEXT("Sequence has no MovieScene"));
+        return ArtifexNexusJson::MakeError(TEXT("Sequence has no MovieScene"));
     }
 
     // Parse track identifier - for now, assume it's a track index
@@ -259,13 +239,13 @@ FString USequencerAPI::AddKeyframe(const FString& SequencePath, const FString& T
     
     if (TrackIndex < 0 || TrackIndex >= AllTracks.Num())
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid track identifier: %s"), *TrackIdentifier));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid track identifier: %s"), *TrackIdentifier));
     }
 
     UMovieSceneTrack* Track = AllTracks[TrackIndex];
     if (!Track)
     {
-        return ArtifexNexusMakeError(TEXT("Track is null"));
+        return ArtifexNexusJson::MakeError(TEXT("Track is null"));
     }
 
     // Convert time to frame number
@@ -298,13 +278,17 @@ FString USequencerAPI::AddKeyframe(const FString& SequencePath, const FString& T
     }
     else
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Keyframe addition not implemented for track type: %s"), *Track->GetClass()->GetName()));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Keyframe addition not implemented for track type: %s"), *Track->GetClass()->GetName()));
     }
 
     Sequence->MarkPackageDirty();
     UE_LOG(LogArtifexNexusAPI, Log, TEXT("Successfully added keyframe at time: %f"), Time);
     
-    return ArtifexNexusMakeSuccess(TEXT("Keyframe added"));
+    {
+        auto _obj = ArtifexNexusJson::MakeSuccess();
+        _obj->SetStringField(TEXT("data"), TEXT("Keyframe added"));
+        return ArtifexNexusJson::ToString(_obj);
+    }
 }
 
 FString USequencerAPI::SetPlaybackRange(const FString& SequencePath, float StartTime, float EndTime)
@@ -314,18 +298,18 @@ FString USequencerAPI::SetPlaybackRange(const FString& SequencePath, float Start
     ULevelSequence* Sequence = LoadOrCreateSequence(SequencePath, false);
     if (!Sequence)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load sequence: %s"), *SequencePath));
     }
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        return ArtifexNexusMakeError(TEXT("Sequence has no MovieScene"));
+        return ArtifexNexusJson::MakeError(TEXT("Sequence has no MovieScene"));
     }
 
     if (StartTime >= EndTime)
     {
-        return ArtifexNexusMakeError(TEXT("StartTime must be less than EndTime"));
+        return ArtifexNexusJson::MakeError(TEXT("StartTime must be less than EndTime"));
     }
 
     // Convert time to frame numbers
@@ -337,5 +321,9 @@ FString USequencerAPI::SetPlaybackRange(const FString& SequencePath, float Start
     Sequence->MarkPackageDirty();
 
     UE_LOG(LogArtifexNexusAPI, Log, TEXT("Successfully set playback range: %f - %f"), StartTime, EndTime);
-    return ArtifexNexusMakeSuccess(FString::Printf(TEXT("Playback range set: %f - %f"), StartTime, EndTime));
+    {
+        auto _obj = ArtifexNexusJson::MakeSuccess();
+        _obj->SetStringField(TEXT("data"), FString::Printf(TEXT("Playback range set: %f - %f"), StartTime, EndTime));
+        return ArtifexNexusJson::ToString(_obj);
+    }
 }

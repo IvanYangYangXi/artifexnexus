@@ -3,6 +3,7 @@
 
 #include "PIEControlAPI.h"
 #include "ArtifexNexusAPI.h"
+#include "Utils/JsonHelpers.h"
 #include "Editor.h"
 #include "LevelEditor.h" 
 #include "LevelEditorSubsystem.h"
@@ -22,22 +23,6 @@
 
 namespace
 {
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Message)
-	{
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Message);
-		return ArtifexNexusJsonToString(Obj);
-	}
-
 	FString GenerateSessionId()
 	{
 		return FString::Printf(TEXT("pie_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Short));
@@ -60,7 +45,7 @@ FString UPIEControlAPI::PIEStart(const FString& Mode, const FString& MapPath, fl
 			Result->SetStringField(TEXT("session_id"), GenerateSessionId());
 			Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 			Result->SetStringField(TEXT("state"), TEXT("already_running"));
-			return ArtifexNexusJsonToString(Result);
+			return ArtifexNexusJson::ToString(Result);
 		}
 	}
 
@@ -70,7 +55,7 @@ FString UPIEControlAPI::PIEStart(const FString& Mode, const FString& MapPath, fl
 		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
 		if (LevelEditorSubsystem && !LevelEditorSubsystem->LoadLevel(MapPath))
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load map: %s"), *MapPath));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load map: %s"), *MapPath));
 		}
 	}
 
@@ -97,13 +82,13 @@ FString UPIEControlAPI::PIEStart(const FString& Mode, const FString& MapPath, fl
 
 	if (!WaitForPIEReady(Timeout))
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("PIE did not start within %.0f seconds"), Timeout));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("PIE did not start within %.0f seconds"), Timeout));
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
-		return ArtifexNexusMakeError(TEXT("PIE started but could not find PIE world"));
+		return ArtifexNexusJson::MakeError(TEXT("PIE started but could not find PIE world"));
 	}
 
 	// Get player info
@@ -134,7 +119,7 @@ FString UPIEControlAPI::PIEStart(const FString& Mode, const FString& MapPath, fl
 	Result->SetArrayField(TEXT("player_start"), StartLocArray);
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEStart: Started (world=%s)"), *PIEWorld->GetName());
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UPIEControlAPI::PIEStop()
@@ -144,7 +129,7 @@ FString UPIEControlAPI::PIEStop()
 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 		Result->SetBoolField(TEXT("success"), true);
 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
-		return ArtifexNexusJsonToString(Result);
+		return ArtifexNexusJson::ToString(Result);
 	}
 
 	GEditor->RequestEndPlayMap();
@@ -157,7 +142,7 @@ FString UPIEControlAPI::PIEStop()
 
 	if (GEditor->IsPlaySessionInProgress())
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to stop PIE within timeout"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to stop PIE within timeout"));
 	}
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
@@ -165,20 +150,20 @@ FString UPIEControlAPI::PIEStop()
 	Result->SetStringField(TEXT("state"), TEXT("stopped"));
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEStop: Stopped"));
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UPIEControlAPI::PIEPause()
 {
 	if (!GEditor->IsPlaySessionInProgress())
 	{
-		return ArtifexNexusMakeError(TEXT("No PIE session running"));
+		return ArtifexNexusJson::MakeError(TEXT("No PIE session running"));
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
-		return ArtifexNexusMakeError(TEXT("PIE world not found"));
+		return ArtifexNexusJson::MakeError(TEXT("PIE world not found"));
 	}
 
 	if (PIEWorld->IsPaused())
@@ -187,7 +172,7 @@ FString UPIEControlAPI::PIEPause()
 		Result->SetBoolField(TEXT("success"), true);
 		Result->SetBoolField(TEXT("paused"), true);
 		Result->SetStringField(TEXT("message"), TEXT("Already paused"));
-		return ArtifexNexusJsonToString(Result);
+		return ArtifexNexusJson::ToString(Result);
 	}
 
 	if (GEditor->PlayWorld)
@@ -200,20 +185,20 @@ FString UPIEControlAPI::PIEPause()
 	Result->SetBoolField(TEXT("paused"), true);
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEPause: Paused"));
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UPIEControlAPI::PIEResume()
 {
 	if (!GEditor->IsPlaySessionInProgress())
 	{
-		return ArtifexNexusMakeError(TEXT("No PIE session running"));
+		return ArtifexNexusJson::MakeError(TEXT("No PIE session running"));
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
-		return ArtifexNexusMakeError(TEXT("PIE world not found"));
+		return ArtifexNexusJson::MakeError(TEXT("PIE world not found"));
 	}
 
 	if (!PIEWorld->IsPaused())
@@ -222,7 +207,7 @@ FString UPIEControlAPI::PIEResume()
 		Result->SetBoolField(TEXT("success"), true);
 		Result->SetBoolField(TEXT("paused"), false);
 		Result->SetStringField(TEXT("message"), TEXT("Already running"));
-		return ArtifexNexusJsonToString(Result);
+		return ArtifexNexusJson::ToString(Result);
 	}
 
 	if (GEditor->PlayWorld)
@@ -235,7 +220,7 @@ FString UPIEControlAPI::PIEResume()
 	Result->SetBoolField(TEXT("paused"), false);
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEResume: Resumed"));
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UPIEControlAPI::PIEGetState(const FString& Include)
@@ -259,14 +244,14 @@ FString UPIEControlAPI::PIEGetState(const FString& Include)
 	if (!bRunning)
 	{
 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
-		return ArtifexNexusJsonToString(Result);
+		return ArtifexNexusJson::ToString(Result);
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
 		Result->SetStringField(TEXT("state"), TEXT("initializing"));
-		return ArtifexNexusJsonToString(Result);
+		return ArtifexNexusJson::ToString(Result);
 	}
 
 	Result->SetStringField(TEXT("state"), TEXT("running"));
@@ -282,7 +267,7 @@ FString UPIEControlAPI::PIEGetState(const FString& Include)
 		Result->SetArrayField(TEXT("players"), GetPlayersInfo(PIEWorld));
 	}
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UPIEControlAPI::PIEWaitFor(const FString& ActorName, const FString& PropertyName, 
@@ -290,22 +275,22 @@ FString UPIEControlAPI::PIEWaitFor(const FString& ActorName, const FString& Prop
 {
 	if (!GEditor->IsPlaySessionInProgress())
 	{
-		return ArtifexNexusMakeError(TEXT("No PIE session running"));
+		return ArtifexNexusJson::MakeError(TEXT("No PIE session running"));
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
-		return ArtifexNexusMakeError(TEXT("PIE world not found"));
+		return ArtifexNexusJson::MakeError(TEXT("PIE world not found"));
 	}
 
 	if (ActorName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("ActorName is required"));
+		return ArtifexNexusJson::MakeError(TEXT("ActorName is required"));
 	}
 	if (PropertyName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("PropertyName is required"));
+		return ArtifexNexusJson::MakeError(TEXT("PropertyName is required"));
 	}
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEWaitFor: Waiting for %s.%s %s %s"), 
@@ -321,7 +306,7 @@ FString UPIEControlAPI::PIEWaitFor(const FString& ActorName, const FString& Prop
 		// Check if PIE is still running
 		if (!GEditor->IsPlaySessionInProgress())
 		{
-			return ArtifexNexusMakeError(TEXT("PIE session ended while waiting"));
+			return ArtifexNexusJson::MakeError(TEXT("PIE session ended while waiting"));
 		}
 
 		// Find actor
@@ -431,7 +416,7 @@ FString UPIEControlAPI::PIEWaitFor(const FString& ActorName, const FString& Prop
 		UE_LOG(LogArtifexNexusAPI, Log, TEXT("PIEWaitFor: condition met in %.1fs"), WaitTime);
 	}
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 UWorld* UPIEControlAPI::GetPIEWorld()

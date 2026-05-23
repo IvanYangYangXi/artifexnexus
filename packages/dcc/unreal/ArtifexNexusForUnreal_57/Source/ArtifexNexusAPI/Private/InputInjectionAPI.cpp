@@ -3,6 +3,7 @@
 
 #include "InputInjectionAPI.h"
 #include "ArtifexNexusAPI.h"
+#include "Utils/JsonHelpers.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
@@ -15,24 +16,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/App.h"
 
-namespace
-{
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Message)
-	{
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Message);
-		return ArtifexNexusJsonToString(Obj);
-	}
-}
+// JSON helpers: use shared ArtifexNexusJson::ToString / MakeError from Utils/JsonHelpers.h
 
 FString UInputInjectionAPI::TriggerKeyInput(const FString& Key, const FString& Action)
 {
@@ -40,25 +24,25 @@ FString UInputInjectionAPI::TriggerKeyInput(const FString& Key, const FString& A
 
 	if (Key.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("Key is required"));
+		return ArtifexNexusJson::MakeError(TEXT("Key is required"));
 	}
 
 	UWorld* World = FindGameWorld();
 	if (!World)
 	{
-		return ArtifexNexusMakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
+		return ArtifexNexusJson::MakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
 	}
 
 	APlayerController* PC = GetPlayerController(World, 0);
 	if (!PC)
 	{
-		return ArtifexNexusMakeError(TEXT("Player controller not found"));
+		return ArtifexNexusJson::MakeError(TEXT("Player controller not found"));
 	}
 
 	FKey InputKey(*Key);
 	if (!InputKey.IsValid())
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid key: %s"), *Key));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid key: %s"), *Key));
 	}
 
 	// Determine press mode
@@ -70,7 +54,7 @@ FString UInputInjectionAPI::TriggerKeyInput(const FString& Key, const FString& A
 	UPlayerInput* PlayerInput = PC->PlayerInput;
 	if (!PlayerInput)
 	{
-		return ArtifexNexusMakeError(TEXT("Player input not available"));
+		return ArtifexNexusJson::MakeError(TEXT("Player input not available"));
 	}
 
 	// Execute input events
@@ -93,7 +77,7 @@ FString UInputInjectionAPI::TriggerKeyInput(const FString& Key, const FString& A
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("TriggerKeyInput: Key %s %s successfully"), 
 		*Key, *Result->GetStringField(TEXT("event")));
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UInputInjectionAPI::TriggerMouseInput(float X, float Y, const FString& Button, const FString& Action)
@@ -104,13 +88,13 @@ FString UInputInjectionAPI::TriggerMouseInput(float X, float Y, const FString& B
 	UWorld* World = FindGameWorld();
 	if (!World)
 	{
-		return ArtifexNexusMakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
+		return ArtifexNexusJson::MakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
 	}
 
 	APlayerController* PC = GetPlayerController(World, 0);
 	if (!PC)
 	{
-		return ArtifexNexusMakeError(TEXT("Player controller not found"));
+		return ArtifexNexusJson::MakeError(TEXT("Player controller not found"));
 	}
 
 	// Determine mouse button key
@@ -129,7 +113,7 @@ FString UInputInjectionAPI::TriggerMouseInput(float X, float Y, const FString& B
 	}
 	else
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid mouse button: %s. Use 'left', 'right', or 'middle'"), *Button));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid mouse button: %s. Use 'left', 'right', or 'middle'"), *Button));
 	}
 
 	// Determine press mode
@@ -141,7 +125,7 @@ FString UInputInjectionAPI::TriggerMouseInput(float X, float Y, const FString& B
 	UPlayerInput* PlayerInput = PC->PlayerInput;
 	if (!PlayerInput)
 	{
-		return ArtifexNexusMakeError(TEXT("Player input not available"));
+		return ArtifexNexusJson::MakeError(TEXT("Player input not available"));
 	}
 
 	// Set mouse position first
@@ -169,7 +153,7 @@ FString UInputInjectionAPI::TriggerMouseInput(float X, float Y, const FString& B
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("TriggerMouseInput: %s button %s at (%.1f,%.1f) successfully"), 
 		*Button, *Result->GetStringField(TEXT("event")), X, Y);
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UInputInjectionAPI::TriggerAxisInput(const FString& AxisName, float Value)
@@ -178,19 +162,19 @@ FString UInputInjectionAPI::TriggerAxisInput(const FString& AxisName, float Valu
 
 	if (AxisName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("AxisName is required"));
+		return ArtifexNexusJson::MakeError(TEXT("AxisName is required"));
 	}
 
 	UWorld* World = FindGameWorld();
 	if (!World)
 	{
-		return ArtifexNexusMakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
+		return ArtifexNexusJson::MakeError(TEXT("No game world found. Start a PIE session or run a packaged build."));
 	}
 
 	APlayerController* PC = GetPlayerController(World, 0);
 	if (!PC)
 	{
-		return ArtifexNexusMakeError(TEXT("Player controller not found"));
+		return ArtifexNexusJson::MakeError(TEXT("Player controller not found"));
 	}
 
 	FKey AxisKey(*AxisName);
@@ -215,14 +199,14 @@ FString UInputInjectionAPI::TriggerAxisInput(const FString& AxisName, float Valu
 		}
 		else
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid axis: %s"), *AxisName));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid axis: %s"), *AxisName));
 		}
 	}
 
 	UPlayerInput* PlayerInput = PC->PlayerInput;
 	if (!PlayerInput)
 	{
-		return ArtifexNexusMakeError(TEXT("Player input not available"));
+		return ArtifexNexusJson::MakeError(TEXT("Player input not available"));
 	}
 
 	// Send axis input via InputKey with axis delta
@@ -236,7 +220,7 @@ FString UInputInjectionAPI::TriggerAxisInput(const FString& AxisName, float Valu
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("TriggerAxisInput: Axis %s set to %.3f successfully"), 
 		*AxisName, Value);
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 UWorld* UInputInjectionAPI::FindGameWorld()

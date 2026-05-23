@@ -102,7 +102,7 @@ def check_ue_version_compatibility():
                                     )
     except Exception as e:
         # 开发环境下文件不存在是正常的（Content/Python/ 是 junction 场景）
-        pass
+        UELogger.debug(f"plugin_info.py parse skipped (dev mode): {e}")
 
     try:
         ver_str = get_ue_engine_version()
@@ -841,12 +841,18 @@ def _register_shutdown_hook():
     import atexit
 
     def _on_shutdown():
-        UELogger.info("Editor shutting down, stopping MCP Gateway...")
+        try:
+            UELogger.info("Editor shutting down, stopping MCP Gateway...")
+        except Exception:
+            pass
         try:
             from ue_mcp_server import stop_mcp_server
             stop_mcp_server()
         except Exception:
-            pass
+            try:
+                UELogger.debug("MCP Gateway cleanup skipped (may have been released)")
+            except Exception:
+                pass
 
     atexit.register(_on_shutdown)
 

@@ -9,9 +9,8 @@ public class ArtifexNexusAPI : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        // 各 API cpp 文件在匿名命名空间中定义了同名辅助函数 (ArtifexNexusJsonToString 等)
-        // Unity Build 合并编译会导致重定义冲突，必须禁用
-        bUseUnity = false;
+        // JSON 辅助函数已统一到 Utils/JsonHelpers.h（ArtifexNexusJson 命名空间），
+        // 不再需要禁用 Unity Build
 
         PublicDependencyModuleNames.AddRange(new string[] {
             "Core",

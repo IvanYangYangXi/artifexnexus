@@ -11,9 +11,18 @@ FString FArtifexNexusManageUtils::RunPythonAndCapture(const FString& PythonCode)
 	FString TempDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("ArtifexNexus"));
 	IFileManager::Get().MakeDirectory(*TempDir, true);
 
-	FString CaptureFile = TempDir / TEXT("_py_result.json");
-	FString TempPyFile = TempDir / TEXT("_py_cmd.py");
-	IFileManager::Get().Delete(*CaptureFile, false, false, true);
+	// Use GUID-based unique filenames to avoid race conditions with concurrent save operations
+	FGuid UniqueId = FGuid::NewGuid();
+	FString UniqueName = UniqueId.ToString(EGuidFormats::Digits);
+	FString CaptureFile = TempDir / FString::Printf(TEXT("_py_result_%s.json"), *UniqueName);
+	FString TempPyFile  = TempDir / FString::Printf(TEXT("_py_cmd_%s.py"),    *UniqueName);
+
+	// Ensure both temp files will be cleaned up on function exit
+	ON_SCOPE_EXIT
+	{
+		IFileManager::Get().Delete(*CaptureFile, false, false, true);
+		IFileManager::Get().Delete(*TempPyFile,  false, false, true);
+	};
 
 	FString CleanScript;
 	CleanScript += TEXT("import json, os\n");
@@ -51,7 +60,6 @@ FString FArtifexNexusManageUtils::RunPythonAndCapture(const FString& PythonCode)
 	FString Result;
 	if (FFileHelper::LoadFileToString(Result, *CaptureFile))
 	{
-		IFileManager::Get().Delete(*CaptureFile, false, false, true);
 		return Result;
 	}
 	return TEXT("{}");

@@ -699,14 +699,6 @@ void UArtifexNexusSubsystem::HandleActorsDropped(const TArray<UObject*>& Dropped
     }
 }
 
-void UArtifexNexusSubsystem::HandleActorsPlaced(UObject* InContext, const TArray<AActor*>& PlacedActors)
-{
-    for (AActor* Actor : PlacedActors)
-    {
-        NotifyActorPlaced(Actor);
-    }
-}
-
 // ------------------------------------------------------------------
 // 淇濆瓨鎷︽埅閰嶇疆璇诲彇
 // ------------------------------------------------------------------

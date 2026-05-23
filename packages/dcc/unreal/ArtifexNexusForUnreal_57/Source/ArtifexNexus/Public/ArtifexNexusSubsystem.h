@@ -260,9 +260,6 @@ private:
     /** FEditorDelegates::OnNewActorsDropped 回调（拖拽放置） */
     void HandleActorsDropped(const TArray<UObject*>& DroppedObjects, const TArray<AActor*>& PlacedActors);
 
-    /** FEditorDelegates::OnNewActorsPlaced 回调（工具栏/快捷键放置） */
-    void HandleActorsPlaced(UObject* InContext, const TArray<AActor*>& PlacedActors);
-
     /** 当前活跃面板 */
     EArtifexNexusActivePanel ActivePanel = EArtifexNexusActivePanel::Viewport;
 
@@ -282,7 +279,6 @@ private:
     FDelegateHandle PreSaveWorldHandle;
     FDelegateHandle PostSaveWorldHandle;
     FDelegateHandle ActorsPlacedHandle;
-    FDelegateHandle ActorsPlacedHandle2;
 
     // --- IsPackageOKToSave 保存拦截 ---
 
