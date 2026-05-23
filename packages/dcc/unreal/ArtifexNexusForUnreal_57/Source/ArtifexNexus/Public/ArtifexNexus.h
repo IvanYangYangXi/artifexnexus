@@ -3,14 +3,8 @@
 #pragma once
 
 #include "Modules/ModuleManager.h"
+#include "Styling/SlateStyle.h"
 
-/**
- * FArtifexNexusModule
- * Artifex Nexus for Unreal — MCP bridge plugin module entry.
- *
- * Provides toolbar/Window menu entry to open the control panel.
- * All Chat/Agent/Skill/Tool management is handled via the Web UI.
- */
 class FArtifexNexusModule : public IModuleInterface
 {
 public:
@@ -18,9 +12,13 @@ public:
 	virtual void ShutdownModule() override;
 
 private:
-	/** Register toolbar button and Window menu entry */
+	void RegisterDashboardTab();
 	void RegisterMenus();
-
-	/** Toolbar button clicked → open control panel */
 	void PluginButtonClicked();
+
+	TSharedRef<SDockTab> SpawnDashboardTab(const FSpawnTabArgs& Args);
+
+	TSharedPtr<FUICommandList> PluginCommands;
+
+	static const FName DashboardTabName;
 };

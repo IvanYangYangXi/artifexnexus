@@ -19,10 +19,7 @@ init_unreal.py - UE Editor Agent Python 初始化入口
 import sys
 import os
 import traceback
-import functools
 import logging
-import asyncio
-from datetime import datetime
 
 import unreal
 
@@ -131,108 +128,13 @@ def check_ue_version_compatibility():
 # 1. 日志系统 (阶段 0.4)
 # ============================================================================
 
-class _UELogLevel:
-    """UE 日志级别常量，对应 ELogVerbosity"""
-    DEBUG = "Verbose"
-    INFO = "Log"
-    WARNING = "Warning"
-    ERROR = "Error"
+from artifex_nexus_logger import UELogger, _UELogLevel, log_mcp_call, PanelLogger
 
-
-class UELogger:
-    """
-    UE Editor Agent 统一日志接口。
-
-    将 Python 日志按分类输出到 UE Output Log：
-      - LogArtifexNexus       : 通用 Agent 日志
-      - LogArtifexNexus_MCP   : MCP 协议通信日志
-      - LogArtifexNexus_Error : 错误与异常日志
-
-    四级日志映射：
-      DEBUG   -> UE Verbose  (灰色)
-      INFO    -> UE Log      (白色)
-      WARNING -> UE Warning  (黄色)
-      ERROR   -> UE Error    (红色)
-
-    宪法约束:
-      - 开发路线图 §0.5: 重定向 Python stdout/stderr 至 UE Output Log
-      - 概要设计 §1.1: 统一管理中心
-    """
-
-    # 分类前缀
-    CATEGORY_GENERAL = "LogArtifexNexus"
-    CATEGORY_MCP = "LogArtifexNexus_MCP"
-    CATEGORY_ERROR = "LogArtifexNexus_Error"
-
-    @staticmethod
-    def _log(category: str, level: str, message: str):
-        """
-        底层日志输出，统一格式：[CATEGORY] [LEVEL] message
-
-        使用 unreal.log / unreal.log_warning / unreal.log_error
-        将消息路由到 UE Output Log。
-        """
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        formatted = f"[{category}] [{level}] {timestamp} | {message}"
-
-        if level == _UELogLevel.ERROR:
-            unreal.log_error(formatted)
-        elif level == _UELogLevel.WARNING:
-            unreal.log_warning(formatted)
-        else:
-            unreal.log(formatted)
-
-    # --- 通用 Agent 日志 ---
-
-    @staticmethod
-    def debug(message: str):
-        """DEBUG 级别 (Verbose) - 详细调试信息"""
-        UELogger._log(UELogger.CATEGORY_GENERAL, _UELogLevel.DEBUG, message)
-
-    @staticmethod
-    def info(message: str):
-        """INFO 级别 (Log) - 常规信息"""
-        UELogger._log(UELogger.CATEGORY_GENERAL, _UELogLevel.INFO, message)
-
-    @staticmethod
-    def warning(message: str):
-        """WARNING 级别 - 警告信息"""
-        UELogger._log(UELogger.CATEGORY_GENERAL, _UELogLevel.WARNING, message)
-
-    @staticmethod
-    def error(message: str):
-        """ERROR 级别 - 错误信息"""
-        UELogger._log(UELogger.CATEGORY_ERROR, _UELogLevel.ERROR, message)
-
-    # --- MCP 通信日志 ---
-
-    @staticmethod
-    def mcp(message: str, level: str = _UELogLevel.INFO):
-        """MCP 通信专用日志，默认 INFO 级别"""
-        UELogger._log(UELogger.CATEGORY_MCP, level, message)
-
-    @staticmethod
-    def mcp_error(message: str):
-        """MCP 通信错误日志"""
-        UELogger._log(UELogger.CATEGORY_MCP, _UELogLevel.ERROR, message)
-        UELogger._log(UELogger.CATEGORY_ERROR, _UELogLevel.ERROR, f"[MCP] {message}")
-
-    # --- 异常日志 ---
-
-    @staticmethod
-    def exception(message: str = ""):
-        """
-        记录当前异常的完整堆栈，以红色高亮显示。
-
-        包含文件名、行号、函数名。
-        """
-        exc_info = traceback.format_exc()
-        prefix = f"{message} | " if message else ""
-        UELogger._log(
-            UELogger.CATEGORY_ERROR,
-            _UELogLevel.ERROR,
-            f"{prefix}Exception:\n{exc_info}"
-        )
+# 将当前模块注册为 'init_unreal'，使 C++ 侧的 ExecPythonCommand
+# 可以通过 "from init_unreal import start_mcp_server" 正常导入。
+# UE 以 startup script 方式执行本文件，模块在 __main__ 命名空间，
+# 不会自动出现在 sys.modules['init_unreal']。
+sys.modules['init_unreal'] = sys.modules[__name__]
 
 
 class _UEOutputStream:
@@ -268,8 +170,10 @@ class _UEOutputStream:
             except Exception:
                 pass
 
-        # 累积到缓冲区，等 flush 或完整行时再输出
+        # 累积到缓冲区，遇到换行时自动 flush（行缓冲模式）
         self._buffer += text
+        if '\n' in self._buffer:
+            self.flush()
 
     def flush(self):
         # 刷新时把缓冲区内容一次性输出（保持多行完整性）
@@ -331,64 +235,7 @@ def _install_exception_hook():
     sys.excepthook = _ue_excepthook
 
 
-# --- MCP 调用日志装饰器 ---
-
-def log_mcp_call(func):
-    """
-    MCP 调用装饰器：自动记录请求/响应到 LogArtifexNexus_MCP 分类。
-
-    支持同步函数和异步协程函数。
-
-    用法::
-
-        @log_mcp_call
-        def handle_tool_call(method, params):
-            ...
-
-        @log_mcp_call
-        async def async_handle_tool_call(method, params):
-            ...
-
-    宪法约束:
-      - 概要设计 §2.2: MCP Tool 封装
-      - 核心机制 §1: 自动能力发现
-    """
-    # 判断是否是协程函数
-    if asyncio.iscoroutinefunction(func):
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            func_name = func.__name__
-            # 检测 ping 消息：检查字符串参数中是否包含 "ping" method
-            is_ping = False
-            for arg in args:
-                if isinstance(arg, str) and '"method":"ping"' in arg.replace(' ', ''):
-                    is_ping = True
-                    break
-            # ping 消息静默跳过，不输出任何日志
-            if is_ping:
-                return await func(*args, **kwargs)
-            UELogger.mcp(f">>> {func_name} called | args={args}, kwargs={kwargs}")
-            try:
-                result = await func(*args, **kwargs)
-                UELogger.mcp(f"<<< {func_name} returned | result={result}")
-                return result
-            except Exception as e:
-                UELogger.mcp_error(f"!!! {func_name} raised {type(e).__name__}: {e}")
-                raise
-        return async_wrapper
-    else:
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            func_name = func.__name__
-            UELogger.mcp(f">>> {func_name} called | args={args}, kwargs={kwargs}")
-            try:
-                result = func(*args, **kwargs)
-                UELogger.mcp(f"<<< {func_name} returned | result={result}")
-                return result
-            except Exception as e:
-                UELogger.mcp_error(f"!!! {func_name} raised {type(e).__name__}: {e}")
-                raise
-        return sync_wrapper
+# log_mcp_call 装饰器已移至 artifex_nexus_logger.py，上面已 import
 
 
 # ============================================================================
@@ -523,9 +370,26 @@ def _find_ue_python_executable() -> str:
     注意：在 UE 内嵌 Python 中，sys.executable 指向 UnrealEditor.exe，
     不能直接用于 subprocess。必须找到真正的 python.exe。
 
-    UE5 的 Python 解释器位于引擎的 Binaries/ThirdParty/Python3 目录下。
+    策略：
+      1. sysconfig.get_config_var('BINDIR') — 编译期记录，最可靠
+      2. unreal.Paths.engine_dir() — UE API 路径推算
+      3. sys.prefix — CPython 安装前缀
     """
-    # 方法 1: 通过 unreal 模块获取引擎路径，查找 ThirdParty Python
+    import sysconfig
+
+    # 方法 1: sysconfig BINDIR — 编译时硬编码的 Python 二进制目录
+    try:
+        bindir = sysconfig.get_config_var('BINDIR')
+        if bindir:
+            for name in ('python.exe', 'python3.exe', 'python311.exe'):
+                candidate = os.path.join(bindir, name)
+                if os.path.isfile(candidate):
+                    UELogger.info(f"Found UE Python via sysconfig: {candidate}")
+                    return os.path.normpath(candidate)
+    except Exception:
+        pass
+
+    # 方法 2: unreal.Paths.engine_dir() — UE API
     try:
         engine_dir = unreal.Paths.engine_dir()
         possible_paths = [
@@ -534,27 +398,28 @@ def _find_ue_python_executable() -> str:
             os.path.join(engine_dir, "Binaries", "ThirdParty", "Python3", "Win64", "python311.exe"),
         ]
         for p in possible_paths:
-            if os.path.exists(p):
-                UELogger.debug(f"Found UE Python: {p}")
-                return p
+            if os.path.isfile(p):
+                UELogger.info(f"Found UE Python via engine_dir: {p}")
+                return os.path.normpath(p)
     except Exception:
         pass
 
-    # 方法 2: 通过 sys.executable 的目录推算（仅当它确实是 python.exe 时）
-    if sys.executable and os.path.exists(sys.executable):
-        exe_name = os.path.basename(sys.executable).lower()
-        # 只有当 sys.executable 确实是 python 时才使用
-        # 排除 UnrealEditor.exe / UnrealEditor-Cmd.exe 等
-        if "python" in exe_name and "unreal" not in exe_name:
-            UELogger.debug(f"Using sys.executable: {sys.executable}")
-            return sys.executable
+    # 方法 3: sys.prefix / sys.base_prefix
+    for attr in ('base_prefix', 'prefix'):
+        prefix = getattr(sys, attr, '')
+        if prefix:
+            for name in ('python.exe', 'python3.exe'):
+                candidate = os.path.join(prefix, name)
+                if os.path.isfile(candidate):
+                    UELogger.info(f"Found UE Python via sys.{attr}: {candidate}")
+                    return os.path.normpath(candidate)
 
-    # 方法 3: 在 PATH 中搜索 python（最后的回退手段）
-    import shutil
-    python_in_path = shutil.which("python3") or shutil.which("python")
-    if python_in_path:
-        UELogger.debug(f"Found Python in PATH: {python_in_path}")
-        return python_in_path
+    # 方法 4: sys.executable（仅当它确实是 python.exe，不可能是 UnrealEditor）
+    if sys.executable and os.path.isfile(sys.executable):
+        exe_name = os.path.basename(sys.executable).lower()
+        if "python" in exe_name and "unreal" not in exe_name:
+            UELogger.info(f"Using sys.executable: {sys.executable}")
+            return sys.executable
 
     return ""
 
@@ -563,8 +428,7 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
     """
     使用 pip install --target 安装包到指定目录。
 
-    重要：使用 subprocess.Popen + 轮询方式避免阻塞 UE 主线程过久。
-    如果发现无法找到有效的 Python 解释器，会跳过安装并提示手动操作。
+    首次运行时会自动通过 ensurepip 引导 pip（UE 内嵌 Python 默认不含 pip）。
 
     宪法约束:
       - 开发路线图 §0.4: pip install --target 定向安装，不污染引擎环境
@@ -589,8 +453,40 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
         )
         return False
 
+    # ── 辅助：运行子进程并返回 (returncode, stderr) ──
+    def _run_python(args, timeout=120):
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        proc = subprocess.Popen(
+            [python_exe] + args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags,
+        )
+        try:
+            _, stderr_bytes = proc.communicate(timeout=timeout)
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            return -1, "timeout"
+        return proc.returncode, stderr_str
+
+    # ── Step 1: 确保 pip 可用 ──
+    # UE 内嵌 Python 默认不含 pip，需要 ensurepip 引导
+    pip_check = _run_python(["-m", "pip", "--version"], timeout=30)
+    if pip_check[0] != 0:
+        PanelLogger.emit("PIP", "pip 未安装，正在通过 ensurepip 引导...")
+        rc, stderr = _run_python(["-m", "ensurepip", "--default-pip"], timeout=120)
+        if rc != 0:
+            PanelLogger.emit("PIP", f"ensurepip 失败 (code={rc})", _UELogLevel.ERROR)
+            UELogger.error(f"ensurepip failed (code={rc}): {stderr}")
+            return False
+        PanelLogger.emit("PIP", "pip 引导成功")
+        UELogger.info("pip bootstrapped successfully")
+
+    # ── Step 2: pip install ──
     cmd = [
-        python_exe, "-m", "pip", "install",
+        "-m", "pip", "install",
         "--target", target_dir,
         "--no-user",
         "--disable-pip-version-check",
@@ -598,46 +494,19 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
         package_spec
     ]
 
+    PanelLogger.emit("PIP", f"安装依赖: {package_spec}")
     UELogger.info(f"Installing: {package_spec} -> {target_dir}")
-    UELogger.debug(f"Command: {' '.join(cmd)}")
 
-    try:
-        # 使用 Popen 启动子进程，避免阻塞主线程
-        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=creationflags,
-        )
-
-        # 等待完成（带超时），使用 communicate 避免死锁
-        try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=120)
-            stdout_str = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-            stderr_str = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
-            UELogger.error(f"pip install timed out for {package_spec} (120s)")
-            return False
-
-        if proc.returncode == 0:
-            UELogger.info(f"Successfully installed: {package_spec}")
-            return True
-        else:
-            UELogger.error(f"pip install failed for {package_spec} (code={proc.returncode}):")
-            if stdout_str.strip():
-                UELogger.error(f"  stdout: {stdout_str.strip()}")
-            if stderr_str.strip():
-                UELogger.error(f"  stderr: {stderr_str.strip()}")
-            return False
-
-    except FileNotFoundError:
-        UELogger.error(f"Python executable not found: {python_exe}")
-        return False
-    except Exception:
-        UELogger.exception(f"pip install unexpected error for {package_spec}")
+    rc, stderr = _run_python(cmd, timeout=120)
+    if rc == 0:
+        PanelLogger.emit("PIP", f"安装成功: {package_spec}")
+        UELogger.info(f"Successfully installed: {package_spec}")
+        return True
+    else:
+        PanelLogger.emit("PIP", f"安装失败: {package_spec} (code={rc})", _UELogLevel.ERROR)
+        UELogger.error(f"pip install failed for {package_spec} (code={rc}):")
+        if stderr.strip():
+            UELogger.error(f"  stderr: {stderr.strip()}")
         return False
 
 
@@ -915,6 +784,18 @@ def _start_mcp_gateway():
             UELogger.warning("MCP Gateway start_mcp_server returned False")
             _bi._UE_MCP_GATEWAY_STARTING = False
             return
+
+        # Update C++ Subsystem state so the UE Panel shows "Running"
+        try:
+            import unreal as _unreal
+            _subsystem = _unreal.get_editor_subsystem(_unreal.ArtifexNexusSubsystem)
+            if _subsystem:
+                _subsystem.set_server_port(port)
+                _subsystem.set_server_running(True)
+                UELogger.info(f"Subsystem state updated: port={port}, running=True")
+        except Exception as _se:
+            UELogger.warning(f"Failed to update Subsystem state: {_se}")
+
     except ImportError as e:
         UELogger.warning(f"MCP Server module not available: {e}")
         _bi._UE_MCP_GATEWAY_STARTING = False
@@ -972,62 +853,72 @@ def _register_shutdown_hook():
 
 def _deferred_startup():
     """
-    延迟启动：在后台线程中执行耗时的依赖安装和 MCP 网关启动。
+    延迟启动：后台线程安装依赖，主线程 tick 检测完毕后启动 MCP。
 
-    通过 unreal.register_slate_post_tick_callback 在下一帧触发，
-    避免阻塞编辑器启动。
+    设计要点：
+      - 依赖安装（pip install）在后台线程执行，避免阻塞编辑器启动
+      - slate_post_tick_callback 必须在主线程注册，因此在 _deferred_startup()
+        （运行于主线程）中注册，不在后台线程中注册
+      - 后台线程完成后设置标志，主线程 tick 回调检测标志后启动 MCP
+      - 使用 threading.Event + Lock 保护跨线程状态
     """
     import threading
 
-    def _bg_work():
+    # 跨线程同步原语
+    _deps_done = threading.Event()
+    _deps_lock = threading.Lock()
+    _deps_success = [False]  # 列表包装，便于闭包修改
+
+    _tick_handle = [None]
+
+    def _bg_install_deps():
+        """后台线程：安装缺失依赖（可能触发 pip install，需联网）"""
+        ok = False
         try:
-            # 步骤 1: 安装缺失依赖（可能触发 pip install）
-            deps_ok = _install_dependencies()
-
-            if not deps_ok:
-                UELogger.warning("Deferred startup: dependencies incomplete, MCP Gateway skipped")
-                return
-
-            # 步骤 2: 启动 MCP 网关（这里面有端口探测 + asyncio 初始化）
-            # 注意：_start_mcp_gateway 内部的 start_mcp_server 会注册
-            # slate_post_tick_callback，必须在主线程执行。
-            # 所以我们用 _schedule_on_game_thread 把它排回主线程。
-            _schedule_mcp_start_on_game_thread()
-
+            ok = _install_dependencies()
         except Exception:
-            UELogger.exception("Deferred startup error")
-
-    thread = threading.Thread(target=_bg_work, daemon=True, name="ArtifexNexus-DeferredInit")
-    thread.start()
-    UELogger.info("Deferred startup dispatched to background thread")
-
-
-def _schedule_mcp_start_on_game_thread():
-    """
-    将 MCP 网关启动排回主线程执行。
-
-    MCP Server 的 asyncio bridge 需要注册 slate_post_tick_callback，
-    这个 API 必须在主线程调用。
-    """
-    _pending_init_callbacks = []
-    _init_lock = __import__('threading').Lock()
-
-    def _do_start():
-        try:
-            _start_mcp_gateway()
-            _register_shutdown_hook()
-            UELogger.info("MCP Gateway started (from game thread)")
-        except Exception:
-            UELogger.exception("MCP Gateway start failed (from game thread)")
-
-    def _tick_init(delta_time):
-        # 只执行一次，然后注销自己
-        try:
-            _do_start()
+            UELogger.exception("Deferred dependency install error")
+            ok = False
         finally:
-            unreal.unregister_slate_post_tick_callback(_tick_handle)
+            with _deps_lock:
+                _deps_success[0] = ok
+            _deps_done.set()  # 通知主线程
 
-    _tick_handle = unreal.register_slate_post_tick_callback(_tick_init)
+    def _tick_poll_deps(_delta_time):
+        """主线程 tick：轮询依赖安装状态，完成后启动 MCP"""
+        if not _deps_done.is_set():
+            return  # 继续等待
+
+        # 依赖安装完成 → 注销自身
+        handle = _tick_handle[0]
+        if handle is not None:
+            unreal.unregister_slate_post_tick_callback(handle)
+            _tick_handle[0] = None
+
+        with _deps_lock:
+            ok = _deps_success[0]
+
+        if ok:
+            try:
+                start_mcp_server(port=18080)
+                _register_shutdown_hook()
+                UELogger.info("MCP Gateway started (post dependency install)")
+            except Exception:
+                UELogger.exception("MCP Gateway start failed")
+        else:
+            UELogger.warning("Dependencies incomplete, MCP Gateway skipped")
+
+    # Step 1: 在主线程注册 slate tick 回调（轮询依赖状态）
+    _tick_handle[0] = unreal.register_slate_post_tick_callback(_tick_poll_deps)
+
+    # Step 2: 启动后台线程安装依赖
+    PanelLogger.emit("SYSTEM", "开始后台安装依赖...")
+    thread = threading.Thread(
+        target=_bg_install_deps, daemon=True,
+        name="ArtifexNexus-DepsInstall"
+    )
+    thread.start()
+    UELogger.info("Deferred dependency install dispatched to background thread")
 
 
 def _initialize():
@@ -1085,7 +976,7 @@ def _initialize():
 
     if deps_ready:
         # 依赖已就绪 → 延迟到首个 Slate tick 再启动 MCP
-        # 不在这里直接调用 _start_mcp_gateway()，因为 Engine Init 阶段
+        # 不在这里直接调用 start_mcp_server()，因为 Engine Init 阶段
         # Slate 还没 tick，asyncio bridge 无法运转
         UELogger.info("All dependencies ready, deferring MCP Gateway to first Slate tick...")
         UELogger.info("-" * 40)
@@ -1093,13 +984,16 @@ def _initialize():
         def _deferred_mcp_tick(delta_time):
             """首个 Slate tick 回调：启动 MCP 网关"""
             try:
-                _start_mcp_gateway()
+                start_mcp_server(port=18080)
                 _register_shutdown_hook()
                 UELogger.info("Python layer initialization complete")
             except Exception:
                 UELogger.exception("Deferred MCP Gateway start failed")
             finally:
-                unreal.unregister_slate_post_tick_callback(_deferred_mcp_handle)
+                try:
+                    unreal.unregister_slate_post_tick_callback(_deferred_mcp_handle)
+                except Exception:
+                    pass
 
         _deferred_mcp_handle = unreal.register_slate_post_tick_callback(_deferred_mcp_tick)
     else:
@@ -1136,43 +1030,106 @@ def start_mcp_server(port: int = 18080):
     """
     Start MCP WebSocket server (public API, callable from C++ panel).
 
+    Performs port occupation check before starting.  If port is in use
+    by an external process, logs a warning and does not attempt to start.
+
     Args:
         port: WebSocket port (default: 18080)
+
+    Returns:
+        bool: True if server started successfully (or was already running)
     """
     from ue_mcp_server import start_mcp_server as _start
+
+    # -- Get subsystem (must succeed) --
     try:
         import unreal
         subsystem = unreal.get_editor_subsystem(unreal.ArtifexNexusSubsystem)
-        if subsystem.is_server_running():
-            unreal.log("[ArtifexNexus] MCP Server already running, not starting again")
-            return
-    except Exception:
-        pass
+    except Exception as e:
+        UELogger.error(f"Cannot get ArtifexNexusSubsystem: {e}")
+        return False
 
+    if not subsystem:
+        UELogger.error("ArtifexNexusSubsystem is None")
+        return False
+
+    if subsystem.is_server_running():
+        unreal.log("[ArtifexNexus] MCP Server already running, not starting again")
+        return True
+
+    # ── Port occupation check ──
+    if _is_mcp_server_alive(host="127.0.0.1", port=port):
+        PanelLogger.emit("MCP", f"端口 {port} 已被占用，无法启动", _UELogLevel.WARNING)
+        unreal.log_warning(
+            f"[ArtifexNexus] Port {port} is already occupied! "
+            f"Please stop the process using this port first, then try again."
+        )
+        return False
+
+    PanelLogger.emit("MCP", f"正在启动 MCP 服务器 (端口 {port})...")
     success = _start(host="localhost", port=port)
     if success:
         try:
-            import unreal
-            subsystem = unreal.get_editor_subsystem(unreal.ArtifexNexusSubsystem)
             subsystem.set_server_port(port)
             subsystem.set_server_running(True)
+            PanelLogger.emit("MCP", f"MCP 服务器已启动 (端口 {port})")
             unreal.log(f"[ArtifexNexus] MCP Server started on port {port}")
-        except Exception:
-            pass
+        except Exception as e:
+            PanelLogger.emit("MCP", f"状态同步失败: {e}", _UELogLevel.ERROR)
+            UELogger.error(f"MCP Server started but failed to update subsystem state: {e}")
+            return False
+        return True
     else:
+        PanelLogger.emit("MCP", "MCP 服务器启动失败", _UELogLevel.ERROR)
         UELogger.warning(f"Failed to start MCP Server on port {port}")
+        return False
 
 
 def stop_mcp_server():
     """
     Stop MCP WebSocket server (public API, callable from C++ panel).
+
+    Returns:
+        bool: True if server stopped successfully
     """
+    import unreal as _unreal
     try:
         from ue_mcp_server import stop_mcp_server as _stop
         _stop()
-        import unreal
-        subsystem = unreal.get_editor_subsystem(unreal.ArtifexNexusSubsystem)
-        subsystem.set_server_running(False)
-        unreal.log("[ArtifexNexus] MCP Server stopped")
     except Exception as e:
+        PanelLogger.emit("MCP", f"停止服务器失败: {e}", _UELogLevel.ERROR)
         UELogger.warning(f"Failed to stop MCP Server: {e}")
+        return False
+
+    # 仅在 stop 成功后更新 C++ 状态，避免假阴性
+    try:
+        subsystem = _unreal.get_editor_subsystem(_unreal.ArtifexNexusSubsystem)
+        if subsystem and subsystem.is_server_running():
+            subsystem.set_server_running(False)
+        PanelLogger.emit("MCP", "MCP 服务器已停止")
+        _unreal.log("[ArtifexNexus] MCP Server stopped")
+    except Exception as e:
+        PanelLogger.emit("MCP", f"状态同步失败: {e}", _UELogLevel.ERROR)
+        UELogger.warning(f"MCP Server stopped but failed to update subsystem: {e}")
+    return True
+
+
+def get_panel_logs(count: int = 100) -> str:
+    """
+    获取面板日志（Public API，供 C++ Panel 轮询）。
+
+    Args:
+        count: 返回最近 N 条日志
+
+    Returns:
+        str: 换行符分隔的日志文本
+    """
+    from artifex_nexus_logger import PanelLogger
+    return "\n".join(PanelLogger.get_recent(count))
+
+
+# ── 模块别名：使 C++ ExecPythonCommand("import init_unreal") 可靠工作 ──
+# init_unreal.py 通过 UE startup script 机制执行，位于 __main__ 命名空间。
+# 建立别名后，import init_unreal 可正确返回已加载的模块。
+import sys as _sys
+_sys.modules.setdefault('init_unreal', _sys.modules[__name__])

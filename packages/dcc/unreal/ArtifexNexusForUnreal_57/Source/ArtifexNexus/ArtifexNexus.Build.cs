@@ -32,6 +32,7 @@ public class ArtifexNexus : ModuleRules
 				"AssetRegistry",
 				"Json",
 				"JsonUtilities",
+				"Sockets",
 			}
 		);
 	}

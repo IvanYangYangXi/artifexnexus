@@ -14,6 +14,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "Misc/MessageDialog.h"
+#include "Containers/Ticker.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
@@ -80,7 +81,7 @@ void UArtifexNexusSubsystem::SetConnectionStatus(bool bInIsConnected)
 
 FString UArtifexNexusSubsystem::GetPluginVersion() const
 {
-    TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("ArtifexNexus"));
+    TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("ArtifexNexusForUnreal"));
     if (Plugin.IsValid())
     {
         return Plugin->GetDescriptor().VersionName;
@@ -743,26 +744,38 @@ void UArtifexNexusSubsystem::LoadSaveInterceptConfig()
 
 void UArtifexNexusSubsystem::AutoStartMCPServer()
 {
-    // Automatically start MCP Server via init_unreal.py bootstrap
-    IPythonScriptPlugin* PythonPlugin = IPythonScriptPlugin::Get();
-    if (!PythonPlugin)
-    {
-        UE_LOG(LogArtifexNexus, Warning, TEXT("Python plugin not available, skipping MCP Server auto-start"));
-        return;
-    }
+    // MCP 启动由 Python 层 slate_post_tick_callback 负责。
+    // C++ 侧延迟 3 秒后检查：如果 Python 仍未启动，则降级补启动。
+    FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateLambda([this](float Delta) -> bool {
+            if (!IPythonScriptPlugin::Get())
+            {
+                return false;  // Python 不可用，放弃
+            }
 
-    PythonPlugin->ExecPythonCommand(TEXT(
-        "try:\n"
-        "    from init_unreal import start_mcp_server\n"
-        "    start_mcp_server(port=18080)\n"
-        "    import unreal\n"
-        "    unreal.log('[ArtifexNexus] MCP Server auto-start initiated')\n"
-        "except Exception as _e:\n"
-        "    import unreal\n"
-        "    unreal.log_warning(f'[ArtifexNexus] MCP Server auto-start error: {_e}')\n"
-    ));
+            IPythonScriptPlugin::Get()->ExecPythonCommand(TEXT(
+                "try:\n"
+                "    import unreal as _u\n"
+                "    _subsys = _u.get_editor_subsystem(_u.ArtifexNexusSubsystem)\n"
+                "    if _subsys and not _subsys.is_server_running():\n"
+                "        from init_unreal import start_mcp_server\n"
+                "        _u.log('[ArtifexNexus] C++ fallback: starting MCP via init_unreal...')\n"
+                "        _ok = start_mcp_server(port=18080)\n"
+                "        if not _ok:\n"
+                "            _u.log_warning('[ArtifexNexus] C++ fallback: start_mcp_server returned False')\n"
+                "except Exception as _e:\n"
+                "    try:\n"
+                "        from artifex_nexus_logger import PanelLogger\n"
+                "        PanelLogger.emit('MCP', f'C++ 降级启动异常: {_e}', 'Error')\n"
+                "    except Exception:\n"
+                "        pass\n"
+            ));
+            return false;  // 单次执行
+        }),
+        3.0f  // 延迟 3 秒，给 Python tick 足够时间
+    );
 
-    UE_LOG(LogArtifexNexus, Log, TEXT("MCP Server auto-start check completed"));
+    UE_LOG(LogArtifexNexus, Log, TEXT("MCP Server fallback check scheduled (3s delay)"));
 }
 
 // ------------------------------------------------------------------

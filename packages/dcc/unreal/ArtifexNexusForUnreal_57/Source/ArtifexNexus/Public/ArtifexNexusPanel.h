@@ -5,17 +5,10 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
+#include "Containers/Ticker.h"
 
-/**
- * SArtifexNexusPanel - Minimal control panel for Artifex Nexus UE plugin.
- *
- * Provides:
- *   - MCP Server status display + Start/Stop button
- *   - Port indicator
- *   - Trigger enable/disable toggle
- *
- * All Chat/Agent/Skill/Tool management is handled via the Web UI.
- */
+class SScrollBox;
+
 class SArtifexNexusPanel : public SCompoundWidget
 {
 public:
@@ -25,24 +18,22 @@ public:
 	void Construct(const FArguments& InArgs);
 
 private:
-	/** Refresh the displayed status from Subsystem */
-	void RefreshStatus();
+	void RefreshStatusUI();
+	void RefreshLogDisplay();
 
-	/** Start the MCP Server via Python */
 	FReply OnStartServer();
-
-	/** Stop the MCP Server via Python */
 	FReply OnStopServer();
-
-	/** Toggle triggers on/off */
 	FReply OnToggleTriggers();
 
-	/** Get current status text */
 	FText GetServerStatusText() const;
-
-	/** Get trigger button text */
 	FText GetTriggerButtonText() const;
+	FText GetPanelLogText() const { return FText::FromString(CachedLogText); }
 
-	/** Subsystem reference */
 	class UArtifexNexusSubsystem* Subsystem = nullptr;
+
+	/** Cached log text from Python PanelLogger */
+	FString CachedLogText;
+
+	/** Ticker handle for periodic log refresh */
+	FTSTicker::FDelegateHandle LogRefreshHandle;
 };

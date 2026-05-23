@@ -153,8 +153,7 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "ArtifexNexus|MCP")
     int32 ClientCount = 0;
 
-    /** MCP 服务器是否正在运行 */
-    UPROPERTY(BlueprintReadOnly, Category = "ArtifexNexus|MCP")
+    /** MCP 服务器是否正在运行 (只通过 UFUNCTION 暴露) */
     bool bIsServerRunning = false;
 
     /** 触发器是否已启用 */
