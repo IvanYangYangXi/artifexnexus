@@ -661,21 +661,24 @@ class MCPServer:
         """停止 WebSocket 服务器（内部异步方法）"""
         self._running = False
 
-        # 关闭所有客户端连接
+        # 关闭所有客户端连接（设置超时防止卡死）
         if self._clients:
             UELogger.mcp(f"Closing {len(self._clients)} client connections...")
             close_tasks = []
             for ws in list(self._clients):
-                close_tasks.append(ws.close(1001, "Server shutting down"))
+                close_tasks.append(asyncio.wait_for(ws.close(1001, "Server shutting down"), timeout=3.0))
             await asyncio.gather(*close_tasks, return_exceptions=True)
             self._clients.clear()
             self._client_info.clear()
             self._initialized_clients.clear()
 
-        # 关闭服务器
+        # 关闭服务器（设置超时防止卡死）
         if self._server:
             self._server.close()
-            await self._server.wait_closed()
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), timeout=3.0)
+            except (asyncio.TimeoutError, Exception):
+                UELogger.warning("Server close timed out, forcing cleanup")
             self._server = None
 
         self._actual_port = None
@@ -741,15 +744,26 @@ class _UEAsyncBridge:
         if self._loop is None:
             return
 
-        # 注销 tick 回调
+        # 先标记服务器为停止状态，防止 _on_tick 或并发调用重复触发
+        server_was_running = False
+        if self._server is not None:
+            server_was_running = self._server.is_running
+            self._server.is_running = False
+
+        # 注销 tick 回调（此后不再有新的 tick 触发）
         if self._tick_handle is not None:
-            unreal.unregister_slate_post_tick_callback(self._tick_handle)
+            try:
+                unreal.unregister_slate_post_tick_callback(self._tick_handle)
+            except Exception:
+                pass
             self._tick_handle = None
 
-        # 停止服务器
-        if self._server and self._server.is_running:
-            # 在事件循环中调度停止
-            self._loop.run_until_complete(self._server._stop_server())
+        # 停止服务器：在事件循环中调度 _stop_server() 协程
+        if server_was_running:
+            try:
+                self._loop.run_until_complete(self._server._stop_server())
+            except Exception as e:
+                UELogger.warning(f"Error during server stop: {e}")
 
         # 清理事件循环
         try:

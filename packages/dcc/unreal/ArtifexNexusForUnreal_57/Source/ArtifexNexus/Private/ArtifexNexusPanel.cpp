@@ -305,21 +305,13 @@ FReply SArtifexNexusPanel::OnStartServer()
 
 	UE_LOG(LogArtifexPanel, Log, TEXT("[ArtifexNexus] Manual start MCP server..."));
 
-	// 调用 Python 层公共 API init_unreal.start_mcp_server() —
-	// 内部处理端口检查、子系统状态同步和 PanelLogger 日志。
-	Py->ExecPythonCommand(TEXT(
-		"try:\n"
-		"    from init_unreal import start_mcp_server\n"
-		"    start_mcp_server(port=18080)\n"
-		"except Exception as _e:\n"
-		"    import unreal as _u\n"
-		"    try:\n"
-		"        from artifex_nexus_logger import PanelLogger\n"
-		"        PanelLogger.emit('MCP', f'手动启动异常: {_e}', 'Error')\n"
-		"    except Exception:\n"
-		"        pass\n"
-		"    _u.log_warning(f'[ArtifexNexus] Manual start error: {_e}')\n"
-	));
+	// 使用 EvaluateStatement 模式调用 Python API —
+	// __import__() 避免 init_unreal 裸名不存在的问题，
+	// start_mcp_server() 内部已处理端口检查、状态同步和日志。
+	FPythonCommandEx PythonCmd;
+	PythonCmd.Command = TEXT("__import__('init_unreal').start_mcp_server(port=18080)");
+	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
+	Py->ExecPythonCommandEx(PythonCmd);
 
 	// Refresh UI after brief delay (server starts async)
 	FTSTicker::GetCoreTicker().AddTicker(
@@ -346,20 +338,12 @@ FReply SArtifexNexusPanel::OnStopServer()
 
 	UE_LOG(LogArtifexPanel, Log, TEXT("[ArtifexNexus] Manual stop MCP server..."));
 
-	// 调用 Python 层公共 API init_unreal.stop_mcp_server()
-	Py->ExecPythonCommand(TEXT(
-		"try:\n"
-		"    from init_unreal import stop_mcp_server\n"
-		"    stop_mcp_server()\n"
-		"except Exception as _e:\n"
-		"    import unreal as _u\n"
-		"    try:\n"
-		"        from artifex_nexus_logger import PanelLogger\n"
-		"        PanelLogger.emit('MCP', f'手动停止异常: {_e}', 'Error')\n"
-		"    except Exception:\n"
-		"        pass\n"
-		"    _u.log_warning(f'[ArtifexNexus] Manual stop error: {_e}')\n"
-	));
+	// 使用 EvaluateStatement 模式调用 Python API —
+	// stop_mcp_server() 内部已处理桥接关闭、状态同步和日志。
+	FPythonCommandEx PythonCmd;
+	PythonCmd.Command = TEXT("__import__('init_unreal').stop_mcp_server()");
+	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
+	Py->ExecPythonCommandEx(PythonCmd);
 
 	FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateLambda([WeakWidget = TWeakPtr<SArtifexNexusPanel>(SharedThis(this))](float) -> bool {
