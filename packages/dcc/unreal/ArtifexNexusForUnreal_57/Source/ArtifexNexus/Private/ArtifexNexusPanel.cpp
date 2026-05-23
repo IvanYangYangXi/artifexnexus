@@ -7,8 +7,8 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Text/SMultiLineEditableText.h"
 #include "Widgets/Input/SButton.h"
-// SMultiLineEditableText not available in UE5.7 — use STextBlock for read-only log
 #include "Widgets/SBoxPanel.h"
 #include "Styling/AppStyle.h"
 #include "Styling/SlateTypes.h"
@@ -64,7 +64,7 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 						.VAlign(VAlign_Center)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("StatusLabel", "Status: "))
+							.Text(LOCTEXT("StatusLabel", "Server: "))
 						]
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
@@ -73,6 +73,33 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 						[
 							SNew(STextBlock)
 							.Text(this, &SArtifexNexusPanel::GetServerStatusText)
+						]
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0, 0, 0, 8)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("GatewayLabel", "Gateway:  "))
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(4, 0, 0, 0)
+						[
+							SNew(STextBlock)
+							.Text(this, &SArtifexNexusPanel::GetGatewayStatusText)
+							.ColorAndOpacity_Lambda([this]() -> FSlateColor {
+								return bGatewayConnected
+									? FLinearColor(0.3f, 1.0f, 0.4f)   // green
+									: FLinearColor(1.0f, 0.7f, 0.2f);  // amber
+							})
 						]
 					]
 
@@ -194,9 +221,10 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 						SNew(SScrollBox)
 						+ SScrollBox::Slot()
 						[
-							SNew(STextBlock)
+							SNew(SMultiLineEditableText)
 							.Text(this, &SArtifexNexusPanel::GetPanelLogText)
-							.AutoWrapText(false)
+							.IsReadOnly(true)
+							.AutoWrapText(true)
 							.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
 							.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.9f))
 						]
@@ -237,10 +265,58 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 		}),
 		2.0f
 	);
+
+	// Periodic Gateway connection status refresh (every 5 seconds)
+	StatusRefreshHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda([WeakWidget = TWeakPtr<SArtifexNexusPanel>(SharedThis(this))](float Delta) -> bool
+		{
+			if (TSharedPtr<SArtifexNexusPanel> Pinned = WeakWidget.Pin())
+			{
+				Pinned->RefreshStatusUI();
+				return true;
+			}
+			return false;
+		}),
+		5.0f
+	);
 }
 
 void SArtifexNexusPanel::RefreshStatusUI()
 {
+	// Query Gateway connection status from Python MCP Server
+	IPythonScriptPlugin* Py = IPythonScriptPlugin::Get();
+	if (Py && Subsystem && Subsystem->IsValidLowLevel() && Subsystem->IsServerRunning())
+	{
+		FPythonCommandEx PythonCmd;
+		PythonCmd.Command = TEXT(
+			"try:\n"
+			"    import ue_mcp_server\n"
+			"    srv = ue_mcp_server.get_mcp_server()\n"
+			"    if srv:\n"
+			"        str(srv.client_count)\n"
+			"    else:\n"
+			"        '-1'\n"
+			"except:\n"
+			"    '-1'"
+		);
+		PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
+
+		if (Py->ExecPythonCommandEx(PythonCmd))
+		{
+			int32 Count = FCString::Atoi(*PythonCmd.CommandResult);
+			if (Count >= 0)
+			{
+				GatewayClientCount = Count;
+				bGatewayConnected = (Count > 0);
+			}
+		}
+	}
+	else
+	{
+		bGatewayConnected = false;
+		GatewayClientCount = 0;
+	}
+
 	Invalidate(EInvalidateWidgetReason::Layout);
 }
 
@@ -277,11 +353,28 @@ FText SArtifexNexusPanel::GetServerStatusText() const
 	if (Subsystem->IsServerRunning())
 	{
 		return FText::Format(
-			LOCTEXT("StatusRunning", "Running (port {0})"),
+			LOCTEXT("StatusRunning", "Running (ws://127.0.0.1:{0})"),
 			FText::AsNumber(Subsystem->ServerPort)
 		);
 	}
 	return LOCTEXT("StatusStopped", "Stopped");
+}
+
+FText SArtifexNexusPanel::GetGatewayStatusText() const
+{
+	if (!Subsystem || !Subsystem->IsValidLowLevel() || !Subsystem->IsServerRunning())
+	{
+		return LOCTEXT("GatewayNA", "--");
+	}
+
+	if (bGatewayConnected)
+	{
+		return FText::Format(
+			LOCTEXT("GatewayConnected", "Connected ({0} client(s))"),
+			FText::AsNumber(GatewayClientCount)
+		);
+	}
+	return LOCTEXT("GatewayWaiting", "Waiting for Gateway...");
 }
 
 FText SArtifexNexusPanel::GetTriggerButtonText() const

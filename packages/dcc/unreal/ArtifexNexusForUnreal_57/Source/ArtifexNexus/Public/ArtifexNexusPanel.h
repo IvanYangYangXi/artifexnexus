@@ -26,6 +26,7 @@ private:
 	FReply OnToggleTriggers();
 
 	FText GetServerStatusText() const;
+	FText GetGatewayStatusText() const;
 	FText GetTriggerButtonText() const;
 	FText GetPanelLogText() const { return FText::FromString(CachedLogText); }
 
@@ -34,6 +35,13 @@ private:
 	/** Cached log text from Python PanelLogger */
 	FString CachedLogText;
 
+	/** Cached gateway connection status */
+	bool bGatewayConnected = false;
+	int32 GatewayClientCount = 0;
+
 	/** Ticker handle for periodic log refresh */
 	FTSTicker::FDelegateHandle LogRefreshHandle;
+
+	/** Ticker handle for periodic status refresh (gateway connection) */
+	FTSTicker::FDelegateHandle StatusRefreshHandle;
 };

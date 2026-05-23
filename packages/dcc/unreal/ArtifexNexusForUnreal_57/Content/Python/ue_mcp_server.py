@@ -33,7 +33,7 @@ except ImportError:
 import unreal
 
 # 从 artifex_nexus_logger 导入日志系统
-from artifex_nexus_logger import UELogger, log_mcp_call
+from artifex_nexus_logger import UELogger, log_mcp_call, PanelLogger
 
 
 # ============================================================================
@@ -324,6 +324,15 @@ class MCPServer:
                         UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
             elif not self._health_check_suppress_log:
                 UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
+
+            # PanelLogger 事件：Gateway 连接状态变更
+            if len(self._clients) == 0:
+                PanelLogger.emit("MCP", "Gateway disconnected")
+            elif was_initialized:
+                # 客户端已完成 initialize（非健康检查或首次连接）
+                remaining = len(self._clients)
+                if remaining == 1 and not self._health_check_suppress_log:
+                    PanelLogger.emit("MCP", f"Gateway client connected (1 active)")
 
     # --- MCP 消息处理 ---
 
@@ -672,6 +681,7 @@ class MCPServer:
 
         self._running = True
         UELogger.info(f"MCP Server started: {self.server_address}")
+        PanelLogger.emit("MCP", f"Server started on {self.server_address}")
 
         # 同步端口信息到 C++ Subsystem
         try:
@@ -726,6 +736,7 @@ class MCPServer:
             pass
 
         UELogger.info("MCP Server stopped")
+        PanelLogger.emit("MCP", "Server stopped")
 
 
 # ============================================================================
