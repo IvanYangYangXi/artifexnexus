@@ -9,8 +9,10 @@ public class ArtifexNexusAPI : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        // JSON 辅助函数已统一到 Utils/JsonHelpers.h（ArtifexNexusJson 命名空间），
-        // 不再需要禁用 Unity Build
+        // JSON 辅助函数已统一到 Utils/JsonHelpers.h（ArtifexNexusJson 命名空间）。
+        // 禁用 Unity Build — 该模块依赖 80+ UE 模块，Unity 合并后翻译单元
+        // 过大会导致 MSVC C3859（PCH 虚拟内存创建失败）/ C1076（编译器堆限制）。
+        bUseUnity = false;
 
         PublicDependencyModuleNames.AddRange(new string[] {
             "Core",
