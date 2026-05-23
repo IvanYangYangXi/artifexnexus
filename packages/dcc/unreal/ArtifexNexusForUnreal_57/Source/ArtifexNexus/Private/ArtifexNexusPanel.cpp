@@ -287,17 +287,11 @@ void SArtifexNexusPanel::RefreshStatusUI()
 	IPythonScriptPlugin* Py = IPythonScriptPlugin::Get();
 	if (Py && Subsystem && Subsystem->IsValidLowLevel() && Subsystem->IsServerRunning())
 	{
+		// 单行表达式：比多行 try/except 更可靠（UE5 EvaluateStatement 对多行不稳定）
 		FPythonCommandEx PythonCmd;
 		PythonCmd.Command = TEXT(
-			"try:\n"
-			"    import ue_mcp_server\n"
-			"    srv = ue_mcp_server.get_mcp_server()\n"
-			"    if srv:\n"
-			"        str(srv.client_count)\n"
-			"    else:\n"
-			"        '-1'\n"
-			"except:\n"
-			"    '-1'"
+			"__import__('ue_mcp_server').get_mcp_server().client_count "
+			"if __import__('ue_mcp_server').get_mcp_server() else -1"
 		);
 		PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 

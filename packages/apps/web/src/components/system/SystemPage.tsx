@@ -640,7 +640,7 @@ function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], 
       } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
 
       // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-      let bridgeStatus: any = null;
+      let bridgeStatus: ipc.MCPBridgeStatus | null = null;
       if (gatewayRunning) {
         try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
           console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
@@ -1110,7 +1110,7 @@ function StatusTab() {
       } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getOpenClawStatus failed:", err); }
 
       // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-      let bridgeStatus: any = null;
+      let bridgeStatus: ipc.MCPBridgeStatus | null = null;
       if (gatewayRunning) {
         try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
           console.warn("[SystemPage] StatusTab.refreshDCC getMCPBridgeStatus failed:", err);

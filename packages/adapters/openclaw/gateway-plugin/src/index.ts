@@ -382,11 +382,28 @@ export default function (api: PluginAPI) {
   }
 
   const servers = (pluginConfig.servers as Record<string, Record<string, unknown>>) || {};
+
+  // 防御层：确保已知 DCC 都存在默认条目（用户配置可能因旧版 bootstrap 缺失）
+  const DEFAULT_DCC_SERVERS: Record<string, { type: string; url: string; enabled: boolean }> = {
+    "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083", enabled: true },
+    "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true },
+  };
+
+  let configPatched = false;
+  for (const [name, def] of Object.entries(DEFAULT_DCC_SERVERS)) {
+    if (!servers[name]) {
+      servers[name] = { ...def };
+      configPatched = true;
+      logger.info(`[mcp-bridge] Auto-added missing server "${name}" (url=${def.url})`);
+    }
+  }
+
   const serversSummary = Object.entries(servers).map(
     ([k, v]) => `${k}:enabled=${v.enabled}`,
   );
   logger.info(
-    `[mcp-bridge] Config source: ${configSource}, servers: [${serversSummary.join(", ")}]`,
+    `[mcp-bridge] Config source: ${configSource}, servers: [${serversSummary.join(", ")}]` +
+      (configPatched ? " (auto-repaired)" : ""),
   );
 
   // --- 预注册工具（同步阶段） ---
