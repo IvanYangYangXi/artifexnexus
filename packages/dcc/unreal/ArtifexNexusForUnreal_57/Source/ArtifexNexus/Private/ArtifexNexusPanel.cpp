@@ -253,8 +253,10 @@ void SArtifexNexusPanel::RefreshLogDisplay()
 	}
 
 	// 使用 EvaluateStatement 模式直接获取返回值，不依赖 print()/stdout 重定向
+	// 注: __import__() 动态加载避免 NameError —— init_unreal.py 以 startup script
+	// 方式 exec 到 __main__，全局命名空间中不存在裸名 'init_unreal'
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("init_unreal.get_panel_logs(200)");
+	PythonCmd.Command = TEXT("__import__('init_unreal').get_panel_logs(200)");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 
 	if (Py->ExecPythonCommandEx(PythonCmd))
