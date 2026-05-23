@@ -252,11 +252,11 @@ void SArtifexNexusPanel::RefreshLogDisplay()
 		return;
 	}
 
-	// 使用 EvaluateStatement 模式直接获取返回值，不依赖 print()/stdout 重定向
-	// 注: __import__() 动态加载避免 NameError —— init_unreal.py 以 startup script
-	// 方式 exec 到 __main__，全局命名空间中不存在裸名 'init_unreal'
+	// 使用 EvaluateStatement 模式直接获取返回值，不依赖 print()/stdout 重定向。
+	// 关键：绕过 init_unreal 别名（它的 sys.modules 映射可能丢失），直接调用
+	// artifex_nexus_logger.PanelLogger.get_recent()，这是一个真正的 Python 模块。
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("__import__('init_unreal').get_panel_logs(200)");
+	PythonCmd.Command = TEXT("'\\n'.join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 
 	if (Py->ExecPythonCommandEx(PythonCmd))
