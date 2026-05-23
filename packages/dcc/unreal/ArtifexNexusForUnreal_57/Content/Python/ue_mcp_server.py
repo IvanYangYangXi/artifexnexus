@@ -258,8 +258,8 @@ class MCPServer:
             "initialized": False,
         }
 
-        UELogger.mcp(f"Client connected: {self._client_info[client_id]['remote']} "
-                      f"(total: {len(self._clients)})")
+        UELogger.debug(f"[MCP] Client connected: {self._client_info[client_id]['remote']} "
+                       f"(total: {len(self._clients)})")
 
         try:
             async for raw_message in websocket:
@@ -290,7 +290,7 @@ class MCPServer:
             self._initialized_clients.discard(client_id)
             self._client_info.pop(client_id, None)
 
-            UELogger.mcp(f"Client cleaned up (remaining: {len(self._clients)})")
+            UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
 
     # --- MCP 消息处理 ---
 
@@ -372,8 +372,8 @@ class MCPServer:
         protocol_version = params.get("protocolVersion", "unknown")
 
         client_id = id(websocket)
-        UELogger.mcp(
-            f"Initialize request from {client_info.get('name', 'unknown')} "
+        UELogger.debug(
+            f"[MCP] Initialize request from {client_info.get('name', 'unknown')} "
             f"(protocol: {protocol_version})"
         )
 
@@ -395,7 +395,7 @@ class MCPServer:
         self._initialized_clients.add(client_id)
         info = self._client_info.get(client_id, {})
         info["initialized"] = True
-        UELogger.mcp(f"Client initialized: {info.get('remote', '?')}")
+        UELogger.debug(f"[MCP] Client initialized: {info.get('remote', '?')}")
 
     async def _handle_ping(self, websocket, params: dict) -> dict:
         """心跳响应"""

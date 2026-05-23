@@ -150,14 +150,15 @@ def log_mcp_call(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             func_name = func.__name__
-            # 检测 ping 消息：检查字符串参数中是否包含 "ping" method
-            is_ping = False
+            # 检测静默消息（ping / initialize 健康检查，不输出日志）
+            is_silent = False
             for arg in args:
-                if isinstance(arg, str) and '"method":"ping"' in arg.replace(' ', ''):
-                    is_ping = True
-                    break
-            # ping 消息静默跳过，不输出任何日志
-            if is_ping:
+                if isinstance(arg, str):
+                    compact = arg.replace(' ', '')
+                    if '"method":"ping"' in compact or '"method":"initialize"' in compact:
+                        is_silent = True
+                        break
+            if is_silent:
                 return await func(*args, **kwargs)
             UELogger.mcp(f">>> {func_name} called | args={args}, kwargs={kwargs}")
             try:
