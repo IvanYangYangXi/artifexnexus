@@ -171,6 +171,11 @@ class MCPServer:
         self._clients: Set = set()
         self._client_info: Dict[int, dict] = {}  # websocket id -> info
 
+        # 健康检查日志抑制：sidecar 每 10 秒做一次 connect→initialize→disconnect，
+        # 前 2 次正常记录，之后状态不变时静默，只在异常时恢复日志。
+        self._health_check_ok_count: int = 0
+        self._health_check_suppress_log: bool = False
+
         # 状态
         self._running = False
         self._tick_handle = None
@@ -249,6 +254,9 @@ class MCPServer:
         宪法约束:
           - 开发路线图 §1.1: 断线自动重置
           - 系统架构设计 §1.3: Multi-Client Coordinator
+
+        健康检查日志抑制: sidecar 每 10 秒做一次 connect→initialize→disconnect，
+        前 2 次正常记录，之后状态不变时静默；发生异常时恢复日志。
         """
         client_id = id(websocket)
         remote = websocket.remote_address
@@ -258,9 +266,11 @@ class MCPServer:
             "initialized": False,
         }
 
-        UELogger.debug(f"[MCP] Client connected: {self._client_info[client_id]['remote']} "
-                       f"(total: {len(self._clients)})")
+        if not self._health_check_suppress_log:
+            UELogger.debug(f"[MCP] Client connected: {self._client_info[client_id]['remote']} "
+                           f"(total: {len(self._clients)})")
 
+        had_error = False
         try:
             async for raw_message in websocket:
                 try:
@@ -268,6 +278,7 @@ class MCPServer:
                     if response:
                         await websocket.send(response)
                 except Exception as e:
+                    had_error = True
                     UELogger.mcp_error(f"Message handling error: {e}")
                     # 尝试发送错误响应
                     try:
@@ -280,17 +291,39 @@ class MCPServer:
                         pass
 
         except ConnectionClosed as e:
-            UELogger.mcp(f"Client disconnected: {self._client_info.get(client_id, {}).get('remote', '?')} "
-                         f"(code={e.code}, reason={e.reason})")
+            # 仅异常断开或未抑制时记录
+            is_clean = getattr(e, 'code', 0) in (1000, 1001)
+            if not is_clean or not self._health_check_suppress_log:
+                UELogger.mcp(f"Client disconnected: {self._client_info.get(client_id, {}).get('remote', '?')} "
+                             f"(code={e.code}, reason={e.reason})")
         except Exception as e:
+            had_error = True
             UELogger.mcp_error(f"Connection error: {e}")
         finally:
             # 清理连接
             self._clients.discard(websocket)
+            was_initialized = client_id in self._initialized_clients
             self._initialized_clients.discard(client_id)
             self._client_info.pop(client_id, None)
 
-            UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
+            # 健康检查日志抑制逻辑
+            if had_error:
+                # 异常发生时恢复日志
+                if self._health_check_suppress_log:
+                    UELogger.info("[MCP] 健康检查异常，恢复连接日志")
+                    self._health_check_suppress_log = False
+                self._health_check_ok_count = 0
+            elif was_initialized and len(self._clients) == 0:
+                # 客户端已完成 initialize 后正常断开（典型的健康检查模式）
+                if not self._health_check_suppress_log:
+                    self._health_check_ok_count += 1
+                    if self._health_check_ok_count >= 2:
+                        self._health_check_suppress_log = True
+                        UELogger.info("[MCP] MCP 服务正常，后续健康检查日志已抑制")
+                    else:
+                        UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
+            elif not self._health_check_suppress_log:
+                UELogger.debug(f"[MCP] Client cleaned up (remaining: {len(self._clients)})")
 
     # --- MCP 消息处理 ---
 
