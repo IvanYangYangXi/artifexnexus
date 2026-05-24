@@ -29,7 +29,7 @@ import {
   ShieldCheck,
   PackageOpen,
 } from "lucide-react";
-import { Button, Input, cn } from "@artifex-nexus/ui";
+import { Button, Input, cn, toast } from "@artifex-nexus/ui";
 import { invoke } from "@tauri-apps/api/core";
 import { ScrollFade } from "../chat/ScrollFade";
 import { FiltersTab } from "./FiltersTab";
@@ -136,6 +136,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
       const taskId = startResult.task_id;
       taskIdRef.current = taskId;
 
+      // 多 DCC 标记提示
+      if (startResult.warning) {
+        toast(startResult.warning, { duration: 4000 });
+      }
+
       // 检查 dependency_missing 状态（后端在异步返回前就设了）
       if (startResult.status === "dependency_missing") {
         cleanup();
@@ -236,6 +241,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
       const startResult = await invoke("nexus_tool_run", { params: { id: detail.id, args: paramValues, force: true } }) as NexusToolRunStartResult;
       const taskId = startResult.task_id;
       taskIdRef.current = taskId;
+
+      // 多 DCC 标记提示
+      if (startResult.warning) {
+        toast(startResult.warning, { duration: 4000 });
+      }
 
       pollTimerRef.current = setInterval(async () => {
         try {

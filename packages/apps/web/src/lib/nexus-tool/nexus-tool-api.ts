@@ -134,6 +134,8 @@ export interface NexusToolRunStartResult {
   task_id: string;
   status: "started" | "dependency_missing";
   missing_deps?: string[];
+  /** 多 DCC 标记时的提示信息 */
+  warning?: string;
 }
 
 /** nexus-tool.result 轮询返回 */
