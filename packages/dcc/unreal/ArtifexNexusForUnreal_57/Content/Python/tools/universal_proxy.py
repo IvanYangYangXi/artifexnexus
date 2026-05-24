@@ -329,7 +329,11 @@ def run_ue_python(arguments: dict) -> str:
         code = arguments.get("code", "")
         inject_context = arguments.get("inject_context", True)
 
-    UELogger.info(f"[Exec #{exec_id}] Running code ({len(code)} chars)")
+    # trusted 模式（默认 true）：信任执行跳过交互确认
+    # nexus-tool 和 MCP Bridge 自动化调用不需要弹窗等待用户确认
+    trusted = arguments.get("trusted", True)
+
+    UELogger.info(f"[Exec #{exec_id}] Running code ({len(code)} chars), trusted={trusted}")
 
     # --- 阶段 1.3: 静态指令预审 ---
     guard = StaticGuard()
@@ -348,46 +352,48 @@ def run_ue_python(arguments: dict) -> str:
         })
 
     # --- 阶段 2.3: 风险分级确认 ---
-    try:
-        from tools.risk_confirmation import assess_operation_risk, request_confirmation
-        risk_info = assess_operation_risk(code)
-        if risk_info.get("requires_confirmation", False):
-            confirmed = request_confirmation(risk_info, code_preview=code)
+    if not trusted:
+        try:
+            from tools.risk_confirmation import assess_operation_risk, request_confirmation
+            risk_info = assess_operation_risk(code)
+            if risk_info.get("requires_confirmation", False):
+                confirmed = request_confirmation(risk_info, code_preview=code)
+                if not confirmed:
+                    UELogger.info(f"[Exec #{exec_id}] REJECTED by user (risk: {risk_info['level']})")
+                    return json.dumps({
+                        "success": False,
+                        "exec_id": exec_id,
+                        "error": f"Operation rejected by user (risk level: {risk_info['level']})",
+                        "risk": risk_info,
+                        "output": "",
+                        "result": None,
+                        "execution_time": 0,
+                    })
+        except ImportError:
+            pass  # risk_confirmation 模块可能尚未加载
+
+    # --- 阶段 5.6: 文件操作弹窗确认 ---
+    if not trusted:
+        file_op_risk = detect_file_operations(code)
+        if file_op_risk.needs_confirmation:
+            UELogger.info(f"[Exec #{exec_id}] File operation detected: {file_op_risk.risk_level} risk, "
+                          f"{len(file_op_risk.operations)} ops, batch={file_op_risk.is_batch}")
+            confirmed = _request_file_confirmation(
+                operations=file_op_risk.operations,
+                risk_level=file_op_risk.risk_level,
+                code_preview=file_op_risk.code_preview or code[:500],
+            )
             if not confirmed:
-                UELogger.info(f"[Exec #{exec_id}] REJECTED by user (risk: {risk_info['level']})")
+                UELogger.info(f"[Exec #{exec_id}] REJECTED file operation (risk: {file_op_risk.risk_level})")
                 return json.dumps({
                     "success": False,
                     "exec_id": exec_id,
-                    "error": f"Operation rejected by user (risk level: {risk_info['level']})",
-                    "risk": risk_info,
+                    "error": f"File operation rejected by user (risk: {file_op_risk.risk_level})",
+                    "file_operations": file_op_risk.operations,
                     "output": "",
                     "result": None,
                     "execution_time": 0,
                 })
-    except ImportError:
-        pass  # risk_confirmation 模块可能尚未加载
-
-    # --- 阶段 5.6: 文件操作弹窗确认 ---
-    file_op_risk = detect_file_operations(code)
-    if file_op_risk.needs_confirmation:
-        UELogger.info(f"[Exec #{exec_id}] File operation detected: {file_op_risk.risk_level} risk, "
-                      f"{len(file_op_risk.operations)} ops, batch={file_op_risk.is_batch}")
-        confirmed = _request_file_confirmation(
-            operations=file_op_risk.operations,
-            risk_level=file_op_risk.risk_level,
-            code_preview=file_op_risk.code_preview or code[:500],
-        )
-        if not confirmed:
-            UELogger.info(f"[Exec #{exec_id}] REJECTED file operation (risk: {file_op_risk.risk_level})")
-            return json.dumps({
-                "success": False,
-                "exec_id": exec_id,
-                "error": f"File operation rejected by user (risk: {file_op_risk.risk_level})",
-                "file_operations": file_op_risk.operations,
-                "output": "",
-                "result": None,
-                "execution_time": 0,
-            })
 
     # --- 准备执行环境 ---
     # 重要: 使用单一字典同时作为 globals 和 locals，
@@ -533,6 +539,11 @@ TOOL_DEFINITION = {
                 "type": "boolean",
                 "description": "If true, return editor context (mode, selection, actors, level) without executing any code. No 'code' parameter needed.",
                 "default": False,
+            },
+            "trusted": {
+                "type": "boolean",
+                "description": "If true (default), skip file operation confirmation dialogs. The code is auto-approved for file/batch operations. Set to false for interactive confirmation.",
+                "default": True,
             },
         },
         "required": [],
