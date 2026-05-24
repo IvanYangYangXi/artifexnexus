@@ -1089,19 +1089,6 @@ def _initialize():
     _add_lib_to_path()
     _add_shared_modules_to_path()
 
-    # --- 阶段 0.3.5: 共享模块完整性检查 ---
-    try:
-        from integrity_check import check_and_repair
-
-        integrity = check_and_repair(_PLUGIN_PYTHON_DIR, auto_repair=True)
-        if integrity.repaired:
-            UELogger.info(f"共享模块自动修复: {', '.join(integrity.repaired)}")
-        if not integrity.ok:
-            UELogger.error(f"共享模块缺失且无法修复: {', '.join(integrity.failed)}")
-            UELogger.error("请使用 install.py 重新安装插件")
-    except Exception as e:
-        UELogger.warning(f"完整性检查跳过: {e}")
-
     # --- 快速依赖检测（仅 import 检查，不安装） ---
     deps_ready = _check_dependencies_fast()
 
