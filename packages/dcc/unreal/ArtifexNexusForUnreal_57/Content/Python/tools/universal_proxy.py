@@ -390,15 +390,6 @@ def run_ue_python(arguments: dict) -> str:
             })
 
     # --- 准备执行环境 ---
-    # 写入执行哨兵（如果进程崩溃，下次启动可检测到）
-    try:
-        from memory_store import get_memory_store
-        _mem = get_memory_store()
-        if _mem:
-            _mem.manager.write_execution_sentinel(code[:500], "run_ue_python")
-    except Exception:
-        pass
-
     # 重要: 使用单一字典同时作为 globals 和 locals，
     # 解决 exec() 中 import/函数定义 的作用域问题:
     #   exec(code, globals_dict, locals_dict) 中 import 结果进入 locals_dict，
@@ -478,40 +469,6 @@ def run_ue_python(arguments: dict) -> str:
         except ImportError:
             pass  # self_healing 模块可能尚未加载
 
-    # --- 记忆系统: 记录操作/崩溃到定制记忆 ---
-    try:
-        from memory_store import get_memory_store
-        mem = get_memory_store()
-        if mem:
-            mgr = mem.manager
-            # 从代码中提取工具/动作关键词
-            _tool_hint = "run_ue_python"
-            _action_hint = code_stripped[:60].replace("\n", " ") if code_stripped else "unknown"
-            _params_summary = f"code_len={len(code)}"
-            if success:
-                mgr.record_operation(
-                    tool=_tool_hint,
-                    action=_action_hint,
-                    params_summary=_params_summary,
-                    result=output_text[:200] if output_text else "ok",
-                    duration_ms=int(elapsed * 1000),
-                )
-            else:
-                # 只记录真正的异常（非 security block / user rejection）
-                mgr.record_crash(
-                    tool=_tool_hint,
-                    action=_action_hint,
-                    params_summary=_params_summary,
-                    error=error_msg[:300],
-                    root_cause="",  # Agent 可后续通过 memory API 补充
-                    avoidance_rule="",
-                    severity="medium",
-                )
-            # 执行完成（无论成功失败），清除哨兵
-            mgr.clear_execution_sentinel()
-    except Exception:
-        pass  # 记忆记录失败不应影响正常执行
-
     UELogger.info(
         f"[Exec #{exec_id}] {'OK' if success else 'FAIL'} "
         f"({elapsed:.3f}s, output={len(output_text)} chars)"
@@ -552,7 +509,6 @@ TOOL_DEFINITION = {
         "based on which panel the user was last interacting with."
         "\n\nAvailable internal APIs (import and call via this tool):\n"
         "- knowledge_base.get_knowledge_base().search(query, top_k) — search local knowledge base\n"
-        "- memory_store.get_memory_store() — memory read/write (store/get/search/check_operation)\n"
         "- skill_hub.get_skill_hub().execute_skill(name, params) — execute a registered Skill\n"
         "- skill_hub.get_skill_hub().list_skills() — list available Skills"
     ),

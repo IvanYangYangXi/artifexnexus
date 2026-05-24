@@ -9,7 +9,12 @@
 
 ## UE 编译必知
 
-- **MSB4018 SetEnv 环境变量过长**（2026-05-22）：UE 5.7 生成的 vcxproj 中 IncludePath/SourcePath 超长会导致编译崩溃。解决方案：在项目根目录创建 `Directory.Build.props`，设 `<UseEnv>true</UseEnv>`。文档：`docs/development/ue-msb4018-fix.md`。来源：artclaw_bridge 项目。
+- **UE 5.7 编译错误三件套（MSB4018 / C3859 / C1076）**：超长 IncludePath 引发三种错误，需三层防御：
+  1. **MSB4018**：`Directory.Build.props` → `<UseEnv>true</UseEnv>` 跳过 SetEnv（环境变量 32K 限制）
+  2. **C3859/C1076 核心修复**：`BuildConfiguration.xml` → `<bUseUnityBuild>false</bUseUnityBuild>` 禁用 Unity Build（多个 .cpp 合并成巨量翻译单元 → PCH 编译撑爆编译器堆，这是**主因**）
+  3. **C3859/C1076 辅助**：`Directory.Build.targets` → `/Zm2000` 提升 IntelliSense PCH 编译器堆（默认 100MB→2000MB）；`<MaxParallelActions>4</MaxParallelActions>` + `<bAllowXGE>false</bAllowXGE>` 限制并行度
+  注意：属性名是 `bUseUnityBuild` 非 `bUseUnity`；`/Zm` 必须用 `.targets` 追加（`.props` 会被 vcxproj 覆盖）
+  详见 `docs/development/ue-msb4018-fix.md`。
 - **UE 插件多版本用 git 分支管理**（2026-05-22）：不同 UE 版本 C++ 改动大，工程内不保留多版本目录。当前主分支适配 UE 5.7。`plugin_info.py` 声明 `ue_target`（当前适配版本）+ `ue_min`/`ue_max`（兼容范围）。
 - **UE 插件安装/重装保留 Lib/**（2026-05-22）：`packages/dcc/unreal/Content/Python/Lib/` 包含 pip 安装的运行时依赖（pydantic, websockets, cryptography 等），重装插件时不可覆盖删除，应保留或合并。
 

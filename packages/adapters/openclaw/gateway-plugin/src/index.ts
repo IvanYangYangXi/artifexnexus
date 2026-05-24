@@ -152,6 +152,19 @@ class McpWebSocketClient {
               handlers.resolve(response.result);
             }
           } else if (response && response.id) {
+            // 过滤 ping 响应（sendPing 发 notification 无 id，但旧版本可能有 id）
+            const method = (response as Record<string, unknown>).result
+              ? "result"
+              : (response as Record<string, unknown>).error
+                ? "error"
+                : "";
+            // ping 的响应特征是 result:{} 或空对象，跳过不记录
+            if (method === "result" && typeof (response as Record<string, unknown>).result === "object") {
+              const result = (response as Record<string, unknown>).result as Record<string, unknown>;
+              if (result && Object.keys(result).length === 0) {
+                return;  // ping/ack 响应，静默跳过
+              }
+            }
             this.logger.debug(`[mcp-bridge] unmatched response ${this.name}: id=${response.id} (no pending handler)`);
           }
         };
@@ -222,7 +235,6 @@ class McpWebSocketClient {
           this.ws.send(
             JSON.stringify({
               jsonrpc: "2.0",
-              id: nextRequestId++,
               method: "ping",
             }),
           );

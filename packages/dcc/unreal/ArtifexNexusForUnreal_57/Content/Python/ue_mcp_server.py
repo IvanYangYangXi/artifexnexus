@@ -197,6 +197,10 @@ class MCPServer:
     def is_running(self) -> bool:
         return self._running
 
+    @is_running.setter
+    def is_running(self, value: bool):
+        self._running = value
+
     @property
     def actual_port(self) -> Optional[int]:
         return self._actual_port
@@ -455,7 +459,7 @@ class MCPServer:
         tools = []
         for tool in self._tools.values():
             tools.append({k: v for k, v in tool.items() if not k.startswith("_")})
-        UELogger.mcp(f"tools/list -> {len(tools)} tools")
+        UELogger.debug(f"[MCP] tools/list -> {len(tools)} tools")
         return {"tools": tools}
 
     async def _handle_tools_call(self, websocket, params: dict) -> dict:
@@ -472,7 +476,7 @@ class MCPServer:
         if tool_name not in self._tools:
             raise ValueError(f"Unknown tool: {tool_name}")
 
-        UELogger.mcp(f"tools/call -> {tool_name}({arguments})")
+        UELogger.debug(f"[MCP] tools/call -> {tool_name}({arguments})")
 
         # 写入 tool 调用开始事件到 stream.jsonl（方案 2: MCP 侧记录）
         # 只用 tool_use_text 轻量文本，融入消息流，不占空间
@@ -511,7 +515,7 @@ class MCPServer:
           - 开发路线图 §2.2: UE 编辑器状态映射为 MCP 资源 URI
           - 核心机制 §6: MCP 资源流转
         """
-        UELogger.mcp(f"resources/list -> {len(self._resource_definitions)} resources")
+        UELogger.debug(f"[MCP] resources/list -> {len(self._resource_definitions)} resources")
         return {"resources": self._resource_definitions}
 
     async def _handle_resources_read(self, websocket, params: dict) -> dict:
@@ -581,7 +585,7 @@ class MCPServer:
         })
         if handler is not None:
             self._resource_handlers[uri] = handler
-        UELogger.info(f"Resource registered: {uri}")
+        UELogger.debug(f"Resource registered: {uri}")
 
     # --- Tool 注册接口 ---
 
@@ -605,7 +609,7 @@ class MCPServer:
             "inputSchema": input_schema,
             "_handler": handler,  # 内部字段，不会序列化给客户端
         }
-        UELogger.info(f"Tool registered: {name}")
+        UELogger.debug(f"Tool registered: {name}")
 
     def unregister_tool(self, name: str) -> None:
         """注销一个 MCP Tool"""
@@ -636,7 +640,7 @@ class MCPServer:
         if not targets:
             return
 
-        UELogger.mcp(f"Broadcasting {method} to {len(targets)} clients")
+        UELogger.debug(f"[MCP] Broadcasting {method} to {len(targets)} clients")
         results = await asyncio.gather(
             *[ws.send(message) for ws in targets],
             return_exceptions=True,
@@ -907,17 +911,6 @@ def start_mcp_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool
             # --- 阶段 3: 智能与优化子系统 ---
             _init_phase3_subsystems(_mcp_server)
 
-            # --- Tool Manager 事件桥接 ---
-            try:
-                from tool_event_bridge import init_tool_event_bridge
-                bridge = init_tool_event_bridge()
-                if bridge:
-                    UELogger.info("Tool Event Bridge: active (forwarding DCC events to Tool Manager)")
-                else:
-                    UELogger.info("Tool Event Bridge: skipped (Tool Manager not running or Subsystem unavailable)")
-            except Exception as e:
-                UELogger.warning(f"Tool Event Bridge init failed: {e}")
-
         return success
 
     except Exception as e:
@@ -983,14 +976,6 @@ def _init_phase3_subsystems(server: MCPServer) -> None:
     except Exception:
         UELogger.exception("Phase 3.5: Failed to init version adapter")
 
-    # §3.4 记忆存储
-    try:
-        from memory_store import init_memory_store
-        memory = init_memory_store(server)
-        UELogger.info(f"Phase 3.4: Memory Store ready")
-    except Exception:
-        UELogger.exception("Phase 3.4: Failed to init memory store")
-
     # §3.2 + 3.3 + 3.6 知识库
     try:
         from knowledge_base import init_knowledge_base
@@ -1034,13 +1019,6 @@ def stop_mcp_server() -> None:
     在编辑器关闭时调用。
     """
     global _mcp_server, _async_bridge
-
-    # 先关闭 Tool Event Bridge
-    try:
-        from tool_event_bridge import shutdown_tool_event_bridge
-        shutdown_tool_event_bridge()
-    except Exception:
-        pass
 
     if _async_bridge is not None:
         try:

@@ -106,8 +106,20 @@ def check_ue_version_compatibility():
 
     try:
         ver_str = get_ue_engine_version()
+        # 版本号可能包含构建元数据（如 "5.7.4-51494982+++UE5+Release-5.7"），
+        # 只提取各部分开头的数字部分
         parts = ver_str.split(".")
-        current = tuple(int(p) for p in parts[:3])
+        current_parts = []
+        for p in parts[:3]:
+            # 提取前导数字（处理 "4-51494982+++UE5+Release-5" 这种情况）
+            digits = ""
+            for ch in p:
+                if ch.isdigit():
+                    digits += ch
+                else:
+                    break
+            current_parts.append(int(digits) if digits else 0)
+        current = tuple(current_parts)
     except Exception:
         return False, f"无法检测 UE 版本: {ver_str}"
 
@@ -270,13 +282,28 @@ def _add_lib_to_path():
     """
     将插件私有 Lib 目录加入 sys.path（优先级高于引擎目录）。
 
+    设计要点：
+      - 始终 remove + re-insert，而非仅在不存在时 insert。
+        因为在 _initialize() 中本函数会在 _ensure_lib_dir() 之前被调用，
+        Lib 目录尚不存在时加入 sys.path 会导致 Python 导入缓存
+        (sys.path_importer_cache) 将该路径标记为无效 (None)。
+        后续即使 Lib 被创建，缓存仍然过时，`__import__` 会跳过 Lib
+        从而误报依赖缺失（假阴性）。
+
     宪法约束:
       - 开发路线图 §0.5: 将插件私有库路径加入 sys.path
       - 项目概要 §五: 每个插件独立虚拟环境，互不干扰
     """
-    if _PLUGIN_LIB_DIR not in sys.path:
-        sys.path.insert(0, _PLUGIN_LIB_DIR)
-        UELogger.debug(f"Added to sys.path: {_PLUGIN_LIB_DIR}")
+    # 先移除（如果已存在），确保路径的导入缓存被刷新
+    if _PLUGIN_LIB_DIR in sys.path:
+        sys.path.remove(_PLUGIN_LIB_DIR)
+    sys.path.insert(0, _PLUGIN_LIB_DIR)
+    # 清除导入路径缓存，确保新创建的 Lib 目录能被 Python import 系统识别
+    # （如果本函数在 _ensure_lib_dir() 之前被调用，Lib 当时不存在，
+    #  sys.path_importer_cache 会缓存 None，后续即使 Lib 被创建也无法找到包）
+    import importlib
+    importlib.invalidate_caches()
+    UELogger.debug(f"Added to sys.path: {_PLUGIN_LIB_DIR}")
 
 
 def _get_project_root() -> str:
@@ -751,9 +778,7 @@ def _install_dependencies():
         offline_success = _check_offline_bundle()
         if offline_success:
             # 重新加载 Lib 目录以识别新安装的包
-            if _PLUGIN_LIB_DIR in sys.path:
-                sys.path.remove(_PLUGIN_LIB_DIR)
-            sys.path.insert(0, _PLUGIN_LIB_DIR)
+            _add_lib_to_path()
 
     # 在线安装缺失的必需包
     required_ok = True
@@ -779,12 +804,7 @@ def _install_dependencies():
     # 最终验证
     if required_ok:
         # pip install 到 Lib 后，Python import 缓存可能过期，必须刷新
-        import importlib
-        importlib.invalidate_caches()
-        # 重新 insert Lib 路径，强制 sys.path_importer_cache 更新
-        if _PLUGIN_LIB_DIR in sys.path:
-            sys.path.remove(_PLUGIN_LIB_DIR)
-        sys.path.insert(0, _PLUGIN_LIB_DIR)
+        _add_lib_to_path()
 
         # 重新验证所有必需包
         all_verified = True

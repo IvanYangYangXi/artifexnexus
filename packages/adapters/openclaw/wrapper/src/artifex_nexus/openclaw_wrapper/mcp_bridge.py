@@ -27,12 +27,12 @@ from typing import Any, Callable, Dict, Optional
 logger = logging.getLogger(__name__)
 # 确保 stderr 可见（与 nexus_tool_rpc.py 相同原因）
 logger.propagate = False
-logger.setLevel(logging.DEBUG)  # mcp_bridge 使用 DEBUG 级别输出诊断
+logger.setLevel(logging.INFO)  # mcp_bridge 使用 INFO 级别，避免每条消息刷屏
 if not logger.handlers:
     import sys as _sys
     _h = logging.StreamHandler(_sys.stderr)
     _h.setFormatter(logging.Formatter("[sidecar.mcp] %(message)s"))
-    _h.setLevel(logging.DEBUG)
+    _h.setLevel(logging.INFO)
     logger.addHandler(_h)
 
 # ── 常量 ────────────────────────────────────────────────────────────────
@@ -502,7 +502,7 @@ class MCPBridgeClient:
             },
         }
 
-        logger.info("[mcp:call] → id=%s tool=%s code_len=%d", request_id, tool_name, len(arguments.get("code", "")))
+        logger.debug("[mcp:call] → id=%s tool=%s code_len=%d", request_id, tool_name, len(arguments.get("code", "")))
         await self._ws.send(json.dumps(call_msg))
 
         # 从后台 reader 填充的 response_queue 中匹配对应 id 的响应
@@ -531,7 +531,7 @@ class MCPBridgeClient:
                     raise RuntimeError(
                         f"MCP 错误: {msg['error'].get('message', str(msg['error']))}"
                     )
-                logger.info("[mcp:call] ← id=%s OK", request_id)
+                logger.debug("[mcp:call] ← id=%s OK", request_id)
                 return msg.get("result", {})
             else:
                 # 不匹配的响应放回队列（极少情况，如请求超时后的迟到响应）

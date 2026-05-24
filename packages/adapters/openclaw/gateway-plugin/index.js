@@ -116,6 +116,9 @@ var McpWebSocketClient = class {
               handlers.resolve(response.result);
             }
           } else if (response && response.id) {
+            if (response.result && typeof response.result === "object" && Object.keys(response.result).length === 0) {
+              return;
+            }
             this.logger.debug(`[mcp-bridge] unmatched response ${this.name}: id=${response.id} (no pending handler)`);
           }
         };
@@ -180,7 +183,6 @@ var McpWebSocketClient = class {
           this.ws.send(
             JSON.stringify({
               jsonrpc: "2.0",
-              id: nextRequestId++,
               method: "ping"
             })
           );
