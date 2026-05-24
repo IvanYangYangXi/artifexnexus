@@ -297,10 +297,11 @@ FReply SArtifexNexusPanel::OnStartServer()
 	UE_LOG(LogArtifexPanel, Log, TEXT("[ArtifexNexus] Manual start MCP server..."));
 
 	// 使用 EvaluateStatement 模式调用 Python API —
-	// __import__() 避免 init_unreal 裸名不存在的问题，
+	// 直接从 ue_mcp_server 导入（not init_unreal → __main__ alias），
+	// 避免 UE startup script 的 __main__ 命名空间争议。
 	// start_mcp_server() 内部已处理端口检查、状态同步和日志。
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("__import__('init_unreal').start_mcp_server(port=18080)");
+	PythonCmd.Command = TEXT("__import__('ue_mcp_server').start_mcp_server(port=18080)");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 	Py->ExecPythonCommandEx(PythonCmd);
 

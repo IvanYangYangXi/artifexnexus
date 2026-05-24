@@ -917,6 +917,15 @@ def start_mcp_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool
         if success:
             UELogger.info(f"MCP Gateway initializing on {host}:{port}+")
 
+            # Sync running state to C++ Subsystem so panel reflects correct status
+            try:
+                _subsys = unreal.get_editor_subsystem(unreal.ArtifexNexusSubsystem)
+                if _subsys:
+                    _subsys.set_server_running(True)
+                    _subsys.set_server_port(_mcp_server.actual_port or port)
+            except Exception:
+                pass
+
             # --- 阶段 1.2~1.6: 注册核心工具 ---
             _register_builtin_tools(_mcp_server)
 
@@ -1040,4 +1049,13 @@ def stop_mcp_server() -> None:
 
     _async_bridge = None
     _mcp_server = None
+
+    # Sync stopped state to C++ Subsystem so panel reflects correct status
+    try:
+        _subsys = unreal.get_editor_subsystem(unreal.ArtifexNexusSubsystem)
+        if _subsys:
+            _subsys.set_server_running(False)
+    except Exception:
+        pass
+
     UELogger.info("MCP Gateway shutdown complete")
