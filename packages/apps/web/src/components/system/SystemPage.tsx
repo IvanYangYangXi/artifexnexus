@@ -30,6 +30,11 @@ interface DialogState {
 function useAppDialog() {
   const [state, setState] = React.useState<DialogState>({ open: false, title: "", fields: [], resolve: null });
 
+  // 用 ref 持有 resolve 回调，避免 handleClose / handleConfirm 依赖 state.resolve
+  // 从而防止 state.resolve 变化时 DialogUI 被 React 卸载重建 (unmount → remount)
+  const resolveRef = React.useRef<((r: Record<string, string> | null) => void) | null>(null);
+  resolveRef.current = state.resolve;
+
   const showConfirm = React.useCallback((title: string, description?: string): Promise<boolean> => {
     return new Promise((resolve) => {
       setState({ open: true, title, description, fields: [], confirmLabel: "确认", resolve: (r) => resolve(r !== null) });
@@ -42,11 +47,14 @@ function useAppDialog() {
     });
   }, []);
 
+  // 稳定引用 —— 不再依赖 state.resolve
   const handleClose = React.useCallback(() => {
-    state.resolve?.(null);
+    resolveRef.current?.(null);
     setState((s) => ({ ...s, open: false, resolve: null }));
-  }, [state.resolve]);
+  }, []);
 
+  // 只依赖 UI 渲染相关字段，不依赖整个 state 对象
+  // handleClose 现在是稳定的，不会导致 DialogUI 重建
   const DialogUI = React.useCallback(() => {
     const [values, setValues] = React.useState<Record<string, string>>({});
     React.useEffect(() => {
@@ -58,7 +66,7 @@ function useAppDialog() {
     }, [state.open, state.fields]);
 
     const handleConfirm = () => {
-      state.resolve?.(state.fields.length > 0 ? values : {});
+      resolveRef.current?.(state.fields.length > 0 ? values : {});
       setState((s) => ({ ...s, open: false, resolve: null }));
     };
 
@@ -102,7 +110,7 @@ function useAppDialog() {
         </DialogContent>
       </Dialog>
     );
-  }, [state, handleClose]);
+  }, [state.open, state.title, state.description, state.fields, state.confirmLabel, handleClose]);
 
   return { showConfirm, showForm, DialogUI };
 }
