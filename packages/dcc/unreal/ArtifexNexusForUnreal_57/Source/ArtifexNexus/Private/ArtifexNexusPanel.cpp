@@ -173,65 +173,7 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 				]
 			]
 
-			// === Log Section ===
-			+ SVerticalBox::Slot()
-			.FillHeight(1.0f)
-			.Padding(0, 0, 0, 12)
-			[
-				SNew(SBorder)
-				.BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
-				.Padding(12.0f)
-				[
-					SNew(SVerticalBox)
-
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0, 0, 0, 8)
-					[
-						SNew(SHorizontalBox)
-						+ SHorizontalBox::Slot()
-						.FillWidth(1.0f)
-						[
-							SNew(STextBlock)
-							.Text(LOCTEXT("LogSection", "Event Log"))
-							.Font(FAppStyle::GetFontStyle("HeadingSmall"))
-						]
-						+ SHorizontalBox::Slot()
-						.AutoWidth()
-						[
-							SNew(SButton)
-							.Text(LOCTEXT("ClearLog", "Clear"))
-							.ToolTipText(LOCTEXT("ClearLogTip", "Clear all log entries"))
-							.OnClicked_Lambda([]() -> FReply {
-								IPythonScriptPlugin* Py = IPythonScriptPlugin::Get();
-								if (Py)
-								{
-									Py->ExecPythonCommand(TEXT(
-										"from artifex_nexus_logger import PanelLogger; PanelLogger.clear()"
-									));
-								}
-								return FReply::Handled();
-							})
-						]
-					]
-
-					+ SVerticalBox::Slot()
-					.FillHeight(1.0f)
-					[
-						SNew(SScrollBox)
-						+ SScrollBox::Slot()
-						[
-							SNew(SMultiLineEditableText)
-							.Text(this, &SArtifexNexusPanel::GetPanelLogText)
-							.IsReadOnly(true)
-							.AutoWrapText(true)
-							.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
-						]
-					]
-				]
-			]
-
-			// === Info Section (collapsed when log is large) ===
+			// === Info Section ===
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			[
@@ -250,20 +192,6 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 			]
 		]
 	];
-
-	// Start periodic log refresh (every 2 seconds)
-	LogRefreshHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateLambda([WeakWidget = TWeakPtr<SArtifexNexusPanel>(SharedThis(this))](float Delta) -> bool
-		{
-			if (TSharedPtr<SArtifexNexusPanel> Pinned = WeakWidget.Pin())
-			{
-				Pinned->RefreshLogDisplay();
-				return true;  // keep ticking
-			}
-			return false;  // widget destroyed, stop
-		}),
-		2.0f
-	);
 
 	// Periodic Gateway connection status refresh (every 5 seconds)
 	StatusRefreshHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -311,29 +239,6 @@ void SArtifexNexusPanel::RefreshStatusUI()
 	}
 
 	Invalidate(EInvalidateWidgetReason::Layout);
-}
-
-void SArtifexNexusPanel::RefreshLogDisplay()
-{
-	IPythonScriptPlugin* Py = IPythonScriptPlugin::Get();
-	if (!Py)
-	{
-		return;
-	}
-
-	// Python 侧用独特分隔符连接日志行，绕过 EvaluateStatement 转义 \n 的问题。
-	// C++ 侧将分隔符替换为真正的换行符再交给 Slate 渲染。
-	// 使用文本分隔符而非控制字符，避免未知的转义行为。
-	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("'<<<SEP>>>'.join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
-	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
-
-	if (Py->ExecPythonCommandEx(PythonCmd))
-	{
-		CachedLogText = PythonCmd.CommandResult;
-		CachedLogText.ReplaceInline(TEXT("<<<SEP>>>"), TEXT("\n"));
-		Invalidate(EInvalidateWidgetReason::Layout);
-	}
 }
 
 FText SArtifexNexusPanel::GetServerStatusText() const
@@ -425,9 +330,11 @@ FReply SArtifexNexusPanel::OnStopServer()
 	UE_LOG(LogArtifexPanel, Log, TEXT("[ArtifexNexus] Manual stop MCP server..."));
 
 	// 使用 EvaluateStatement 模式调用 Python API —
+	// 直接从 ue_mcp_server 导入（not init_unreal → __main__ alias），
+	// 避免 UE startup script 的 __main__ 命名空间争议。
 	// stop_mcp_server() 内部已处理桥接关闭、状态同步和日志。
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("__import__('init_unreal').stop_mcp_server()");
+	PythonCmd.Command = TEXT("__import__('ue_mcp_server').stop_mcp_server()");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 	Py->ExecPythonCommandEx(PythonCmd);
 

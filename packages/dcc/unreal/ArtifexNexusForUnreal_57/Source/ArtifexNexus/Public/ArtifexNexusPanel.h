@@ -7,8 +7,6 @@
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Containers/Ticker.h"
 
-class SScrollBox;
-
 class SArtifexNexusPanel : public SCompoundWidget
 {
 public:
@@ -19,7 +17,6 @@ public:
 
 private:
 	void RefreshStatusUI();
-	void RefreshLogDisplay();
 
 	FReply OnStartServer();
 	FReply OnStopServer();
@@ -28,19 +25,12 @@ private:
 	FText GetServerStatusText() const;
 	FText GetGatewayStatusText() const;
 	FText GetTriggerButtonText() const;
-	FText GetPanelLogText() const { return FText::FromString(CachedLogText); }
 
 	class UArtifexNexusSubsystem* Subsystem = nullptr;
-
-	/** Cached log text from Python PanelLogger */
-	FString CachedLogText;
 
 	/** Cached gateway connection status */
 	bool bGatewayConnected = false;
 	int32 GatewayClientCount = 0;
-
-	/** Ticker handle for periodic log refresh */
-	FTSTicker::FDelegateHandle LogRefreshHandle;
 
 	/** Ticker handle for periodic status refresh (gateway connection) */
 	FTSTicker::FDelegateHandle StatusRefreshHandle;
