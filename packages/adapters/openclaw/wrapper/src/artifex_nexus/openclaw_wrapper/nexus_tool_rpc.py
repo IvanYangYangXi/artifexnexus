@@ -809,6 +809,18 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
 
         target_dccs = [e.dcc.lower() for e in (ntd.software or [])]
         is_general = "general" in target_dccs or not target_dccs
+
+        # 多 DCC 标记警告（保守策略：只发到第一个）
+        non_general_dccs = [d for d in target_dccs if d != "general"]
+        warn_multi_dcc: Optional[str] = None
+        if len(non_general_dccs) > 1:
+            warn_multi_dcc = (
+                f"该工具标记了多个 DCC ({', '.join(non_general_dccs)})，"
+                f"默认将仅在 {non_general_dccs[0]} 中运行"
+            )
+            logger.warning("[nt-run] multi-dcc tool: dccs=%s, using %s",
+                           non_general_dccs, non_general_dccs[0])
+
         task_id = str(uuid.uuid4())[:12]
         cancel_event = threading.Event()
 
@@ -869,7 +881,11 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
             }
 
         threading.Thread(target=_run, daemon=True, name=f"nexus-tool-run-{task_id}").start()
-        return _ok(req_id, {"task_id": task_id, "status": "started"})
+
+        result: Dict[str, Any] = {"task_id": task_id, "status": "started"}
+        if warn_multi_dcc is not None:
+            result["warning"] = warn_multi_dcc
+        return _ok(req_id, result)
 
     except Exception as e:
         logger.exception("nexus-tool.run failed")
