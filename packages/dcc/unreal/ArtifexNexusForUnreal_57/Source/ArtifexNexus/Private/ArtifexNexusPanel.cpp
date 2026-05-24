@@ -321,17 +321,17 @@ void SArtifexNexusPanel::RefreshLogDisplay()
 		return;
 	}
 
-	// 使用 EvaluateStatement 模式直接获取返回值，不依赖 print()/stdout 重定向。
-	// 关键：绕过 init_unreal 别名（它的 sys.modules 映射可能丢失），直接调用
-	// artifex_nexus_logger.PanelLogger.get_recent()，这是一个真正的 Python 模块。
+	// Python 侧用独特分隔符连接日志行，绕过 EvaluateStatement 转义 \n 的问题。
+	// C++ 侧将分隔符替换为真正的换行符再交给 Slate 渲染。
+	// 使用文本分隔符而非控制字符，避免未知的转义行为。
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("(chr(13)+chr(10)).join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
+	PythonCmd.Command = TEXT("'<<<SEP>>>'.join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 
 	if (Py->ExecPythonCommandEx(PythonCmd))
 	{
 		CachedLogText = PythonCmd.CommandResult;
-		// 触发 Slate 重绘以反映新的日志内容
+		CachedLogText.ReplaceInline(TEXT("<<<SEP>>>"), TEXT("\n"));
 		Invalidate(EInvalidateWidgetReason::Layout);
 	}
 }
