@@ -400,6 +400,7 @@ class MCPServer:
         handlers = {
             "initialize": self._handle_initialize,
             "initialized": self._handle_initialized,
+            "notifications/initialized": self._handle_initialized,
             "ping": self._handle_ping,
             "tools/list": self._handle_tools_list,
             "tools/call": self._handle_tools_call,
