@@ -590,6 +590,15 @@ export async function checkUnrealPluginInstalled(
   });
 }
 
+/** 验证 UE 工程路径是否有效（目录存在 + 含 .uproject） */
+export async function validateUEProjectPath(
+  projectPath: string,
+): Promise<{ valid: boolean; error: string | null }> {
+  return invoke<{ valid: boolean; error: string | null }>("validate_ue_project_path", {
+    projectPath,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------

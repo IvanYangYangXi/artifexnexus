@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, Dial
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath } from "../../ipc/openclaw";
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
 
@@ -127,6 +127,16 @@ const FIXTURE_ITEMS: InstallItem[] = [
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
 const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal_engine: "U", "3ds_max": "3", maya: "M", comfyui: "C" };
+
+// ─── UE 路径清理：去掉尾部多余的 \Plugins 或 \  ─────────────────
+function normalizeProjectPath(raw: string): string {
+  const trimmed = raw.replace(/[\\/]+$/, "");
+  const last = trimmed.split(/[\\/]/).pop() || "";
+  if (last.toLowerCase() === "plugins") {
+    return trimmed.slice(0, trimmed.length - last.length).replace(/[\\/]+$/, "");
+  }
+  return trimmed;
+}
 
 // ─── 子项 localStorage 持久化 ─────────────────────────────────
 
@@ -456,13 +466,22 @@ function InstallerTab() {
         { key: "version", label: "UE 版本号", placeholder: "如 5.7" },
       ]);
       if (!result || !result.projectPath?.trim() || !result.version?.trim()) return;
-      const projectPath = result.projectPath.trim();
+      let projectPath = normalizeProjectPath(result.projectPath.trim());
+
+      // ── 校验：路径必须是有效的 UE 工程根目录（含 .uproject） ──
+      const ipc = await getIpc();
+      const validation = await validateUEProjectPath(projectPath);
+      if (!validation.valid) {
+        addLog(parentId, "error", `路径无效: ${validation.error}`);
+        return;
+      }
+
       const projectName = projectPath.split(/[\\/]/).pop() || "Project";
       const version = result.version.trim();
       const label = `${projectName} (UE ${version})`;
 
       setItems((prev) => prev.map((it) => it.id === parentId ? {
-        ...it, children: [...(it.children || []), { label, version, installPath: `${projectPath}\\Plugins\\`, projectPath, scriptPath: "", state: "not-installed" as const }],
+        ...it, children: [...(it.children || []), { label, version, installPath: projectPath, projectPath, scriptPath: "", state: "not-installed" as const }],
       } : it));
 
       // 异步检测插件是否已安装
@@ -522,7 +541,7 @@ function InstallerTab() {
           const ipc = await getIpc();
           addLog(parentId, "info", `[${label}] 正在卸载...`);
           if (parentId === "unreal_engine") {
-            const r = await uninstallUEPlugin(child.version, child.installPath || "", false);
+            const r = await uninstallUEPlugin(child.version, normalizeProjectPath(child.installPath || ""), false);
             if (r.success) {
               if (r.message && r.message.includes("无需卸载")) {
                 addLog(parentId, "warn", `[${label}] ⚠️ ${r.message}（路径可能不匹配，请检查项目根目录设置）`);
@@ -563,9 +582,12 @@ function InstallerTab() {
     ]);
     if (!result) return;
     const newVersion = result.version?.trim() || child.version;
-    const newInstallPath = result.installPath?.trim() || "";
+    const rawInstallPath = result.installPath?.trim() || "";
     // 重新计算默认路径
-    let computedPath = newInstallPath;
+    let computedPath = rawInstallPath;
+    if (isUE && computedPath) {
+      computedPath = normalizeProjectPath(computedPath);
+    }
     if (!computedPath && newVersion) {
       if (parentId === "blender") computedPath = `%APPDATA%/Blender Foundation/Blender/${newVersion}/scripts/addons/`;
       else if (parentId === "maya") computedPath = `~/Documents/maya/${newVersion}/scripts/`;
@@ -603,7 +625,11 @@ function InstallerTab() {
         if (!child.installPath) {
           throw new Error("请先设置项目根目录（包含 .uproject 的目录）");
         }
-        addLog(parentId, "info", `[${child.label}] 项目路径: ${child.installPath}`);
+        const normalizedPath = normalizeProjectPath(child.installPath);
+        if (normalizedPath !== child.installPath) {
+          addLog(parentId, "info", `[${child.label}] 路径已自动清理（移除尾部 "Plugins"）`);
+        }
+        addLog(parentId, "info", `[${child.label}] 项目路径: ${normalizedPath}`);
 
         // 检查并安装 mcp-bridge
         const bs = await ipc.getMCPBridgeStatus();
@@ -612,7 +638,7 @@ function InstallerTab() {
           await ipc.invoke("openclaw_gateway_mcp_bridge_install");
         }
 
-        const r = await installUEPlugin(child.version, child.installPath, isReinstall);
+        const r = await installUEPlugin(child.version, normalizedPath, isReinstall);
         if (r.success) {
           addLog(parentId, "info", `[${child.label}] ${isReinstall ? "重装" : "安装"}成功 → ${r.target}`);
           setItems((prev) => prev.map((it) => it.id === parentId ? {

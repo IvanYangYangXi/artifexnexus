@@ -407,6 +407,43 @@ pub fn check_ue_plugin_installed(
     }))
 }
 
+/// 验证 UE 工程路径是否有效（目录存在 + 含 .uproject 文件）。
+///
+/// 安装向导在添加 UE 子项时调用，路径不正确则拒绝添加。
+#[tauri::command]
+pub fn validate_ue_project_path(
+    project_path: String,
+) -> Result<serde_json::Value, String> {
+    let path = std::path::Path::new(&project_path);
+
+    if !path.is_dir() {
+        return Ok(serde_json::json!({
+            "valid": false,
+            "error": "目录不存在，请输入有效的工程根目录",
+        }));
+    }
+
+    // 检查是否有 .uproject 文件
+    let has_uproject = match std::fs::read_dir(path) {
+        Ok(entries) => entries.filter_map(|e| e.ok()).any(|e| {
+            e.path().extension().map_or(false, |ext| ext == "uproject")
+        }),
+        Err(_) => false,
+    };
+
+    if !has_uproject {
+        return Ok(serde_json::json!({
+            "valid": false,
+            "error": "未找到 .uproject 文件，请输入 UE 工程根目录（包含 .uproject 的目录）",
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "valid": true,
+        "error": null,
+    }))
+}
+
 /// 部署 mcp-bridge 插件到 OpenClaw plugins 目录。
 ///
 /// STORY-0028 M2：Gateway MCP Bridge 插件。
