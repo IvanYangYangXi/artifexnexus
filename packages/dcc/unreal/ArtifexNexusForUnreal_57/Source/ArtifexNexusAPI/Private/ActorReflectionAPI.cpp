@@ -10,52 +10,12 @@
 #include "Components/ActorComponent.h"
 #include "EngineUtils.h"
 #include "UObject/UnrealType.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
+#include "Utils/JsonHelpers.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
 #include "ScopedTransaction.h"
 #endif
-
-namespace
-{
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
-
-	TSharedPtr<FJsonObject> ParseJsonArgsString(const FString& ArgsJson, FString& OutError)
-	{
-		if (ArgsJson.IsEmpty())
-		{
-			return MakeShareable(new FJsonObject); // Empty but valid
-		}
-
-		TSharedPtr<FJsonObject> JsonObject;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ArgsJson);
-		
-		if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
-		{
-			OutError = TEXT("Invalid JSON format in arguments");
-			return nullptr;
-		}
-
-		return JsonObject;
-	}
-}
 
 UWorld* UActorReflectionAPI::FindWorldByType(const FString& WorldType)
 {
@@ -323,28 +283,28 @@ FString UActorReflectionAPI::CallFunction(const FString& ActorName, const FStrin
 {
 	if (ActorName.IsEmpty() || FunctionName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("ActorName and FunctionName are required"));
+		return ArtifexNexusJson::MakeError(TEXT("ActorName and FunctionName are required"));
 	}
 
 	FString Error;
 	UObject* TargetObject = ResolveTargetObject(ActorName, WorldType, Error);
 	if (!TargetObject)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Find the UFunction
 	UFunction* Function = TargetObject->FindFunction(*FunctionName);
 	if (!Function)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Function '%s' not found on '%s'"), *FunctionName, *TargetObject->GetClass()->GetName()));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Function '%s' not found on '%s'"), *FunctionName, *TargetObject->GetClass()->GetName()));
 	}
 
 	// Parse arguments
-	TSharedPtr<FJsonObject> FuncArgs = ParseJsonArgsString(ArgsJson, Error);
+	TSharedPtr<FJsonObject> FuncArgs = ArtifexNexusJson::Parse(ArgsJson, Error);
 	if (!FuncArgs)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Allocate parameter memory
@@ -372,7 +332,7 @@ FString UActorReflectionAPI::CallFunction(const FString& ActorName, const FStrin
 				{
 					CleanupIt->DestroyValue(CleanupIt->ContainerPtrToValuePtr<void>(ParamBuffer.GetData()));
 				}
-				return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to set parameter '%s': %s"), *PropName, *Error));
+				return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to set parameter '%s': %s"), *PropName, *Error));
 			}
 		}
 	}
@@ -408,21 +368,21 @@ FString UActorReflectionAPI::CallFunction(const FString& ActorName, const FStrin
 	}
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("call-function: %s::%s"), *TargetObject->GetName(), *FunctionName);
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UActorReflectionAPI::GetProperty(const FString& TargetPath, const FString& PropertyPath, const FString& WorldType)
 {
 	if (TargetPath.IsEmpty() || PropertyPath.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("TargetPath and PropertyPath are required"));
+		return ArtifexNexusJson::MakeError(TEXT("TargetPath and PropertyPath are required"));
 	}
 
 	FString Error;
 	UObject* TargetObject = ResolveTargetObject(TargetPath, WorldType, Error);
 	if (!TargetObject)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	UObject* FinalObject = nullptr;
@@ -430,14 +390,14 @@ FString UActorReflectionAPI::GetProperty(const FString& TargetPath, const FStrin
 	FProperty* Property = ResolvePropertyPath(TargetObject, PropertyPath, FinalObject, Container, Error);
 	if (!Property)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Serialize property value
 	TSharedPtr<FJsonValue> SerializedValue = FPropertySerializer::SerializePropertyValue(Property, Container, FinalObject);
 	if (!SerializedValue.IsValid())
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to serialize property value"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to serialize property value"));
 	}
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
@@ -448,21 +408,21 @@ FString UActorReflectionAPI::GetProperty(const FString& TargetPath, const FStrin
 	Result->SetField(TEXT("value"), SerializedValue);
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("get-property: %s.%s"), *TargetPath, *PropertyPath);
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UActorReflectionAPI::SetProperty(const FString& TargetPath, const FString& PropertyPath, const FString& ValueJson, const FString& WorldType)
 {
 	if (TargetPath.IsEmpty() || PropertyPath.IsEmpty() || ValueJson.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("TargetPath, PropertyPath, and ValueJson are required"));
+		return ArtifexNexusJson::MakeError(TEXT("TargetPath, PropertyPath, and ValueJson are required"));
 	}
 
 	FString Error;
 	UObject* TargetObject = ResolveTargetObject(TargetPath, WorldType, Error);
 	if (!TargetObject)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	UObject* FinalObject = nullptr;
@@ -470,7 +430,7 @@ FString UActorReflectionAPI::SetProperty(const FString& TargetPath, const FStrin
 	FProperty* Property = ResolvePropertyPath(TargetObject, PropertyPath, FinalObject, Container, Error);
 	if (!Property)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Parse value JSON — support both bare values (false, 42, "hello") and JSON objects/arrays
@@ -489,7 +449,7 @@ FString UActorReflectionAPI::SetProperty(const FString& TargetPath, const FStrin
 			}
 			if (!JsonValue.IsValid())
 			{
-				return ArtifexNexusMakeError(TEXT("Invalid JSON format in ValueJson"));
+				return ArtifexNexusJson::MakeError(TEXT("Invalid JSON format in ValueJson"));
 			}
 		}
 	}
@@ -508,7 +468,7 @@ FString UActorReflectionAPI::SetProperty(const FString& TargetPath, const FStrin
 	// Set property value
 	if (!FPropertySerializer::DeserializePropertyValue(Property, Container, JsonValue, Error))
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to set property: %s"), *Error));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to set property: %s"), *Error));
 	}
 
 #if WITH_EDITOR
@@ -528,5 +488,5 @@ FString UActorReflectionAPI::SetProperty(const FString& TargetPath, const FStrin
 	Result->SetStringField(TEXT("value"), ValueJson);
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("set-property: %s.%s = %s"), *TargetPath, *PropertyPath, *ValueJson);
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }

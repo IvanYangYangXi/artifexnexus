@@ -5,9 +5,7 @@
 #include "GameplayAbilityAPI.h"
 #include "ArtifexNexusAPI.h"
 #include "Utils/AssetModifier.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
+#include "Utils/JsonHelpers.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Modules/ModuleManager.h"
 #include "Engine/AssetManager.h"
@@ -32,22 +30,6 @@
 
 namespace
 {
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		UE_LOG(LogArtifexNexusAPI, Warning, TEXT("GameplayAbilityAPI Error: %s"), *Msg);
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
 
 	FString ArtifexNexusMakeSuccess(const TSharedPtr<FJsonObject>& Data = nullptr)
 	{
@@ -57,7 +39,7 @@ namespace
 		{
 			Obj->SetObjectField(TEXT("data"), Data);
 		}
-		return ArtifexNexusJsonToString(Obj);
+		return ArtifexNexusJson::ToString(Obj);
 	}
 
 	bool IsGASModuleLoaded()
@@ -165,7 +147,7 @@ FString UGameplayAbilityAPI::CreateGameplayAbility(const FString& AssetPath, con
 {
 	if (!IsGASModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
 	}
 
 #if WITH_GAMEPLAY_ABILITIES
@@ -174,7 +156,7 @@ FString UGameplayAbilityAPI::CreateGameplayAbility(const FString& AssetPath, con
 	if (!FPackageName::TryConvertLongPackageNameToFilename(AssetPath, PackagePath) || 
 		!AssetPath.Split(TEXT("/"), &PackagePath, &AssetName, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
 	}
 
 	// Find parent class
@@ -184,7 +166,7 @@ FString UGameplayAbilityAPI::CreateGameplayAbility(const FString& AssetPath, con
 		ParentClassObj = FindFirstObject<UClass>(*ParentClass, EFindFirstObjectOptions::None);
 		if (!ParentClassObj || !ParentClassObj->IsChildOf<UGameplayAbility>())
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid parent class: %s"), *ParentClass));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid parent class: %s"), *ParentClass));
 		}
 	}
 
@@ -196,13 +178,13 @@ FString UGameplayAbilityAPI::CreateGameplayAbility(const FString& AssetPath, con
 	UPackage* Package = CreatePackage(*AssetPath);
 	if (!Package)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
 	}
 
 	UBlueprint* NewBlueprint = Cast<UBlueprint>(AssetTools.CreateAsset(AssetName, PackagePath, UBlueprint::StaticClass(), BlueprintFactory));
 	if (!NewBlueprint)
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to create Gameplay Ability Blueprint"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to create Gameplay Ability Blueprint"));
 	}
 
 	// Compile and save
@@ -221,7 +203,7 @@ FString UGameplayAbilityAPI::CreateGameplayAbility(const FString& AssetPath, con
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("GameplayAbilityAPI: Created Gameplay Ability %s"), *AssetPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Gameplay Ability System support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System support not compiled in this build"));
 #endif
 }
 
@@ -229,7 +211,7 @@ FString UGameplayAbilityAPI::CreateGameplayEffect(const FString& AssetPath)
 {
 	if (!IsGASModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
 	}
 
 #if WITH_GAMEPLAY_ABILITIES
@@ -238,14 +220,14 @@ FString UGameplayAbilityAPI::CreateGameplayEffect(const FString& AssetPath)
 	if (!FPackageName::TryConvertLongPackageNameToFilename(AssetPath, PackagePath) || 
 		!AssetPath.Split(TEXT("/"), &PackagePath, &AssetName, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
 	}
 
 	// Create new Gameplay Effect
 	UGameplayEffect* NewEffect = NewObject<UGameplayEffect>(GetTransientPackage(), UGameplayEffect::StaticClass());
 	if (!NewEffect)
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to create Gameplay Effect object"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to create Gameplay Effect object"));
 	}
 
 	// Set default values
@@ -254,7 +236,7 @@ FString UGameplayAbilityAPI::CreateGameplayEffect(const FString& AssetPath)
 	UPackage* Package = CreatePackage(*AssetPath);
 	if (!Package)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
 	}
 
 	NewEffect->Rename(*AssetName, Package);
@@ -271,7 +253,7 @@ FString UGameplayAbilityAPI::CreateGameplayEffect(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("GameplayAbilityAPI: Created Gameplay Effect %s"), *AssetPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Gameplay Ability System support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System support not compiled in this build"));
 #endif
 }
 
@@ -279,7 +261,7 @@ FString UGameplayAbilityAPI::SetGEModifier(const FString& AssetPath, const FStri
 {
 	if (!IsGASModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
 	}
 
 #if WITH_GAMEPLAY_ABILITIES
@@ -287,7 +269,7 @@ FString UGameplayAbilityAPI::SetGEModifier(const FString& AssetPath, const FStri
 	UGameplayEffect* GameplayEffect = LoadGameplayEffect(AssetPath, Error);
 	if (!GameplayEffect)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Create new modifier
@@ -317,7 +299,7 @@ FString UGameplayAbilityAPI::SetGEModifier(const FString& AssetPath, const FStri
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("GameplayAbilityAPI: Added modifier to %s: %s %s %f"), *AssetPath, *Attribute, *ModOp, Value);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Gameplay Ability System support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System support not compiled in this build"));
 #endif
 }
 
@@ -325,7 +307,7 @@ FString UGameplayAbilityAPI::QueryAbilityInfo(const FString& AssetPath)
 {
 	if (!IsGASModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
 	}
 
 #if WITH_GAMEPLAY_ABILITIES
@@ -333,7 +315,7 @@ FString UGameplayAbilityAPI::QueryAbilityInfo(const FString& AssetPath)
 	UBlueprint* Blueprint = LoadAbilityBlueprint(AssetPath, Error);
 	if (!Blueprint)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -361,7 +343,7 @@ FString UGameplayAbilityAPI::QueryAbilityInfo(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("GameplayAbilityAPI: Queried Ability %s"), *AssetPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Gameplay Ability System support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System support not compiled in this build"));
 #endif
 }
 
@@ -369,7 +351,7 @@ FString UGameplayAbilityAPI::QueryEffectInfo(const FString& AssetPath)
 {
 	if (!IsGASModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System modules not loaded. Enable GameplayAbilities plugin in project settings."));
 	}
 
 #if WITH_GAMEPLAY_ABILITIES
@@ -377,7 +359,7 @@ FString UGameplayAbilityAPI::QueryEffectInfo(const FString& AssetPath)
 	UGameplayEffect* GameplayEffect = LoadGameplayEffect(AssetPath, Error);
 	if (!GameplayEffect)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -423,6 +405,6 @@ FString UGameplayAbilityAPI::QueryEffectInfo(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("GameplayAbilityAPI: Queried Effect %s with %d modifiers"), *AssetPath, GameplayEffect->Modifiers.Num());
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Gameplay Ability System support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Gameplay Ability System support not compiled in this build"));
 #endif
 }

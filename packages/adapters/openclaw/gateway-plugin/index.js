@@ -17,7 +17,7 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// packages/adapters/openclaw/gateway-plugin/src/index.ts
+// src/index.ts
 var src_exports = {};
 __export(src_exports, {
   default: () => src_default
@@ -36,6 +36,7 @@ function parseJsonRpcResponse(data) {
   try {
     return JSON.parse(data);
   } catch {
+    console.warn(`[mcp-bridge] JSON parse failed (raw length=${data.length}, first 200 chars: ${data.slice(0, 200)})`);
     return null;
   }
 }
@@ -52,6 +53,8 @@ var McpWebSocketClient = class {
   reconnectAttempts = 0;
   reconnectDelay = 5e3;
   maxReconnectDelay = 3e4;
+  // 重连日志抑制：避免 MCP server 长时间不可用时刷屏
+  // 前 3 次正常打印 INFO/ERROR，之后降级为 DEBUG 级别
   logSuppressThreshold = 3;
   pingInterval = null;
   pingIntervalMs = 15e3;
@@ -107,10 +110,13 @@ var McpWebSocketClient = class {
             this.pendingRequests.delete(response.id);
             if (response.error) {
               const errMsg = response.error.message || JSON.stringify(response.error);
+              this.logger.warn(`[mcp-bridge] RPC error from ${this.name}: id=${response.id} error=${errMsg}`);
               handlers.reject(new Error(`MCP error: ${errMsg}`));
             } else {
               handlers.resolve(response.result);
             }
+          } else if (response && response.id) {
+            this.logger.debug(`[mcp-bridge] unmatched response ${this.name}: id=${response.id} (no pending handler)`);
           }
         };
         this.ws.onclose = () => {
@@ -290,11 +296,23 @@ function src_default(api) {
     logger.warn(`[mcp-bridge] File read failed (${e.message}), using api.config`);
   }
   const servers = pluginConfig.servers || {};
+  const DEFAULT_DCC_SERVERS = {
+    "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083", enabled: true },
+    "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true }
+  };
+  let configPatched = false;
+  for (const [name, def] of Object.entries(DEFAULT_DCC_SERVERS)) {
+    if (!servers[name]) {
+      servers[name] = { ...def };
+      configPatched = true;
+      logger.info(`[mcp-bridge] Auto-added missing server "${name}" (url=${def.url})`);
+    }
+  }
   const serversSummary = Object.entries(servers).map(
     ([k, v]) => `${k}:enabled=${v.enabled}`
   );
   logger.info(
-    `[mcp-bridge] Config source: ${configSource}, servers: [${serversSummary.join(", ")}]`
+    `[mcp-bridge] Config source: ${configSource}, servers: [${serversSummary.join(", ")}]` + (configPatched ? " (auto-repaired)" : "")
   );
   const serverClients = /* @__PURE__ */ new Map();
   for (const [serverName, serverDef] of Object.entries(servers)) {
@@ -303,6 +321,7 @@ function src_default(api) {
       continue;
     }
     if (serverDef.type !== "websocket" || !serverDef.url) {
+      logger.warn(`[mcp-bridge] Server "${serverName}" has invalid config: type=${serverDef.type} url=${serverDef.url || "(empty)"}, skipping`);
       continue;
     }
     serverClients.set(serverName, null);
@@ -317,6 +336,20 @@ function src_default(api) {
           properties: {
             code: { type: "string", description: "\u8981\u6267\u884C\u7684 Python \u4EE3\u7801" },
             get_context: { type: "boolean", description: "\u8BBE\u4E3A true \u65F6\u76F4\u63A5\u8FD4\u56DE\u7F16\u8F91\u5668\u4E0A\u4E0B\u6587\uFF08\u8F6F\u4EF6/\u7248\u672C/\u9009\u4E2D\u5BF9\u8C61/\u573A\u666F\uFF09\uFF0C\u65E0\u9700\u63D0\u4F9B code", default: false }
+          },
+          required: []
+        }
+      }
+    ],
+    "unreal-editor": [
+      {
+        name: "run_python",
+        description: "Execute Python code in the Unreal Editor environment. The code runs with full access to the `unreal` module and editor APIs. Pre-injected variables: S (selected actors), W (editor world), L (unreal module). All operations are wrapped in an undo transaction (Ctrl+Z to revert). Dangerous operations (os.system, subprocess, etc.) are blocked by the security scanner.\n\nQuick context: set get_context=true (no code needed) to get editor state: active_panel (viewport/content_browser), selected (items from the active panel), selected_source, viewport_selection_count, content_browser_selection_count, mode, total_actors, level_name. The 'selected' field automatically contains viewport actors or content browser assets based on which panel the user was last interacting with.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "Python code to execute in Unreal Editor" },
+            get_context: { type: "boolean", description: "Set to true to return editor context without executing code", default: false }
           },
           required: []
         }
@@ -337,6 +370,7 @@ function src_default(api) {
           async execute(_id, params) {
             const client = serverClients.get(serverName);
             if (!client || !client.connected) {
+              logger.warn(`[mcp-bridge] tool called against disconnected server: ${serverName}/${tool.name}`);
               return {
                 content: [
                   {
@@ -348,21 +382,28 @@ function src_default(api) {
               };
             }
             try {
+              const startedAt = Date.now();
+              const paramsSize = JSON.stringify(params).length;
+              logger.info(`[mcp-bridge] tool execute: ${serverName}/${tool.name} id=${_id} params=${paramsSize}B`);
               client.stats.toolCallCount++;
               const result = await client.callTool(tool.name, params);
+              const latency = Date.now() - startedAt;
               if (result && result.content) {
                 const textParts = result.content.filter((c) => c.type === "text").map((c) => c.text);
+                logger.info(`[mcp-bridge] tool done: ${serverName}/${tool.name} id=${_id} latency=${latency}ms`);
                 return {
                   content: [
                     { type: "text", text: textParts.join("\n") || JSON.stringify(result) }
                   ]
                 };
               }
+              logger.info(`[mcp-bridge] tool done: ${serverName}/${tool.name} id=${_id} latency=${latency}ms (no text content)`);
               return {
                 content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
               };
             } catch (err) {
               client.stats.toolErrorCount++;
+              logger.error(`[mcp-bridge] tool failed: ${serverName}/${tool.name} id=${_id} error=${err.message}`);
               return {
                 content: [
                   {
@@ -415,6 +456,7 @@ function src_default(api) {
   })();
   return {
     async dispose() {
+      logger.info(`[mcp-bridge] dispose: disconnecting ${clients.size} clients`);
       for (const [name, client] of clients) {
         const s = client.stats;
         logger.info(

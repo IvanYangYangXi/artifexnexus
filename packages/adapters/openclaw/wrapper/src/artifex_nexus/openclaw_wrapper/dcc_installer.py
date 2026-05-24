@@ -574,6 +574,76 @@ def find_ue_versions() -> List[str]:
     return sorted(versions, reverse=True)
 
 
+def _diagnose_ue_python_readiness(target_dir: Path):
+    """安装后诊断：检查 UE 插件 Python 运行时依赖的就绪状态。
+
+    不执行实际的 pip install（UE 未启动），仅做目录结构 + 文件验证。
+    输出诊断信息到日志，帮助用户在首次启动前了解依赖状态。
+    """
+    python_dir = target_dir / "Content" / "Python"
+    lib_dir = python_dir / "Lib"
+    init_script = python_dir / "init_unreal.py"
+
+    diagnostics = []
+    status_ok = True
+
+    # 1. 检查 init_unreal.py
+    if init_script.is_file():
+        diagnostics.append(f"  init_unreal.py: OK ({init_script.stat().st_size} bytes)")
+    else:
+        diagnostics.append(f"  init_unreal.py: MISSING (插件启动入口缺失！)")
+        status_ok = False
+
+    # 2. 检查 ue_mcp_server.py
+    mcp_script = python_dir / "ue_mcp_server.py"
+    if mcp_script.is_file():
+        diagnostics.append(f"  ue_mcp_server.py: OK")
+    else:
+        diagnostics.append(f"  ue_mcp_server.py: MISSING")
+        status_ok = False
+
+    # 3. 检查 Lib/ 目录
+    if lib_dir.is_dir():
+        # 统计已安装的包
+        installed_pkgs = []
+        for item in lib_dir.iterdir():
+            if item.is_dir() and item.name not in ("__pycache__",):
+                # dist-info 目录格式: package-version.dist-info
+                if item.name.endswith(".dist-info"):
+                    pkg_name = item.name.rsplit("-", 1)[0]
+                    installed_pkgs.append(pkg_name)
+                elif not item.name.endswith(".dist-info"):
+                    installed_pkgs.append(item.name)
+
+        if installed_pkgs:
+            diagnostics.append(f"  Lib/ 已安装: {', '.join(installed_pkgs)}")
+        else:
+            diagnostics.append(f"  Lib/: 空（首次启动时自动安装依赖）")
+    else:
+        diagnostics.append(f"  Lib/: 不存在（首次启动时自动创建并安装依赖）")
+
+    # 4. 检查 Lib_bundle/（离线包）
+    bundle_dir = python_dir / "Lib_bundle"
+    if bundle_dir.is_dir():
+        whl_count = len(list(bundle_dir.glob("*.whl")))
+        diagnostics.append(f"  Lib_bundle/: {whl_count} 个离线包")
+    else:
+        diagnostics.append(f"  Lib_bundle/: 不存在（依赖将通过联网安装）")
+
+    logger.info("UE 插件 Python 依赖诊断:")
+    for line in diagnostics:
+        logger.info(line)
+
+    if not status_ok:
+        logger.warning("UE 插件 Python 脚本不完整，首次启动将无法正常工作！")
+    else:
+        logger.info(
+            "诊断通过。首次启动 UE 时，init_unreal.py 会自动检测并安装缺失的 Python 依赖 "
+            "(websockets, pydantic, cryptography, PyYAML)。"
+            "需要联网。如果 UE Python 找不到 pip，会自动通过 ensurepip 引导。"
+        )
+
+
 def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = False) -> Dict:
     """安装 UE 插件到指定项目目录。
 
@@ -664,6 +734,16 @@ def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = Fal
             set_dcc_port("unreal", UE_MCP_DEFAULT_PORT)
         except Exception as e:
             logger.warning("UE MCP Bridge 端口配置更新失败（不阻断安装）: %s", e)
+
+        # 部署 Gateway MCP Bridge 插件文件到 OpenClaw extensions 目录
+        # （确保 index.js / openclaw.plugin.json 为最新版本）
+        try:
+            install_gateway_mcp_bridge()
+        except Exception as e:
+            logger.warning("Gateway MCP Bridge 插件部署失败（不阻断安装）: %s", e)
+
+        # 安装后诊断：检查 Python 运行时依赖就绪状态
+        _diagnose_ue_python_readiness(target_dir)
 
         return {
             "success": True,

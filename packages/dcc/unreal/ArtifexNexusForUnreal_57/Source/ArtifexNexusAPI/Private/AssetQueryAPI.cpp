@@ -6,32 +6,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Utils/PropertySerializer.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
-
-namespace
-{
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		if (!Obj.IsValid())
-		{
-			return TEXT("{}");
-		}
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
-}
+#include "Utils/JsonHelpers.h"
 
 FString UAssetQueryAPI::QueryAsset(const FString& Name, const FString& ClassFilter, const FString& PathFilter, int32 Limit)
 {
@@ -41,7 +16,7 @@ FString UAssetQueryAPI::QueryAsset(const FString& Name, const FString& ClassFilt
 	// Validate input
 	if (Name.IsEmpty() && ClassFilter.IsEmpty() && PathFilter.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("At least one filter parameter (Name, ClassFilter, or PathFilter) must be provided"));
+		return ArtifexNexusJson::MakeError(TEXT("At least one filter parameter (Name, ClassFilter, or PathFilter) must be provided"));
 	}
 
 	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
@@ -151,7 +126,7 @@ FString UAssetQueryAPI::QueryAsset(const FString& Name, const FString& ClassFilt
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("QueryAsset: Found %d assets (total matching: %d)"), Count, TotalMatching);
 	
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UAssetQueryAPI::FindReferences(const FString& AssetPath, bool bReferencedBy)
@@ -160,7 +135,7 @@ FString UAssetQueryAPI::FindReferences(const FString& AssetPath, bool bReference
 
 	if (AssetPath.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("AssetPath parameter is required"));
+		return ArtifexNexusJson::MakeError(TEXT("AssetPath parameter is required"));
 	}
 
 	// Get package name from asset path
@@ -219,7 +194,7 @@ FString UAssetQueryAPI::FindReferences(const FString& AssetPath, bool bReference
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("FindReferences: Found %d references"), ReferencesArray.Num());
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UAssetQueryAPI::ClassHierarchy(const FString& ClassName, const FString& Direction, int32 MaxDepth)
@@ -228,14 +203,14 @@ FString UAssetQueryAPI::ClassHierarchy(const FString& ClassName, const FString& 
 
 	if (ClassName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("ClassName parameter is required"));
+		return ArtifexNexusJson::MakeError(TEXT("ClassName parameter is required"));
 	}
 
 	// Validate direction
 	FString Dir = Direction.ToLower();
 	if (Dir != TEXT("ancestors") && Dir != TEXT("descendants") && Dir != TEXT("both"))
 	{
-		return ArtifexNexusMakeError(TEXT("Direction must be 'ancestors', 'descendants', or 'both'"));
+		return ArtifexNexusJson::MakeError(TEXT("Direction must be 'ancestors', 'descendants', or 'both'"));
 	}
 
 	// Resolve class
@@ -243,7 +218,7 @@ FString UAssetQueryAPI::ClassHierarchy(const FString& ClassName, const FString& 
 	UClass* ResolvedClass = FPropertySerializer::ResolveClass(ClassName, ClassError);
 	if (!ResolvedClass)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Could not resolve class '%s': %s"), *ClassName, *ClassError));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Could not resolve class '%s': %s"), *ClassName, *ClassError));
 	}
 
 	// Build result
@@ -262,7 +237,7 @@ FString UAssetQueryAPI::ClassHierarchy(const FString& ClassName, const FString& 
 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("ClassHierarchy: Generated hierarchy for '%s'"), *ResolvedClass->GetName());
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 bool UAssetQueryAPI::MatchesWildcard(const FString& Text, const FString& Pattern)

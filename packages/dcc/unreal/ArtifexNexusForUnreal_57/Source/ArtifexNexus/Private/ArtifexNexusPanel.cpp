@@ -226,7 +226,6 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 							.IsReadOnly(true)
 							.AutoWrapText(true)
 							.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
-							.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.9f))
 						]
 					]
 				]

@@ -7,9 +7,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
 
 // AI includes
 #include "BehaviorTree/BehaviorTree.h"
@@ -29,26 +26,10 @@
 #include "BehaviorTree/Blackboard/BlackboardKeyType_Enum.h"
 #include "BehaviorTree/Blackboard/BlackboardKeyType_Class.h"
 #include "BehaviorTree/BlackboardData.h"
+#include "Utils/JsonHelpers.h"
 
 namespace
 {
-    FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& JsonObject)
-    {
-        if (!JsonObject.IsValid()) return TEXT("{}");
-        
-        FString OutputString;
-        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-        FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
-        return OutputString;
-    }
-
-    FString ArtifexNexusMakeError(const FString& Message)
-    {
-        TSharedPtr<FJsonObject> ErrorJson = MakeShareable(new FJsonObject);
-        ErrorJson->SetBoolField(TEXT("success"), false);
-        ErrorJson->SetStringField(TEXT("error"), Message);
-        return ArtifexNexusJsonToString(ErrorJson);
-    }
 
     FString ArtifexNexusMakeSuccess(const FString& Data = TEXT(""))
     {
@@ -58,7 +39,7 @@ namespace
         {
             SuccessJson->SetStringField(TEXT("data"), Data);
         }
-        return ArtifexNexusJsonToString(SuccessJson);
+        return ArtifexNexusJson::ToString(SuccessJson);
     }
 
     UBehaviorTree* LoadBehaviorTree(const FString& AssetPath)
@@ -176,7 +157,7 @@ FString UBehaviorTreeAPI::QueryBehaviorTree(const FString& AssetPath)
     UBehaviorTree* BehaviorTree = LoadBehaviorTree(AssetPath);
     if (!BehaviorTree)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load Behavior Tree: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load Behavior Tree: %s"), *AssetPath));
     }
 
     TSharedPtr<FJsonObject> InfoJson = MakeShareable(new FJsonObject);
@@ -197,7 +178,7 @@ FString UBehaviorTreeAPI::QueryBehaviorTree(const FString& AssetPath)
         InfoJson->SetObjectField(TEXT("rootNode"), RootJson);
     }
 
-    return ArtifexNexusJsonToString(InfoJson);
+    return ArtifexNexusJson::ToString(InfoJson);
 }
 
 FString UBehaviorTreeAPI::AddBTNode(const FString& AssetPath, const FString& ParentNodeIndex, const FString& NodeClass, const FString& PropertiesJson)
@@ -207,7 +188,7 @@ FString UBehaviorTreeAPI::AddBTNode(const FString& AssetPath, const FString& Par
     UBehaviorTree* BehaviorTree = LoadBehaviorTree(AssetPath);
     if (!BehaviorTree)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load Behavior Tree: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load Behavior Tree: %s"), *AssetPath));
     }
 
     // Find node class
@@ -221,7 +202,7 @@ FString UBehaviorTreeAPI::AddBTNode(const FString& AssetPath, const FString& Par
 
     if (!NodeClassObj || !NodeClassObj->IsChildOf(UBTNode::StaticClass()))
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid or unknown node class: %s"), *NodeClass));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid or unknown node class: %s"), *NodeClass));
     }
 
     // For now, return success as adding nodes programmatically requires editor-only APIs
@@ -239,12 +220,12 @@ FString UBehaviorTreeAPI::AddBlackboardKey(const FString& AssetPath, const FStri
     UBlackboardData* BlackboardData = LoadBlackboardData(AssetPath);
     if (!BlackboardData)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load Blackboard: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load Blackboard: %s"), *AssetPath));
     }
 
     if (KeyName.IsEmpty())
     {
-        return ArtifexNexusMakeError(TEXT("KeyName cannot be empty"));
+        return ArtifexNexusJson::MakeError(TEXT("KeyName cannot be empty"));
     }
 
     // Check if key already exists
@@ -252,7 +233,7 @@ FString UBehaviorTreeAPI::AddBlackboardKey(const FString& AssetPath, const FStri
     {
         if (Entry.EntryName.ToString() == KeyName)
         {
-            return ArtifexNexusMakeError(FString::Printf(TEXT("Key already exists: %s"), *KeyName));
+            return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Key already exists: %s"), *KeyName));
         }
     }
 
@@ -260,7 +241,7 @@ FString UBehaviorTreeAPI::AddBlackboardKey(const FString& AssetPath, const FStri
     UBlackboardKeyType* KeyTypeObj = CreateKeyType(KeyType);
     if (!KeyTypeObj)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Unsupported key type: %s"), *KeyType));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Unsupported key type: %s"), *KeyType));
     }
 
     // Add key to blackboard
@@ -282,7 +263,7 @@ FString UBehaviorTreeAPI::QueryBlackboard(const FString& AssetPath)
     UBlackboardData* BlackboardData = LoadBlackboardData(AssetPath);
     if (!BlackboardData)
     {
-        return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load Blackboard: %s"), *AssetPath));
+        return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load Blackboard: %s"), *AssetPath));
     }
 
     TSharedPtr<FJsonObject> InfoJson = MakeShareable(new FJsonObject);
@@ -316,5 +297,5 @@ FString UBehaviorTreeAPI::QueryBlackboard(const FString& AssetPath)
     InfoJson->SetArrayField(TEXT("keys"), KeysArray);
     InfoJson->SetNumberField(TEXT("keyCount"), BlackboardData->Keys.Num());
 
-    return ArtifexNexusJsonToString(InfoJson);
+    return ArtifexNexusJson::ToString(InfoJson);
 }

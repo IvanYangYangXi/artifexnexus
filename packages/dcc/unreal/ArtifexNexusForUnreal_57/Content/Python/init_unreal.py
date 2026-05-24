@@ -243,15 +243,19 @@ def _install_exception_hook():
 # ============================================================================
 
 # 必需依赖：安装失败则阻止插件功能
+# 版本号固定策略：有界区间（>=min,<next-major），避免自动升级到不兼容大版本
+# - websockets 12.x: 纯 Python，12.0 是当前稳定主线
+# - pydantic 2.x: 2.10+ 已验证兼容 Python 3.11（UE 5.7）
+# - cryptography 44-48.x: ABI 稳定，cffi 绑定，跨小版本兼容
 _REQUIRED_PACKAGES = [
-    ("websockets", "websockets>=12.0"),
-    ("pydantic", "pydantic>=2.0"),
-    ("cryptography", "cryptography>=46.0"),
+    ("websockets", "websockets>=12.0,<13.0"),
+    ("pydantic", "pydantic>=2.10,<3.0"),
+    ("cryptography", "cryptography>=44.0,<49.0"),
 ]
 
 # 可选依赖：安装失败不影响核心功能
 _OPTIONAL_PACKAGES = [
-    ("yaml", "PyYAML>=6.0"),
+    ("yaml", "PyYAML>=6.0.3,<7.0"),
 ]
 
 
@@ -424,6 +428,91 @@ def _find_ue_python_executable() -> str:
     return ""
 
 
+def _bootstrap_pip(python_exe: str) -> bool:
+    """
+    引导安装 pip（UE 内嵌 Python 默认不含 pip，需 ensurepip）。
+
+    确保引导后 pip 真正可用（二次验证）。
+
+    Returns:
+        True 如果 pip 可用（含引导成功）
+    """
+    import subprocess
+
+    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+    def _run(args, timeout=60):
+        proc = subprocess.Popen(
+            [python_exe] + args,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=creationflags,
+        )
+        try:
+            _, stderr_bytes = proc.communicate(timeout=timeout)
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            return -1, "timeout"
+        return proc.returncode, stderr_str
+
+    # Step 1: 检查 pip 是否已可用
+    rc, _ = _run(["-m", "pip", "--version"], timeout=30)
+    if rc == 0:
+        return True  # pip 已就绪
+
+    # Step 2: ensurepip 引导
+    PanelLogger.emit("PIP", "pip 未安装，正在通过 ensurepip 引导...")
+    UELogger.info("Running ensurepip --default-pip ...")
+    rc, stderr = _run(["-m", "ensurepip", "--default-pip", "--upgrade"], timeout=180)
+    if rc != 0:
+        PanelLogger.emit("PIP", f"ensurepip 引导失败 (code={rc})", _UELogLevel.ERROR)
+        UELogger.error(f"ensurepip failed (code={rc}): {stderr}")
+        # 尝试不用 --upgrade 再引导一次（某些 UE Python 不支持 upgrade 参数）
+        UELogger.info("Retrying ensurepip without --upgrade ...")
+        rc2, stderr2 = _run(["-m", "ensurepip", "--default-pip"], timeout=180)
+        if rc2 != 0:
+            UELogger.error(f"ensurepip retry also failed (code={rc2}): {stderr2}")
+            return False
+
+    # Step 3: 验证 pip 真的可用
+    rc, _ = _run(["-m", "pip", "--version"], timeout=30)
+    if rc == 0:
+        PanelLogger.emit("PIP", "pip 引导完成")
+        UELogger.info("pip bootstrapped and verified")
+        return True
+
+    PanelLogger.emit("PIP", "pip 引导后仍不可用", _UELogLevel.ERROR)
+    UELogger.error("pip --version failed after ensurepip")
+    return False
+
+
+_PIP_ERROR_GUIDANCE = {
+    "certificate verify failed": (
+        "SSL 证书验证失败。可能原因: 公司代理 / 防火墙 / 系统 CA 证书未更新。"
+        "临时绕过（不推荐）: pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org ..."
+    ),
+    "Could not fetch URL": (
+        "无法连接 PyPI。请检查: ① 网络连接 ② 是否需配置代理 "
+        "(set HTTP_PROXY=https://proxy:port)。"
+    ),
+    "No matching distribution found": (
+        "指定版本的包在 PyPI 上找不到。可能是 Python 版本不兼容 "
+        "或版本号有误。当前 UE Python: {py_ver}。"
+    ),
+    "Permission denied": (
+        "写入 Lib 目录权限不足。请检查: {target_dir} 的写入权限。"
+    ),
+    "No module named ensurepip": (
+        "UE Python 未包含 ensurepip 模块（可能被裁剪过）。"
+        "请手动安装 pip 后再重试。"
+    ),
+    "externally-managed-environment": (
+        "UE Python 标记为 externally-managed。pip install 需加 --break-system-packages。"
+    ),
+}
+
+
 def _pip_install(package_spec: str, target_dir: str) -> bool:
     """
     使用 pip install --target 安装包到指定目录。
@@ -439,8 +528,8 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
     python_exe = _find_ue_python_executable()
     if not python_exe:
         UELogger.error(
-            f"Cannot find UE Python executable for pip install. "
-            f"Please manually install: pip install --target \"{target_dir}\" {package_spec}"
+            f"Cannot find UE Python executable. "
+            f"Manual command: pip install --target \"{target_dir}\" {package_spec}"
         )
         return False
 
@@ -449,12 +538,14 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
     if "unreal" in exe_basename or "editor" in exe_basename:
         UELogger.error(
             f"Detected UnrealEditor as python executable ({python_exe}), aborting pip install. "
-            f"Please manually install: pip install --target \"{target_dir}\" {package_spec}"
+            f"Manual command: pip install --target \"{target_dir}\" {package_spec}"
         )
         return False
 
-    # ── 辅助：运行子进程并返回 (returncode, stderr) ──
-    def _run_python(args, timeout=120):
+    UELogger.debug(f"Using Python: {python_exe} (version {sys.version_info.major}.{sys.version_info.minor})")
+
+    # ── 辅助：运行子进程并捕获输出 ──
+    def _run(args, timeout=180, capture_stdout=False):
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         proc = subprocess.Popen(
             [python_exe] + args,
@@ -463,51 +554,68 @@ def _pip_install(package_spec: str, target_dir: str) -> bool:
             creationflags=creationflags,
         )
         try:
-            _, stderr_bytes = proc.communicate(timeout=timeout)
-            stderr_str = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+            out_bytes, err_bytes = proc.communicate(timeout=timeout)
+            out_str = out_bytes.decode("utf-8", errors="replace") if out_bytes else ""
+            err_str = err_bytes.decode("utf-8", errors="replace") if err_bytes else ""
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            return -1, "timeout"
-        return proc.returncode, stderr_str
+            return -1, "", "timeout"
+        result = out_str if capture_stdout else err_str
+        return proc.returncode, result, err_str
 
     # ── Step 1: 确保 pip 可用 ──
-    # UE 内嵌 Python 默认不含 pip，需要 ensurepip 引导
-    pip_check = _run_python(["-m", "pip", "--version"], timeout=30)
-    if pip_check[0] != 0:
-        PanelLogger.emit("PIP", "pip 未安装，正在通过 ensurepip 引导...")
-        rc, stderr = _run_python(["-m", "ensurepip", "--default-pip"], timeout=120)
-        if rc != 0:
-            PanelLogger.emit("PIP", f"ensurepip 失败 (code={rc})", _UELogLevel.ERROR)
-            UELogger.error(f"ensurepip failed (code={rc}): {stderr}")
-            return False
-        PanelLogger.emit("PIP", "pip 引导成功")
-        UELogger.info("pip bootstrapped successfully")
+    if not _bootstrap_pip(python_exe):
+        return False
 
-    # ── Step 2: pip install ──
-    cmd = [
+    # ── Step 2: pip install（带重试） ──
+    cmd_base = [
         "-m", "pip", "install",
         "--target", target_dir,
         "--no-user",
         "--disable-pip-version-check",
         "--no-warn-script-location",
-        package_spec
+        "--retries", "3",
+        "--timeout", "60",
     ]
 
-    PanelLogger.emit("PIP", f"安装依赖: {package_spec}")
+    PanelLogger.emit("PIP", f"安装: {package_spec}")
     UELogger.info(f"Installing: {package_spec} -> {target_dir}")
 
-    rc, stderr = _run_python(cmd, timeout=120)
+    rc, stderr, _ = _run(cmd_base + [package_spec], timeout=180)
+
     if rc == 0:
         PanelLogger.emit("PIP", f"安装成功: {package_spec}")
         UELogger.info(f"Successfully installed: {package_spec}")
         return True
+
+    # ── Step 3: 错误分析与指引 ──
+    combined_err = stderr.strip()
+    PanelLogger.emit("PIP", f"安装失败: {package_spec} (code={rc})", _UELogLevel.ERROR)
+    UELogger.error(f"pip install failed for {package_spec} (code={rc})")
+
+    if combined_err:
+        UELogger.error(f"  stderr: {combined_err[:500]}")
+
+    # 匹配常见错误模式，输出可操作的排查指引
+    guidance = None
+    for pattern, message in _PIP_ERROR_GUIDANCE.items():
+        if pattern.lower() in combined_err.lower():
+            guidance = message.format(
+                py_ver=f"{sys.version_info.major}.{sys.version_info.minor}",
+                target_dir=target_dir,
+            )
+            break
+
+    if guidance:
+        UELogger.error(f"  === 排查指引 ===\n  {guidance}")
     else:
-        PanelLogger.emit("PIP", f"安装失败: {package_spec} (code={rc})", _UELogLevel.ERROR)
-        UELogger.error(f"pip install failed for {package_spec} (code={rc}):")
-        if stderr.strip():
-            UELogger.error(f"  stderr: {stderr.strip()}")
-        return False
+        UELogger.error(
+            f"  无法自动诊断。请手动执行:\n"
+            f"  \"{python_exe}\" -m pip install --target \"{target_dir}\" {package_spec}"
+        )
+
+    return False
 
 
 def _check_offline_bundle() -> bool:

@@ -4,35 +4,13 @@
 #include "DataTableAPI.h"
 #include "ArtifexNexusAPI.h"
 #include "Utils/AssetModifier.h"
+#include "Utils/JsonHelpers.h"
 #include "Utils/PropertySerializer.h"
 #include "Engine/DataTable.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
-#include "Serialization/JsonReader.h"
 #include "UObject/UnrealType.h"
 
 namespace
 {
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		if (!Obj.IsValid())
-		{
-			return TEXT("{}");
-		}
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
 
 	TSharedPtr<FJsonObject> ArtifexNexusMakeSuccess()
 	{
@@ -48,7 +26,7 @@ FString UDataTableAPI::AddDataTableRow(const FString& AssetPath, const FString& 
 
 	if (AssetPath.IsEmpty() || RowName.IsEmpty() || ValuesJson.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("AssetPath, RowName, and ValuesJson are required"));
+		return ArtifexNexusJson::MakeError(TEXT("AssetPath, RowName, and ValuesJson are required"));
 	}
 
 	// Load and validate DataTable
@@ -56,20 +34,20 @@ FString UDataTableAPI::AddDataTableRow(const FString& AssetPath, const FString& 
 	UDataTable* DataTable = LoadAndValidateDataTable(AssetPath, Error);
 	if (!DataTable)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	const UScriptStruct* RowStruct = DataTable->GetRowStruct();
 	if (!RowStruct)
 	{
-		return ArtifexNexusMakeError(TEXT("DataTable has no row struct defined"));
+		return ArtifexNexusJson::MakeError(TEXT("DataTable has no row struct defined"));
 	}
 
 	// Parse JSON values
 	TArray<uint8> RowData;
 	if (!ParseRowValuesFromJson(RowStruct, ValuesJson, RowData, Error))
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Begin transaction
@@ -107,7 +85,7 @@ FString UDataTableAPI::AddDataTableRow(const FString& AssetPath, const FString& 
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("AddDataTableRow: %s row '%s' in table %s"), 
 		bWasExisting ? TEXT("Updated") : TEXT("Added"), *RowName, *AssetPath);
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UDataTableAPI::QueryDataTable(const FString& AssetPath, const FString& RowFilter)
@@ -116,7 +94,7 @@ FString UDataTableAPI::QueryDataTable(const FString& AssetPath, const FString& R
 
 	if (AssetPath.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("AssetPath is required"));
+		return ArtifexNexusJson::MakeError(TEXT("AssetPath is required"));
 	}
 
 	// Load and validate DataTable
@@ -124,13 +102,13 @@ FString UDataTableAPI::QueryDataTable(const FString& AssetPath, const FString& R
 	UDataTable* DataTable = LoadAndValidateDataTable(AssetPath, Error);
 	if (!DataTable)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	const UScriptStruct* RowStruct = DataTable->GetRowStruct();
 	if (!RowStruct)
 	{
-		return ArtifexNexusMakeError(TEXT("DataTable has no row struct defined"));
+		return ArtifexNexusJson::MakeError(TEXT("DataTable has no row struct defined"));
 	}
 
 	// Build result
@@ -186,7 +164,7 @@ FString UDataTableAPI::QueryDataTable(const FString& AssetPath, const FString& R
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("QueryDataTable: Returned %d rows (total: %d)"), 
 		RowsArray.Num(), AllRowNames.Num());
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UDataTableAPI::SetDataTableObjectProperty(
@@ -200,22 +178,22 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 
 	if (TablePath.IsEmpty() || RowName.IsEmpty() || ColumnName.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("TablePath, RowName, and ColumnName are required"));
+		return ArtifexNexusJson::MakeError(TEXT("TablePath, RowName, and ColumnName are required"));
 	}
 
 	FString Error;
 	UDataTable* DataTable = LoadAndValidateDataTable(TablePath, Error);
-	if (!DataTable) return ArtifexNexusMakeError(Error);
+	if (!DataTable) return ArtifexNexusJson::MakeError(Error);
 
 	const UScriptStruct* RowStruct = DataTable->GetRowStruct();
-	if (!RowStruct) return ArtifexNexusMakeError(TEXT("DataTable has no row struct"));
+	if (!RowStruct) return ArtifexNexusJson::MakeError(TEXT("DataTable has no row struct"));
 
 	// Find the row
 	FName RowFName(*RowName);
 	uint8* RowData = DataTable->FindRowUnchecked(RowFName);
 	if (!RowData)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Row '%s' not found"), *RowName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Row '%s' not found"), *RowName));
 	}
 
 	// Find the property by FriendlyName or VarName
@@ -233,7 +211,7 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 	}
 	if (!TargetProp)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Column '%s' not found in struct"), *ColumnName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Column '%s' not found in struct"), *ColumnName));
 	}
 
 	// Mark modified
@@ -263,7 +241,7 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 		}
 		if (!LoadedObject)
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to load object: %s"), *ObjectPath));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to load object: %s"), *ObjectPath));
 		}
 
 		// Handle different property types
@@ -286,7 +264,7 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 			}
 			else
 			{
-				return ArtifexNexusMakeError(FString::Printf(TEXT("Column '%s' is struct type '%s', not an object property"),
+				return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Column '%s' is struct type '%s', not an object property"),
 					*ColumnName, *StructProp->Struct->GetName()));
 			}
 		}
@@ -305,7 +283,7 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 				Buffer = *ObjPathName;
 				if (!TargetProp->ImportText_Direct(Buffer, PropertyContainer, nullptr, PPF_None))
 				{
-					return ArtifexNexusMakeError(FString::Printf(TEXT("Column '%s' (type %s) does not support object assignment"),
+					return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Column '%s' (type %s) does not support object assignment"),
 						*ColumnName, *TargetProp->GetCPPType()));
 				}
 			}
@@ -319,7 +297,7 @@ FString UDataTableAPI::SetDataTableObjectProperty(
 	Result->SetStringField(TEXT("row"), RowName);
 	Result->SetStringField(TEXT("column"), ColumnName);
 	Result->SetStringField(TEXT("object"), ObjectPath);
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 FString UDataTableAPI::BatchSetDataTableObjectProperties(
@@ -331,7 +309,7 @@ FString UDataTableAPI::BatchSetDataTableObjectProperties(
 
 	if (TablePath.IsEmpty() || EntriesJson.IsEmpty())
 	{
-		return ArtifexNexusMakeError(TEXT("TablePath and EntriesJson are required"));
+		return ArtifexNexusJson::MakeError(TEXT("TablePath and EntriesJson are required"));
 	}
 
 	// Parse JSON array
@@ -339,15 +317,15 @@ FString UDataTableAPI::BatchSetDataTableObjectProperties(
 	auto Reader = TJsonReaderFactory<>::Create(EntriesJson);
 	if (!FJsonSerializer::Deserialize(Reader, EntriesArray))
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to parse EntriesJson as JSON array"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to parse EntriesJson as JSON array"));
 	}
 
 	FString Error;
 	UDataTable* DataTable = LoadAndValidateDataTable(TablePath, Error);
-	if (!DataTable) return ArtifexNexusMakeError(Error);
+	if (!DataTable) return ArtifexNexusJson::MakeError(Error);
 
 	const UScriptStruct* RowStruct = DataTable->GetRowStruct();
-	if (!RowStruct) return ArtifexNexusMakeError(TEXT("DataTable has no row struct"));
+	if (!RowStruct) return ArtifexNexusJson::MakeError(TEXT("DataTable has no row struct"));
 
 	DataTable->Modify();
 
@@ -461,7 +439,7 @@ FString UDataTableAPI::BatchSetDataTableObjectProperties(
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("BatchSetDataTableObjectProperties: %d/%d succeeded"),
 		SuccessCount, EntriesArray.Num());
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 }
 
 UDataTable* UDataTableAPI::LoadAndValidateDataTable(const FString& AssetPath, FString& OutError)

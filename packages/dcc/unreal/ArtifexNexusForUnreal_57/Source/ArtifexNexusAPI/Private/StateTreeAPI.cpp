@@ -4,9 +4,7 @@
 #include "StateTreeAPI.h"
 #include "ArtifexNexusAPI.h"
 #include "Utils/AssetModifier.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
+#include "Utils/JsonHelpers.h"
 
 // Conditional StateTree includes - handle gracefully if module not available
 #if WITH_EDITOR
@@ -27,29 +25,6 @@
 	#include "UObject/UObjectIterator.h"
 #endif
 
-namespace
-{
-	/** Convert JSON object to formatted string */
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		if (!Obj.IsValid()) return TEXT("{}");
-		
-		FString OutputString;
-		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return OutputString;
-	}
-
-	/** Create error response JSON */
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		TSharedPtr<FJsonObject> Error = MakeShareable(new FJsonObject);
-		Error->SetBoolField(TEXT("success"), false);
-		Error->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Error);
-	}
-}
-
 bool UStateTreeAPI::IsStateTreeModuleAvailable()
 {
 #if WITH_EDITOR
@@ -63,19 +38,19 @@ bool UStateTreeAPI::IsStateTreeModuleAvailable()
 
 FString UStateTreeAPI::JsonObjectToString(const TSharedPtr<FJsonObject>& JsonObject)
 {
-	return ArtifexNexusJsonToString(JsonObject);
+	return ArtifexNexusJson::ToString(JsonObject);
 }
 
 FString UStateTreeAPI::ArtifexNexusMakeError(const FString& ErrorMessage)
 {
-	return ::ArtifexNexusMakeError(ErrorMessage);
+	return ::ArtifexNexusJson::MakeError(ErrorMessage);
 }
 
 FString UStateTreeAPI::QueryStateTree(const FString& AssetPath)
 {
 	if (!IsStateTreeModuleAvailable())
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree module not available in this UE version"));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree module not available in this UE version"));
 	}
 
 #if WITH_EDITOR
@@ -87,7 +62,7 @@ FString UStateTreeAPI::QueryStateTree(const FString& AssetPath)
 	if (!StateTree)
 	{
 		UE_LOG(LogArtifexNexusAPI, Warning, TEXT("QueryStateTree failed: %s"), *LoadError);
-		return ArtifexNexusMakeError(LoadError);
+		return ArtifexNexusJson::MakeError(LoadError);
 	}
 
 	// Build result JSON
@@ -180,9 +155,9 @@ FString UStateTreeAPI::QueryStateTree(const FString& AssetPath)
 	TasksObj->SetNumberField(TEXT("count"), TaskArray.Num());
 	Result->SetObjectField(TEXT("tasks"), TasksObj);
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 #else
-	return ArtifexNexusMakeError(TEXT("StateTree operations require Editor build"));
+	return ArtifexNexusJson::MakeError(TEXT("StateTree operations require Editor build"));
 #endif
 }
 
@@ -194,7 +169,7 @@ FString UStateTreeAPI::AddStateTreeState(
 {
 	if (!IsStateTreeModuleAvailable())
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree module not available in this UE version"));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree module not available in this UE version"));
 	}
 
 #if WITH_EDITOR
@@ -205,14 +180,14 @@ FString UStateTreeAPI::AddStateTreeState(
 	UStateTree* StateTree = FAssetModifier::LoadAssetByPath<UStateTree>(AssetPath, LoadError);
 	if (!StateTree)
 	{
-		return ArtifexNexusMakeError(LoadError);
+		return ArtifexNexusJson::MakeError(LoadError);
 	}
 
 	// Get editor data
 	UStateTreeEditorData* EditorData = Cast<UStateTreeEditorData>(StateTree->EditorData);
 	if (!EditorData)
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree has no editor data. Cannot modify."));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree has no editor data. Cannot modify."));
 	}
 
 	// Parse state type
@@ -254,7 +229,7 @@ FString UStateTreeAPI::AddStateTreeState(
 
 		if (!ParentState)
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Parent state '%s' not found"), *ParentStateName));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Parent state '%s' not found"), *ParentStateName));
 		}
 	}
 
@@ -285,9 +260,9 @@ FString UStateTreeAPI::AddStateTreeState(
 	Result->SetStringField(TEXT("state_type"), StateType);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("State '%s' added to StateTree"), *StateName));
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 #else
-	return ArtifexNexusMakeError(TEXT("StateTree operations require Editor build"));
+	return ArtifexNexusJson::MakeError(TEXT("StateTree operations require Editor build"));
 #endif
 }
 
@@ -299,7 +274,7 @@ FString UStateTreeAPI::AddStateTreeTask(
 {
 	if (!IsStateTreeModuleAvailable())
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree module not available in this UE version"));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree module not available in this UE version"));
 	}
 
 #if WITH_EDITOR
@@ -310,13 +285,13 @@ FString UStateTreeAPI::AddStateTreeTask(
 	UStateTree* StateTree = FAssetModifier::LoadAssetByPath<UStateTree>(AssetPath, LoadError);
 	if (!StateTree)
 	{
-		return ArtifexNexusMakeError(LoadError);
+		return ArtifexNexusJson::MakeError(LoadError);
 	}
 
 	UStateTreeEditorData* EditorData = Cast<UStateTreeEditorData>(StateTree->EditorData);
 	if (!EditorData)
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree has no editor data. Cannot modify."));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree has no editor data. Cannot modify."));
 	}
 
 	// Find the task struct type
@@ -336,7 +311,7 @@ FString UStateTreeAPI::AddStateTreeTask(
 
 	if (!TaskStruct)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Task class '%s' not found"), *TaskClass));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Task class '%s' not found"), *TaskClass));
 	}
 
 	// Find target state
@@ -353,7 +328,7 @@ FString UStateTreeAPI::AddStateTreeTask(
 
 	if (!TargetState)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("State '%s' not found"), *StateName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("State '%s' not found"), *StateName));
 	}
 
 	// Begin transaction
@@ -384,9 +359,9 @@ FString UStateTreeAPI::AddStateTreeTask(
 	Result->SetStringField(TEXT("task_class"), TaskStruct->GetName());
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Task '%s' added to state '%s'"), *TaskClass, *StateName));
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 #else
-	return ArtifexNexusMakeError(TEXT("StateTree operations require Editor build"));
+	return ArtifexNexusJson::MakeError(TEXT("StateTree operations require Editor build"));
 #endif
 }
 
@@ -398,7 +373,7 @@ FString UStateTreeAPI::AddStateTreeTransition(
 {
 	if (!IsStateTreeModuleAvailable())
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree module not available in this UE version"));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree module not available in this UE version"));
 	}
 
 #if WITH_EDITOR
@@ -409,13 +384,13 @@ FString UStateTreeAPI::AddStateTreeTransition(
 	UStateTree* StateTree = FAssetModifier::LoadAssetByPath<UStateTree>(AssetPath, LoadError);
 	if (!StateTree)
 	{
-		return ArtifexNexusMakeError(LoadError);
+		return ArtifexNexusJson::MakeError(LoadError);
 	}
 
 	UStateTreeEditorData* EditorData = Cast<UStateTreeEditorData>(StateTree->EditorData);
 	if (!EditorData)
 	{
-		return ArtifexNexusMakeError(TEXT("StateTree has no editor data. Cannot modify."));
+		return ArtifexNexusJson::MakeError(TEXT("StateTree has no editor data. Cannot modify."));
 	}
 
 	// Find source state
@@ -432,7 +407,7 @@ FString UStateTreeAPI::AddStateTreeTransition(
 
 	if (!SourceStateObj)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Source state '%s' not found"), *SourceState));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Source state '%s' not found"), *SourceState));
 	}
 
 	// Parse trigger type
@@ -491,7 +466,7 @@ FString UStateTreeAPI::AddStateTreeTransition(
 
 		if (!TargetStateObj)
 		{
-			return ArtifexNexusMakeError(FString::Printf(TEXT("Target state '%s' not found"), *TargetState));
+			return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Target state '%s' not found"), *TargetState));
 		}
 
 		NewTransition.State.ID = TargetStateObj->ID;
@@ -510,9 +485,9 @@ FString UStateTreeAPI::AddStateTreeTransition(
 	Result->SetStringField(TEXT("trigger"), Trigger);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Transition added: %s -> %s"), *SourceState, *TargetState));
 
-	return ArtifexNexusJsonToString(Result);
+	return ArtifexNexusJson::ToString(Result);
 #else
-	return ArtifexNexusMakeError(TEXT("StateTree operations require Editor build"));
+	return ArtifexNexusJson::MakeError(TEXT("StateTree operations require Editor build"));
 #endif
 }
 

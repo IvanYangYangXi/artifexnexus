@@ -5,9 +5,6 @@
 #include "NiagaraAPI.h"
 #include "ArtifexNexusAPI.h"
 #include "Utils/PropertySerializer.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Modules/ModuleManager.h"
 
@@ -25,26 +22,11 @@
 #include "ViewModels/NiagaraSystemViewModel.h"
 #include "ViewModels/NiagaraEmitterViewModel.h"
 #include "NiagaraTypes.h"
+#include "Utils/JsonHelpers.h"
 #endif
 
 namespace
 {
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		UE_LOG(LogArtifexNexusAPI, Warning, TEXT("NiagaraAPI Error: %s"), *Msg);
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
 
 	FString ArtifexNexusMakeSuccess(const TSharedPtr<FJsonObject>& Data = nullptr)
 	{
@@ -54,7 +36,7 @@ namespace
 		{
 			Obj->SetObjectField(TEXT("data"), Data);
 		}
-		return ArtifexNexusJsonToString(Obj);
+		return ArtifexNexusJson::ToString(Obj);
 	}
 
 	bool IsNiagaraModuleLoaded()
@@ -138,7 +120,7 @@ FString UNiagaraAPI::QueryNiagaraSystem(const FString& AssetPath)
 {
 	if (!IsNiagaraModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
 	}
 
 #if WITH_NIAGARA
@@ -146,7 +128,7 @@ FString UNiagaraAPI::QueryNiagaraSystem(const FString& AssetPath)
 	UNiagaraSystem* NiagaraSystem = LoadNiagaraSystem(AssetPath, Error);
 	if (!NiagaraSystem)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -189,7 +171,7 @@ FString UNiagaraAPI::QueryNiagaraSystem(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("NiagaraAPI: Queried system %s with %d emitters"), *AssetPath, EmitterHandles.Num());
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Niagara support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Niagara support not compiled in this build"));
 #endif
 }
 
@@ -197,7 +179,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 {
 	if (!IsNiagaraModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
 	}
 
 #if WITH_NIAGARA
@@ -205,7 +187,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 	UNiagaraSystem* NiagaraSystem = LoadNiagaraSystem(AssetPath, Error);
 	if (!NiagaraSystem)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Parse JSON value
@@ -213,7 +195,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ValueJson);
 	if (!FJsonSerializer::Deserialize(Reader, JsonValue) || !JsonValue.IsValid())
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid JSON value: %s"), *ValueJson));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid JSON value: %s"), *ValueJson));
 	}
 
 	// Find parameter in exposed parameters
@@ -227,7 +209,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 
 	if (!FoundVar)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Parameter '%s' not found in system"), *ParameterName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Parameter '%s' not found in system"), *ParameterName));
 	}
 
 	// Set value based on type
@@ -275,7 +257,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 
 	if (!bSuccess)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to set parameter '%s' - type mismatch or invalid value"), *ParameterName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to set parameter '%s' - type mismatch or invalid value"), *ParameterName));
 	}
 
 	// Mark package dirty
@@ -284,7 +266,7 @@ FString UNiagaraAPI::SetNiagaraParameter(const FString& AssetPath, const FString
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("NiagaraAPI: Set parameter %s in system %s"), *ParameterName, *AssetPath);
 	return ArtifexNexusMakeSuccess();
 #else
-	return ArtifexNexusMakeError(TEXT("Niagara support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Niagara support not compiled in this build"));
 #endif
 }
 
@@ -292,7 +274,7 @@ FString UNiagaraAPI::QueryNiagaraEmitter(const FString& AssetPath, const FString
 {
 	if (!IsNiagaraModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
 	}
 
 #if WITH_NIAGARA
@@ -300,7 +282,7 @@ FString UNiagaraAPI::QueryNiagaraEmitter(const FString& AssetPath, const FString
 	UNiagaraSystem* NiagaraSystem = LoadNiagaraSystem(AssetPath, Error);
 	if (!NiagaraSystem)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	// Find emitter by name
@@ -311,7 +293,7 @@ FString UNiagaraAPI::QueryNiagaraEmitter(const FString& AssetPath, const FString
 
 	if (!FoundHandle || !FoundHandle->GetEmitterData())
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Emitter '%s' not found in system"), *EmitterName));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Emitter '%s' not found in system"), *EmitterName));
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -356,7 +338,7 @@ FString UNiagaraAPI::QueryNiagaraEmitter(const FString& AssetPath, const FString
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("NiagaraAPI: Queried emitter %s in system %s"), *EmitterName, *AssetPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Niagara support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Niagara support not compiled in this build"));
 #endif
 }
 
@@ -364,14 +346,14 @@ FString UNiagaraAPI::AddNiagaraModule(const FString& AssetPath, const FString& E
 {
 	if (!IsNiagaraModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("Niagara module not loaded. Enable Niagara plugin in project settings."));
 	}
 
 #if WITH_NIAGARA
 	// This is a complex operation that typically requires the Niagara Editor UI
 	// For now, return a placeholder implementation
-	return ArtifexNexusMakeError(TEXT("AddNiagaraModule is not yet fully implemented - requires deep Niagara Editor integration"));
+	return ArtifexNexusJson::MakeError(TEXT("AddNiagaraModule is not yet fully implemented - requires deep Niagara Editor integration"));
 #else
-	return ArtifexNexusMakeError(TEXT("Niagara support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Niagara support not compiled in this build"));
 #endif
 }

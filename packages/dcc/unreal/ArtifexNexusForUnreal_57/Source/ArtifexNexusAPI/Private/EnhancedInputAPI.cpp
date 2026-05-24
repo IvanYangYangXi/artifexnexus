@@ -5,9 +5,6 @@
 #include "EnhancedInputAPI.h"
 #include "ArtifexNexusAPI.h"
 #include "Utils/AssetModifier.h"
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Modules/ModuleManager.h"
 #include "Engine/AssetManager.h"
@@ -23,26 +20,11 @@
 #include "InputModifiers.h"
 #include "InputTriggers.h"
 #include "PlayerMappableInputConfig.h"
+#include "Utils/JsonHelpers.h"
 #endif
 
 namespace
 {
-	FString ArtifexNexusJsonToString(const TSharedPtr<FJsonObject>& Obj)
-	{
-		FString Output;
-		auto Writer = TJsonWriterFactory<>::Create(&Output);
-		FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
-		return Output;
-	}
-
-	FString ArtifexNexusMakeError(const FString& Msg)
-	{
-		UE_LOG(LogArtifexNexusAPI, Warning, TEXT("EnhancedInputAPI Error: %s"), *Msg);
-		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
-		Obj->SetBoolField(TEXT("success"), false);
-		Obj->SetStringField(TEXT("error"), Msg);
-		return ArtifexNexusJsonToString(Obj);
-	}
 
 	FString ArtifexNexusMakeSuccess(const TSharedPtr<FJsonObject>& Data = nullptr)
 	{
@@ -52,7 +34,7 @@ namespace
 		{
 			Obj->SetObjectField(TEXT("data"), Data);
 		}
-		return ArtifexNexusJsonToString(Obj);
+		return ArtifexNexusJson::ToString(Obj);
 	}
 
 	bool IsEnhancedInputModuleLoaded()
@@ -149,7 +131,7 @@ FString UEnhancedInputAPI::QueryInputMappingContext(const FString& AssetPath)
 {
 	if (!IsEnhancedInputModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
 	}
 
 #if WITH_ENHANCED_INPUT
@@ -157,7 +139,7 @@ FString UEnhancedInputAPI::QueryInputMappingContext(const FString& AssetPath)
 	UInputMappingContext* Context = LoadInputMappingContext(AssetPath, Error);
 	if (!Context)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -216,7 +198,7 @@ FString UEnhancedInputAPI::QueryInputMappingContext(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("EnhancedInputAPI: Queried context %s with %d mappings"), *AssetPath, Mappings.Num());
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Enhanced Input support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Enhanced Input support not compiled in this build"));
 #endif
 }
 
@@ -224,7 +206,7 @@ FString UEnhancedInputAPI::CreateInputAction(const FString& AssetPath, const FSt
 {
 	if (!IsEnhancedInputModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
 	}
 
 #if WITH_ENHANCED_INPUT
@@ -233,7 +215,7 @@ FString UEnhancedInputAPI::CreateInputAction(const FString& AssetPath, const FSt
 	if (!FPackageName::TryConvertLongPackageNameToFilename(AssetPath, PackagePath) || 
 		!AssetPath.Split(TEXT("/"), &PackagePath, &AssetName, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath));
 	}
 
 	// Create new Input Action
@@ -242,7 +224,7 @@ FString UEnhancedInputAPI::CreateInputAction(const FString& AssetPath, const FSt
 	UInputAction* NewAction = NewObject<UInputAction>(GetTransientPackage(), UInputAction::StaticClass());
 	if (!NewAction)
 	{
-		return ArtifexNexusMakeError(TEXT("Failed to create Input Action object"));
+		return ArtifexNexusJson::MakeError(TEXT("Failed to create Input Action object"));
 	}
 
 	NewAction->ValueType = ActionValueType;
@@ -254,7 +236,7 @@ FString UEnhancedInputAPI::CreateInputAction(const FString& AssetPath, const FSt
 	UPackage* Package = CreatePackage(*AssetPath);
 	if (!Package)
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
 	}
 
 	NewAction->Rename(*AssetName, Package);
@@ -271,7 +253,7 @@ FString UEnhancedInputAPI::CreateInputAction(const FString& AssetPath, const FSt
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("EnhancedInputAPI: Created Input Action %s with value type %s"), *AssetPath, *ValueType);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Enhanced Input support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Enhanced Input support not compiled in this build"));
 #endif
 }
 
@@ -279,7 +261,7 @@ FString UEnhancedInputAPI::AddInputMapping(const FString& ContextPath, const FSt
 {
 	if (!IsEnhancedInputModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
 	}
 
 #if WITH_ENHANCED_INPUT
@@ -287,19 +269,19 @@ FString UEnhancedInputAPI::AddInputMapping(const FString& ContextPath, const FSt
 	UInputMappingContext* Context = LoadInputMappingContext(ContextPath, Error);
 	if (!Context)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	UInputAction* Action = LoadInputAction(ActionPath, Error);
 	if (!Action)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	FKey InputKey = GetKeyFromString(Key);
 	if (!InputKey.IsValid())
 	{
-		return ArtifexNexusMakeError(FString::Printf(TEXT("Invalid key: %s"), *Key));
+		return ArtifexNexusJson::MakeError(FString::Printf(TEXT("Invalid key: %s"), *Key));
 	}
 
 	// Create new mapping
@@ -340,7 +322,7 @@ FString UEnhancedInputAPI::AddInputMapping(const FString& ContextPath, const FSt
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("EnhancedInputAPI: Added mapping %s -> %s in context %s"), *Key, *ActionPath, *ContextPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Enhanced Input support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Enhanced Input support not compiled in this build"));
 #endif
 }
 
@@ -348,7 +330,7 @@ FString UEnhancedInputAPI::QueryInputAction(const FString& AssetPath)
 {
 	if (!IsEnhancedInputModuleLoaded())
 	{
-		return ArtifexNexusMakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
+		return ArtifexNexusJson::MakeError(TEXT("EnhancedInput module not loaded. Enable EnhancedInput plugin in project settings."));
 	}
 
 #if WITH_ENHANCED_INPUT
@@ -356,7 +338,7 @@ FString UEnhancedInputAPI::QueryInputAction(const FString& AssetPath)
 	UInputAction* Action = LoadInputAction(AssetPath, Error);
 	if (!Action)
 	{
-		return ArtifexNexusMakeError(Error);
+		return ArtifexNexusJson::MakeError(Error);
 	}
 
 	TSharedPtr<FJsonObject> DataObj = MakeShareable(new FJsonObject);
@@ -369,6 +351,6 @@ FString UEnhancedInputAPI::QueryInputAction(const FString& AssetPath)
 	UE_LOG(LogArtifexNexusAPI, Log, TEXT("EnhancedInputAPI: Queried Input Action %s"), *AssetPath);
 	return ArtifexNexusMakeSuccess(DataObj);
 #else
-	return ArtifexNexusMakeError(TEXT("Enhanced Input support not compiled in this build"));
+	return ArtifexNexusJson::MakeError(TEXT("Enhanced Input support not compiled in this build"));
 #endif
 }
