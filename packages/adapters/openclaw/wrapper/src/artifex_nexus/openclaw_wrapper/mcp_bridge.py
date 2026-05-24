@@ -106,15 +106,16 @@ def _is_connection_failure(result: Dict[str, Any]) -> bool:
 
 class MCPBridgeClient:
     """
-    Gateway 侧的 MCP 客户端 — 连接 Blender MCP Server 并转发工具调用。
+    DCC MCP 客户端 — 连接 DCC MCP Server 并转发工具调用。
 
-    单例模式：整个 sidecar 进程共享一个连接。
+    多实例模式：每个 (host, port) 组合独立管理连接，
+    支持同时连接 Blender(18083)、UE(18080) 等多个 DCC。
     线程安全：使用 threading.Lock 保护连接状态。
     持久化 event loop：connect 和 call_tool 复用同一个 asyncio event loop，
     避免 "Event loop is closed" 错误。
     """
 
-    _instance: Optional[MCPBridgeClient] = None
+    _instances: Dict[str, MCPBridgeClient] = {}
     _lock = threading.Lock()
 
     def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_BLENDER_MCP_PORT):
@@ -159,12 +160,32 @@ class MCPBridgeClient:
 
     @classmethod
     def get_instance(cls, host: str = "127.0.0.1", port: int = DEFAULT_BLENDER_MCP_PORT) -> MCPBridgeClient:
-        """获取单例实例"""
-        if cls._instance is None:
+        """获取指定 (host, port) 的客户端实例（多实例，非全局单例）。
+
+        同一个 (host, port) 组合共享同一个连接，不同 DCC 独立管理。
+        """
+        key = f"{host}:{port}"
+        if key not in cls._instances:
             with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls(host=host, port=port)
-        return cls._instance
+                if key not in cls._instances:
+                    cls._instances[key] = cls(host=host, port=port)
+        return cls._instances[key]
+
+    @classmethod
+    def get_instance_for_dcc(cls, dcc: str) -> MCPBridgeClient:
+        """根据 DCC 名称获取对应的客户端实例。
+
+        支持的 DCC: blender(18083), unreal_engine(18080)
+        """
+        _DCC_PORT: dict[str, int] = {
+            "blender": 18083,
+            "unreal_engine": 18080,
+            "maya": 18084,
+            "3ds_max": 18085,
+            "houdini": 18086,
+        }
+        port = _DCC_PORT.get(dcc, DEFAULT_BLENDER_MCP_PORT)
+        return cls.get_instance(host="127.0.0.1", port=port)
 
     @property
     def is_connected(self) -> bool:
@@ -395,7 +416,7 @@ class MCPBridgeClient:
                 return {
                     "content": [{
                         "type": "text",
-                        "text": "错误: 无法连接 Blender MCP Server。请确认 Blender 已启动且 Artifex Nexus 插件已启用。",
+                        "text": f"错误: 无法连接 DCC MCP Server ({self.server_address})。请确认 DCC 已启动且 Artifex Nexus 插件已启用。",
                     }],
                     "isError": True,
                 }
@@ -419,8 +440,8 @@ class MCPBridgeClient:
                 "content": [{
                     "type": "text",
                     "text": (
-                        "错误: 与 Blender MCP Server 的连接已断开，且重连失败。"
-                        "请确认 Blender 仍在运行、Artifex Nexus 插件已启用、"
+                        f"错误: 与 DCC MCP Server ({self.server_address}) 的连接已断开，且重连失败。"
+                        "请确认 DCC 仍在运行、Artifex Nexus 插件已启用、"
                         "且 MCP Server 未被手动停止。"
                     ),
                 }],
@@ -441,7 +462,7 @@ class MCPBridgeClient:
         with self._conn_lock:
             if self._ws is None:
                 return {
-                    "content": [{"type": "text", "text": "错误: Blender MCP 连接已断开"}],
+                    "content": [{"type": "text", "text": f"错误: DCC MCP 连接已断开 ({self.server_address})"}],
                     "isError": True,
                     "_error_kind": "no_ws",
                 }

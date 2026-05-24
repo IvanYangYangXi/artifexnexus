@@ -990,13 +990,13 @@ def _execute_dcc_tool(
         f"    print(_json.dumps({{'success': False, 'error': str(_nexus_tool_err), 'error_type': type(_nexus_tool_err).__name__, 'traceback': _tb.format_exc()}}, ensure_ascii=False))\n"
     )
 
-    # MCP Bridge 直连（不经过 Gateway）
+    # MCP Bridge 直连（不经过 Gateway），按 DCC 选择正确的端口
     try:
         from .mcp_bridge import MCPBridgeClient
     except ImportError:
         from mcp_bridge import MCPBridgeClient  # type: ignore[no-redef]
 
-    bridge = MCPBridgeClient.get_instance()
+    bridge = MCPBridgeClient.get_instance_for_dcc(dcc)
     logger.info("[nt-exec:dcc] dcc=%s bridge.is_connected=%s ws=%s",
                 dcc, bridge.is_connected, bridge._ws is not None)
     sys.stderr.flush()
