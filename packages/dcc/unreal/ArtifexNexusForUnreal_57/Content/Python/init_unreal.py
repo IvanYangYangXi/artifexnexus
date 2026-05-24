@@ -1139,25 +1139,7 @@ def _initialize():
 
 
 # ============================================================================
-# 5. 初始化守卫 — 防止重复执行
-# ============================================================================
-# UE PythonScriptPlugin 可能多次 exec 本文件（Engine Init 阶段 + 延迟加载阶段），
-# C++ 端的 ConnectOpenArtifexNexus 也会 import 并调用 _start_mcp_gateway。
-#
-# 关键：UE 的 exec() 不走 sys.modules 缓存，所以模块级变量每次都被重置。
-# 必须用 builtins 或全局字典来跨 exec 持久化标志。
-
-import builtins as _builtins
-
-if not getattr(_builtins, '_UE_AGENT_INITIALIZED', False):
-    _builtins._UE_AGENT_INITIALIZED = True
-    _initialize()
-else:
-    UELogger.info("Python layer already initialized, skipping duplicate _initialize()")
-
-
-# ============================================================================
-# 6. Public API — called from C++ control panel
+# 5. Public API — called from C++ control panel (MUST precede init guard)
 # ============================================================================
 
 def start_mcp_server(port: int = 18080):
@@ -1267,3 +1249,20 @@ def get_panel_logs(count: int = 100) -> str:
 # 建立别名后，import init_unreal 可正确返回已加载的模块。
 import sys as _sys
 _sys.modules.setdefault('init_unreal', _sys.modules[__name__])
+
+# ============================================================================
+# 6. 初始化守卫 — 防止重复执行
+# ============================================================================
+# UE PythonScriptPlugin 可能多次 exec 本文件（Engine Init 阶段 + 延迟加载阶段），
+# C++ 端的 ConnectOpenArtifexNexus 也会 import 并调用 _start_mcp_gateway。
+#
+# 关键：UE 的 exec() 不走 sys.modules 缓存，所以模块级变量每次都被重置。
+# 必须用 builtins 或全局字典来跨 exec 持久化标志。
+
+import builtins as _builtins
+
+if not getattr(_builtins, '_UE_AGENT_INITIALIZED', False):
+    _builtins._UE_AGENT_INITIALIZED = True
+    _initialize()
+else:
+    UELogger.info("Python layer already initialized, skipping duplicate _initialize()")
