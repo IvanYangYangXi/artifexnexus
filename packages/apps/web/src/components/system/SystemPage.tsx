@@ -523,8 +523,15 @@ function InstallerTab() {
           addLog(parentId, "info", `[${label}] 正在卸载...`);
           if (parentId === "unreal_engine") {
             const r = await uninstallUEPlugin(child.version, child.installPath || "", false);
-            if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
-            else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+            if (r.success) {
+              if (r.message && r.message.includes("无需卸载")) {
+                addLog(parentId, "warn", `[${label}] ⚠️ ${r.message}（路径可能不匹配，请检查项目根目录设置）`);
+              } else {
+                addLog(parentId, "info", `[${label}] ${r.message || "卸载成功"}`);
+              }
+            } else {
+              addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+            }
           } else {
             const r = await ipc.uninstallBlenderAddon(child.version);
             if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
