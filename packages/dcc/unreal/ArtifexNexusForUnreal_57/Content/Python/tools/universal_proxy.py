@@ -494,7 +494,7 @@ def _is_statement(code: str) -> bool:
 
 # MCP Tool Definition (JSON Schema)
 TOOL_DEFINITION = {
-    "name": "run_ue_python",
+    "name": "run_python",
     "description": (
         "Execute Python code in the Unreal Editor environment. "
         "The code runs with full access to the `unreal` module and editor APIs. "
@@ -599,5 +599,5 @@ def register_tools(mcp_server) -> None:
         input_schema=TOOL_DEFINITION["inputSchema"],
         handler=run_ue_python,
     )
-    UELogger.info(f"Phase 1 tools registered: run_ue_python "
+    UELogger.info(f"Phase 1 tools registered: run_python "
                   f"({len(tool_scripts)} tool scripts discovered)")
