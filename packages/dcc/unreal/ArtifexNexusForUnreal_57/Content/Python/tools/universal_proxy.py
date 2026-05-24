@@ -215,6 +215,30 @@ def _build_context() -> dict:
     except AttributeError:
         pass
 
+    # EditorUtilityLibrary — 用于 Content Browser 资产操作
+    try:
+        context["EUL"] = unreal.EditorUtilityLibrary
+    except AttributeError:
+        pass
+
+    # Content Browser 选中资产（用 get_selected_asset_data 而非 get_selected_assets，
+    # 前者不要求资产加载到内存，始终能获取 Content Browser 选区）
+    try:
+        cb_assets = unreal.EditorUtilityLibrary.get_selected_asset_data()
+        context["CB"] = [
+            {
+                "name": str(ad.asset_name),
+                "path": str(ad.package_name),
+                "class": (
+                    str(ad.find_asset_native_class().get_name())
+                    if ad.find_asset_native_class() else str(ad.asset_class_path.asset_name)
+                ),
+            }
+            for ad in cb_assets
+        ]
+    except Exception:
+        context["CB"] = []
+
     return context
 
 

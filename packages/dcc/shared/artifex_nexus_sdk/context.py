@@ -32,16 +32,23 @@ def get_selected_objects() -> List[Dict[str, Any]]:
     # ── Unreal Engine ──
     try:
         import unreal
-        editor_util = unreal.EditorUtilityLibrary()
-        selected = editor_util.get_selected_assets()
+        # 使用 get_selected_asset_data() 而非 get_selected_assets()
+        # get_selected_assets() 要求资产已加载到内存，未加载的返回空
+        # get_selected_asset_data() 返回轻量 AssetData，无需加载资产
+        selected_asset_data = unreal.EditorUtilityLibrary.get_selected_asset_data()
         result = []
-        for asset in selected:
-            result.append({
-                "name": asset.get_name(),
-                "path": asset.get_path_name(),
-                "class": str(asset.get_class().get_name()),
-                "type": str(asset.get_class().get_name()),
-            })
+        for ad in selected_asset_data:
+            asset_info = {
+                "name": str(ad.asset_name),
+                "path": str(ad.package_name),
+            }
+            try:
+                cls = ad.find_asset_native_class()
+                asset_info["class"] = cls.get_name() if cls else str(ad.asset_class_path.asset_name)
+            except Exception:
+                asset_info["class"] = str(ad.asset_class_path.asset_name)
+            asset_info["type"] = asset_info["class"]
+            result.append(asset_info)
         return result
     except (ImportError, AttributeError):
         pass
@@ -89,16 +96,21 @@ def get_selected_assets() -> List[Dict[str, Any]]:
     # ── Unreal Engine ──
     try:
         import unreal
-        editor_util = unreal.EditorUtilityLibrary()
-        selected = editor_util.get_selected_assets()
+        # 使用 get_selected_asset_data() — 不要求资产加载到内存
+        selected_asset_data = unreal.EditorUtilityLibrary.get_selected_asset_data()
         result = []
-        for asset in selected:
-            result.append({
-                "name": asset.get_name(),
-                "path": asset.get_path_name(),
-                "class": str(asset.get_class().get_name()),
-                "type": str(asset.get_class().get_name()),
-            })
+        for ad in selected_asset_data:
+            asset_info = {
+                "name": str(ad.asset_name),
+                "path": str(ad.package_name),
+            }
+            try:
+                cls = ad.find_asset_native_class()
+                asset_info["class"] = cls.get_name() if cls else str(ad.asset_class_path.asset_name)
+            except Exception:
+                asset_info["class"] = str(ad.asset_class_path.asset_name)
+            asset_info["type"] = asset_info["class"]
+            result.append(asset_info)
         return result
     except (ImportError, AttributeError):
         pass
