@@ -311,14 +311,20 @@ class MCPServer:
             self._client_info.pop(client_id, None)
 
             # 健康检查日志抑制逻辑
+            # 场景分析：
+            #   - sidecar 每 10 秒 connect→initialize→disconnect（健康检查）
+            #   - gateway agent 保持长连接，所以 sidecar 断开后 remaining >= 1
+            #   - 修复前用 len==0 判断，长连接下 never true → 抑制永不触发
+            #   - 修复后：只要客户端完成 initialize+disconnect（不论剩余几个），
+            #     都视为健康检查模式
             if had_error:
                 # 异常发生时恢复日志
                 if self._health_check_suppress_log:
                     UELogger.info("[MCP] 健康检查异常，恢复连接日志")
                     self._health_check_suppress_log = False
                 self._health_check_ok_count = 0
-            elif was_initialized and len(self._clients) == 0:
-                # 客户端已完成 initialize 后正常断开（典型的健康检查模式）
+            elif was_initialized:
+                # 客户端已完成 initialize 后正常断开 = 健康检查模式
                 if not self._health_check_suppress_log:
                     self._health_check_ok_count += 1
                     if self._health_check_ok_count >= 2:
@@ -418,10 +424,11 @@ class MCPServer:
         protocol_version = params.get("protocolVersion", "unknown")
 
         client_id = id(websocket)
-        UELogger.debug(
-            f"[MCP] Initialize request from {client_info.get('name', 'unknown')} "
-            f"(protocol: {protocol_version})"
-        )
+        if not self._health_check_suppress_log:
+            UELogger.debug(
+                f"[MCP] Initialize request from {client_info.get('name', 'unknown')} "
+                f"(protocol: {protocol_version})"
+            )
 
         return {
             "protocolVersion": MCP_VERSION,
@@ -441,7 +448,8 @@ class MCPServer:
         self._initialized_clients.add(client_id)
         info = self._client_info.get(client_id, {})
         info["initialized"] = True
-        UELogger.debug(f"[MCP] Client initialized: {info.get('remote', '?')}")
+        if not self._health_check_suppress_log:
+            UELogger.debug(f"[MCP] Client initialized: {info.get('remote', '?')}")
 
     async def _handle_ping(self, websocket, params: dict) -> dict:
         """心跳响应"""
