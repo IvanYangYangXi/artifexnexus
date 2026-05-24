@@ -672,6 +672,18 @@ _DCC_TO_MCP_SERVER: dict[str, str] = {
     "comfyui": "comfyui-primary",
 }
 
+# DCC 特化连接失败指引（显示给用户）
+_DCC_CONNECTION_HINT: dict[str, str] = {
+    "unreal_engine": (
+        "可能原因：MCP Server 崩溃（面板可能仍显示 Running，但端口未监听）。"
+        "请在 UE 插件面板先点 Stop Server 再点 Start Server 重新启动。"
+    ),
+    "blender": (
+        "请确认 Blender 仍在运行且 Artifex Nexus 插件已加载。"
+        "如已加载，尝试在 Blender 中重新启用插件。"
+    ),
+}
+
 
 def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
     """nexus-tool.run(id, args, install_deps?, force?) → {task_id, status}。
@@ -1024,9 +1036,10 @@ def _execute_dcc_tool(
         logger.info("[nt-exec:dcc] dcc=%s → bridge.connect()=%s", dcc, connected)
         sys.stderr.flush()
         if not connected:
+            hint = _DCC_CONNECTION_HINT.get(dcc, "")
             raise RuntimeError(
-                f"无法连接到 {dcc} MCP Server（{server_name}），"
-                f"请确认 {dcc} 已启动且 MCP 插件已加载"
+                f"无法连接到 {dcc} MCP Server（{server_name}）。"
+                f"{hint}"
             )
 
     logger.info("[nt-exec:dcc] dcc=%s → bridge.call_tool(timeout=120)... code_len=%d", dcc, len(injected_code))

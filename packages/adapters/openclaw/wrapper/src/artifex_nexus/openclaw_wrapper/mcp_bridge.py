@@ -443,6 +443,8 @@ class MCPBridgeClient:
                         f"错误: 与 DCC MCP Server ({self.server_address}) 的连接已断开，且重连失败。"
                         "请确认 DCC 仍在运行、Artifex Nexus 插件已启用、"
                         "且 MCP Server 未被手动停止。"
+                        "提示：面板可能仍显示 Running 但端口未实际监听，"
+                        "请尝试 Stop Server → Start Server 重新启动。"
                     ),
                 }],
                 "isError": True,
