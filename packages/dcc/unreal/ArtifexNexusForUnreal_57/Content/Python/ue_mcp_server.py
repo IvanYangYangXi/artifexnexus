@@ -449,6 +449,8 @@ class MCPServer:
         self._initialized_clients.add(client_id)
         info = self._client_info.get(client_id, {})
         info["initialized"] = True
+        import unreal as _ue
+        _ue.log_warning(f"[DEBUG-INITIALIZED] called, _initialized_clients={len(self._initialized_clients)}, suppress={self._health_check_suppress_log}")
         if not self._health_check_suppress_log:
             UELogger.debug(f"[MCP] Client initialized: {info.get('remote', '?')}")
 
