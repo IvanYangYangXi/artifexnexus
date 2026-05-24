@@ -425,6 +425,9 @@ class MCPServer:
         protocol_version = params.get("protocolVersion", "unknown")
 
         client_id = id(websocket)
+        # sidecar health check 只发 initialize 不发 notifications/initialized，
+        # 所以在这里就追踪客户端，确保 cleanup 时 was_initialized 为 True
+        self._initialized_clients.add(client_id)
         if not self._health_check_suppress_log:
             UELogger.debug(
                 f"[MCP] Initialize request from {client_info.get('name', 'unknown')} "
@@ -449,8 +452,6 @@ class MCPServer:
         self._initialized_clients.add(client_id)
         info = self._client_info.get(client_id, {})
         info["initialized"] = True
-        import unreal as _ue
-        _ue.log_warning(f"[DEBUG-INITIALIZED] called, _initialized_clients={len(self._initialized_clients)}, suppress={self._health_check_suppress_log}")
         if not self._health_check_suppress_log:
             UELogger.debug(f"[MCP] Client initialized: {info.get('remote', '?')}")
 
