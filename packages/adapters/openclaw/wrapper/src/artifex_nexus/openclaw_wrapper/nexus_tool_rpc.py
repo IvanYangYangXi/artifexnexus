@@ -1044,6 +1044,27 @@ def _execute_dcc_tool(
 
     logger.info("[nt-exec:dcc] dcc=%s → bridge.call_tool(timeout=120)... code_len=%d", dcc, len(injected_code))
     sys.stderr.flush()
+
+    # ── Preflight: 发轻量 ping 验证 WS 通道健康 ──
+    preflight = bridge.call_tool("run_python", {"code": "print('nexus-tool-preflight-ok')"}, timeout=10)
+    if preflight.get("isError"):
+        logger.error("[nt-exec:dcc] preflight failed: isError=%s _error_kind=%s content=%s",
+                     preflight.get("isError"), preflight.get("_error_kind", ""),
+                     str(preflight.get("content", ""))[:200])
+        sys.stderr.flush()
+        hint = _DCC_CONNECTION_HINT.get(dcc, "")
+        return {
+            "success": False,
+            "error": (
+                f"与 {dcc} MCP Server ({server_name}) 的 WebSocket 通道异常"
+                f"（preflight 探测失败）。{hint}"
+            ),
+            "dcc": dcc,
+            "data": preflight,
+        }
+    logger.info("[nt-exec:dcc] dcc=%s preflight OK", dcc)
+    sys.stderr.flush()
+
     result = bridge.call_tool("run_python", {"code": injected_code}, timeout=120)
     logger.info("[nt-exec:dcc] dcc=%s ← bridge.call_tool returned isError=%s", dcc, result.get("isError"))
     sys.stderr.flush()
