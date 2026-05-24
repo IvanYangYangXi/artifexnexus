@@ -325,7 +325,7 @@ void SArtifexNexusPanel::RefreshLogDisplay()
 	// 关键：绕过 init_unreal 别名（它的 sys.modules 映射可能丢失），直接调用
 	// artifex_nexus_logger.PanelLogger.get_recent()，这是一个真正的 Python 模块。
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = TEXT("'\\n'.join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
+	PythonCmd.Command = TEXT("chr(10).join(__import__('artifex_nexus_logger').PanelLogger.get_recent(200))");
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 
 	if (Py->ExecPythonCommandEx(PythonCmd))
