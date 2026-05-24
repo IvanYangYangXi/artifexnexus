@@ -390,6 +390,23 @@ pub async fn openclaw_dcc_unreal_uninstall(
     manager.call("openclaw.dcc.unreal.uninstall", params)
 }
 
+/// 检查 UE 插件是否已安装到指定项目目录。
+///
+/// 纯前端可用：不依赖 sidecar，直接检查文件系统。
+#[tauri::command]
+pub fn check_ue_plugin_installed(
+    project_path: String,
+) -> Result<serde_json::Value, String> {
+    let target = std::path::Path::new(&project_path)
+        .join("Plugins")
+        .join("ArtifexNexusForUnreal");
+    let installed = target.exists();
+    Ok(serde_json::json!({
+        "installed": installed,
+        "target": target.to_string_lossy(),
+    }))
+}
+
 /// 部署 mcp-bridge 插件到 OpenClaw plugins 目录。
 ///
 /// STORY-0028 M2：Gateway MCP Bridge 插件。

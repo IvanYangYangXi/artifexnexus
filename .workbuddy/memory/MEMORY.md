@@ -131,3 +131,9 @@
 - **skill-compliance-checker**（2026-05-21）：检查 Skill（frontmatter、manifest schema、依赖、tags、@skill_tool）
 - **DCC 枚举唯一源**：两个 checker 均从 `contracts/data/categories.json` 运行时读取，不再硬编码
 - **合规检查闭环**：nexus-tool-creator / nexus-skill-manage 的指引要求创建/修改后必须运行对应 checker
+
+## 安装向导（Installer Wizard）
+
+- **子项持久化**（2026-05-24）：用户添加的 DCC 子项通过 `localStorage` 持久化，key 格式 `artifex_installer:v1:children:{itemId}`。初始化时从 localStorage 读取并合并到 fixture 数据，子项变更（增/删/改）自动写入。
+- **UE 与 Blender 差异**：Blender 需要扫描安装目录检测版本（`dccRegistry` 注册了真实 detect），UE 不需要扫描，纯由用户手动添加工程条目（`handleAddChild` 中已有 UE 专用分支，输入工程路径+版本号）。标签格式为 `项目名 (UE 版本)`。添加后通过 `check_ue_plugin_installed` 异步检测插件是否已安装（检查 `{projectPath}/Plugins/ArtifexNexusForUnreal/` 目录是否存在）。
+- **Fixtures 禁止预设子项**（2026-05-24）：所有 DCC 条目（blender, unreal, max, maya）的 `children` 初始必须为 `[]`，不得硬编码预设条目。子项来源只有两个：真实检测（已注册 DCC）+ 用户手动添加。

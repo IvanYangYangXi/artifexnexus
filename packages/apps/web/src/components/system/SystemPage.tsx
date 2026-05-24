@@ -118,8 +118,8 @@ const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
   { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
   { id: "blender", name: "Blender", iconKey: "blender", state: "pending", expandable: true, children: [] },
-  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [{ label: "UE 5.7 主项目", version: "5.7.0", installPath: "D:\\Proj\\MyGame", projectPath: "", scriptPath: "", state: "pending" }] },
-  { id: "3ds_max", name: "3ds Max", iconKey: "3ds_max", state: "pending", expandable: true, children: [{ label: "3ds Max 2024", version: "2024.2", installPath: "C:\\Program Files\\Autodesk\\3ds Max 2024", projectPath: "", scriptPath: "<install>/plugins/3ds_max/init.ms", state: "pending" }] },
+  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [] },
+  { id: "3ds_max", name: "3ds Max", iconKey: "3ds_max", state: "pending", expandable: true, children: [] },
   { id: "maya", name: "Maya", iconKey: "maya", state: "pending", expandable: true, children: [] },
   { id: "comfyui", name: "ComfyUI", iconKey: "comfyui", state: "unavailable", expandable: true, comingSoon: true, children: [] },
 ];
@@ -127,6 +127,43 @@ const FIXTURE_ITEMS: InstallItem[] = [
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
 const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal_engine: "U", "3ds_max": "3", maya: "M", comfyui: "C" };
+
+// ─── 子项 localStorage 持久化 ─────────────────────────────────
+
+const CHILDREN_STORAGE_PREFIX = "artifex_installer:v1:children:";
+
+function loadInitialItems(): InstallItem[] {
+  return FIXTURE_ITEMS.map((item) => {
+    if (!item.expandable) return item;
+    try {
+      if (typeof localStorage === "undefined") return item;
+      const saved = localStorage.getItem(CHILDREN_STORAGE_PREFIX + item.id);
+      if (saved) {
+        const children = JSON.parse(saved) as InstallChild[];
+        if (children.length > 0) {
+          return { ...item, children };
+        }
+      }
+    } catch {
+      // localStorage 不可用，回退 fixture
+    }
+    return item;
+  });
+}
+
+function persistChildren(itemId: string, children: InstallChild[]) {
+  if (typeof localStorage === "undefined") return;
+  const key = CHILDREN_STORAGE_PREFIX + itemId;
+  try {
+    if (children.length > 0) {
+      localStorage.setItem(key, JSON.stringify(children));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // localStorage 写入失败静默处理
+  }
+}
 
 // StyleE 玻璃常量
 const GLASS = "rounded-[16px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_8px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]";
@@ -156,7 +193,7 @@ export function SystemPage() {
 // ─── 安装向导 Tab ──────────────────────────────────────────────────────────
 
 function InstallerTab() {
-  const [items, setItems] = React.useState<InstallItem[]>(FIXTURE_ITEMS);
+  const [items, setItems] = React.useState<InstallItem[]>(() => loadInitialItems());
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [openclawStatus, setOpenclawStatus] = React.useState<OpenClawStatus | null>(null);
@@ -175,6 +212,15 @@ function InstallerTab() {
 
   // 页面初始化自动检测
   React.useEffect(() => { handleGlobalDetect(); }, []);
+
+  // 子项变更时自动持久化到 localStorage
+  React.useEffect(() => {
+    for (const item of items) {
+      if (item.expandable && item.children) {
+        persistChildren(item.id, item.children);
+      }
+    }
+  }, [items]);
 
   const handleGlobalDetect = async () => {
     const ipc = await getIpc();
@@ -402,9 +448,54 @@ function InstallerTab() {
     const item = items.find((it) => it.id === parentId);
     const dccName = item?.name || parentId;
     const isUE = parentId === "unreal_engine";
+
+    // UE：单面板输入（工程路径 + 版本号），标签格式 项目名 (UE 版本)
+    if (isUE) {
+      const result = await showForm(`添加 ${dccName} 项目`, [
+        { key: "projectPath", label: "工程根目录", placeholder: "含有 .uproject 的工程根目录，如 D:\\Proj\\MyGame" },
+        { key: "version", label: "UE 版本号", placeholder: "如 5.7" },
+      ]);
+      if (!result || !result.projectPath?.trim() || !result.version?.trim()) return;
+      const projectPath = result.projectPath.trim();
+      const projectName = projectPath.split(/[\\/]/).pop() || "Project";
+      const version = result.version.trim();
+      const label = `${projectName} (UE ${version})`;
+
+      setItems((prev) => prev.map((it) => it.id === parentId ? {
+        ...it, children: [...(it.children || []), { label, version, installPath: `${projectPath}\\Plugins\\`, projectPath, scriptPath: "", state: "not-installed" as const }],
+      } : it));
+
+      // 异步检测插件是否已安装
+      if (typeof window !== "undefined") {
+        void (async () => {
+          try {
+            const ipc = await getIpc();
+            const result = await ipc.checkUnrealPluginInstalled(projectPath);
+            if (result.installed) {
+              setItems((prev) => prev.map((it) => {
+                if (it.id !== parentId) return it;
+                const children = it.children || [];
+                const lastIdx = children.length - 1;
+                if (lastIdx < 0) return it;
+                return {
+                  ...it,
+                  children: children.map((c, i) => i === lastIdx ? { ...c, state: "installed" as const } : c),
+                };
+              }));
+              addLog(parentId, "info", `检测到已安装: ${label}（${result.target}）`);
+            }
+          } catch {
+            // 检测失败静默处理
+          }
+        })();
+      }
+      return;
+    }
+
+    // Blender/Maya/Max：通用添加
     const result = await showForm(`添加 ${dccName} 版本`, [
-      { key: "version", label: "版本号", placeholder: "如 5.7" },
-      { key: "installPath", label: isUE ? "项目根目录" : "安装路径（可选）", placeholder: isUE ? "含有 .uproject 的项目根目录" : "留空则自动计算" },
+      { key: "version", label: "版本号", placeholder: "如 5.1" },
+      { key: "installPath", label: "安装路径（可选）", placeholder: "留空则自动计算" },
     ]);
     if (!result || !result.version?.trim()) return;
     const version = result.version.trim();
@@ -413,7 +504,6 @@ function InstallerTab() {
       if (parentId === "blender") installPath = `%APPDATA%/Blender Foundation/Blender/${version}/scripts/addons/`;
       else if (parentId === "maya") installPath = `~/Documents/maya/${version}/scripts/`;
       else if (parentId === "3ds_max") installPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${version}/ENU/scripts/`;
-      else if (parentId === "unreal_engine") installPath = "";  // UE 必须手动指定项目根目录
     }
     const label = `${dccName} ${version}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
@@ -475,7 +565,9 @@ function InstallerTab() {
       else if (parentId === "3ds_max") computedPath = `%LOCALAPPDATA%/Autodesk/3dsMax/${newVersion}/ENU/scripts/`;
       else if (parentId === "unreal_engine") computedPath = "";
     }
-    const newLabel = `${item?.name ?? parentId} ${newVersion}`;
+    const newLabel = parentId === "unreal_engine"
+      ? `${child.label.replace(/ \(UE .*\)$/, "")} (UE ${newVersion})`
+      : `${item?.name ?? parentId} ${newVersion}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? {
       ...it,
       children: (it.children || []).map((c, i) => i === childIndex ? { ...c, label: newLabel, version: newVersion, installPath: computedPath } : c),

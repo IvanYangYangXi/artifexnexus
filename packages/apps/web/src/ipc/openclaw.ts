@@ -574,6 +574,22 @@ export async function uninstallUEPlugin(
   });
 }
 
+// ── UE 插件安装状态检查 ────────────────────────────────────────────────
+
+export interface UnrealPluginCheckResult {
+  installed: boolean;
+  target: string;
+}
+
+/** 检查 UE 插件是否已安装到指定项目（纯文件系统检查，不依赖 sidecar） */
+export async function checkUnrealPluginInstalled(
+  projectPath: string,
+): Promise<UnrealPluginCheckResult> {
+  return invoke<UnrealPluginCheckResult>("check_ue_plugin_installed", {
+    projectPath,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------

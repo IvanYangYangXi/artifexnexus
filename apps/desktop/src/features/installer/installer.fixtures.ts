@@ -37,16 +37,8 @@ export const FIXTURE_ITEMS: InstallItem[] = [
     iconKey: "unreal",
     state: "pending",
     expandable: true,
-    children: [
-      {
-        label: "UE 5.4 主项目",
-        version: "5.4.2",
-        installPath: "C:\\Program Files\\Epic Games\\UE_5.4",
-        projectPath: "D:\\Proj\\MyGame",
-        scriptPath: "<install>/plugins/unreal/init.py",
-        state: "pending",
-      },
-    ],
+    // UE 不需要扫描安装目录，由用户手动添加工程条目
+    children: [],
   },
   {
     id: "max",
@@ -54,16 +46,7 @@ export const FIXTURE_ITEMS: InstallItem[] = [
     iconKey: "max",
     state: "pending",
     expandable: true,
-    children: [
-      {
-        label: "3ds Max 2024",
-        version: "2024.2",
-        installPath: "C:\\Program Files\\Autodesk\\3ds Max 2024",
-        projectPath: "",
-        scriptPath: "<install>/plugins/max/init.ms",
-        state: "pending",
-      },
-    ],
+    children: [],
   },
   {
     id: "maya",

@@ -332,25 +332,55 @@ function InstallItemRow({ item }: InstallItemRowProps) {
 
   /** 添加子项：根据 DCC 类型弹出对应输入框 */
   const handleAddChild = useCallback(() => {
-    // UE：输入工程路径
+    // UE：输入工程路径 + 版本号 → 标签为 项目名 (UE 版本)
     if (item.id === "unreal") {
       const projectPath = window.prompt(
         `请输入 UE 工程根目录（插件将安装到 {目录}\\Plugins\\）：`,
       );
       if (!projectPath || !projectPath.trim()) return;
+
+      const ueVersion = window.prompt(
+        `请输入 UE 版本号（如 5.7）：`,
+      );
+      if (!ueVersion || !ueVersion.trim()) return;
+
       const projectName = projectPath.trim().split(/[\\/]/).pop() || "Project";
+      const label = `${projectName} (UE ${ueVersion.trim()})`;
+
       dispatch({
         type: "ADD_CHILD",
         parentId: item.id,
         child: {
-          label: `${item.name} ${projectName}`,
-          version: "",
+          label,
+          version: ueVersion.trim(),
           installPath: `${projectPath.trim()}\\Plugins\\`,
           projectPath: projectPath.trim(),
           scriptPath: "",
           state: "not-installed",
         },
       });
+
+      // 异步检测插件是否已安装
+      void (async () => {
+        try {
+          const { checkUnrealPluginInstalled } = await import("../../ipc/openclaw");
+          const result = await checkUnrealPluginInstalled(projectPath.trim());
+          if (result.installed) {
+            // 找到刚添加的子项索引（最后一个子项）
+            const children = item.children ?? [];
+            const newChildIndex = children.length; // ADD_CHILD 追加到末尾
+            dispatch({
+              type: "UPDATE_CHILD",
+              parentId: item.id,
+              childIndex: newChildIndex,
+              patch: { state: "installed" },
+            });
+            addLog(item.id, "info", `检测到已安装: ${label}（${result.target}）`);
+          }
+        } catch {
+          // 检测失败静默处理，保持 not-installed
+        }
+      })();
       return;
     }
 
@@ -378,7 +408,7 @@ function InstallItemRow({ item }: InstallItemRowProps) {
         state: "not-installed",
       },
     });
-  }, [dispatch, item.id, item.name, calcInstallPath]);
+  }, [dispatch, item.id, item.name, calcInstallPath, addLog, item.children]);
 
   // EPIC-0001 第二批 #2：点击 "Web UI" 按钮，先取 URL 再用系统浏览器打开
   const handleOpenWebUi = useCallback(() => {

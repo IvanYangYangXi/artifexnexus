@@ -122,7 +122,15 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
     const newInstallPath = window.prompt("安装路径（可修改）：", defaultPath);
     if (newInstallPath === null) return; // 取消
 
-    const newLabel = `${parentItem?.name ?? ""} ${newVersion.trim()}`;
+    // UE：标签格式为 项目名 (UE 版本)，从已有 label 提取项目名
+    let newLabel: string;
+    if (parentId === "unreal") {
+      // 现有 label 格式 "项目名 (UE 版本)"，提取项目名部分
+      const projectName = child.label.replace(/ \(UE .*\)$/, "");
+      newLabel = `${projectName} (UE ${newVersion.trim()})`;
+    } else {
+      newLabel = `${parentItem?.name ?? ""} ${newVersion.trim()}`;
+    }
     dispatch({
       type: "UPDATE_CHILD",
       parentId,
@@ -133,7 +141,7 @@ function InstallChildRow({ child, parentId, childIndex }: InstallChildRowProps) 
         installPath: newInstallPath.trim() || defaultPath,
       },
     });
-  }, [dispatch, parentId, childIndex, child.version, child.installPath, parentItem?.name]);
+  }, [dispatch, parentId, childIndex, child.version, child.installPath, child.label, parentItem?.name]);
 
   const handleInstall = useCallback(() => {
     if (installDisabled) return;

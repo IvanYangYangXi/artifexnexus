@@ -13,6 +13,43 @@ import styles from "./InstallerWizard.module.css";
 
 const zh = t.zhCN;
 
+// ---- 子项 localStorage 持久化 ----
+
+const CHILDREN_STORAGE_PREFIX = "artifex_installer:v1:children:";
+
+/** 从 localStorage 读取用户手动添加的子项，合并到 fixture 初始数据 */
+function loadInitialItems(): InstallItem[] {
+  return FIXTURE_ITEMS.map((item) => {
+    if (!item.expandable) return item;
+    try {
+      const saved = localStorage.getItem(CHILDREN_STORAGE_PREFIX + item.id);
+      if (saved) {
+        const children = JSON.parse(saved) as InstallChildItem[];
+        if (children.length > 0) {
+          return { ...item, children };
+        }
+      }
+    } catch {
+      // localStorage 读取失败，回退到 fixture 默认值
+    }
+    return item;
+  });
+}
+
+/** 持久化某个 DCC 条目的子项到 localStorage */
+function persistChildren(itemId: string, children: InstallChildItem[]) {
+  const key = CHILDREN_STORAGE_PREFIX + itemId;
+  try {
+    if (children.length > 0) {
+      localStorage.setItem(key, JSON.stringify(children));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // localStorage 写入失败静默处理
+  }
+}
+
 // ---- 状态管理（useReducer + Context，零依赖） ----
 
 /** 安装向导全局状态 */
@@ -267,7 +304,7 @@ export function isInstallGated(item: InstallItem, items: InstallItem[]): boolean
 /** 安装向导页面：路由 `/installer` 入口 */
 function InstallerWizard() {
   const [state, dispatch] = useReducer(installerReducer, {
-    items: FIXTURE_ITEMS,
+    items: loadInitialItems(),
     logs: [],
   });
 
@@ -275,6 +312,15 @@ function InstallerWizard() {
   useEffect(() => {
     handleGlobalDetect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 子项变更时自动持久化到 localStorage（跳过首次挂载的初始写入）
+  useEffect(() => {
+    for (const item of state.items) {
+      if (item.expandable && item.children) {
+        persistChildren(item.id, item.children);
+      }
+    }
+  }, [state.items]);
 
   const handleGlobalDetect = () => {
     // OpenClaw：真实状态查询

@@ -96,6 +96,8 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_unreal_detect,
             commands::openclaw::openclaw_dcc_unreal_install,
             commands::openclaw::openclaw_dcc_unreal_uninstall,
+            // 检查 UE 插件是否已安装（纯文件系统检查，不依赖 sidecar）
+            commands::openclaw::check_ue_plugin_installed,
             // STORY-0028 M2：Gateway MCP Bridge 插件
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,
