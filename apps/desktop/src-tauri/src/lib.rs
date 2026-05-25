@@ -99,6 +99,7 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_max_detect,
             commands::openclaw::openclaw_dcc_max_install,
             commands::openclaw::openclaw_dcc_max_uninstall,
+            commands::openclaw::openclaw_dcc_plugin_versions,
             // STORY-0051 M5：UE 插件安装/卸载
             commands::openclaw::openclaw_dcc_unreal_detect,
             commands::openclaw::openclaw_dcc_unreal_install,

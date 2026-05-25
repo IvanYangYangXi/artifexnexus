@@ -430,6 +430,21 @@ pub async fn openclaw_dcc_max_uninstall(
     manager.call("openclaw.dcc.max.uninstall", json!({"version": version}))
 }
 
+/// 获取指定 DCC 所有可用的插件版本及兼容范围。
+#[tauri::command]
+pub async fn openclaw_dcc_plugin_versions(
+    sidecar: State<'_, SidecarState>,
+    dcc: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.plugin.versions", json!({"dcc": dcc}))
+}
+
 /// 检测可用 UE 插件版本。
 ///
 /// STORY-0051 M5：UE 插件安装/卸载。

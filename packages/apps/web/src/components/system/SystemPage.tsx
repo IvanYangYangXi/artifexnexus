@@ -13,7 +13,48 @@ import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, Dial
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions } from "../../ipc/openclaw";
+
+// ─── 工具函数 ───────────────────────────────────────────────────────
+
+/** 检查 Maya/3ds Max 插件与 DCC 软件版本兼容性。不兼容时弹窗提示。 */
+async function _checkDCCPluginCompatibility(
+  dcc: string,
+  dccVersion: string,
+  addLog: (itemId: string, level: "info" | "warn" | "error", msg: string) => void,
+  parentId: string,
+  showConfirm: (title: string, description?: string) => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    const ipc = await getIpc();
+    const { versions } = await getAvailablePluginVersions(dcc);
+    if (!versions || versions.length === 0) {
+      // 无插件可用，让 Python 报错
+      return true;
+    }
+    // 检查是否有兼容版本
+    const compatible = versions.some((v) => {
+      if (!v.dcc_max) return dccVersion >= v.dcc_min;
+      return dccVersion >= v.dcc_min && dccVersion <= v.dcc_max!;
+    });
+    if (!compatible) {
+      const verList = versions.map((v) => {
+        const range = v.dcc_max ? `${v.dcc_min}~${v.dcc_max}` : `${v.dcc_min}+`;
+        return `  v${v.version}（兼容 ${range}）`;
+      }).join("\n");
+      const name = dcc === "maya" ? "Maya" : "3ds Max";
+      addLog(parentId, "warn", `[${name} ${dccVersion}] 版本不兼容！可用插件: ${versions.map((v) => `v${v.version}`).join(", ")}`);
+      await showConfirm(
+        `版本不兼容`,
+        `${name} ${dccVersion} 没有匹配的插件版本。\n\n可用的插件版本：\n${verList}\n\n将尝试安装最接近的版本（可能不兼容），确定继续？`,
+      );
+    }
+    return true;
+  } catch {
+    // 查询失败时放行，让 Python 端报具体错误
+    return true;
+  }
+}
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
 
@@ -565,7 +606,7 @@ function InstallerTab() {
 
     // Blender/Maya/Max：通用添加
     const versionPlaceholders: Record<string, string> = {
-      blender: "如 4.3",
+      blender: "如 5.1",
       maya: "如 2023",
       "3ds_max": "如 2023",
     };
@@ -643,7 +684,7 @@ function InstallerTab() {
     }
     const isUE = parentId === "unreal_engine";
     const editVersionPlaceholders: Record<string, string> = {
-      blender: "如 4.3",
+      blender: "如 5.1",
       maya: "如 2023",
       "3ds_max": "如 2023",
       unreal_engine: "如 5.7",
@@ -725,6 +766,10 @@ function InstallerTab() {
 
       // ── Maya 安装分支 ──
       if (parentId === "maya") {
+        // 检查版本兼容性
+        const compatOk = await _checkDCCPluginCompatibility("maya", child.version, addLog, parentId, showConfirm);
+        if (!compatOk) return;
+
         if (isReinstall) {
           addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
           try { await ipc.uninstallMayaAddon(child.version); } catch {}
@@ -743,6 +788,10 @@ function InstallerTab() {
 
       // ── 3ds Max 安装分支 ──
       if (parentId === "3ds_max") {
+        // 检查版本兼容性
+        const compatOk = await _checkDCCPluginCompatibility("3ds_max", child.version, addLog, parentId, showConfirm);
+        if (!compatOk) return;
+
         if (isReinstall) {
           addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
           try { await ipc.uninstallMaxAddon(child.version); } catch {}

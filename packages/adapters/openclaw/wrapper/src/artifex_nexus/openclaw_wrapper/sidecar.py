@@ -1283,6 +1283,30 @@ def _handle_openclaw_dcc_max_uninstall(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_dcc_plugin_versions(req_id: Any, params: dict) -> dict:
+    """获取指定 DCC 所有可用的插件版本及兼容范围。"""
+    try:
+        dcc = params.get("dcc", "")
+        if dcc not in ("maya", "3ds_max", "blender"):
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32602, "message": f"不支持的 DCC: {dcc}"},
+            }
+        versions = _dcc_installer.get_available_plugin_versions(dcc)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"versions": versions},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> dict:
     """openclaw.gateway.mcp_bridge.install RPC：部署 mcp-bridge 插件到 OpenClaw。
 
@@ -2075,6 +2099,7 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.max.detect": _handle_openclaw_dcc_max_detect,
     "openclaw.dcc.max.install": _handle_openclaw_dcc_max_install,
     "openclaw.dcc.max.uninstall": _handle_openclaw_dcc_max_uninstall,
+    "openclaw.dcc.plugin.versions": _handle_openclaw_dcc_plugin_versions,
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,

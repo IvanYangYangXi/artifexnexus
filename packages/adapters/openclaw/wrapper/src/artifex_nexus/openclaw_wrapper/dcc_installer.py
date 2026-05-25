@@ -349,11 +349,17 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     if not os.path.isdir(src_dir):
         return {"success": False, "method": None, "target": target_dir, "error": f"插件源目录不存在: {src_dir}"}
 
-    compatible, reason = check_version_compatibility(dcc_version) if dcc == "blender" else (
+    compatible, reason = check_dcc_version_compatibility(dcc, dcc_version) if dcc in ("maya", "3ds_max", "blender") else (
         True, ""
     )
     if not compatible and not force:
-        return {"success": False, "method": None, "target": target_dir, "error": reason}
+        # 返回可用插件版本供前端提示
+        available = get_available_plugin_versions(dcc)
+        return {
+            "success": False, "method": None, "target": target_dir,
+            "error": reason,
+            "available_versions": [v["version"] for v in available],
+        }
 
     os.makedirs(os.path.dirname(target_dir), exist_ok=True)
 
@@ -393,17 +399,18 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
     target_dir = get_dcc_addon_target_dir(dcc, dcc_version)
     logger.info(f"卸载 {dcc} 插件: {target_dir}")
 
+    deployment_id = f"{dcc}-addon-{dcc_version}"
+    # ⚠️ 无论目录是否存在，都先清理 manifest（避免卸载后校验误报"缺失"）
+    try:
+        _remove_from_manifest(deployment_id)
+    except Exception as e:
+        logger.warning(f"部署清单清理失败（不阻断卸载）: {e}")
+
     if not os.path.exists(target_dir) and not _is_junction_or_symlink(target_dir):
         return {"success": True, "target": target_dir, "error": None, "message": "插件未安装"}
 
     try:
         _remove_link_or_dir(target_dir)
-        # 从部署清单移除
-        deployment_id = f"{dcc}-addon-{dcc_version}"
-        try:
-            _remove_from_manifest(deployment_id)
-        except Exception as e:
-            logger.warning(f"部署清单清理失败（不阻断卸载）: {e}")
         return {"success": True, "target": target_dir, "error": None, "message": "卸载成功"}
     except Exception as e:
         return {"success": False, "target": target_dir, "error": str(e)}
@@ -1616,6 +1623,109 @@ def get_dcc_plugin_info(dcc: str) -> Dict:
     return _parse_plugin_info(content, dcc)
 
 
+def get_available_plugin_versions(dcc: str) -> List[Dict]:
+    """获取 DCC 所有可用插件版本及其兼容范围。
+
+    扫描 packages/dcc/{dcc}/src/artifex_nexus/v*/ 目录，
+    读取每个版本 __init__.py 中的 plugin_info。
+
+    Returns:
+        [{"version": "2023", "dcc_min": "2023", "dcc_max": None, "path": str}, ...]
+        按 version 降序排列。
+    """
+    _DCC_PKG_DIR = {
+        "blender": "blender",
+        "maya": "maya",
+        "3ds_max": "max",
+    }
+    dcc_pkg_dir = _DCC_PKG_DIR.get(dcc, dcc)
+    _ADDON_DIR_NAMES = {
+        "blender": "blender_addon",
+        "maya": "maya_addon",
+        "3ds_max": "max_addon",
+    }
+    addon_dir_name = _ADDON_DIR_NAMES.get(dcc, f"{dcc}_addon")
+
+    # 按优先级查找 base 目录
+    env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
+    if env_root:
+        base = Path(env_root) / "packages" / "dcc" / dcc_pkg_dir / "src" / "artifex_nexus"
+    else:
+        _here = Path(__file__).resolve().parent
+        base = (_here / ".." / ".." / ".." / ".." / "dcc" / dcc_pkg_dir / "src" / "artifex_nexus").resolve()
+
+    if not base.exists():
+        return []
+
+    versions = []
+    for entry in sorted(base.iterdir(), reverse=True):
+        if entry.is_dir() and entry.name.startswith("v"):
+            addon_dir = entry / addon_dir_name
+            if not addon_dir.exists():
+                continue
+            init_file = addon_dir / "__init__.py"
+            if not init_file.exists():
+                continue
+            try:
+                ver_name = entry.name[1:]  # strip "v" prefix
+                info = _parse_plugin_info(init_file.read_text(encoding="utf-8"), dcc)
+                versions.append({
+                    "version": ver_name,
+                    "dcc_min": ".".join(str(x) for x in info["dcc_min"]),
+                    "dcc_max": ".".join(str(x) for x in info["dcc_max"]) if info["dcc_max"] else None,
+                    "path": str(addon_dir),
+                })
+            except Exception:
+                continue
+
+    return versions
+
+
+def find_best_plugin_for_dcc(dcc: str, dcc_version: str) -> Optional[Dict]:
+    """为指定 DCC 版本查找最佳匹配的插件版本。
+
+    优先精确匹配，其次兼容范围匹配，返回最佳结果。
+    无匹配时返回 None。
+
+    Returns:
+        {version, dcc_min, dcc_max, path} 或 None
+    """
+    available = get_available_plugin_versions(dcc)
+    if not available:
+        return None
+
+    try:
+        dv_parts = tuple(int(x) for x in dcc_version.split("."))
+    except ValueError:
+        return None
+    while len(dv_parts) < 2:
+        dv_parts = dv_parts + (0,)
+
+    # 1. 精确匹配
+    for v in available:
+        try:
+            vp = tuple(int(x) for x in v["version"].split("."))
+            if len(vp) >= 2 and vp[:2] == dv_parts[:2]:
+                return v
+        except ValueError:
+            continue
+
+    # 2. 兼容范围匹配（dcc_min <= version <= dcc_max）
+    for v in available:
+        try:
+            dcc_min = tuple(int(x) for x in v["dcc_min"].split("."))
+            if dv_parts >= dcc_min:
+                if v["dcc_max"] is None:
+                    return v
+                dcc_max = tuple(int(x) for x in v["dcc_max"].split("."))
+                if dv_parts <= dcc_max:
+                    return v
+        except (ValueError, KeyError):
+            continue
+
+    return None
+
+
 def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, str]:
     """检查 DCC 版本是否与插件兼容（通用，用于 Maya / 3ds Max）。
 
@@ -1910,6 +2020,7 @@ def validate_all_deployments() -> List[dict]:
     """
     manifest = _read_deploy_manifest()
     results: List[dict] = []
+    stale_ids: List[str] = []  # 目标目录已不存在的过期部署项
 
     for dep in manifest.get("deployments", []):
         dep_id = dep.get("id", "unknown")
@@ -1918,14 +2029,9 @@ def validate_all_deployments() -> List[dict]:
 
         # 检查目标目录是否存在
         if not target_dir.exists():
-            results.append({
-                "id": dep_id,
-                "status": "missing",
-                "target": str(target_dir),
-                "sourceVersion": dep.get("sourceVersion"),
-                "deployedAt": dep.get("deployedAt"),
-                "details": "目标目录不存在",
-            })
+            # 静默清理：过期部署项不生成 missing 结果，直接从 manifest 移除
+            stale_ids.append(dep_id)
+            logger.info(f"清理过期部署项: {dep_id} ({target_dir} 不存在)")
             continue
 
         # 逐文件校验
@@ -1989,6 +2095,15 @@ def validate_all_deployments() -> List[dict]:
             "deployedAt": dep.get("deployedAt"),
             "details": f"全部 {len(expected_files)} 个文件校验通过",
         })
+
+    # ── 静默清理过期条目 ──────────────────────────────────────
+    if stale_ids:
+        manifest["deployments"] = [
+            d for d in manifest.get("deployments", [])
+            if d.get("id") not in stale_ids
+        ]
+        _write_deploy_manifest(manifest)
+        logger.info(f"已清理 {len(stale_ids)} 条过期部署记录: {', '.join(stale_ids)}")
 
     return results
 

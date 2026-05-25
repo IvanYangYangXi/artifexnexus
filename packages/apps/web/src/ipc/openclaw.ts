@@ -689,6 +689,26 @@ export async function uninstallMaxAddon(
   });
 }
 
+// ── 插件版本查询 ──
+
+/** 插件版本项 */
+export interface PluginVersionInfo {
+  version: string;
+  dcc_min: string;
+  dcc_max: string | null;
+  path: string;
+}
+
+/** 获取指定 DCC 所有可用的插件版本及兼容范围 */
+export async function getAvailablePluginVersions(
+  dcc: string,
+): Promise<{ versions: PluginVersionInfo[] }> {
+  return invoke<{ versions: PluginVersionInfo[] }>(
+    "openclaw_dcc_plugin_versions",
+    { dcc },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------
