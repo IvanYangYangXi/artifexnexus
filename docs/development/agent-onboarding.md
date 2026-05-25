@@ -122,6 +122,8 @@ pnpm openspec:clean       # 删除所有软链（仅删 link，不动 docs/ 真�
 
 ### 6.1 接入新 DCC（3 步）
 
+> 完整模块清单（16 项）见主文档 `[[../specs/dcc-plugin-management]]`，接入新 DCC 时以此为检查清单逐项对照。
+
 详见 `[[../sdk/dcc-installer]]` + `[[../sdk/dcc-registry]]`。
 
 **Step 1**：在 `dccRegistry.ts` 注册 DCC 操作
@@ -262,6 +264,7 @@ WorkBuddy 会在执行任务时自动创建一些文件，**不要把它们当�
 
 ## 相关
 
+- `[[../specs/dcc-plugin-management]]` — DCC 插件扩展总文档（接入新 DCC 的主入口）
 - `[[sdd-workflow]]`
 - `[[task-management]]`
 - `[[team-roles]]` — 团队角色定义与协作流程

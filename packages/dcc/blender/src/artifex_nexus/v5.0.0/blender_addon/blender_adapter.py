@@ -22,7 +22,7 @@ import sys
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
-from base_adapter import BaseDCCAdapter
+from artifex_nexus_sdk.base_adapter import BaseDCCAdapter
 
 logger = logging.getLogger("artifex.blender")
 

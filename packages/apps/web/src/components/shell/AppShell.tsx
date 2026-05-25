@@ -24,6 +24,7 @@ import { Sidebar, type ModuleId } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 import { RightPanel } from "./RightPanel";
 import { trace } from "../../lib/trace";
+import type { MCPBridgeStatus } from "../../ipc/openclaw";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -423,7 +424,7 @@ export function AppShell() {
         }
         const statuses: { name: string; connected: boolean }[] = [];
         // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-        let bridgeStatus: ipc.MCPBridgeStatus | null = null;
+        let bridgeStatus: MCPBridgeStatus | null = null;
         if (s.gateway_running) {
           try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch {}
         }

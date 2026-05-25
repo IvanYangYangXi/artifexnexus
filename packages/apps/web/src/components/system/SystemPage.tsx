@@ -12,7 +12,7 @@ import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Tras
 import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
-import type { OpenClawStatus, GatewayStatus, DeployValidationResult } from "../../ipc/openclaw";
+import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus } from "../../ipc/openclaw";
 import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath } from "../../ipc/openclaw";
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
@@ -773,7 +773,7 @@ function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], 
       } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
 
       // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-      let bridgeStatus: ipc.MCPBridgeStatus | null = null;
+      let bridgeStatus: MCPBridgeStatus | null = null;
       if (gatewayRunning) {
         try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
           console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
@@ -1243,7 +1243,7 @@ function StatusTab() {
       } catch (err) { console.warn("[SystemPage] StatusTab.refreshDCC getOpenClawStatus failed:", err); }
 
       // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-      let bridgeStatus: ipc.MCPBridgeStatus | null = null;
+      let bridgeStatus: MCPBridgeStatus | null = null;
       if (gatewayRunning) {
         try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
           console.warn("[SystemPage] StatusTab.refreshDCC getMCPBridgeStatus failed:", err);

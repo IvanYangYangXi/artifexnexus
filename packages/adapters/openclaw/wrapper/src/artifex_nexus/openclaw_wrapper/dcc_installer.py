@@ -94,30 +94,49 @@ def set_addon_src_dir(path: str) -> None:
     logger.info(f"DCC 安装器: 插件源目录 = {_ADDON_SRC_DIR}")
 
 
-def _get_addon_src_dir() -> Path:
+def _get_addon_src_dir(dcc: str = "blender") -> Path:
     """获取插件源目录（版本化路径）。
 
+    Args:
+        dcc: DCC 标识，如 "blender" / "maya" / "3ds_max"
+
     优先级：
-      1. 环境变量 ARTIFEX_NEXUS_ROOT（sidecar 启动时注入）
+      1. 环境变量 ARTIFEX_NEXUS_PROJECT_ROOT（sidecar 启动时注入）
       2. 显式调用 set_addon_src_dir()
       3. 基于 __file__ 的相对路径（开发模式）
     """
-    if _ADDON_SRC_DIR is not None:
+    if _ADDON_SRC_DIR is not None and dcc == "blender":
         return _ADDON_SRC_DIR
+
+    # DCC 对应的 addon 子目录名
+    _ADDON_DIR_NAMES = {
+        "blender": "blender_addon",
+        "maya": "maya_addon",
+        "3ds_max": "max_addon",
+    }
+    addon_dir_name = _ADDON_DIR_NAMES.get(dcc, f"{dcc}_addon")
+
+    # DCC key → 实际 packages/dcc/ 目录名映射
+    # dcc_installer 内部使用 "3ds_max" 作 key，但目录名为 "max"
+    _DCC_PKG_DIR = {
+        "blender": "blender",
+        "maya": "maya",
+        "3ds_max": "max",
+    }
+    dcc_pkg_dir = _DCC_PKG_DIR.get(dcc, dcc)
 
     # 环境变量注入（生产模式：sidecar 由 Tauri 启动）
     env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
     if env_root:
-        base = Path(env_root) / "packages" / "dcc" / "blender" / "src" / "artifex_nexus"
+        base = Path(env_root) / "packages" / "dcc" / dcc_pkg_dir / "src" / "artifex_nexus"
         if base.exists():
             for entry in sorted(base.iterdir(), reverse=True):
                 if entry.is_dir() and entry.name.startswith("v"):
-                    # Blender addon 在 vX.Y.Z/blender_addon/ 子目录中
-                    addon_dir = entry / "blender_addon"
+                    addon_dir = entry / addon_dir_name
                     if addon_dir.exists():
-                        logger.info(f"DCC 安装器: 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {addon_dir}")
+                        logger.info(f"DCC 安装器({dcc}): 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {addon_dir}")
                         return addon_dir
-                    logger.info(f"DCC 安装器: 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {entry}")
+                    logger.info(f"DCC 安装器({dcc}): 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {entry}")
                     return entry
         raise RuntimeError(
             f"环境变量 ARTIFEX_NEXUS_PROJECT_ROOT={env_root}，"
@@ -127,21 +146,20 @@ def _get_addon_src_dir() -> Path:
     # 基于 __file__ 的相对路径（开发模式）
     _here = Path(__file__).resolve().parent
     # artifex_nexus/openclaw_wrapper/dcc_installer.py
-    # → ../../../../dcc/blender/src/artifex_nexus
-    base = (_here / ".." / ".." / ".." / ".." / "dcc" / "blender" / "src" / "artifex_nexus").resolve()
+    # → ../../../../dcc/{dcc_pkg_dir}/src/artifex_nexus
+    base = (_here / ".." / ".." / ".." / ".." / "dcc" / dcc_pkg_dir / "src" / "artifex_nexus").resolve()
     if base.exists():
         for entry in sorted(base.iterdir(), reverse=True):
             if entry.is_dir() and entry.name.startswith("v"):
-                # Blender addon 在 vX.Y.Z/blender_addon/ 子目录中
-                addon_dir = entry / "blender_addon"
+                addon_dir = entry / addon_dir_name
                 if addon_dir.exists():
-                    logger.info(f"DCC 安装器: 通过相对路径定位插件源目录 = {addon_dir}")
+                    logger.info(f"DCC 安装器({dcc}): 通过相对路径定位插件源目录 = {addon_dir}")
                     return addon_dir
-                logger.info(f"DCC 安装器: 通过相对路径定位插件源目录 = {entry}")
+                logger.info(f"DCC 安装器({dcc}): 通过相对路径定位插件源目录 = {entry}")
                 return entry
 
     raise RuntimeError(
-        "无法定位插件源目录。请设置环境变量 ARTIFEX_NEXUS_ROOT 或调用 set_addon_src_dir()。"
+        f"无法定位 {dcc} 插件源目录。请设置环境变量 ARTIFEX_NEXUS_PROJECT_ROOT 或调用 set_addon_src_dir()。"
         f"\n  已尝试路径: {base}"
     )
 
@@ -245,17 +263,16 @@ _DCC_VERSION_SCAN_PATHS: Dict[str, str] = {
         os.environ.get("APPDATA", os.path.expanduser("~/AppData/Roaming")),
         "Blender Foundation", "Blender",
     ),
-    # M7 接入：
-    # "maya": os.path.join(os.path.expanduser("~"), "Documents", "maya"),
-    # "3ds_max": os.path.join(os.environ.get("LOCALAPPDATA", ""), "Autodesk", "3dsMax"),
+    "maya": os.path.join(os.path.expanduser("~"), "Documents", "maya"),
+    "3ds_max": os.path.join(os.environ.get("LOCALAPPDATA", ""), "Autodesk", "3dsMax"),
 }
 
 # DCC 插件安装路径模板（key = dcc_id）
 # 注意：unreal 不在此表中 —— UE 插件由用户手动放入 UE 项目 Plugins/ 目录
 _DCC_ADDON_PATH_TEMPLATES: Dict[str, str] = {
     "blender": "{base}/{version}/scripts/addons/",
-    # "maya": "{base}/{version}/scripts/",
-    # "3ds_max": "{base}/{version}/ENU/scripts/",
+    "maya": "{base}/{version}/scripts/",
+    "3ds_max": "{base}/{version}/ENU/scripts/",
 }
 
 
@@ -318,7 +335,7 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     Returns:
         {"success": bool, "method": str|None, "target": str, "error": str|None}
     """
-    src_dir = str(_get_addon_src_dir())
+    src_dir = str(_get_addon_src_dir(dcc))
     target_dir = get_dcc_addon_target_dir(dcc, dcc_version)
 
     logger.info(f"安装 {dcc} 插件: {src_dir} → {target_dir}")
@@ -392,8 +409,8 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
 _DCC_DEFAULT_PORTS: Dict[str, int] = {
     "blender": 18083,
     "unreal": 18080,
-    # "maya": 18084,
-    # "3ds_max": 18085,
+    "maya": 18081,
+    "3ds_max": 18082,
 }
 
 # UE MCP Server 默认端口
@@ -538,6 +555,269 @@ def uninstall_blender_addon(blender_version: str) -> Dict:
 
 def is_addon_installed(blender_version: str) -> bool:
     return is_dcc_addon_installed("blender", blender_version)
+
+
+# ── Maya 便捷别名 ─────────────────────────────────────────────────────────
+
+def find_maya_versions() -> List[str]:
+    """扫描 ~/Documents/maya/ 下已安装的 Maya 版本"""
+    return find_dcc_versions("maya")
+
+
+def install_maya_addon(maya_version: str, force: bool = False) -> Dict:
+    """安装 Maya 插件 + locale 同步。
+
+    Maya 安装策略：
+      1. 安装主目录到 ~/Documents/maya/{ver}/scripts/artifex_nexus/
+      2. 扫描 locale 子目录（xx_XX 格式），物理复制到各 locale
+    """
+    result = install_dcc_addon("maya", maya_version, force)
+    if not result.get("success"):
+        return result
+
+    # locale 同步
+    locale_synced = _sync_maya_locales(maya_version)
+    if locale_synced:
+        result["locale_synced"] = locale_synced
+
+    return result
+
+
+def uninstall_maya_addon(maya_version: str) -> Dict:
+    """卸载 Maya 插件（含 locale 目录清理）"""
+    # 清理 locale 目录中的副本
+    _cleanup_maya_locales(maya_version)
+    return uninstall_dcc_addon("maya", maya_version)
+
+
+def _get_maya_locale_dirs(maya_version: str) -> List[str]:
+    """扫描 Maya 版本的 locale 子目录（xx_XX/scripts/ 格式）"""
+    base = _DCC_VERSION_SCAN_PATHS.get("maya", "")
+    version_dir = os.path.join(base, maya_version)
+    locales = []
+    if os.path.isdir(version_dir):
+        for entry in os.scandir(version_dir):
+            if entry.is_dir() and "_" in entry.name:
+                scripts_dir = os.path.join(entry.path, "scripts")
+                if os.path.isdir(scripts_dir):
+                    locales.append(scripts_dir)
+    return locales
+
+
+def _sync_maya_locales(maya_version: str) -> List[str]:
+    """同步 Maya locale 目录：物理复制到各 locale 的 scripts/artifex_nexus/"""
+    base = _DCC_VERSION_SCAN_PATHS.get("maya", "")
+    main_target = os.path.join(base, maya_version, "scripts", "artifex_nexus")
+    synced = []
+    for locale_dir in _get_maya_locale_dirs(maya_version):
+        locale_target = os.path.join(locale_dir, "artifex_nexus")
+        if not os.path.exists(locale_target):
+            try:
+                shutil.copytree(main_target, locale_target, ignore=_get_ignore_patterns_for_shutil())
+                synced.append(os.path.basename(os.path.dirname(locale_dir)))
+            except OSError:
+                pass
+    return synced
+
+
+def _cleanup_maya_locales(maya_version: str) -> None:
+    """清理 Maya locale 目录中的副本"""
+    for locale_dir in _get_maya_locale_dirs(maya_version):
+        locale_target = os.path.join(locale_dir, "artifex_nexus")
+        if os.path.exists(locale_target):
+            _remove_link_or_dir(locale_target)
+
+
+# ── 3ds Max 便捷别名 ──────────────────────────────────────────────────────
+
+def find_max_versions() -> List[str]:
+    """扫描 %LOCALAPPDATA%/Autodesk/3dsMax/ 下已安装的 Max 版本。
+
+    支持两种目录名格式：
+      "2024" 和 "2024 - 64bit"
+    提取版本号后 set 去重。
+    """
+    base = _DCC_VERSION_SCAN_PATHS.get("3ds_max", "")
+    if not os.path.isdir(base):
+        return []
+
+    versions = set()
+    try:
+        for entry in os.scandir(base):
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            # 提取第一个空格前的部分作为版本号
+            ver = name.split(" ")[0] if " " in name else name
+            if ver and ver[0].isdigit():
+                versions.add(ver)
+    except OSError:
+        pass
+
+    return sorted(versions, reverse=True)
+
+
+def install_max_addon(max_version: str, force: bool = False) -> Dict:
+    """安装 3ds Max 插件 + locale 同步 + 启动脚本。
+
+    Max 安装策略：
+      1. 安装主目录到 %LOCALAPPDATA%/Autodesk/3dsMax/{ver}/ENU/scripts/artifex_nexus/
+      2. 部署 startup/artifex_startup.py + artifex_startup.ms
+      3. 扫描所有 locale 目录，同步 artifex_nexus/ + 启动脚本
+    """
+    result = install_dcc_addon("3ds_max", max_version, force)
+    if not result.get("success"):
+        return result
+
+    # 部署启动脚本
+    scripts_deployed = _deploy_max_startup_scripts(max_version)
+    if scripts_deployed:
+        result["startup_scripts"] = scripts_deployed
+
+    # locale 同步
+    locale_synced = _sync_max_locales(max_version)
+    if locale_synced:
+        result["locale_synced"] = locale_synced
+
+    return result
+
+
+def uninstall_max_addon(max_version: str) -> Dict:
+    """卸载 3ds Max 插件（含 locale 清理和启动脚本清理）"""
+    _cleanup_max_locales(max_version)
+    _cleanup_max_startup_scripts(max_version)
+    return uninstall_dcc_addon("3ds_max", max_version)
+
+
+def _get_max_real_dirs(max_version: str) -> List[str]:
+    """获取 3ds Max 版本的所有实际目录（含 '2024 - 64bit' 等变体）"""
+    base = _DCC_VERSION_SCAN_PATHS.get("3ds_max", "")
+    dirs = []
+    if os.path.isdir(base):
+        for entry in os.scandir(base):
+            if entry.is_dir():
+                name = entry.name
+                ver = name.split(" ")[0] if " " in name else name
+                if ver == max_version:
+                    dirs.append(entry.path)
+    return dirs
+
+
+def _get_max_locale_dirs(max_version: str) -> List[Dict[str, str]]:
+    """扫描 3ds Max 所有 locale 脚本目录。
+
+    Returns:
+        [{version_dir, locale, scripts_dir}, ...]
+    """
+    results = []
+    for version_dir in _get_max_real_dirs(max_version):
+        if not os.path.isdir(version_dir):
+            continue
+        for entry in os.scandir(version_dir):
+            if entry.is_dir():
+                scripts_dir = os.path.join(entry.path, "scripts")
+                if os.path.isdir(scripts_dir) or not os.path.exists(scripts_dir):
+                    results.append({
+                        "version_dir": version_dir,
+                        "locale": entry.name,
+                        "scripts_dir": scripts_dir,
+                    })
+    return results
+
+
+def _deploy_max_startup_scripts(max_version: str) -> List[str]:
+    """部署 3ds Max 启动脚本到所有 locale 的 startup/ 目录"""
+    addon_src = _get_addon_src_dir("3ds_max")
+    deployed = []
+    startup_files = ["artifex_startup.ms"]
+
+    for locale_info in _get_max_locale_dirs(max_version):
+        scripts_dir = locale_info["scripts_dir"]
+        os.makedirs(scripts_dir, exist_ok=True)
+        startup_dir = os.path.join(scripts_dir, "startup")
+        os.makedirs(startup_dir, exist_ok=True)
+
+        for fname in startup_files:
+            src = os.path.join(addon_src, fname)
+            dst = os.path.join(startup_dir, fname)
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+                deployed.append(f"{locale_info['locale']}/{fname}")
+
+        # 也复制 startup.py
+        src_py = os.path.join(addon_src, "startup.py")
+        dst_py = os.path.join(startup_dir, "startup.py")
+        if os.path.exists(src_py):
+            shutil.copy2(src_py, dst_py)
+            deployed.append(f"{locale_info['locale']}/startup.py")
+
+    return deployed
+
+
+def _sync_max_locales(max_version: str) -> List[str]:
+    """同步 3ds Max locale 目录：物理复制 artifex_nexus/ + 启动脚本"""
+    synced = []
+    main_locale_info = None
+
+    # 先找到 ENU 主目录
+    for info in _get_max_locale_dirs(max_version):
+        if info["locale"].upper() == "ENU":
+            main_locale_info = info
+            break
+    if not main_locale_info:
+        # 取第一个 locale 作主目录
+        all_locales = _get_max_locale_dirs(max_version)
+        if all_locales:
+            main_locale_info = all_locales[0]
+
+    if not main_locale_info:
+        return synced
+
+    main_target = os.path.join(main_locale_info["scripts_dir"], "artifex_nexus")
+
+    for info in _get_max_locale_dirs(max_version):
+        if info["locale"] == main_locale_info["locale"]:
+            continue
+        locale_target = os.path.join(info["scripts_dir"], "artifex_nexus")
+        if not os.path.exists(locale_target):
+            try:
+                os.makedirs(info["scripts_dir"], exist_ok=True)
+                shutil.copytree(main_target, locale_target, ignore=_get_ignore_patterns_for_shutil())
+                synced.append(info["locale"])
+            except OSError:
+                pass
+
+        # 同步 startup 脚本
+        main_startup = os.path.join(main_locale_info["scripts_dir"], "startup")
+        locale_startup = os.path.join(info["scripts_dir"], "startup")
+        if os.path.isdir(main_startup) and not os.path.isdir(locale_startup):
+            try:
+                shutil.copytree(main_startup, locale_startup)
+            except OSError:
+                pass
+
+    return synced
+
+
+def _cleanup_max_locales(max_version: str) -> None:
+    """清理 3ds Max locale 目录中的副本"""
+    for info in _get_max_locale_dirs(max_version):
+        target = os.path.join(info["scripts_dir"], "artifex_nexus")
+        if os.path.exists(target):
+            _remove_link_or_dir(target)
+
+
+def _cleanup_max_startup_scripts(max_version: str) -> None:
+    """清理 3ds Max 启动脚本"""
+    for info in _get_max_locale_dirs(max_version):
+        startup_dir = os.path.join(info["scripts_dir"], "startup")
+        for fname in ["artifex_startup.ms", "startup.py", "artifex_startup.py"]:
+            fp = os.path.join(startup_dir, fname)
+            if os.path.isfile(fp):
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
 
 
 # ── Unreal 便捷别名 ──────────────────────────────────────────────────────
@@ -913,7 +1193,7 @@ def get_addon_info() -> Dict:
             "source_dir": str,
         }
     """
-    src_dir = _get_addon_src_dir()
+    src_dir = _get_addon_src_dir("blender")
     init_file = src_dir / "blender_addon" / "__init__.py"
 
     if not init_file.exists():
@@ -1078,6 +1358,121 @@ def check_ue_version_compatibility(ue_version: str) -> Tuple[bool, str]:
 
     if ue_max is not None:
         max_str = ".".join(str(x) for x in ue_max)
+        return True, f"兼容 ({min_str} ~ {max_str})"
+    else:
+        return True, f"兼容 (≥ {min_str})"
+
+
+# ── 通用 DCC plugin_info 解析（Maya / 3ds Max）───────────────────────────
+
+def _parse_plugin_info(content: str, dcc: str) -> Dict:
+    """从 Python 源码中解析 plugin_info 字典（简单 AST）。
+
+    Maya: plugin_info = {"name": "...", "version": (2023,), "maya_max": None}
+    Max:  plugin_info = {"name": "...", "version": (2023,), "max_min": (2023,), "max_max": None}
+    """
+    import ast
+
+    tree = ast.parse(content)
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "plugin_info":
+                    info = ast.literal_eval(node.value)
+                    version = info.get("version", (0, 0, 0))
+                    # Maya: min = version（无显式 maya_min）
+                    if dcc == "maya":
+                        dcc_min = info.get("maya_min", version)
+                    else:
+                        dcc_min = info.get("max_min", version)
+
+                    dcc_max = info.get("maya_max") if dcc == "maya" else info.get("max_max")
+
+                    return {
+                        "name": info.get("name", "Artifex Nexus Bridge"),
+                        "version": version,
+                        "dcc_min": dcc_min,
+                        "dcc_max": dcc_max,
+                    }
+    # fallback
+    return {
+        "name": "Artifex Nexus Bridge",
+        "version": (0, 0, 0),
+        "dcc_min": (0, 0, 0),
+        "dcc_max": None,
+    }
+
+
+def get_dcc_plugin_info(dcc: str) -> Dict:
+    """读取 Maya / 3ds Max 插件的 plugin_info 元信息。
+
+    Args:
+        dcc: "maya" 或 "3ds_max"
+
+    Returns:
+        {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": tuple|None}
+    """
+    src_dir = _get_addon_src_dir(dcc)
+    addon_dir_names = {"maya": "maya_addon", "3ds_max": "max_addon"}
+    addon_dir = addon_dir_names.get(dcc, f"{dcc}_addon")
+    init_file = src_dir / addon_dir / "__init__.py"
+
+    if not init_file.exists():
+        return {
+            "name": "Artifex Nexus Bridge",
+            "version": (0, 0, 0),
+            "dcc_min": (0, 0, 0),
+            "dcc_max": None,
+        }
+
+    try:
+        content = init_file.read_text(encoding="utf-8")
+        return _parse_plugin_info(content, dcc)
+    except Exception:
+        return {
+            "name": "Artifex Nexus Bridge",
+            "version": (0, 0, 0),
+            "dcc_min": (0, 0, 0),
+            "dcc_max": None,
+        }
+
+
+def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, str]:
+    """检查 DCC 版本是否与插件兼容（通用，用于 Maya / 3ds Max）。
+
+    兼容规则：dcc_min <= dcc_version <= dcc_max
+
+    Args:
+        dcc: DCC 标识 "maya" 或 "3ds_max"
+        dcc_version: 版本号，如 "2023"
+
+    Returns:
+        (compatible, reason)
+    """
+    info = get_dcc_plugin_info(dcc)
+    dcc_min = info["dcc_min"]
+    dcc_max = info.get("dcc_max")
+
+    try:
+        dv_parts = tuple(int(x) for x in dcc_version.split("."))
+    except (ValueError, AttributeError):
+        return False, f"无法解析版本号: {dcc_version}"
+
+    # 补齐到 3 位
+    while len(dv_parts) < 3:
+        dv_parts = dv_parts + (0,)
+
+    min_str = ".".join(str(x) for x in dcc_min)
+
+    if dv_parts < dcc_min:
+        return False, f"版本 {dcc_version} 低于最低要求 {min_str}"
+
+    if dcc_max is not None and dv_parts > dcc_max:
+        max_str = ".".join(str(x) for x in dcc_max)
+        return False, f"版本 {dcc_version} 高于最高支持 {max_str}"
+
+    if dcc_max is not None:
+        max_str = ".".join(str(x) for x in dcc_max)
         return True, f"兼容 ({min_str} ~ {max_str})"
     else:
         return True, f"兼容 (≥ {min_str})"

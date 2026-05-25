@@ -781,7 +781,7 @@ export function useChatService(options: ChatServiceOptions) {
     // connected 或 degraded（连接仍在但 EventLoop 繁忙）都尝试发送 RPC
     const ws = wsRef.current;
     const sk = sessionKeyRef.current;
-    if (ws && sk && (ws.state === "connected" || ws.state === "degraded")) {
+    if (ws && sk && ws.state === "connected") {
       return ws.ensureSessionModel(sk, model).catch((err) => {
         console.warn("[chat-service] changeModel: ensureSessionModel failed:", err);
       });

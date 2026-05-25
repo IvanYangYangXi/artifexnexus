@@ -1,19 +1,21 @@
 """
-base_adapter.py - DCC 适配层抽象接口（精简版）
-==============================================
+base_adapter.py - DCC 适配层抽象接口（共享模块）
+================================================
 
-复刻自 artclaw_bridge/subprojects/DCCClawBridge/adapters/base_adapter.py，
-精简：去掉 Qt UI 集成相关方法（get_main_window / register_menu）。
+提取自 Blender addon，供所有 DCC（Blender / Maya / Max / UE / ...）复用。
+每个 DCC 实现一个子类，继承 BaseDCCAdapter。
 
-每个 DCC（Blender / Maya / Max / ...）实现一个子类。
+设计原则：去掉 Qt UI 集成相关方法（get_main_window / register_menu）。
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
 
 
 class BaseDCCAdapter(ABC):
-    """DCC 适配层抽象接口（精简版）"""
+    """DCC 适配层抽象接口（共享模块）"""
 
     def __init__(self):
         # 持久化执行命名空间：跨 execute_code 调用保持用户定义的变量
@@ -30,11 +32,11 @@ class BaseDCCAdapter(ABC):
 
     @abstractmethod
     def get_software_name(self) -> str:
-        """返回软件名称，如 'blender', 'maya', 'max'"""
+        """返回软件名称，如 'blender', 'maya', '3ds_max'"""
 
     @abstractmethod
     def get_software_version(self) -> str:
-        """返回软件版本，如 '4.2', '2024'"""
+        """返回软件版本，如 '5.1', '2024'"""
 
     @abstractmethod
     def get_python_version(self) -> str:

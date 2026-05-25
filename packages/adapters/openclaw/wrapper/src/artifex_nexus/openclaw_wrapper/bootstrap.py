@@ -216,6 +216,16 @@ def _generate_default_config(
                                 "url": "ws://127.0.0.1:18080",
                                 "enabled": True,
                             },
+                            "maya-primary": {
+                                "type": "websocket",
+                                "url": "ws://127.0.0.1:18081",
+                                "enabled": True,
+                            },
+                            "max-primary": {
+                                "type": "websocket",
+                                "url": "ws://127.0.0.1:18082",
+                                "enabled": True,
+                            },
                         }
                     }
                 },

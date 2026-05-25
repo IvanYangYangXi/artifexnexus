@@ -1,8 +1,8 @@
 """
-mcp_server.py - Blender MCP Server 入口
-=======================================
+mcp_server.py - Maya MCP Server 入口
+=====================================
 
-从共享 SDK 导入 MCPServer，绑定 Blender 专用内置工具（run_python + get_editor_context）。
+从共享 SDK 导入 MCPServer，绑定 Maya 专用内置工具（run_python + get_editor_context）。
 """
 
 from __future__ import annotations
@@ -13,35 +13,33 @@ from typing import Any, Callable, Dict, Optional
 
 from artifex_nexus_sdk.mcp_server import MCPServer
 
-logger = logging.getLogger("artifex.mcp")
+logger = logging.getLogger("artifex.maya.mcp")
 
-# ── Blender 专用常量 ──
-SERVER_NAME = "artifex-nexus-blender"
-SERVER_VERSION = "0.1.0"
-DEFAULT_PORT = 18083
-
-DCC_NAME = "blender"
-DCC_VERSION = "5.0.0"
+# ── Maya 专用常量 ──
+DCC_NAME = "maya"
+DCC_VERSION = "2023"
+DEFAULT_PORT = 18081
 
 
 def create_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> MCPServer:
-    """创建 Blender MCP Server 实例"""
+    """创建 Maya MCP Server 实例（固定端口 18081，不探测其他端口）"""
     return MCPServer(
         dcc_name=DCC_NAME,
         dcc_version=DCC_VERSION,
         host=host,
         port=port,
+        max_port_probe=0,
     )
 
 
 # ── 内置工具注册 ────────────────────────────────────────────────────────
 
 def register_builtin_tools(server: MCPServer, adapter=None) -> None:
-    """注册 Blender 内置 MCP 工具（run_python + get_editor_context）"""
+    """注册 Maya 内置 MCP 工具（run_python + get_editor_context）"""
 
     # ── run_python: 万能执行器 ──
     def _handle_run_python(arguments: dict) -> dict:
-        # get_context 快捷模式 — 直接返回编辑器上下文
+        # get_context 快捷模式
         if arguments.get("get_context", False):
             if not adapter:
                 return {
@@ -99,16 +97,15 @@ def register_builtin_tools(server: MCPServer, adapter=None) -> None:
     server.register_tool(
         name="run_python",
         description=(
-            "在 Blender 中执行 Python 代码。\n\n"
+            "在 Maya 中执行 Python 代码。\n\n"
             "上下文变量（已自动注入，无需 import）:\n"
-            "  S = 选中对象列表\n"
+            "  S = 选中对象列表 (maya.cmds.ls(sl=True))\n"
             "  W = 当前场景文件路径\n"
-            "  L = bpy 模块\n"
-            "  C = bpy.context\n"
-            "  D = bpy.data\n"
-            "  bpy = bpy 模块\n\n"
+            "  L = maya.cmds 模块\n"
+            "  maya = maya.cmds 模块\n"
+            "  pymel = pymel.core 模块（如果可用）\n\n"
             "将返回值赋给 result 变量，框架会自动提取并返回。\n"
-            "所有写操作都有 Undo 支持（Ctrl+Z 可撤销）。\n\n"
+            "坐标系统：Y-Up，单位为厘米(cm)。\n\n"
             "快捷上下文: 设 get_context=true（无需 code）可获取编辑器状态。"
         ),
         input_schema={
@@ -159,9 +156,9 @@ def register_builtin_tools(server: MCPServer, adapter=None) -> None:
     server.register_tool(
         name="get_editor_context",
         description=(
-            "获取 Blender 编辑器上下文信息。\n\n"
+            "获取 Maya 编辑器上下文信息。\n\n"
             "返回：软件名称/版本、Python 版本、当前文件路径、"
-            "选中对象列表（名称 + 类型）、场景统计（对象数/网格数/帧范围/渲染引擎）。\n"
+            "选中对象列表（名称 + 类型）、场景统计（对象数/网格数/帧范围/Up Axis）。\n"
             "无需参数，直接调用即可获取当前编辑状态快照。"
         ),
         input_schema={

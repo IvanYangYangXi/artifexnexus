@@ -1,0 +1,299 @@
+"""
+Artifex Nexus 3ds Max Addon — 菜单栏 + MCP Server 生命周期管理
+================================================================
+
+在 3ds Max 提供：
+  - Artifex Nexus 菜单栏
+  - 启动/停止 MCP Server（端口 18082）
+  - 触发器开关
+  - 状态查看
+
+自动加载：scripts/startup/artifex_startup.ms → startup.py
+
+CI 兼容：pymxs 导入失败时暴露空壳 register/unregister。
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict
+
+logger = logging.getLogger("artifex.max")
+
+# ── 路径注入 ────────────────────────────────────────────────────────────
+_addon_dir = Path(__file__).parent
+if str(_addon_dir) not in sys.path:
+    sys.path.insert(0, str(_addon_dir))
+
+_sdk_dir = _addon_dir.parents[4] / "shared"
+_sdk_str = str(_sdk_dir)
+if _sdk_str not in sys.path:
+    sys.path.insert(0, _sdk_str)
+
+# ── 元信息 ──────────────────────────────────────────────────────────────
+plugin_info = {
+    "name": "Artifex Nexus Bridge",
+    "author": "Ivan(杨己力)",
+    "version": (2023,),
+    "max_min": (2023,),
+    "max_max": None,
+    "description": "Artifex Nexus MCP Bridge — AI 驱动的 3ds Max 操作",
+}
+
+# ── pymxs 导入 ──────────────────────────────────────────────────────────
+try:
+    import pymxs
+    _HAS_MAX = True
+except ImportError:
+    _HAS_MAX = False
+
+# ── 全局状态 ────────────────────────────────────────────────────────────
+_mcp_server = None
+_adapter = None
+_triggers_enabled = True
+
+
+def _get_mcp_server():
+    global _mcp_server
+    if _mcp_server is None:
+        from mcp_server import create_server
+        _mcp_server = create_server()
+    return _mcp_server
+
+
+def _get_adapter():
+    global _adapter
+    if _adapter is None:
+        from max_adapter import MaxAdapter
+        _adapter = MaxAdapter()
+        # 设置全局引用（供 #timeout 回调使用）
+        import max_adapter as _ma
+        _ma._global_adapter = _adapter
+    return _adapter
+
+
+def _warn_port_occupied(port: int) -> None:
+    """端口被占用时输出警告（Max Listener + 日志）"""
+    msg = f"[Artifex Nexus] 警告: 端口 {port} 被占用，MCP Server 无法启动"
+    print(msg)
+    if _HAS_MAX:
+        try:
+            from pymxs import runtime as rt
+            rt.print(msg, warning=True)
+        except Exception:
+            pass
+
+
+# ── 公共 API ────────────────────────────────────────────────────────────
+
+def start_server() -> bool:
+    from mcp_server import DEFAULT_PORT
+
+    server = _get_mcp_server()
+    if server.is_running:
+        logger.info("MCP Server 已在运行")
+        return True
+
+    # 端口预检查：被占用时跳过启动并提示
+    from artifex_nexus_sdk.mcp_server import MCPServer as _MCPServer
+    if not _MCPServer._is_port_available("127.0.0.1", DEFAULT_PORT):
+        logger.warning(f"端口 {DEFAULT_PORT} 被占用，MCP Server 无法启动")
+        _warn_port_occupied(DEFAULT_PORT)
+        return False
+
+    adapter = _get_adapter()
+    server.set_adapter(adapter)
+    adapter.set_server(server)
+
+    from mcp_server import register_builtin_tools
+    register_builtin_tools(server, adapter)
+
+    success = server.start()
+    if success:
+        logger.info(f"Max MCP Server 已启动: {server.server_address}")
+    else:
+        logger.error("Max MCP Server 启动失败")
+    return success
+
+
+def stop_server() -> None:
+    global _mcp_server
+    if _mcp_server and _mcp_server.is_running:
+        _mcp_server.stop()
+    _mcp_server = None
+
+
+def restart_server() -> bool:
+    stop_server()
+    return start_server()
+
+
+def toggle_triggers(enabled: bool = None) -> bool:
+    global _triggers_enabled
+    if enabled is not None:
+        _triggers_enabled = enabled
+    else:
+        _triggers_enabled = not _triggers_enabled
+
+    if _HAS_MAX:
+        from trigger_dispatcher import register_max_callbacks, unregister_max_callbacks
+        if _triggers_enabled:
+            register_max_callbacks()
+        else:
+            unregister_max_callbacks()
+
+    logger.info(f"触发器: {'已启用' if _triggers_enabled else '已禁用'}")
+    return _triggers_enabled
+
+
+def get_status() -> Dict[str, Any]:
+    server = _get_mcp_server()
+    return {
+        "software": "3ds_max",
+        "version": _get_adapter().get_software_version(),
+        "server_running": server.is_running,
+        "server_address": server.server_address,
+        "triggers_enabled": _triggers_enabled,
+    }
+
+
+# ── Max UI ──────────────────────────────────────────────────────────────
+
+def _create_menu():
+    """创建 Artifex Nexus 菜单"""
+    if not _HAS_MAX:
+        return
+
+    try:
+        from pymxs import runtime as rt
+
+        # 查找或创建菜单
+        main_menu = rt.menuMan.getMainMenuBar()
+
+        # 创建子菜单
+        an_menu = rt.menuMan.createMenu("ArtifexNexus")
+
+        # 菜单项（通过 Action 实现）
+        # 注意：3ds Max 菜单宏通过 macroScript 注册
+        # 这里使用简单的 Python 控制台输出作为 fallback
+        action_items = [
+            ("启动 MCP Server", "artifex_nexus_start"),
+            ("停止 MCP Server", "artifex_nexus_stop"),
+            ("查看状态", "artifex_nexus_status"),
+            ("切换触发器", "artifex_nexus_toggle_triggers"),
+        ]
+
+        for label, action_name in action_items:
+            action = rt.menuMan.createActionItem(action_name, "ArtifexNexus")
+            action.setTitle(label)
+            an_menu.addItem(action, -1)
+
+        # 添加到主菜单
+        sub_menu_item = rt.menuMan.createSubMenuItem("Artifex Nexus", an_menu)
+        main_menu.addItem(sub_menu_item, -1)
+
+        rt.menuMan.updateMenuBar()
+        logger.info("Max 菜单已创建")
+    except Exception as e:
+        logger.error(f"创建 Max 菜单失败: {e}")
+
+
+def _print_status():
+    """打印状态到 Max Listener"""
+    status = get_status()
+    msg = (
+        f"[Artifex Nexus] 3ds Max {status['version']} | "
+        f"Server: {'ON' if status['server_running'] else 'OFF'} | "
+        f"Port: 18082 | "
+        f"Triggers: {'ON' if status['triggers_enabled'] else 'OFF'}"
+    )
+    if _HAS_MAX:
+        try:
+            from pymxs import runtime as rt
+            rt.print(msg)
+        except Exception:
+            pass
+    print(msg)
+
+
+# ── 生命周期 ────────────────────────────────────────────────────────────
+
+def register():
+    """Max 启动时调用（由 startup.py 触发）"""
+    if not _HAS_MAX:
+        logger.warning("pymxs 不可用，跳过 UI 注册")
+        return
+
+    logger.info(f"Artifex Nexus Max Addon v{'.'.join(map(str, plugin_info['version']))}")
+
+    try:
+        _create_menu()
+    except Exception as e:
+        logger.warning(f"创建菜单失败: {e}")
+
+    # 自动启动
+    auto_start = os.environ.get("ARTIFEX_MAX_AUTO_START", "1") == "1"
+    if auto_start:
+        from trigger_dispatcher import register_max_callbacks
+        register_max_callbacks()
+        adapter = _get_adapter()
+        adapter.on_startup()
+        start_server()
+
+    logger.info("Max addon 注册完成")
+    _print_status()
+
+
+def unregister():
+    """Max 关闭/卸载时调用"""
+    global _mcp_server, _adapter
+
+    stop_server()
+
+    if _HAS_MAX:
+        from trigger_dispatcher import unregister_max_callbacks
+        unregister_max_callbacks()
+
+        try:
+            from pymxs import runtime as rt
+            main_menu = rt.menuMan.getMainMenuBar()
+            # 移除菜单项
+            for i in range(main_menu.numItems()):
+                item = main_menu.getItem(i)
+                if item and item.getTitle() == "Artifex Nexus":
+                    main_menu.removeItemByPosition(i)
+                    break
+            rt.menuMan.updateMenuBar()
+        except Exception:
+            pass
+
+    _adapter = None
+    logger.info("Max addon 已卸载")
+
+
+# ── 宏脚本注册（供 MaxScript 菜单调用）──
+
+def _macro_start():
+    """macroScript: 启动 MCP Server"""
+    if start_server():
+        _print_status()
+
+
+def _macro_stop():
+    """macroScript: 停止 MCP Server"""
+    stop_server()
+    _print_status()
+
+
+def _macro_status():
+    """macroScript: 查看状态"""
+    _print_status()
+
+
+def _macro_toggle_triggers():
+    """macroScript: 切换触发器"""
+    toggle_triggers()
+    _print_status()

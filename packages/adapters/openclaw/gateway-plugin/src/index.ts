@@ -399,6 +399,8 @@ export default function (api: PluginAPI) {
   const DEFAULT_DCC_SERVERS: Record<string, { type: string; url: string; enabled: boolean }> = {
     "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083", enabled: true },
     "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true },
+    "maya-primary": { type: "websocket", url: "ws://127.0.0.1:18081", enabled: true },
+    "max-primary": { type: "websocket", url: "ws://127.0.0.1:18082", enabled: true },
   };
 
   let configPatched = false;
@@ -465,6 +467,34 @@ export default function (api: PluginAPI) {
           properties: {
             code: { type: "string", description: "Python code to execute in Unreal Editor" },
             get_context: { type: "boolean", description: "Set to true to return editor context without executing code", default: false },
+          },
+          required: [],
+        },
+      },
+    ],
+    "maya-primary": [
+      {
+        name: "run_python",
+        description: "在 Maya 中执行 Python 代码。\n\n上下文变量（已自动注入，无需 import）:\n  S = 选中对象列表 (maya.cmds.ls(sl=True))\n  W = 当前场景文件路径\n  L = maya.cmds 模块\n  maya = maya.cmds 模块\n  pymel = pymel.core 模块（如果可用）\n\n将返回值赋给 result 变量，框架会自动提取并返回。\n坐标系统：Y-Up，单位为厘米(cm)。\n\n快捷上下文: 设 get_context=true（无需 code）可获取编辑器状态。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "要执行的 Python 代码" },
+            get_context: { type: "boolean", description: "设为 true 时直接返回编辑器上下文（软件/版本/选中对象/场景），无需提供 code", default: false },
+          },
+          required: [],
+        },
+      },
+    ],
+    "max-primary": [
+      {
+        name: "run_python",
+        description: "在 3ds Max 中执行 Python 代码（通过 pymxs）。\n\n上下文变量（已自动注入，无需 import）:\n  S = 选中对象列表 (pymxs.runtime.selection)\n  W = 当前场景文件路径\n  L = pymxs.runtime 模块\n  rt = pymxs.runtime 别名\n  pymxs = pymxs 模块\n\n将返回值赋给 result 变量，框架会自动提取并返回。\n坐标系统：Z-Up。\n\n快捷上下文: 设 get_context=true（无需 code）可获取编辑器状态。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "要执行的 Python 代码" },
+            get_context: { type: "boolean", description: "设为 true 时直接返回编辑器上下文（软件/版本/选中对象/场景），无需提供 code", default: false },
           },
           required: [],
         },

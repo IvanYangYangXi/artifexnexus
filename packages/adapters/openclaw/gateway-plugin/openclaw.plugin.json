@@ -1,7 +1,7 @@
 {
   "id": "mcp-bridge",
   "name": "MCP Bridge",
-  "description": "Bridge external MCP servers (WebSocket) into OpenClaw agent tools. Connects to Blender MCP Server for AI-driven 3D operations.",
+  "description": "Bridge external MCP servers (WebSocket) into OpenClaw agent tools. Connects to Blender/UE/Maya/Max MCP Servers for AI-driven 3D operations.",
   "version": "5.0.0",
   "main": "index.js",
   "activation": {
@@ -11,8 +11,9 @@
     "tools": [
       "mcp_blender-editor_run_python",
       "mcp_blender-editor_get_context",
+      "mcp_unreal-editor_run_python",
       "mcp_maya-primary_run_python",
-      "mcp_unreal-editor_run_python"
+      "mcp_max-primary_run_python"
     ]
   },
   "configSchema": {

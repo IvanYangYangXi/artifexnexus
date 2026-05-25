@@ -1099,6 +1099,190 @@ def _handle_openclaw_dcc_unreal_uninstall(req_id: Any, params: dict) -> dict:
         }
 
 
+# ── M7 Maya & 3ds Max 插件 检测/安装/卸载 RPC ───────────────────────────
+
+def _handle_openclaw_dcc_maya_detect(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.maya.detect RPC：检测本机 Maya 版本及插件安装状态。"""
+    try:
+        versions = _dcc_installer.find_maya_versions()
+        addon_info = _dcc_installer.get_dcc_plugin_info("maya")
+
+        result_versions = []
+        for ver in versions:
+            installed = _dcc_installer.is_dcc_addon_installed("maya", ver)
+            compatible, reason = _dcc_installer.check_dcc_version_compatibility("maya", ver)
+            result_versions.append({
+                "version": ver,
+                "installed": installed,
+                "compatible": compatible,
+                "compat_reason": reason,
+            })
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "versions": result_versions,
+                "addon_info": {
+                    "name": addon_info.get("name", ""),
+                    "version": ".".join(str(x) for x in addon_info.get("version", (0, 0, 0))),
+                    "dcc_min": ".".join(str(x) for x in addon_info.get("dcc_min", (0, 0, 0))),
+                    "dcc_max": ".".join(str(x) for x in addon_info.get("dcc_max", (0,))) if addon_info.get("dcc_max") else None,
+                },
+            },
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_maya_install(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.maya.install RPC：安装插件到指定 Maya 版本。"""
+    version = params.get("version", "")
+    force = bool(params.get("force", False))
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.install_maya_addon(version, force=force)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_maya_uninstall(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.maya.uninstall RPC：卸载 Maya 插件。"""
+    version = params.get("version", "")
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.uninstall_maya_addon(version)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_max_detect(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.max.detect RPC：检测本机 3ds Max 版本及插件安装状态。"""
+    try:
+        versions = _dcc_installer.find_max_versions()
+        addon_info = _dcc_installer.get_dcc_plugin_info("3ds_max")
+
+        result_versions = []
+        for ver in versions:
+            installed = _dcc_installer.is_dcc_addon_installed("3ds_max", ver)
+            compatible, reason = _dcc_installer.check_dcc_version_compatibility("3ds_max", ver)
+            result_versions.append({
+                "version": ver,
+                "installed": installed,
+                "compatible": compatible,
+                "compat_reason": reason,
+            })
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "versions": result_versions,
+                "addon_info": {
+                    "name": addon_info.get("name", ""),
+                    "version": ".".join(str(x) for x in addon_info.get("version", (0, 0, 0))),
+                    "dcc_min": ".".join(str(x) for x in addon_info.get("dcc_min", (0, 0, 0))),
+                    "dcc_max": ".".join(str(x) for x in addon_info.get("dcc_max", (0,))) if addon_info.get("dcc_max") else None,
+                },
+            },
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_max_install(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.max.install RPC：安装插件到指定 3ds Max 版本。"""
+    version = params.get("version", "")
+    force = bool(params.get("force", False))
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.install_max_addon(version, force=force)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_max_uninstall(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.max.uninstall RPC：卸载 3ds Max 插件。"""
+    version = params.get("version", "")
+
+    if not version:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "缺少参数: version"},
+        }
+
+    try:
+        result = _dcc_installer.uninstall_max_addon(version)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> dict:
     """openclaw.gateway.mcp_bridge.install RPC：部署 mcp-bridge 插件到 OpenClaw。
 
@@ -1884,6 +2068,13 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.unreal.detect": _handle_openclaw_dcc_unreal_detect,
     "openclaw.dcc.unreal.install": _handle_openclaw_dcc_unreal_install,
     "openclaw.dcc.unreal.uninstall": _handle_openclaw_dcc_unreal_uninstall,
+    # STORY-0063/0064 M7：Maya & 3ds Max 插件安装/卸载
+    "openclaw.dcc.maya.detect": _handle_openclaw_dcc_maya_detect,
+    "openclaw.dcc.maya.install": _handle_openclaw_dcc_maya_install,
+    "openclaw.dcc.maya.uninstall": _handle_openclaw_dcc_maya_uninstall,
+    "openclaw.dcc.max.detect": _handle_openclaw_dcc_max_detect,
+    "openclaw.dcc.max.install": _handle_openclaw_dcc_max_install,
+    "openclaw.dcc.max.uninstall": _handle_openclaw_dcc_max_uninstall,
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,

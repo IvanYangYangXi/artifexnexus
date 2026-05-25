@@ -175,13 +175,13 @@ class MCPBridgeClient:
     def get_instance_for_dcc(cls, dcc: str) -> MCPBridgeClient:
         """根据 DCC 名称获取对应的客户端实例。
 
-        支持的 DCC: blender(18083), unreal_engine(18080)
+        支持的 DCC: blender(18083), unreal_engine(18080), maya(18081), 3ds_max(18082)
         """
         _DCC_PORT: dict[str, int] = {
             "blender": 18083,
             "unreal_engine": 18080,
-            "maya": 18084,
-            "3ds_max": 18085,
+            "maya": 18081,
+            "3ds_max": 18082,
             "houdini": 18086,
         }
         port = _DCC_PORT.get(dcc, DEFAULT_BLENDER_MCP_PORT)

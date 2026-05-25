@@ -37,10 +37,17 @@ bl_info = {
 }
 
 # ── 路径注入 ────────────────────────────────────────────────────────────
-# 确保当前 addon 目录在 sys.path 中，以便相对导入 mcp_server 等同级模块
+# 确保当前 addon 目录和共享 SDK 在 sys.path 中
 _addon_dir = Path(__file__).parent
 if str(_addon_dir) not in sys.path:
     sys.path.insert(0, str(_addon_dir))
+
+# 共享 SDK 路径
+# blender_addon → v5.0.0 → artifex_nexus → src → blender → dcc → shared
+_sdk_dir = _addon_dir.parents[4] / "shared"
+_sdk_path = str(_sdk_dir)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 
 # ── bpy 导入（CI 环境无 bpy，跳过 Blender 特有代码）────────────────────
 try:
@@ -58,8 +65,8 @@ def _get_mcp_server():
     """延迟导入 MCPServer，避免循环依赖"""
     global _mcp_server
     if _mcp_server is None:
-        from mcp_server import MCPServer
-        _mcp_server = MCPServer(port=18083)
+        from mcp_server import create_server
+        _mcp_server = create_server()
     return _mcp_server
 
 

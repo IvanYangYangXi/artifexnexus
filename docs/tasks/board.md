@@ -16,6 +16,14 @@ tags:
 - [ ] [[EPIC-0007-m7-multi-dcc-inapp-chat]]
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
+- [ ] [[STORY-0059-shared-module-extraction]]
+- [ ] [[STORY-0060-maya-plugin-scaffold]]
+- [ ] [[STORY-0061-max-plugin-scaffold]]
+- [ ] [[STORY-0062-gateway-maya-max-bridge]]
+- [ ] [[STORY-0063-sidecar-maya-max]]
+- [ ] [[STORY-0064-installer-maya-max-ui]]
+- [ ] [[STORY-0065-blender-adapt-shared]]
+- [ ] [[STORY-0066-e2e-maya-max-verify]]
 
 
 ## Ready

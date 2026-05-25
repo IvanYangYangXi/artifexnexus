@@ -7,11 +7,18 @@ import {
   detectBlenderVersions,
   installBlenderAddon,
   uninstallBlenderAddon,
+  detectMayaVersions,
+  installMayaAddon,
+  uninstallMayaAddon,
+  detectMaxVersions,
+  installMaxAddon,
+  uninstallMaxAddon,
 } from "../../ipc/openclaw";
 import type {
   BlenderDetectResult,
   BlenderInstallResult,
   BlenderUninstallResult,
+  DCCDetectResult as GenericDCCDetectResult,
 } from "../../ipc/openclaw";
 
 // ── 通用 DCC 操作接口 ──────────────────────────────────────────────────
@@ -81,6 +88,19 @@ function adaptBlenderDetect(r: BlenderDetectResult): DCCDetectResult {
   };
 }
 
+/** 将通用 DCC 检测结果转换为标准格式（Maya/Max） */
+function adaptGenericDetect(r: GenericDCCDetectResult): DCCDetectResult {
+  return {
+    versions: r.versions,
+    addon_info: {
+      name: r.addon_info.name,
+      version: r.addon_info.version,
+      dcc_min: r.addon_info.dcc_min,
+      dcc_max: r.addon_info.dcc_max,
+    },
+  };
+}
+
 /** DCC 注册表：key = InstallItem.id */
 export const dccRegistry: Record<string, DCCActions> = {
   // STORY-0027：Blender（M2 首发）
@@ -89,10 +109,18 @@ export const dccRegistry: Record<string, DCCActions> = {
     install: (version, force) => installBlenderAddon(version, force),
     uninstall: (version) => uninstallBlenderAddon(version),
   },
-  // M7 接入：
-  // maya: { detect: detectMayaVersions, install: installMayaAddon, ... },
-  // max: { detect: detectMaxVersions, install: installMaxAddon, ... },
-  // unreal: { detect: detectUnrealVersions, install: installUnrealAddon, ... },
+  // STORY-0064：Maya（M7）
+  maya: {
+    detect: async () => adaptGenericDetect(await detectMayaVersions()),
+    install: (version, force) => installMayaAddon(version, force),
+    uninstall: (version) => uninstallMayaAddon(version),
+  },
+  // STORY-0064：3ds Max（M7）
+  max: {
+    detect: async () => adaptGenericDetect(await detectMaxVersions()),
+    install: (version, force) => installMaxAddon(version, force),
+    uninstall: (version) => uninstallMaxAddon(version),
+  },
 };
 
 /** 检查 item.id 是否已注册 DCC 操作 */

@@ -92,6 +92,13 @@ pub fn run() {
             commands::openclaw::openclaw_dcc_blender_detect,
             commands::openclaw::openclaw_dcc_blender_install,
             commands::openclaw::openclaw_dcc_blender_uninstall,
+            // STORY-0063/0064 M7：Maya & 3ds Max 插件
+            commands::openclaw::openclaw_dcc_maya_detect,
+            commands::openclaw::openclaw_dcc_maya_install,
+            commands::openclaw::openclaw_dcc_maya_uninstall,
+            commands::openclaw::openclaw_dcc_max_detect,
+            commands::openclaw::openclaw_dcc_max_install,
+            commands::openclaw::openclaw_dcc_max_uninstall,
             // STORY-0051 M5：UE 插件安装/卸载
             commands::openclaw::openclaw_dcc_unreal_detect,
             commands::openclaw::openclaw_dcc_unreal_install,

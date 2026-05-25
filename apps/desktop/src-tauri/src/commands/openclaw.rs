@@ -326,6 +326,110 @@ pub async fn openclaw_dcc_blender_uninstall(
     manager.call("openclaw.dcc.blender.uninstall", json!({"version": version}))
 }
 
+/// 检测本机 Maya 版本及插件安装状态。
+///
+/// STORY-0063 M7：Maya MCP 桥接。
+#[tauri::command]
+pub async fn openclaw_dcc_maya_detect(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.maya.detect", json!({}))
+}
+
+/// 安装 Artifex Nexus 插件到指定 Maya 版本。
+#[tauri::command]
+pub async fn openclaw_dcc_maya_install(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({"version": version});
+    if let Some(f) = force {
+        params["force"] = serde_json::Value::Bool(f);
+    }
+
+    manager.call("openclaw.dcc.maya.install", params)
+}
+
+/// 卸载 Maya 插件。
+#[tauri::command]
+pub async fn openclaw_dcc_maya_uninstall(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.maya.uninstall", json!({"version": version}))
+}
+
+/// 检测本机 3ds Max 版本及插件安装状态。
+///
+/// STORY-0064 M7：3ds Max MCP 桥接。
+#[tauri::command]
+pub async fn openclaw_dcc_max_detect(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.max.detect", json!({}))
+}
+
+/// 安装 Artifex Nexus 插件到指定 3ds Max 版本。
+#[tauri::command]
+pub async fn openclaw_dcc_max_install(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let mut params = json!({"version": version});
+    if let Some(f) = force {
+        params["force"] = serde_json::Value::Bool(f);
+    }
+
+    manager.call("openclaw.dcc.max.install", params)
+}
+
+/// 卸载 3ds Max 插件。
+#[tauri::command]
+pub async fn openclaw_dcc_max_uninstall(
+    sidecar: State<'_, SidecarState>,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.max.uninstall", json!({"version": version}))
+}
+
 /// 检测可用 UE 插件版本。
 ///
 /// STORY-0051 M5：UE 插件安装/卸载。

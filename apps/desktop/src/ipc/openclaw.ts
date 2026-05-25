@@ -473,6 +473,90 @@ export async function uninstallBlenderAddon(
 }
 
 // ---------------------------------------------------------------------------
+// STORY-0063/0064 M7：Maya & 3ds Max IPC
+// ---------------------------------------------------------------------------
+
+/** 通用 DCC 检测/安装/卸载结果类型 */
+export interface DCCDetectResult {
+  versions: Array<{
+    version: string;
+    installed: boolean;
+    compatible: boolean;
+    compat_reason: string;
+  }>;
+  addon_info: {
+    name: string;
+    version: string;
+    dcc_min: string;
+    dcc_max: string | null;
+  };
+}
+
+export interface DCCInstallResult {
+  success: boolean;
+  method: "copy" | null;
+  target: string;
+  error: string | null;
+  locale_synced?: string[];
+  startup_scripts?: string[];
+}
+
+export interface DCCUninstallResult {
+  success: boolean;
+  target: string;
+  error: string | null;
+  message?: string;
+}
+
+// ── Maya ──
+
+export async function detectMayaVersions(): Promise<DCCDetectResult> {
+  return invoke<DCCDetectResult>("openclaw_dcc_maya_detect");
+}
+
+export async function installMayaAddon(
+  version: string,
+  force?: boolean,
+): Promise<DCCInstallResult> {
+  return invoke<DCCInstallResult>("openclaw_dcc_maya_install", {
+    version,
+    force: force ?? false,
+  });
+}
+
+export async function uninstallMayaAddon(
+  version: string,
+): Promise<DCCUninstallResult> {
+  return invoke<DCCUninstallResult>("openclaw_dcc_maya_uninstall", {
+    version,
+  });
+}
+
+// ── 3ds Max ──
+
+export async function detectMaxVersions(): Promise<DCCDetectResult> {
+  return invoke<DCCDetectResult>("openclaw_dcc_max_detect");
+}
+
+export async function installMaxAddon(
+  version: string,
+  force?: boolean,
+): Promise<DCCInstallResult> {
+  return invoke<DCCInstallResult>("openclaw_dcc_max_install", {
+    version,
+    force: force ?? false,
+  });
+}
+
+export async function uninstallMaxAddon(
+  version: string,
+): Promise<DCCUninstallResult> {
+  return invoke<DCCUninstallResult>("openclaw_dcc_max_uninstall", {
+    version,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------
 
