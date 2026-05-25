@@ -88,3 +88,43 @@ tags: [story, unreal, trigger, events]
 ## 进展日志
 
 - 2026-05-22 created
+- 2026-05-25 — 核心实现完成
+
+### 2026-05-25 完成内容
+
+**前端修复**：
+- [x] `AppShell.tsx`：dccStatus name 改为规范 DCC key（`"Unreal"` → `"unreal_engine"`，`"Blender"` → `"blender"`）
+- [x] `Topbar.tsx`：添加 `DCC_DISPLAY` 映射表，保持用户友好的显示名称
+
+**UE trigger_dispatcher.py 创建**：
+- [x] 创建 `Content/Python/trigger_dispatcher.py`，参考 Blender `BlenderTriggerDispatcher`
+- [x] 读取 `tool-sources.json` 获取源码目录和 SDK 路径
+- [x] 扫描 `manifest.json` 构建 event_type → (tool_id, execution_mode) 索引
+- [x] 支持 `silent` / `notify` 两种执行模式
+- [x] 工具总闸：读取 `skills.json` 中 `nexus_tools.disabled` 列表
+- [x] 全局开关联动 C++ `UArtifexNexusSubsystem.bTriggersEnabled`
+- [x] 单例模式 `UETriggerDispatcher.get_instance()`
+- [x] `on_trigger_event(event_type, filepath, data)` 统一 Pre/Post 接口
+
+**dcc_event_intercept.py 改造**：
+- [x] 移除旧 `triggers.json` 读取逻辑（`_load_config`, `_load_triggers`, `_resolve_tool_path` 等）
+- [x] 委托给 `UETriggerDispatcher.on_trigger_event()` 进行 manifest 驱动匹配
+- [x] 保留所有 C++ 接口契约（`check_pre_save`, `handle_post_save` 等函数签名不变）
+- [x] 保留 `_notify_ue` 通知系统（pending 文件供 C++ FlushPendingNotify 消费）
+- [x] `_get_dispatcher()` 每次同步 C++ 全局开关状态
+
+**MCP broadcast 集成**：
+- [x] `ue_mcp_server.py`：新增 `broadcast_trigger_event()` 异步方法
+- [x] `init_unreal.py`：MCP 启动后注入 `_report_trigger_status` 回调
+
+**Sidecar TriggerDispatcher**：
+- [x] `dcc != "blender"` → `dcc not in ("blender", "unreal_engine")`，解除 Blender-only 限制
+
+**同步**：
+- [x] 已同步 4 个文件到测试工程 `ue57_artifex_nexus`
+
+### 待测试
+- [ ] UE 面板 Trigger 按钮切换 → dispatcher enabled 同步
+- [ ] 保存资产 → post-save 触发器执行（需先创建 UE 触发器）
+- [ ] 保存拦截 → pre-save 触发器阻止保存
+- [ ] 前端 hasConnectedDCC 正确识别 UE

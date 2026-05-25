@@ -431,14 +431,14 @@ export function AppShell() {
         try {
           await ipc.getDCCPort("blender");
           if (bridgeStatus?.blenderServerRunning) {
-            statuses.push({ name: "Blender", connected: bridgeStatus.blenderConnected ?? false });
+            statuses.push({ name: "blender", connected: bridgeStatus.blenderConnected ?? false });
           }
         } catch {}
         // ── Unreal Engine ──
         try {
           await ipc.getDCCPort("unreal");
           if (bridgeStatus?.unrealServerRunning) {
-            statuses.push({ name: "Unreal", connected: bridgeStatus.unrealConnected ?? false });
+            statuses.push({ name: "unreal_engine", connected: bridgeStatus.unrealConnected ?? false });
           }
         } catch {}
         setDccStatus(statuses);

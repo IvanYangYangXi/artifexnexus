@@ -924,6 +924,41 @@ def _start_mcp_gateway():
         except Exception as _se:
             UELogger.warning(f"Failed to update Subsystem state: {_se}")
 
+        # 步骤 3b: 注入 MCP 状态上报回调到触发器调度器
+        try:
+            from trigger_dispatcher import UETriggerDispatcher
+            _td = UETriggerDispatcher.get_instance()
+            # 联动 C++ Subsystem 的全局开关
+            if _subsystem:
+                _td.enabled = _subsystem.are_triggers_enabled()
+
+            # MCP 状态上报（非关键：失败不影响触发功能）
+            try:
+                from ue_mcp_server import _mcp_server as _mcp_srv
+                if _mcp_srv is not None:
+                    import asyncio as _asyncio
+                    def _report_trigger_status(event_type, filepath, results):
+                        try:
+                            loop = _mcp_srv._event_loop if hasattr(_mcp_srv, '_event_loop') else None
+                            if loop is None:
+                                loop = _asyncio.get_event_loop()
+                            if loop and loop.is_running():
+                                _asyncio.run_coroutine_threadsafe(
+                                    _mcp_srv.broadcast_trigger_event(
+                                        event_type, filepath, "post", {}, results
+                                    ), loop
+                                )
+                        except Exception:
+                            pass  # 静默失败，不影响主流程
+                    _td.set_status_reporter(_report_trigger_status)
+                    UELogger.info("Trigger dispatcher: MCP status reporter injected")
+            except Exception:
+                UELogger.info("Trigger dispatcher: MCP status reporter skipped (server not ready)")
+
+            UELogger.info(f"Trigger dispatcher: initialized (enabled={_td.enabled})")
+        except Exception as _te:
+            UELogger.warning(f"Trigger dispatcher init skipped: {_te}")
+
     except ImportError as e:
         UELogger.warning(f"MCP Server module not available: {e}")
         _bi._UE_MCP_GATEWAY_STARTING = False

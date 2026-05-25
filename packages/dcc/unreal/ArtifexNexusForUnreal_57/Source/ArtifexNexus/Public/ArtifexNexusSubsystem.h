@@ -158,7 +158,7 @@ public:
 
     /** 触发器是否已启用 */
     UPROPERTY(BlueprintReadOnly, Category = "ArtifexNexus|Triggers")
-    bool bTriggersEnabled = false;
+    bool bTriggersEnabled = true;
 
     /** 状态变更委托（Blueprint/Python）：UI 层将绑定此事件以实现图标变色 */
     UPROPERTY(BlueprintAssignable, Category = "ArtifexNexus")

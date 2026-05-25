@@ -25,6 +25,7 @@ private:
 	FText GetServerStatusText() const;
 	FText GetGatewayStatusText() const;
 	FText GetTriggerButtonText() const;
+	FSlateColor GetTriggerButtonColor() const;
 
 	class UArtifexNexusSubsystem* Subsystem = nullptr;
 

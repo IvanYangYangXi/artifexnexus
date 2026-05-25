@@ -85,8 +85,8 @@ class TriggerDispatcher:
             event_type, dcc, filepath,
         )
 
-        if not event_type or dcc != "blender":
-            logger.debug("[Trigger] SKIP: dcc=%s (非 blender)", dcc)
+        if not event_type or dcc not in ("blender", "unreal_engine"):
+            logger.debug("[Trigger] SKIP: dcc=%s (非 blender / unreal_engine)", dcc)
             return
 
         # 懒加载工具注册表
@@ -192,8 +192,8 @@ class TriggerDispatcher:
                 event_name = t.get("eventType") or (t.get("trigger", {}) or {}).get("event", "")
                 if trigger_type != "event":
                     continue
-                # Dispatcher 当前只处理 blender（后续按 DCC 扩展）
-                if dcc != "blender":
+                # Dispatcher 处理 blender + unreal_engine（DCC 本地触发为主路径，此处理为备用）
+                if dcc not in ("blender", "unreal_engine"):
                     continue
                 if not event_name:
                     continue

@@ -239,6 +239,17 @@ def _build_context() -> dict:
     except Exception:
         context["CB"] = []
 
+    # MCP 可调用的 reload_triggers（前端修改触发器后通过 run_python 触发实时重载）
+    try:
+        def _reload_triggers():
+            from trigger_dispatcher import UETriggerDispatcher
+            td = UETriggerDispatcher.get_instance()
+            td.reload_tools()
+            return f"重载完成: {len(td._tool_registry)} 个工具, {sum(len(v['triggers']) for v in td._tool_registry.values())} 条触发器"
+        context["reload_triggers"] = _reload_triggers
+    except Exception:
+        pass
+
     return context
 
 

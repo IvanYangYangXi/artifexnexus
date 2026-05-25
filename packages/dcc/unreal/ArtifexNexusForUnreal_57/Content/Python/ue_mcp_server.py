@@ -661,6 +661,44 @@ class MCPServer:
             if isinstance(result, Exception):
                 UELogger.mcp_error(f"Broadcast failed to {id(ws)}: {result}")
 
+    async def broadcast_trigger_event(self, event_type: str, filepath: str = "",
+                                       timing: str = "post", data: dict = None,
+                                       results: list = None) -> None:
+        """向所有已连接的 MCP Bridge 广播触发器事件。
+
+        用于上报触发器执行结果给 sidecar（非关键路径）。
+        消息格式对齐 sidecar mcp_bridge.py 的 trigger_event 解析。
+        """
+        if not self._clients:
+            return
+
+        import json as _json
+        message = _json.dumps({
+            "type": "trigger_event",
+            "dcc": "unreal_engine",
+            "event": event_type,
+            "filepath": filepath,
+            "timing": timing,
+            "data": data or {},
+            "results": results or [],
+        })
+
+        targets = [
+            ws for ws in self._clients
+            if id(ws) in self._initialized_clients
+        ]
+        if not targets:
+            return
+
+        UELogger.debug(f"[MCP] Broadcast trigger_event {event_type} to {len(targets)} clients")
+        async_results = await asyncio.gather(
+            *[ws.send(message) for ws in targets],
+            return_exceptions=True,
+        )
+        for ws, result in zip(targets, async_results):
+            if isinstance(result, Exception):
+                UELogger.mcp_error(f"Trigger broadcast failed to {id(ws)}: {result}")
+
     # --- 服务器生命周期 ---
 
     async def _start_server(self) -> None:

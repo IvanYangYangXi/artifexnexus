@@ -16,6 +16,15 @@ import { Button, Input, cn } from "@artifex-nexus/ui";
 import { uiLog } from "../../lib/ui-log";
 import { invoke } from "@tauri-apps/api/core";
 
+const DCC_DISPLAY: Record<string, string> = {
+  blender: "Blender",
+  unreal_engine: "Unreal Engine",
+  maya: "Maya",
+  "3ds_max": "3ds Max",
+  houdini: "Houdini",
+  comfyui: "ComfyUI",
+};
+
 interface TopbarProps {
   onToggleSidebar: () => void;
   onTogglePanel: () => void;
@@ -197,7 +206,7 @@ export function Topbar({
                   {dccStatus!.map((d) => (
                     <div key={d.name} className="flex items-center gap-2 rounded px-2 py-1 text-[11px]">
                       <span className={`h-1.5 w-1.5 rounded-full ${d.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
-                      <span className={d.connected ? "text-foreground" : "text-muted-foreground"}>{d.name}</span>
+                      <span className={d.connected ? "text-foreground" : "text-muted-foreground"}>{DCC_DISPLAY[d.name] || d.name}</span>
                       <span className="flex-1 text-right text-muted-foreground">{d.connected ? "已连接" : "未连接"}</span>
                     </div>
                   ))}

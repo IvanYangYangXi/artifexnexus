@@ -166,6 +166,7 @@ void SArtifexNexusPanel::Construct(const FArguments& InArgs)
 						[
 							SNew(SButton)
 							.Text(this, &SArtifexNexusPanel::GetTriggerButtonText)
+							.ButtonColorAndOpacity(this, &SArtifexNexusPanel::GetTriggerButtonColor)
 							.ToolTipText(LOCTEXT("TriggerToggleTip", "Enable/disable DCC event triggers"))
 							.OnClicked(this, &SArtifexNexusPanel::OnToggleTriggers)
 						]
@@ -279,11 +280,11 @@ FText SArtifexNexusPanel::GetTriggerButtonText() const
 {
 	if (!Subsystem || !Subsystem->IsValidLowLevel())
 	{
-		return LOCTEXT("TriggerUnknown", "Unknown");
+		return LOCTEXT("TriggerUnknown", "Triggers: Unknown");
 	}
 	return Subsystem->AreTriggersEnabled()
-		? LOCTEXT("TriggerOn", "Disable Triggers")
-		: LOCTEXT("TriggerOff", "Enable Triggers");
+		? LOCTEXT("TriggerOn", "Triggers: Enabled")
+		: LOCTEXT("TriggerOff", "Triggers: Disabled");
 }
 
 FReply SArtifexNexusPanel::OnStartServer()
@@ -360,6 +361,17 @@ FReply SArtifexNexusPanel::OnToggleTriggers()
 		Subsystem->SetTriggersEnabled(!Subsystem->AreTriggersEnabled());
 	}
 	return FReply::Handled();
+}
+
+FSlateColor SArtifexNexusPanel::GetTriggerButtonColor() const
+{
+	if (!Subsystem || !Subsystem->IsValidLowLevel())
+	{
+		return FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f, 1.0f)); // Gray = unknown
+	}
+	return Subsystem->AreTriggersEnabled()
+		? FSlateColor(FLinearColor(0.1f, 0.6f, 0.1f, 1.0f))  // Green = enabled
+		: FSlateColor(FLinearColor(0.8f, 0.1f, 0.1f, 1.0f)); // Red = disabled
 }
 
 #undef LOCTEXT_NAMESPACE
