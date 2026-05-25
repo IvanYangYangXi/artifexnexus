@@ -1763,7 +1763,7 @@ function PluginVersionsTab() {
   };
 
   const DCC_COLORS: Record<string, string> = {
-    blender: "text-orange-400", maya: "text-cyan-400", "3ds_max": "text-yellow-400",
+    blender: "text-orange-400", maya: "text-cyan-400", "3ds_max": "text-yellow-400", unreal_engine: "text-violet-400",
   };
 
   const formatRange = (min: string, max: string | null) => {

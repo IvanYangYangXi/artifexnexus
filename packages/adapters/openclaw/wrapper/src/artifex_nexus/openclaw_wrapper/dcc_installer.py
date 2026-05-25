@@ -211,6 +211,44 @@ def _parse_ue_version_suffix(ue_version: str) -> str:
     return f"{major}{minor}"
 
 
+def _reverse_ue_version_suffix(suffix: str) -> str:
+    """将目录后缀反转为 UE 版本号。
+
+    "57" → "5.7"
+    "56" → "5.6"
+    """
+    if len(suffix) >= 2 and suffix.isdigit():
+        major = suffix[0]
+        minor = suffix[1:]
+        return f"{major}.{minor}"
+    return suffix
+
+
+def _parse_ue_plugin_descriptor(uplugin_path: Path) -> dict:
+    """解析 .uplugin 文件，提取插件元信息。
+
+    Returns:
+        {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": None}
+    """
+    import json
+    with open(uplugin_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    engine_ver = data.get("EngineVersion", "5.0.0")
+    parts = tuple(int(x) for x in engine_ver.split("."))
+    if len(parts) < 2:
+        parts = parts + (0,) * (3 - len(parts))
+    while len(parts) < 3:
+        parts = parts + (0,)
+
+    return {
+        "name": data.get("FriendlyName", "Artifex Nexus for Unreal"),
+        "version": parts,
+        "dcc_min": parts,
+        "dcc_max": None,  # UE 插件只兼容指定引擎版本
+    }
+
+
 def _resolve_ue_src_base() -> Path:
     """解析 packages/dcc/unreal/ 的绝对路径。
 
@@ -349,7 +387,7 @@ def install_dcc_addon(dcc: str, dcc_version: str, force: bool = False) -> Dict:
     if not os.path.isdir(src_dir):
         return {"success": False, "method": None, "target": target_dir, "error": f"插件源目录不存在: {src_dir}"}
 
-    compatible, reason = check_dcc_version_compatibility(dcc, dcc_version) if dcc in ("maya", "3ds_max", "blender") else (
+    compatible, reason = check_dcc_version_compatibility(dcc, dcc_version) if dcc in ("maya", "3ds_max", "blender", "unreal_engine") else (
         True, ""
     )
     if not compatible and not force:
@@ -1596,8 +1634,8 @@ def get_all_plugins_with_compat() -> List[Dict]:
     """
     overrides = _load_plugin_compat_overrides().get("overrides", {})
     all_plugins = []
-    DCC_LIST = ["blender", "maya", "3ds_max"]
-    DCC_DISPLAY = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max"}
+    DCC_LIST = ["blender", "maya", "3ds_max", "unreal_engine"]
+    DCC_DISPLAY = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max", "unreal_engine": "Unreal Engine"}
 
     for dcc in DCC_LIST:
         builtin = get_available_plugin_versions(dcc)
@@ -1708,11 +1746,25 @@ def get_dcc_plugin_info(dcc: str) -> Dict:
     """读取 DCC 插件的 plugin_info / bl_info 元信息。
 
     Args:
-        dcc: "blender" | "maya" | "3ds_max"
+        dcc: "blender" | "maya" | "3ds_max" | "unreal_engine"
 
     Returns:
         {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": tuple|None}
     """
+    # ── UE 特殊分支 ─────────────────────────────────────────────
+    if dcc == "unreal_engine":
+        versions = get_available_plugin_versions("unreal_engine")
+        if not versions:
+            raise FileNotFoundError("未找到任何 UE 插件版本目录")
+        # 返回最新版本
+        latest = versions[0]
+        return {
+            "name": "Artifex Nexus for Unreal",
+            "version": tuple(int(x) for x in latest["version"].split(".")),
+            "dcc_min": tuple(int(x) for x in latest["dcc_min"].split(".")),
+            "dcc_max": None,
+        }
+
     src_dir = _get_addon_src_dir(dcc)
     # _get_addon_src_dir 已返回 addon 子目录（如 v2023/maya_addon），
     # 此处直接取 __init__.py，避免双重拼接
@@ -1737,25 +1789,54 @@ def _get_plugin_version_from_info(info: dict) -> str:
 def get_available_plugin_versions(dcc: str) -> List[Dict]:
     """获取 DCC 所有可用插件版本及其兼容范围。
 
-    扫描 packages/dcc/{dcc}/src/artifex_nexus/v*/ 目录，
+    Blender / Maya / Max: 扫描 packages/dcc/{dcc}/src/artifex_nexus/v*/ 目录，
     读取每个版本 __init__.py 中的 plugin_info。
+
+    UE: 扫描 packages/dcc/unreal/ArtifexNexusForUnreal_*/ 目录，
+    解析每个版本的 .uplugin JSON。
 
     Returns:
         [{"version": "2023", "dcc_min": "2023", "dcc_max": None, "path": str}, ...]
         按 version 降序排列。
     """
+    # ── UE 特殊分支 ─────────────────────────────────────────────
+    if dcc == "unreal_engine":
+        versions = []
+        try:
+            base = _resolve_ue_src_base()
+            if base.is_dir():
+                for entry in sorted(base.iterdir(), reverse=True):
+                    if not entry.is_dir() or not entry.name.startswith(_UE_PLUGIN_DIR_PREFIX):
+                        continue
+                    uplugin_file = entry / f"{_UE_PLUGIN_DIR_PREFIX.rstrip('_')}.uplugin"
+                    if not uplugin_file.exists():
+                        continue
+                    try:
+                        suffix = entry.name[len(_UE_PLUGIN_DIR_PREFIX):]
+                        ver_name = _reverse_ue_version_suffix(suffix)
+                        info = _parse_ue_plugin_descriptor(uplugin_file)
+                        versions.append({
+                            "version": ver_name,
+                            "dcc_min": ".".join(str(x) for x in info["dcc_min"]),
+                            "dcc_max": None,
+                            "path": str(entry),
+                        })
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return versions
+
     _DCC_PKG_DIR = {
         "blender": "blender",
         "maya": "maya",
         "3ds_max": "max",
-        "unreal_engine": "ue",
     }
     dcc_pkg_dir = _DCC_PKG_DIR.get(dcc, dcc)
     _ADDON_DIR_NAMES = {
         "blender": "blender_addon",
         "maya": "maya_addon",
         "3ds_max": "max_addon",
-        "unreal_engine": "ue_addon",
     }
     addon_dir_name = _ADDON_DIR_NAMES.get(dcc, f"{dcc}_addon")
 

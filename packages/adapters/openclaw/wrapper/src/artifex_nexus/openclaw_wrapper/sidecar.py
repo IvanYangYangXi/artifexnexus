@@ -1287,7 +1287,7 @@ def _handle_openclaw_dcc_plugin_versions(req_id: Any, params: dict) -> dict:
     """获取指定 DCC 所有可用的插件版本及兼容范围。"""
     try:
         dcc = params.get("dcc", "")
-        if dcc not in ("maya", "3ds_max", "blender"):
+        if dcc not in ("maya", "3ds_max", "blender", "unreal_engine"):
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
