@@ -308,6 +308,38 @@ function InstallerTab() {
       setItems((prev) => prev.map((it) => it.id === "blender" ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
       addLog("blender", "info", `检测到 ${result.versions.length} 个版本（已装: ${children.filter((c: any) => c.state === "installed").length}）`);
     } catch { addLog("blender", "warn", "Blender 检测失败（sidecar 不可用）"); }
+
+    // Maya 检测
+    try {
+      addLog("maya", "info", "正在检测本机 Maya 版本…");
+      const result = await ipc.detectMayaVersions();
+      const children = result.versions.map((v: any) => ({
+        label: `Maya ${v.version}`, version: v.version,
+        installPath: `~/Documents/maya/${v.version}/scripts`,
+        projectPath: "", scriptPath: `artifex_nexus_v${result.addon_info.version}`,
+        state: (v.installed ? "installed" : "not-installed") as ItemState,
+      }));
+      const hasInstalled = children.some((c: any) => c.state === "installed");
+      setItems((prev) => prev.map((it) => it.id === "maya" ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
+      const installedCount = children.filter((c: any) => c.state === "installed").length;
+      addLog("maya", "info", `检测到 ${result.versions.length} 个版本（已装插件: ${installedCount}）`);
+    } catch (e) { addLog("maya", "error", `Maya 检测失败: ${e instanceof Error ? e.message : String(e)}`); }
+
+    // 3ds Max 检测
+    try {
+      addLog("max", "info", "正在检测本机 3ds Max 版本…");
+      const result = await ipc.detectMaxVersions();
+      const children = result.versions.map((v: any) => ({
+        label: `3ds Max ${v.version}`, version: v.version,
+        installPath: `%LOCALAPPDATA%/Autodesk/3dsMax/${v.version}/ENU/scripts`,
+        projectPath: "", scriptPath: `artifex_nexus_v${result.addon_info.version}`,
+        state: (v.installed ? "installed" : "not-installed") as ItemState,
+      }));
+      const hasInstalled = children.some((c: any) => c.state === "installed");
+      setItems((prev) => prev.map((it) => it.id === "3ds_max" ? { ...it, children, state: hasInstalled ? "installed" : "not-installed" } : it));
+      const installedCount = children.filter((c: any) => c.state === "installed").length;
+      addLog("max", "info", `检测到 ${result.versions.length} 个版本（已装插件: ${installedCount}）`);
+    } catch (e) { addLog("max", "error", `3ds Max 检测失败: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
   const handleInstall = async (id: string) => {
@@ -456,6 +488,18 @@ function InstallerTab() {
       } catch (e: any) { addLog(id, "error", e.message); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it)); }
       return;
     }
+    if (id === "maya") {
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
+      addLog(id, "info", "Maya 插件需要选择具体版本安装，请展开后点击子项安装");
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "not-installed" } : it));
+      return;
+    }
+    if (id === "3ds_max") {
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
+      addLog(id, "info", "3ds Max 插件需要选择具体版本安装，请展开后点击子项安装");
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "not-installed" } : it));
+      return;
+    }
     // mock
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
     addLog(id, "info", `正在安装 ${id}...`);
@@ -520,8 +564,14 @@ function InstallerTab() {
     }
 
     // Blender/Maya/Max：通用添加
+    const versionPlaceholders: Record<string, string> = {
+      blender: "如 4.3",
+      maya: "如 2023",
+      "3ds_max": "如 2023",
+    };
+    const versionPlaceholder = versionPlaceholders[parentId] || "如 5.1";
     const result = await showForm(`添加 ${dccName} 版本`, [
-      { key: "version", label: "版本号", placeholder: "如 5.1" },
+      { key: "version", label: "版本号", placeholder: versionPlaceholder },
       { key: "installPath", label: "安装路径（可选）", placeholder: "留空则自动计算" },
     ]);
     if (!result || !result.version?.trim()) return;
@@ -559,6 +609,14 @@ function InstallerTab() {
             } else {
               addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
             }
+          } else if (parentId === "maya") {
+            const r = await ipc.uninstallMayaAddon(child.version);
+            if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
+            else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
+          } else if (parentId === "3ds_max") {
+            const r = await ipc.uninstallMaxAddon(child.version);
+            if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
+            else addLog(parentId, "warn", `[${label}] 卸载失败: ${r.error}`);
           } else {
             const r = await ipc.uninstallBlenderAddon(child.version);
             if (r.success) addLog(parentId, "info", `[${label}] 卸载成功`);
@@ -584,8 +642,15 @@ function InstallerTab() {
       else if (parentId === "unreal_engine") defaultPath = "";
     }
     const isUE = parentId === "unreal_engine";
+    const editVersionPlaceholders: Record<string, string> = {
+      blender: "如 4.3",
+      maya: "如 2023",
+      "3ds_max": "如 2023",
+      unreal_engine: "如 5.7",
+    };
+    const vp = editVersionPlaceholders[parentId] || "如 5.1";
     const result = await showForm(`编辑「${child.label}」`, [
-      { key: "version", label: "版本号", defaultValue: child.version, placeholder: "如 5.7" },
+      { key: "version", label: "版本号", defaultValue: child.version, placeholder: vp },
       { key: "installPath", label: isUE ? "项目根目录" : "安装路径", defaultValue: defaultPath || "", placeholder: isUE ? "含有 .uproject 的项目根目录" : "留空则自动计算" },
     ]);
     if (!result) return;
@@ -649,6 +714,42 @@ function InstallerTab() {
         const r = await installUEPlugin(child.version, normalizedPath, isReinstall);
         if (r.success) {
           addLog(parentId, "info", `[${child.label}] ${isReinstall ? "重装" : "安装"}成功 → ${r.target}`);
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
+          } : it));
+        } else {
+          throw new Error(r.error || "安装失败");
+        }
+        return;
+      }
+
+      // ── Maya 安装分支 ──
+      if (parentId === "maya") {
+        if (isReinstall) {
+          addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
+          try { await ipc.uninstallMayaAddon(child.version); } catch {}
+        }
+        const r = await ipc.installMayaAddon(child.version, false);
+        if (r.success) {
+          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target}`);
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
+          } : it));
+        } else {
+          throw new Error(r.error || "安装失败");
+        }
+        return;
+      }
+
+      // ── 3ds Max 安装分支 ──
+      if (parentId === "3ds_max") {
+        if (isReinstall) {
+          addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
+          try { await ipc.uninstallMaxAddon(child.version); } catch {}
+        }
+        const r = await ipc.installMaxAddon(child.version, false);
+        if (r.success) {
+          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target}`);
           setItems((prev) => prev.map((it) => it.id === parentId ? {
             ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
           } : it));

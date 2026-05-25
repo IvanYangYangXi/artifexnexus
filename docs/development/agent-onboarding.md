@@ -265,6 +265,7 @@ WorkBuddy 会在执行任务时自动创建一些文件，**不要把它们当�
 ## 相关
 
 - `[[../specs/dcc-plugin-management]]` — DCC 插件扩展总文档（接入新 DCC 的主入口）
+- `[[dcc-detection-guide]]` — DCC 版本检测指南（注册表格式、ID 一致性陷阱）
 - `[[sdd-workflow]]`
 - `[[task-management]]`
 - `[[team-roles]]` — 团队角色定义与协作流程

@@ -136,8 +136,11 @@ def _get_addon_src_dir(dcc: str = "blender") -> Path:
                     if addon_dir.exists():
                         logger.info(f"DCC 安装器({dcc}): 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {addon_dir}")
                         return addon_dir
-                    logger.info(f"DCC 安装器({dcc}): 通过 ARTIFEX_NEXUS_PROJECT_ROOT 定位插件源目录 = {entry}")
-                    return entry
+            # 所有版本目录都找不到 addon 子目录
+            raise RuntimeError(
+                f"在 {base} 下找到版本目录，但未找到子目录 '{addon_dir_name}'。"
+                f"请检查 {dcc_pkg_dir} 插件源目录结构。"
+            )
         raise RuntimeError(
             f"环境变量 ARTIFEX_NEXUS_PROJECT_ROOT={env_root}，"
             f"但未找到插件源目录: {base}"
@@ -155,8 +158,11 @@ def _get_addon_src_dir(dcc: str = "blender") -> Path:
                 if addon_dir.exists():
                     logger.info(f"DCC 安装器({dcc}): 通过相对路径定位插件源目录 = {addon_dir}")
                     return addon_dir
-                logger.info(f"DCC 安装器({dcc}): 通过相对路径定位插件源目录 = {entry}")
-                return entry
+        # 所有版本目录都找不到 addon 子目录
+        raise RuntimeError(
+            f"在 {base} 下找到版本目录，但未找到子目录 '{addon_dir_name}'。"
+            f"请检查 {dcc_pkg_dir} 插件源目录结构。"
+        )
 
     raise RuntimeError(
         f"无法定位 {dcc} 插件源目录。请设置环境变量 ARTIFEX_NEXUS_PROJECT_ROOT 或调用 set_addon_src_dir()。"
@@ -560,8 +566,75 @@ def is_addon_installed(blender_version: str) -> bool:
 # ── Maya 便捷别名 ─────────────────────────────────────────────────────────
 
 def find_maya_versions() -> List[str]:
-    """扫描 ~/Documents/maya/ 下已安装的 Maya 版本"""
-    return find_dcc_versions("maya")
+    """扫描本机已安装的 Maya 版本。
+
+    三层检测策略（按优先级递减）：
+      1. Windows 注册表 (HKLM/SOFTWARE/Autodesk/Maya/{version})
+      2. Program Files 目录扫描 (C:/Program Files/Autodesk/Maya{version})
+      3. 用户偏好目录回退 (~/Documents/maya/)
+    """
+    versions = set()
+
+    # ── 策略 1: Windows 注册表 ──────────────────────────────────
+    try:
+        import winreg
+        for root_key in [winreg.HKEY_LOCAL_MACHINE]:
+            try:
+                key = winreg.OpenKey(root_key, r"SOFTWARE\Autodesk\Maya")
+                i = 0
+                while True:
+                    try:
+                        sub_name = winreg.EnumKey(key, i)
+                        # 子键名如 "2023", "2024", "2025"
+                        if sub_name.isdigit():
+                            versions.add(sub_name)
+                        i += 1
+                    except OSError:
+                        break
+                winreg.CloseKey(key)
+            except OSError:
+                pass
+    except ImportError:
+        pass
+
+    # ── 策略 2: Program Files 目录扫描 ──────────────────────────
+    program_files_dirs = [
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+    ]
+    if os.environ.get("ProgramFiles(x86)"):
+        program_files_dirs.append(os.environ["ProgramFiles(x86)"])
+
+    for pf in program_files_dirs:
+        autodesk_dir = os.path.join(pf, "Autodesk")
+        if not os.path.isdir(autodesk_dir):
+            continue
+        try:
+            for entry in os.scandir(autodesk_dir):
+                if not entry.is_dir():
+                    continue
+                # 匹配目录名: "Maya2023", "Maya 2023", "Maya2024" 等
+                name = entry.name
+                # 提取纯数字版本号
+                digits = "".join(c for c in name.split("Maya")[-1] if c.isdigit())
+                if digits and len(digits) == 4:  # Maya 版本号均为 4 位年份
+                    # 验证: 该目录下有 bin/maya.exe
+                    maya_exe = os.path.join(entry.path, "bin", "maya.exe")
+                    if os.path.isfile(maya_exe):
+                        versions.add(digits)
+        except OSError:
+            pass
+
+    # ── 策略 3: 用户偏好目录回退 ────────────────────────────────
+    maya_user_dir = os.path.join(os.path.expanduser("~"), "Documents", "maya")
+    if os.path.isdir(maya_user_dir):
+        try:
+            for entry in os.scandir(maya_user_dir):
+                if entry.is_dir() and entry.name.isdigit():
+                    versions.add(entry.name)
+        except OSError:
+            pass
+
+    return sorted(versions, reverse=True)
 
 
 def install_maya_addon(maya_version: str, force: bool = False) -> Dict:
@@ -630,29 +703,160 @@ def _cleanup_maya_locales(maya_version: str) -> None:
 
 # ── 3ds Max 便捷别名 ──────────────────────────────────────────────────────
 
-def find_max_versions() -> List[str]:
-    """扫描 %LOCALAPPDATA%/Autodesk/3dsMax/ 下已安装的 Max 版本。
+def _max_registry_key_to_year(sub_name: str) -> Optional[int]:
+    """将 3ds Max 注册表子键名转换为年份版本号。
 
-    支持两种目录名格式：
-      "2024" 和 "2024 - 64bit"
-    提取版本号后 set 去重。
+    Autodesk 注册表的两种格式：
+      - "major.minor" 内部版本号：25.0 -> 2023 （公式: 1998 + major）
+      - "YYYY" 纯年份：2023 -> 2023
+
+    返回 None 表示不是有效的版本键。
     """
-    base = _DCC_VERSION_SCAN_PATHS.get("3ds_max", "")
-    if not os.path.isdir(base):
-        return []
+    # 格式 1: "major.minor"（如 "25.0", "23.0"）
+    if "." in sub_name:
+        parts = sub_name.split(".")
+        if len(parts) == 2 and parts[0].isdigit():
+            return 1998 + int(parts[0])
+        return None
+    # 格式 2: 纯数字年份（如 "2023"）
+    if sub_name.isdigit() and len(sub_name) == 4:
+        return int(sub_name)
+    return None
 
+
+def find_max_versions() -> List[str]:
+    """扫描本机已安装的 3ds Max 版本。
+
+    四层检测策略（按优先级递减）：
+      1. Windows 注册表 (HKLM/SOFTWARE/Autodesk/3dsMax/{version})
+         - 支持 "25.0"（Autodesk 内部版本号 -> 2023）和 "2023" 两种格式
+         - 通过 Installdir/Location 值验证是否真装
+      2. Windows 卸载列表 (HKLM/.../Uninstall) 回退扫描
+      3. Program Files 目录扫描 (C:/Program Files/Autodesk/3ds Max {version})
+      4. 用户偏好目录回退 (%LOCALAPPDATA%/Autodesk/3dsMax/)
+    """
     versions = set()
+
+    # ── 策略 1: Windows 注册表 (Autodesk 专用) ───────────────────
     try:
-        for entry in os.scandir(base):
-            if not entry.is_dir():
-                continue
-            name = entry.name
-            # 提取第一个空格前的部分作为版本号
-            ver = name.split(" ")[0] if " " in name else name
-            if ver and ver[0].isdigit():
-                versions.add(ver)
-    except OSError:
+        import winreg
+        for root_key, access in [
+            (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_READ | winreg.KEY_WOW64_64KEY),
+        ]:
+            try:
+                key = winreg.OpenKey(root_key, r"SOFTWARE\Autodesk\3dsMax", 0, access)
+                i = 0
+                while True:
+                    try:
+                        sub_name = winreg.EnumKey(key, i)
+                        year = _max_registry_key_to_year(sub_name)
+                        if year is not None:
+                            # 验证实际安装：子键下必须有 Installdir 或 Location
+                            try:
+                                ver_key = winreg.OpenKey(key, sub_name)
+                                instdir = None
+                                for val_name in ("Installdir", "Location"):
+                                    try:
+                                        instdir, _ = winreg.QueryValueEx(ver_key, val_name)
+                                        break
+                                    except OSError:
+                                        continue
+                                winreg.CloseKey(ver_key)
+                                if instdir and os.path.isdir(instdir):
+                                    versions.add(str(year))
+                            except OSError:
+                                pass
+                        i += 1
+                    except OSError:
+                        break
+                winreg.CloseKey(key)
+            except OSError:
+                pass
+    except ImportError:
         pass
+
+    # ── 策略 2: Windows 卸载列表回退 ─────────────────────────────
+    if not versions:
+        try:
+            import winreg
+            uninstall_roots = [
+                (winreg.HKEY_LOCAL_MACHINE,
+                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_LOCAL_MACHINE,
+                 r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ]
+            import re
+            _MAX_UNINSTALL_RE = re.compile(r"3ds\s*Max\s*(\d{4})", re.IGNORECASE)
+            for root_key, sub_path in uninstall_roots:
+                try:
+                    key = winreg.OpenKey(root_key, sub_path)
+                    i = 0
+                    while True:
+                        try:
+                            sub_name = winreg.EnumKey(key, i)
+                            try:
+                                prod_key = winreg.OpenKey(key, sub_name)
+                                try:
+                                    display, _ = winreg.QueryValueEx(prod_key, "DisplayName")
+                                except OSError:
+                                    display = ""
+                                winreg.CloseKey(prod_key)
+                                m = _MAX_UNINSTALL_RE.search(display)
+                                if m:
+                                    versions.add(m.group(1))
+                            except OSError:
+                                pass
+                            i += 1
+                        except OSError:
+                            break
+                    winreg.CloseKey(key)
+                except OSError:
+                    pass
+        except ImportError:
+            pass
+
+    # ── 策略 3: Program Files 目录扫描 ──────────────────────────
+    program_files_dirs = []
+    for env_key in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        val = os.environ.get(env_key)
+        if val and os.path.isdir(val):
+            program_files_dirs.append(val)
+    if not program_files_dirs:
+        program_files_dirs = [r"C:\Program Files"]
+
+    for pf in program_files_dirs:
+        autodesk_dir = os.path.join(pf, "Autodesk")
+        if not os.path.isdir(autodesk_dir):
+            continue
+        try:
+            for entry in os.scandir(autodesk_dir):
+                if not entry.is_dir():
+                    continue
+                # 匹配: "3ds Max 2024", "3ds Max 2023", "3dsMax 2024" 等
+                name = entry.name.lower().replace(" ", "")
+                if "3dsmax" in name and name != "3dsmax":
+                    digits = "".join(c for c in name if c.isdigit())
+                    if digits and len(digits) == 4:
+                        # 验证: 该目录下有 3dsmax.exe
+                        max_exe = os.path.join(entry.path, "3dsmax.exe")
+                        if os.path.isfile(max_exe):
+                            versions.add(digits)
+        except OSError:
+            pass
+
+    # ── 策略 4: 用户偏好目录回退 ────────────────────────────────
+    base = _DCC_VERSION_SCAN_PATHS.get("3ds_max", "")
+    if os.path.isdir(base):
+        try:
+            for entry in os.scandir(base):
+                if not entry.is_dir():
+                    continue
+                name = entry.name
+                ver = name.split(" ")[0] if " " in name else name
+                if ver and ver[0].isdigit():
+                    versions.add(ver)
+        except OSError:
+            pass
 
     return sorted(versions, reverse=True)
 
@@ -1194,31 +1398,21 @@ def get_addon_info() -> Dict:
         }
     """
     src_dir = _get_addon_src_dir("blender")
-    init_file = src_dir / "blender_addon" / "__init__.py"
+    # _get_addon_src_dir 已返回 addon 子目录（含 blender_addon），
+    # 此处直接取 __init__.py，避免双重拼接
+    init_file = src_dir / "__init__.py"
 
     if not init_file.exists():
-        return {
-            "name": "Artifex Nexus Bridge",
-            "version": (5, 0, 0),
-            "blender_min": (5, 0, 0),
-            "blender_max": (5, 1, 9),
-            "source_dir": str(src_dir),
-        }
+        raise FileNotFoundError(
+            f"Blender 插件 __init__.py 不存在: {init_file}。"
+            f"请检查插件源目录结构是否完整。"
+        )
 
     # 解析 bl_info（简单 AST 解析，不执行代码）
-    try:
-        content = init_file.read_text(encoding="utf-8")
-        info = _parse_bl_info(content)
-        info["source_dir"] = str(src_dir)
-        return info
-    except Exception:
-        return {
-            "name": "Artifex Nexus Bridge",
-            "version": (5, 0, 0),
-            "blender_min": (5, 0, 0),
-            "blender_max": (5, 1, 9),
-            "source_dir": str(src_dir),
-        }
+    content = init_file.read_text(encoding="utf-8")
+    info = _parse_bl_info(content)
+    info["source_dir"] = str(src_dir)
+    return info
 
 
 def _parse_bl_info(content: str) -> Dict:
@@ -1237,12 +1431,10 @@ def _parse_bl_info(content: str) -> Dict:
                         "blender_min": info.get("blender", (5, 0, 0)),
                         "blender_max": info.get("blender_max", None),
                     }
-    return {
-        "name": "Artifex Nexus Bridge",
-        "version": (0, 50, 0),
-        "blender_min": (5, 0, 0),
-        "blender_max": None,
-    }
+    raise ValueError(
+        "无法从 Blender 插件 __init__.py 中解析 bl_info 字典。"
+        "请确认 bl_info = {...} 是否存在且格式正确。"
+    )
 
 
 def check_version_compatibility(blender_version: str) -> Tuple[bool, str]:
@@ -1394,13 +1586,10 @@ def _parse_plugin_info(content: str, dcc: str) -> Dict:
                         "dcc_min": dcc_min,
                         "dcc_max": dcc_max,
                     }
-    # fallback
-    return {
-        "name": "Artifex Nexus Bridge",
-        "version": (0, 0, 0),
-        "dcc_min": (0, 0, 0),
-        "dcc_max": None,
-    }
+    raise ValueError(
+        f"无法从 {dcc.upper()} 插件 __init__.py 中解析 plugin_info 字典。"
+        f"请确认 plugin_info = {{...}} 是否存在且格式正确。"
+    )
 
 
 def get_dcc_plugin_info(dcc: str) -> Dict:
@@ -1413,28 +1602,18 @@ def get_dcc_plugin_info(dcc: str) -> Dict:
         {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": tuple|None}
     """
     src_dir = _get_addon_src_dir(dcc)
-    addon_dir_names = {"maya": "maya_addon", "3ds_max": "max_addon"}
-    addon_dir = addon_dir_names.get(dcc, f"{dcc}_addon")
-    init_file = src_dir / addon_dir / "__init__.py"
+    # _get_addon_src_dir 已返回 addon 子目录（如 v2023/maya_addon），
+    # 此处直接取 __init__.py，避免双重拼接
+    init_file = src_dir / "__init__.py"
 
     if not init_file.exists():
-        return {
-            "name": "Artifex Nexus Bridge",
-            "version": (0, 0, 0),
-            "dcc_min": (0, 0, 0),
-            "dcc_max": None,
-        }
+        raise FileNotFoundError(
+            f"{dcc.upper()} 插件 __init__.py 不存在: {init_file}。"
+            f"请检查插件源目录结构是否完整。"
+        )
 
-    try:
-        content = init_file.read_text(encoding="utf-8")
-        return _parse_plugin_info(content, dcc)
-    except Exception:
-        return {
-            "name": "Artifex Nexus Bridge",
-            "version": (0, 0, 0),
-            "dcc_min": (0, 0, 0),
-            "dcc_max": None,
-        }
+    content = init_file.read_text(encoding="utf-8")
+    return _parse_plugin_info(content, dcc)
 
 
 def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, str]:
