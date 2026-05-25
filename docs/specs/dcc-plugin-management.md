@@ -1,7 +1,7 @@
 ---
 tags: [spec, dcc, install, standard, master]
 created: 2026-05-08
-updated: 2026-05-25
+updated: 2026-05-25 (19:50)
 status: active
 ---
 
@@ -15,7 +15,8 @@ status: active
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  前端 (Tauri Desktop)                                     │
-│  InstallerWizard.tsx ← dccRegistry.ts ← IPC openclaw.ts  │
+│  SystemPage.tsx (唯一 UI) ← IPC openclaw.ts              │
+│  含三个标签页：安装向导 / 插件版本 / Gateway              │
 └───────────────────────┬──────────────────────────────────┘
                         │ Tauri invoke
 ┌───────────────────────▼──────────────────────────────────┐
@@ -26,17 +27,17 @@ status: active
 ┌───────────────────────▼──────────────────────────────────┐
 │  Python Sidecar (openclaw_wrapper/)                       │
 │  sidecar.py  RPC handlers + METHODS map                   │
-│  dcc_installer.py  检测 / 安装 / 卸载 / 版本兼容          │
+│  dcc_installer.py  检测 / 安装 / 卸载 / 版本兼容 / 插件版本管理│
 └───────────────────────┬──────────────────────────────────┘
-         ┌──────────────┼──────────────┐
-         ▼              ▼              ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ DCC Plugin  │ │ DCC Plugin  │ │ DCC Plugin  │
-│ Blender     │ │ Maya        │ │ 3ds Max     │
-│ (v5.0.0)    │ │ (v2023)     │ │ (v2023)     │
-└──────┬──────┘ └──────┬──────┘ └──────┬──────┘
-       │               │               │
-       └───────────────┼───────────────┘
+         ┌──────────────┼──────────────┬──────────────┐
+         ▼              ▼              ▼              ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│ DCC Plugin  │ │ DCC Plugin  │ │ DCC Plugin  │ │ DCC Plugin  │
+│ Blender     │ │ Maya        │ │ 3ds Max     │ │ UE          │
+│ (v5.0.0)    │ │ (v2023)     │ │ (v2023)     │ │ (v5.7)      │
+└──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+       │               │               │               │
+       └───────────────┼───────────────┼───────────────┘
                        │ 共享 SDK
 ┌──────────────────────▼──────────────────────────────────┐
 │  artifex_nexus_sdk/ (packages/dcc/shared/)               │
@@ -181,13 +182,16 @@ def register_maya_callbacks():
 
 ### 4.1 版本号 = DCC 主版本
 
-插件版本号与目标 DCC 的主版本一致，不再使用 `(5, 0, 0)` 三元组：
+插件版本号与目标 DCC 的主版本一致：
 
-| DCC | 插件版本 | plugin_info |
-|-----|---------|-------------|
-| Blender | `v5.0.0` | `version: (5, 0, 0)` |
-| Maya | `v2023` | `version: (2023,)` |
-| 3ds Max | `v2023` | `version: (2023,)` |
+| DCC | 插件版本 | plugin_info | 版本号位数 |
+|-----|---------|-------------|-----------|
+| Blender | `v5.0.0` | `version: (5, 0, 0)` | 3 位 |
+| Maya | `v2023` | `version: (2023,)` | 1 位 |
+| 3ds Max | `v2023` | `version: (2023,)` | 1 位 |
+| UE | `v5.7` | `version: (5, 7)` | 2 位（取 EngineVersion 的 major.minor） |
+
+> **UE 版本号截断规则**：`.uplugin` 的 `EngineVersion` 可能为 `"5.7.0"`，但插件的 `version` 和 `dcc_min` 只保留前两位 `(5, 7)`，忽略 patch 版本号。因为 UE 目录后缀 `_57` 仅编码 major+minor。
 
 ### 4.2 元信息格式
 
@@ -204,14 +208,31 @@ bl_info = {
 plugin_info = {
     "name": "Artifex Nexus Bridge",
     "version": (2023,),
-    "max_min": (2023,),         # 最低兼容
-    "max_max": None,            # 无上限
+    "maya_min": (2023,),        # 最低兼容
+    "maya_max": None,           # 严格匹配：仅兼容 2023
+}
+
+# UE（.uplugin → _parse_ue_plugin_descriptor）
+{
+    "name": "Artifex Nexus for Unreal",
+    "version": (5, 7),          # 只取 major.minor
+    "dcc_min": (5, 7),          # 严格匹配 5.7
+    "dcc_max": None,
 }
 ```
 
 ### 4.3 兼容规则
 
-`dcc_min <= dcc_version <= dcc_max`（缺省无上限），逐位比较，缺失位补 0。
+`dcc_min <= dcc_version <= dcc_max`，版本比较前统一 pad 到 3 位（缺失位补 0）。
+
+**`dcc_max=None` 含义**：严格匹配 `dcc_min` 指定版本，不是"无上限"。如需兼容未来版本，须显式设置 `dcc_max`。
+
+| dcc_max | 语义 |
+|---------|------|
+| `None` | 仅兼容 `dcc_min` 精确版本（如 Maya/Max 插件） |
+| `(5, 7, 9)` | 兼容 `dcc_min` ~ `dcc_max` 范围（如 Blender `(5,0,0)` ~ `(5,1,9)`） |
+
+**用户覆盖**：可在"插件版本"标签页编辑兼容范围，持久化到 `~/.artifexnexus/config/plugin_compat.json`，覆盖内置默认值。
 
 ## 5. 安装向导 — 自动检测与手动添加
 
@@ -219,49 +240,32 @@ plugin_info = {
 
 | 文件 | 作用 |
 |------|------|
-| `apps/desktop/src/routes/InstallerWizard.tsx` | 安装向导主页面 |
-| `apps/desktop/src/features/installer/dccRegistry.ts` | DCC 操作注册表（detect/install/uninstall） |
-| `apps/desktop/src/features/installer/installer.fixtures.ts` | 安装清单桩数据 |
-| `apps/desktop/src/features/installer/installer.types.ts` | 类型定义 |
-| `apps/desktop/src/features/installer/installer.i18n.ts` | 国际化文案 |
+| `packages/apps/web/src/components/system/SystemPage.tsx` | 系统页面（含三个标签页） |
+| `packages/apps/web/src/ipc/openclaw.ts` | IPC 封装（类型 + 函数） |
 
-### 5.2 dccRegistry — 统一操作接口
+> **历史**. `apps/desktop/src/routes/InstallerWizard.tsx` 和 `features/installer/` 目录已于 2026-05-25 删除。当前唯一 UI 入口是 SystemPage.tsx 的"安装向导"标签页。
 
-```typescript
-// dccRegistry.ts
-export const dccRegistry: Record<string, DCCActions> = {
-  blender: {
-    detect: async () => adaptBlenderDetect(await detectBlenderVersions()),
-    install: (version, force) => installBlenderAddon(version, force),
-    uninstall: (version) => uninstallBlenderAddon(version),
-  },
-  maya: {
-    detect: async () => adaptGenericDetect(await detectMayaVersions()),
-    install: (version, force) => installMayaAddon(version, force),
-    uninstall: (version) => uninstallMayaAddon(version),
-  },
-  max: {
-    detect: async () => adaptGenericDetect(await detectMaxVersions()),
-    install: (version, force) => installMaxAddon(version, force),
-    uninstall: (version) => uninstallMaxAddon(version),
-  },
-};
+### 5.2 安装前版本兼容检查
 
-// 新增 DCC 时在此注册即可，InstallerWizard 自动适配
-export function isDCCRegistered(id: string): boolean { ... }
-export function getDCCActions(id: string): DCCActions | undefined { ... }
-```
+**所有 DCC（Blender/Maya/Max/UE）安装前都会自动进行版本兼容检查**：
+
+1. 调用 `get_available_plugin_versions(dcc)` 获取所有可用插件版本及兼容范围
+2. 数值比较用户输入的 DCC 版本是否在某个插件的 `dcc_min` ~ `dcc_max` 范围内
+3. 无匹配 → 弹窗展示可用插件列表及兼容范围，用户可选"强行安装"或"取消"
+4. **取消** → 回滚状态为原始值（`not-installed` 或 `installed`），不卡在"安装中"
+
+> 此检查覆盖所有四个 DCC（UE/Maya/Max/Blender），在 `handleChildInstall` 中实现。
 
 ### 5.3 检测链路（以 Maya 为例）
 
 ```
-前端 InstallerWizard "检测" 按钮
-  → dccRegistry.maya.detect()
+SystemPage "检测" 按钮
+  → handleGlobalDetect()
     → IPC detectMayaVersions()
       → Tauri invoke "openclaw_dcc_maya_detect"
         → Rust command → Sidecar JSON-RPC
           → sidecar.py _handle_openclaw_dcc_maya_detect()
-            → dcc_installer.find_maya_versions()       # 扫描 ~/Documents/maya/
+            → dcc_installer.find_maya_versions()       # 注册表 + Program Files + 偏好目录
             → dcc_installer.get_dcc_plugin_info("maya") # 读取 plugin_info
             → dcc_installer.is_dcc_addon_installed()    # 检查目标目录
             → dcc_installer.check_dcc_version_compatibility() # 版本比对
@@ -284,17 +288,23 @@ export function getDCCActions(id: string): DCCActions | undefined { ... }
 |-----|------|------|
 | Blender | `{base}/{ver}/scripts/addons/artifex_nexus/` | `%APPDATA%/Blender Foundation/Blender/5.1/scripts/addons/artifex_nexus/` |
 | Maya | `{base}/{ver}/scripts/artifex_nexus/` | `~/Documents/maya/2023/scripts/artifex_nexus/` |
-| 3ds Max | `{base}/{ver}/ENU/scripts/artifex_nexus/` | `%LOCALAPPDATA%/Autodesk/3dsMax/2024/ENU/scripts/artifex_nexus/` |
+| 3ds Max | `{base}/{ver}/ENU/scripts/artifex_nexus/` | `%LOCALAPPDATA%/Autodesk/3dsMax/2024 - 64bit/ENU/scripts/artifex_nexus/` |
 | UE | `{project}/Plugins/ArtifexNexusForUnreal/` | 用户手动指定工程目录 |
 
 > **安装方式**：统一使用 `shutil.copytree` 物理拷贝，不使用 junction/symlink。
 
+> **3ds Max 目录修正**：`get_dcc_addon_target_dir` 会先调用 `_get_max_real_dirs()` 扫描真实目录名，优先选择含 `64bit` 的实际安装目录（如 `2023 - 64bit` 而非 stub `2023`），避免装到 Autodesk 旧版残留目录。
+
 ### 5.6 Locale 同步（Maya / Max 专有）
 
-| DCC | Locale 模式 | 同步方式 |
-|-----|-----------|---------|
-| Maya | `{base}/{ver}/xx_XX/scripts/` | 扫描 locale 目录，物理复制到各 locale |
-| 3ds Max | `{base}/{ver}/{locale}/scripts/` | 全 locale（ENU/CHS/JPN…），物理复制 |
+| DCC | Locale 模式 | 同步方式 | 前端日志 |
+|-----|-----------|---------|---------|
+| Maya | `{base}/{ver}/xx_XX/scripts/` | 扫描 locale 目录，物理复制到各 locale | `✅ 安装成功 → .../scripts/artifex_nexus（已同步 zh_CN）` |
+| 3ds Max | `{base}/{ver}/{locale}/scripts/` | 全 locale（ENU/CHS/JPN…），物理复制 | `✅ 安装成功 → .../ENU/scripts/artifex_nexus（已同步 CHS，启动脚本已部署）` |
+
+> **Maya**：`scripts/` 目录即 ENU（英文），`zh_CN/scripts/` 为中文 locale。`_sync_maya_locales` 扫描 `xx_XX/scripts/` 格式子目录，物理复制主目录内容。
+>
+> **Max**：`{ver}/ENU/scripts/` 和 `{ver}/CHS/scripts/` 两个独立 locale。`_sync_max_locales` 以 ENU 为主，复制到其他 locale（CHS/JPN 等）。启动脚本部署到所有 locale 的 `startup/` 目录。
 
 ### 5.7 UE 特殊处理
 
@@ -307,7 +317,28 @@ export function getDCCActions(id: string): DCCActions | undefined { ... }
 
 用户手动添加的 DCC 子项通过 `localStorage` 持久化，key 格式：`artifex_installer:v1:children:{itemId}`。初始化时读取并合并到 fixture 数据，变更自动写入。
 
-### 5.9 子项行显示规范
+### 5.9 插件版本管理标签页
+
+系统页面第三个标签页（📦 插件版本），展示所有 DCC 插件版本及其兼容范围：
+
+| 列 | 内容 | 示例 |
+|----|------|------|
+| DCC | DCC 标识 + 颜色徽标 | `Blender` (绿) / `UE` (紫) |
+| 插件版本 | 插件自身版本号 | `v5.0.0` / `v2023` / `5.7` |
+| 兼容范围 | `dcc_min` ~ `dcc_max`（可编辑） | `5.0.0 ~ 5.1.9` / `仅 2023` |
+| 操作 | 编辑 / 重置 | 弹窗修改范围或恢复内置默认值 |
+
+**数据来源**：
+- Python `get_all_plugins_with_compat(dcc)` → 返回所有插件版本 + 内置兼容范围 + 用户覆盖
+- 覆盖持久化到 `~/.artifexnexus/config/plugin_compat.json`
+- 前端通过 IPC `getAllPluginsWithCompat` / `updatePluginCompatibility` / `resetPluginCompatibility` 读写
+
+**交互**：
+- 点击"编辑" → 弹出表单：最低版本 / 最高版本（留空 = 严格匹配最低版本）
+- 点击"重置" → 恢复内置默认兼容范围，删除用户覆盖
+- 修改即时生效，下一次安装或版本检查时使用新范围
+
+### 5.10 子项行显示规范
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -355,21 +386,37 @@ export function getDCCActions(id: string): DCCActions | undefined { ... }
 
 ```python
 METHODS = {
-    "openclaw.dcc.blender.detect":  _handle_openclaw_dcc_blender_detect,
-    "openclaw.dcc.blender.install": _handle_openclaw_dcc_blender_install,
-    "openclaw.dcc.blender.uninstall": _handle_openclaw_dcc_blender_uninstall,
-    "openclaw.dcc.maya.detect":    _handle_openclaw_dcc_maya_detect,
-    "openclaw.dcc.maya.install":   _handle_openclaw_dcc_maya_install,
-    "openclaw.dcc.maya.uninstall": _handle_openclaw_dcc_maya_uninstall,
-    "openclaw.dcc.max.detect":     _handle_openclaw_dcc_max_detect,
-    "openclaw.dcc.max.install":    _handle_openclaw_dcc_max_install,
-    "openclaw.dcc.max.uninstall":  _handle_openclaw_dcc_max_uninstall,
-    "openclaw.dcc.unreal.detect":  _handle_openclaw_dcc_unreal_detect,
-    "openclaw.dcc.unreal.install": _handle_openclaw_dcc_unreal_install,
-    "openclaw.dcc.unreal.uninstall": _handle_openclaw_dcc_unreal_uninstall,
+    # 安装/检测/卸载
+    "openclaw.dcc.blender.detect":  ...,
+    "openclaw.dcc.blender.install": ...,
+    "openclaw.dcc.blender.uninstall": ...,
+    "openclaw.dcc.maya.detect":    ...,
+    "openclaw.dcc.maya.install":   ...,
+    "openclaw.dcc.maya.uninstall": ...,
+    "openclaw.dcc.max.detect":     ...,
+    "openclaw.dcc.max.install":    ...,
+    "openclaw.dcc.max.uninstall":  ...,
+    "openclaw.dcc.unreal.detect":  ...,
+    "openclaw.dcc.unreal.install": ...,
+    "openclaw.dcc.unreal.uninstall": ...,
+    # 插件版本管理
+    "openclaw.dcc.plugin.all":       _handle_openclaw_dcc_plugin_all,
+    "openclaw.dcc.plugin.compat_update": _handle_openclaw_dcc_plugin_compat_update,
+    "openclaw.dcc.plugin.compat_reset":  _handle_openclaw_dcc_plugin_compat_reset,
+    # 部署校验
+    "openclaw.dcc.validate_deployments": _handle_openclaw_dcc_validate_deployments,
     ...
 }
 ```
+
+### 6.4 插件版本管理 RPC
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `openclaw.dcc.plugin.all` | — | `[{dcc, name, version, dcc_min, dcc_max, overridden}, ...]` | 获取所有插件版本及兼容范围 |
+| `openclaw.dcc.plugin.compat_update` | `{dcc, version, dcc_min, dcc_max}` | `{ok, message}` | 更新兼容范围（写入用户覆盖） |
+| `openclaw.dcc.plugin.compat_reset` | `{dcc, version}` | `{ok, message}` | 重置为内置默认值 |
+| `openclaw.dcc.validate_deployments` | — | `[{dcc, id, status, ...}]` | 部署校验（静默清理过期条目） |
 
 ## 7. Rust 命令注册
 
@@ -518,23 +565,35 @@ export async function setDCCPort(dcc: string, port: number): Promise<DCCPortSetR
 | 函数 | 用途 |
 |------|------|
 | `find_dcc_versions(dcc)` | 通用版本扫描 |
-| `find_blender_versions()` / `find_maya_versions()` / `find_max_versions()` | DCC 特定版本扫描 |
-| `get_dcc_addon_target_dir(dcc, ver)` | 计算安装目标路径 |
-| `install_dcc_addon(dcc, ver, force)` | 通用安装 |
-| `uninstall_dcc_addon(dcc, ver)` | 通用卸载 |
+| `find_blender_versions()` / `find_maya_versions()` / `find_max_versions()` | DCC 特定版本扫描（注册表 + Program Files + 偏好目录） |
+| `get_dcc_addon_target_dir(dcc, ver)` | 计算安装目标路径（Max 优先 64bit 目录） |
+| `install_dcc_addon(dcc, ver, force)` | 通用安装（含版本兼容检查） |
+| `uninstall_dcc_addon(dcc, ver)` | 通用卸载（先清理 manifest） |
 | `is_dcc_addon_installed(dcc, ver)` | 检查是否已安装 |
 | `get_addon_info()` | 读取 Blender bl_info |
-| `get_dcc_plugin_info(dcc)` | 读取 Maya/Max plugin_info |
+| `get_dcc_plugin_info(dcc)` | 读取 Maya/Max/UE 插件信息 |
+| `get_available_plugin_versions(dcc)` | 获取所有可用插件版本及兼容范围 |
+| `find_best_plugin_for_dcc(dcc, ver)` | 查找最佳匹配的插件版本 |
 | `check_version_compatibility(ver)` | Blender 版本兼容检查 |
-| `check_dcc_version_compatibility(dcc, ver)` | Maya/Max 版本兼容检查 |
+| `check_dcc_version_compatibility(dcc, ver)` | Maya/Max/UE 版本兼容检查（pad 对齐 + 用户覆盖） |
+| `get_all_plugins_with_compat()` | 获取所有 DCC 插件版本及兼容范围（供前端插件版本标签页） |
+| `update_plugin_compatibility(dcc, ver, min, max)` | 更新插件兼容范围（写入用户覆盖） |
+| `reset_plugin_compatibility(dcc, ver)` | 重置为内置默认兼容范围 |
 | `install_maya_addon(ver, force)` | Maya 安装 + locale 同步 |
 | `install_max_addon(ver, force)` | Max 安装 + locale 同步 + 启动脚本 |
+| `install_ue_plugin(ver, path, force)` | UE 安装 + MCP Bridge 自动部署 |
 | `install_gateway_mcp_bridge()` | 部署 Gateway 插件 |
+| `_sync_maya_locales(ver)` | Maya locale 物理复制 |
+| `_sync_max_locales(ver)` | Max locale 物理复制 + 启动脚本 |
+| `_get_max_real_dirs(ver)` | Max 真实目录扫描（支持 64bit 变体） |
+| `_parse_ue_plugin_descriptor(path)` | 解析 .uplugin JSON（版本截断到 2 位） |
+| `validate_all_deployments()` | 全面部署校验 + 静默清理过期条目 |
 
 ## 13. 相关文档
 
 - `docs/specs/maya-max-mcp-integration.md` — Maya / Max 接入详细规范
 - `docs/specs/dcc-extension-trigger-system.md` — DCC 触发器系统
 - `docs/specs/blender-plugin-comparison-artclaw-vs-artifex.md` — Blender 插件对比
+- `docs/development/dcc-detection-guide.md` — DCC 检测指南（注册表格式、版本映射、ID 陷阱）
 - `docs/sdk/README.md` — SDK 索引
 - `docs/development/agent-onboarding.md` — 新人上手

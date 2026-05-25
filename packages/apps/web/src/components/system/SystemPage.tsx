@@ -770,7 +770,14 @@ function InstallerTab() {
       if (parentId === "unreal_engine") {
         // 检查版本兼容性
         const compatOk = await _checkDCCPluginCompatibility("unreal_engine", child.version, addLog, parentId, showConfirm);
-        if (!compatOk) return;
+        if (!compatOk) {
+          const prevState: ItemState = isReinstall ? "installed" : "not-installed";
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: prevState } : c),
+          } : it));
+          addLog(parentId, "warn", `[${child.label}] 已取消${isReinstall ? "重装" : "安装"}（版本不兼容）`);
+          return;
+        }
 
         if (!child.installPath) {
           throw new Error("请先设置项目根目录（包含 .uproject 的目录）");
@@ -804,7 +811,14 @@ function InstallerTab() {
       if (parentId === "maya") {
         // 检查版本兼容性
         const compatOk = await _checkDCCPluginCompatibility("maya", child.version, addLog, parentId, showConfirm);
-        if (!compatOk) return;
+        if (!compatOk) {
+          const prevState: ItemState = isReinstall ? "installed" : "not-installed";
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: prevState } : c),
+          } : it));
+          addLog(parentId, "warn", `[${child.label}] 已取消${isReinstall ? "重装" : "安装"}（版本不兼容）`);
+          return;
+        }
 
         if (isReinstall) {
           addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
@@ -812,7 +826,8 @@ function InstallerTab() {
         }
         const r = await ipc.installMayaAddon(child.version, false);
         if (r.success) {
-          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target}`);
+          const extra = r.locale_synced?.length ? `（已同步 ${r.locale_synced.join(", ")}）` : "";
+          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target} ${extra}`);
           setItems((prev) => prev.map((it) => it.id === parentId ? {
             ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
           } : it));
@@ -826,7 +841,14 @@ function InstallerTab() {
       if (parentId === "3ds_max") {
         // 检查版本兼容性
         const compatOk = await _checkDCCPluginCompatibility("3ds_max", child.version, addLog, parentId, showConfirm);
-        if (!compatOk) return;
+        if (!compatOk) {
+          const prevState: ItemState = isReinstall ? "installed" : "not-installed";
+          setItems((prev) => prev.map((it) => it.id === parentId ? {
+            ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: prevState } : c),
+          } : it));
+          addLog(parentId, "warn", `[${child.label}] 已取消${isReinstall ? "重装" : "安装"}（版本不兼容）`);
+          return;
+        }
 
         if (isReinstall) {
           addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
@@ -834,7 +856,11 @@ function InstallerTab() {
         }
         const r = await ipc.installMaxAddon(child.version, false);
         if (r.success) {
-          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target}`);
+          const parts: string[] = [];
+          if (r.locale_synced?.length) parts.push(`已同步 ${r.locale_synced.join(", ")}`);
+          if (r.startup_scripts?.length) parts.push(`启动脚本已部署`);
+          const extra = parts.length ? `（${parts.join("，")}）` : "";
+          addLog(parentId, "info", `[${child.label}] ✅ 安装成功 → ${r.target} ${extra}`);
           setItems((prev) => prev.map((it) => it.id === parentId ? {
             ...it, state: "installed" as const, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: "installed" as const } : c),
           } : it));
@@ -847,7 +873,14 @@ function InstallerTab() {
       // ── Blender 安装分支 ──
       // 检查版本兼容性
       const compatOk = await _checkDCCPluginCompatibility("blender", child.version, addLog, parentId, showConfirm);
-      if (!compatOk) return;
+      if (!compatOk) {
+        const prevState: ItemState = isReinstall ? "installed" : "not-installed";
+        setItems((prev) => prev.map((it) => it.id === parentId ? {
+          ...it, children: (it.children || []).map((c, i) => i === childIndex ? { ...c, state: prevState } : c),
+        } : it));
+        addLog(parentId, "warn", `[${child.label}] 已取消${isReinstall ? "重装" : "安装"}（版本不兼容）`);
+        return;
+      }
 
       if (isReinstall) {
         addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);

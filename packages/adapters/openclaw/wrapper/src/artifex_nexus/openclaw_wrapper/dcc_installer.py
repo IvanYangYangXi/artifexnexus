@@ -227,6 +227,8 @@ def _reverse_ue_version_suffix(suffix: str) -> str:
 def _parse_ue_plugin_descriptor(uplugin_path: Path) -> dict:
     """解析 .uplugin 文件，提取插件元信息。
 
+    UE 版本只保留 major.minor（如 5.7），不保留 patch 位。
+
     Returns:
         {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": None}
     """
@@ -237,9 +239,9 @@ def _parse_ue_plugin_descriptor(uplugin_path: Path) -> dict:
     engine_ver = data.get("EngineVersion", "5.0.0")
     parts = tuple(int(x) for x in engine_ver.split("."))
     if len(parts) < 2:
-        parts = parts + (0,) * (3 - len(parts))
-    while len(parts) < 3:
-        parts = parts + (0,)
+        parts = parts + (0,) * (2 - len(parts))
+    # UE 版本只保留 major.minor，忽略 patch（5.7.4 → 5.7）
+    parts = parts[:2]
 
     return {
         "name": data.get("FriendlyName", "Artifex Nexus for Unreal"),
@@ -362,8 +364,21 @@ def get_dcc_addon_target_dir(dcc: str, dcc_version: str) -> str:
         raise ValueError(f"不支持的 DCC: {dcc}")
 
     base = _DCC_VERSION_SCAN_PATHS.get(dcc, "")
+
+    # 3ds Max: 扫描真实目录名（支持 "2023 - 64bit" / "2023" 双目录），
+    # 优先选择 64bit 变体（Autodesk 实际安装目录）
+    actual_version = dcc_version
+    if dcc == "3ds_max":
+        real_dirs = _get_max_real_dirs(dcc_version)
+        if real_dirs:
+            # 优先选含 64bit 的目录
+            dir_64 = [d for d in real_dirs if "64bit" in os.path.basename(d)]
+            actual_version = os.path.basename(dir_64[0] if dir_64 else real_dirs[0])
+            if actual_version != dcc_version:
+                logger.info(f"Max {dcc_version} 实际目标目录: {actual_version}")
+
     return os.path.join(
-        template.format(base=base, version=dcc_version),
+        template.format(base=base, version=actual_version),
         _get_addon_dir_name(),
     )
 
@@ -1960,9 +1975,14 @@ def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, s
     except (ValueError, AttributeError):
         return False, f"无法解析版本号: {dcc_version}"
 
-    # 补齐到 3 位
+    # 补齐到 3 位（统一长度后再比较，避免 (2023,) vs (2023,0,0) 产生误判）
     while len(dv_parts) < 3:
         dv_parts = dv_parts + (0,)
+    while len(dcc_min) < 3:
+        dcc_min = dcc_min + (0,)
+    if dcc_max is not None:
+        while len(dcc_max) < 3:
+            dcc_max = dcc_max + (0,)
 
     min_str = ".".join(str(x) for x in dcc_min)
 
@@ -1978,7 +1998,7 @@ def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, s
 
     # dcc_max=None：严格匹配 dcc_min 指定版本（不视为"无上限"）
     if dv_parts != dcc_min:
-        return False, f"插件 v{'.'.join(str(x) for x in dcc_min)} 仅兼容 {dcc_version}，当前 DCC 版本为 {dcc_version}"
+        return False, f"插件 v{min_str} 仅兼容 {min_str}，当前 DCC 版本为 {dcc_version}"
 
     return True, f"兼容 (v{min_str})"
 

@@ -143,3 +143,12 @@
 - **UE 与 Blender 差异**：Blender 需要扫描安装目录检测版本（`dccRegistry` 注册了真实 detect），UE 不需要扫描，纯由用户手动添加工程条目（`handleAddChild` 中已有 UE 专用分支，输入工程路径+版本号）。标签格式为 `项目名 (UE 版本)`。添加后通过 `check_ue_plugin_installed` 异步检测插件是否已安装（检查 `{projectPath}/Plugins/ArtifexNexusForUnreal/` 目录是否存在）。
 - **Fixtures 禁止预设子项**（2026-05-24）：所有 DCC 条目（blender, unreal, max, maya）的 `children` 初始必须为 `[]`，不得硬编码预设条目。子项来源只有两个：真实检测（已注册 DCC）+ 用户手动添加。
 - **UE 测试工程路径**（2026-05-24）：`D:\MyProject_D\artifexnexus_packages\ue57_artifex_nexus`，插件同步目标 `{project}/Plugins/ArtifexNexusForUnreal/Content/Python/tools/`。
+- **Blender addon 运行路径**（2026-05-25）：`%APPDATA%/Blender Foundation/Blender/5.1/scripts/addons/artifex_nexus/` — 主项目修改后必须同步到此路径才能在 Blender 中生效。
+- **DCC 代码部署规则**（2026-05-25）：主项目源码修改后，必须同步到各 DCC 实际运行目录（UE 测试工程 / Blender addons 目录），否则 DCC 仍运行旧代码。
+- **Maya 插件安装路径**（2026-05-25）：`~/Documents/maya/{ver}/scripts/artifex_nexus/`，locale 同步到 `xx_XX/scripts/` 物理复制。
+- **3ds Max 插件安装路径**（2026-05-25）：`%LOCALAPPDATA%/Autodesk/3dsMax/{ver}/ENU/scripts/artifex_nexus/`，入口 `scripts/startup/artifex_startup.ms` → `startup.py`。
+- **MCP 端口分配（全 DCC）**（2026-05-25）：UE 18080 / Maya 18081 / Max 18082 / Blender 18083 / Gateway 19789。
+- **共享 SDK 架构**（2026-05-25）：`BaseDCCAdapter` + `MCPServer` 提升到 `packages/dcc/shared/artifex_nexus_sdk/`，MCPServer 通过 `dcc_name`/`dcc_version`/`port` 参数化，`register_builtin_tools()` 保留在各 DCC 侧。
+- **DCC 插件版本号规则**（2026-05-25）：插件版本号 = 目标 DCC 主版本号。Maya/Max 本地测试用 2023，版本标记为 `v2023`。Blender 用 `v5.0.0`（对应 Blender 5.0.x）。`plugin_info.version` = `(主版本号,)` 元组。
+- **端口冲突处理规则**（2026-05-25）：固定端口的 DCC（Maya 18081 / Max 18082）使用 `max_port_probe=0`，端口被占用时 pre-check 跳过启动 + UI 警告。共享 SDK 默认 `max_port_probe=10`（Blender 继续使用自动端口探测）。
+- **触发器调度器共享**（2026-05-25）：`TriggerDispatcher` 类提取到 `trigger_dispatcher_base.py`，Maya/Max 侧仅保留事件钩子注册/注销函数。
