@@ -1,23 +1,40 @@
 "use client";
 
 /**
- * SystemPage — 系统模块（安装向导 + Gateway + 运行状态）
- *
- * 完全复刻 apps/desktop/src/routes/InstallerWizard.tsx
- * IPC 通过 src/lib/tauriIpc.ts 桥接
+ * SystemPage — 系统模块（安装向导 + 插件版本 + Gateway + 运行状态）
  */
 
 import * as React from "react";
-import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen } from "lucide-react";
+import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen, Package } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
-import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions } from "../../ipc/openclaw";
+import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus, PluginSummary } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility } from "../../ipc/openclaw";
+
+// ─── 版本比较工具 ───────────────────────────────────────────────────
+
+/** 将版本字符串解析为数值数组，如 "2023" → [2023], "5.1" → [5, 1] */
+function _parseVersion(v: string): number[] { return v.split(".").map(Number); }
+
+/** 数值版比较：a >= b */
+function _versionGte(a: number[], b: number[]): boolean {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const av = a[i] ?? 0, bv = b[i] ?? 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return true;
+}
 
 // ─── 工具函数 ───────────────────────────────────────────────────────
 
-/** 检查 Maya/3ds Max 插件与 DCC 软件版本兼容性。不兼容时弹窗提示。 */
+/** DCC 名称映射 */
+const DCC_DISPLAY_NAMES: Record<string, string> = {
+  blender: "Blender", maya: "Maya", "3ds_max": "3ds Max", unreal_engine: "UE",
+};
+
+/** 检查插件与 DCC 软件版本兼容性。不兼容时弹窗提示（返回用户选择）。 */
 async function _checkDCCPluginCompatibility(
   dcc: string,
   dccVersion: string,
@@ -28,32 +45,45 @@ async function _checkDCCPluginCompatibility(
   try {
     const ipc = await getIpc();
     const { versions } = await getAvailablePluginVersions(dcc);
-    if (!versions || versions.length === 0) {
-      // 无插件可用，让 Python 报错
-      return true;
-    }
-    // 检查是否有兼容版本
-    const compatible = versions.some((v) => {
-      if (!v.dcc_max) return dccVersion >= v.dcc_min;
-      return dccVersion >= v.dcc_min && dccVersion <= v.dcc_max!;
+    if (!versions || versions.length === 0) return true;
+
+    const dccParts = _parseVersion(dccVersion);
+    const name = DCC_DISPLAY_NAMES[dcc] || dcc;
+
+    // 兼容检查：dcc_max=None 表示只严格匹配 dcc_min
+    const matching = versions.filter((v) => {
+      const minParts = _parseVersion(v.dcc_min);
+      if (!v.dcc_max) {
+        return _versionEqual(dccParts, minParts);
+      }
+      const maxParts = _parseVersion(v.dcc_max);
+      return _versionGte(dccParts, minParts) && _versionGte(maxParts, dccParts);
     });
-    if (!compatible) {
-      const verList = versions.map((v) => {
-        const range = v.dcc_max ? `${v.dcc_min}~${v.dcc_max}` : `${v.dcc_min}+`;
-        return `  v${v.version}（兼容 ${range}）`;
-      }).join("\n");
-      const name = dcc === "maya" ? "Maya" : "3ds Max";
-      addLog(parentId, "warn", `[${name} ${dccVersion}] 版本不兼容！可用插件: ${versions.map((v) => `v${v.version}`).join(", ")}`);
-      await showConfirm(
-        `版本不兼容`,
-        `${name} ${dccVersion} 没有匹配的插件版本。\n\n可用的插件版本：\n${verList}\n\n将尝试安装最接近的版本（可能不兼容），确定继续？`,
-      );
-    }
-    return true;
+
+    if (matching.length > 0) return true; // 有精确或范围匹配 → 放行
+
+    // 无匹配 → 提示风险
+    const verList = versions.map((v) => {
+      const range = v.dcc_max ? `${v.dcc_min}~${v.dcc_max}` : `仅 ${v.dcc_min}`;
+      return `  v${v.version}（兼容 ${range}）`;
+    }).join("\n");
+    addLog(parentId, "warn", `[${name} ${dccVersion}] 版本不兼容！可用插件: ${versions.map((v) => `v${v.version}`).join(", ")}`);
+    const confirmed = await showConfirm(
+      `⚠️ 版本不兼容`,
+      `${name} ${dccVersion} 没有匹配的插件版本。\n\n可用插件及兼容范围：\n${verList}\n\n可在"插件版本"标签页调整兼容范围后再安装。\n\n确定强行安装？可能导致功能异常。`,
+    );
+    return confirmed;
   } catch {
-    // 查询失败时放行，让 Python 端报具体错误
     return true;
   }
+}
+
+/** 数值版比较：a == b */
+function _versionEqual(a: number[], b: number[]): boolean {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return false;
+  }
+  return true;
 }
 
 // ─── 通用弹窗 Hook（替代 window.confirm / window.prompt） ─────────────────
@@ -239,12 +269,14 @@ export function SystemPage() {
             <TabsTrigger value="installer" className="h-6 gap-1 text-xs"><Terminal className="h-3 w-3" />安装向导</TabsTrigger>
             <TabsTrigger value="gateway" className="h-6 gap-1 text-xs"><Server className="h-3 w-3" />Gateway</TabsTrigger>
             <TabsTrigger value="dataman" className="h-6 gap-1 text-xs"><FolderOpen className="h-3 w-3" />数据管理</TabsTrigger>
+            <TabsTrigger value="plugins" className="h-6 gap-1 text-xs"><Package className="h-3 w-3" />插件版本</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
       {tab === "installer" && <InstallerTab />}
       {tab === "gateway" && <GatewayTab />}
       {tab === "dataman" && <DataManagementTab />}
+      {tab === "plugins" && <PluginVersionsTab />}
     </div>
   );
 }
@@ -736,6 +768,10 @@ function InstallerTab() {
 
       // ── UE 安装分支 ──
       if (parentId === "unreal_engine") {
+        // 检查版本兼容性
+        const compatOk = await _checkDCCPluginCompatibility("unreal_engine", child.version, addLog, parentId, showConfirm);
+        if (!compatOk) return;
+
         if (!child.installPath) {
           throw new Error("请先设置项目根目录（包含 .uproject 的目录）");
         }
@@ -809,6 +845,10 @@ function InstallerTab() {
       }
 
       // ── Blender 安装分支 ──
+      // 检查版本兼容性
+      const compatOk = await _checkDCCPluginCompatibility("blender", child.version, addLog, parentId, showConfirm);
+      if (!compatOk) return;
+
       if (isReinstall) {
         addLog(parentId, "info", `[${child.label}] 卸载旧版本...`);
         try { await ipc.uninstallBlenderAddon(child.version); } catch {}
@@ -1659,6 +1699,165 @@ function DataManagementTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── 插件版本管理 Tab ────────────────────────────────────────────────────
+
+function PluginVersionsTab() {
+  const [plugins, setPlugins] = React.useState<PluginSummary[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState<PluginSummary | null>(null);
+  const [editMin, setEditMin] = React.useState("");
+  const [editMax, setEditMax] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const ipc = await getIpc();
+      const { plugins: list } = await getAllPluginsWithCompat();
+      setPlugins(list);
+    } catch (e: any) {
+      console.error("加载插件版本失败:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const openEdit = (p: PluginSummary) => {
+    setEditing(p);
+    setEditMin(p.dcc_min);
+    setEditMax(p.dcc_max || "");
+  };
+
+  const handleSave = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const ipc = await getIpc();
+      const maxVal = editMax.trim() || null;
+      const r = await updatePluginCompatibility(editing.dcc, editing.version, editMin.trim(), maxVal);
+      if (r.ok) {
+        setEditing(null);
+        await load();
+      }
+    } catch (e: any) {
+      console.error("保存失败:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async (p: PluginSummary) => {
+    try {
+      const ipc = await getIpc();
+      await resetPluginCompatibility(p.dcc, p.version);
+      await load();
+    } catch (e: any) {
+      console.error("重置失败:", e);
+    }
+  };
+
+  const DCC_COLORS: Record<string, string> = {
+    blender: "text-orange-400", maya: "text-cyan-400", "3ds_max": "text-yellow-400",
+  };
+
+  const formatRange = (min: string, max: string | null) => {
+    const range = max ? `${min} ~ ${max}` : `仅 ${min}`;
+    return <span>{range}</span>;
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 py-2">
+        <Button size="sm" className="h-7 gap-1 text-[11px] rounded-full" onClick={load} disabled={loading}>
+          <Play className="h-3 w-3" />{loading ? "加载中…" : "刷新"}
+        </Button>
+        <span className="text-[11px] text-muted-foreground">共 {plugins.length} 个插件版本</span>
+      </div>
+      <ScrollFade className="flex-1">
+        <div className="p-3">
+          {plugins.length === 0 && !loading && (
+            <div className="py-8 text-center text-xs text-muted-foreground">暂无插件数据</div>
+          )}
+          <div className="space-y-1">
+            {plugins.map((p) => (
+              <div key={`${p.dcc}-${p.version}`}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-white/[0.04] border border-white/[0.05]">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[11px] font-bold text-muted-foreground">
+                  {p.dcc_name.slice(0, 1)}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium ${DCC_COLORS[p.dcc] || ""}`}>{p.dcc_name}</span>
+                    <span className="text-xs text-muted-foreground">插件 v{p.version}</span>
+                    {p.overridden && (
+                      <span className="rounded bg-amber-400/10 px-1 py-0 text-[10px] text-amber-400">已自定义</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    兼容：{formatRange(p.dcc_min, p.dcc_max)}
+                    {p.overridden && (
+                      <span className="ml-2 text-[10px] opacity-50">
+                        （内置：{formatRange(p.builtin_dcc_min, p.builtin_dcc_max)}）
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full"
+                    onClick={() => openEdit(p)}>编辑</Button>
+                  {p.overridden && (
+                    <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full text-amber-400"
+                      onClick={() => handleReset(p)}>重置</Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ScrollFade>
+      {editing && (
+        <Dialog open={true} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>编辑兼容范围</DialogTitle>
+              <DialogDescription>
+                {editing.dcc_name} 插件 v{editing.version}
+                <span className="block mt-1 text-[11px] opacity-70">
+                  内置默认：{editing.builtin_dcc_max
+                    ? `${editing.builtin_dcc_min} ~ ${editing.builtin_dcc_max}`
+                    : `仅 ${editing.builtin_dcc_min}`}
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs font-medium">最低兼容版本</label>
+                <Input value={editMin} onChange={(e) => setEditMin(e.target.value)}
+                  placeholder={`如 ${editing.builtin_dcc_min || editing.dcc_min}`} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-medium">最高兼容版本（留空 = 仅匹配最低版本）</label>
+                <Input value={editMax} onChange={(e) => setEditMax(e.target.value)}
+                  placeholder="留空 = 仅匹配最低版本"
+                  className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" className="text-xs"
+                onClick={() => setEditing(null)}>取消</Button>
+              <Button size="sm" className="text-xs" onClick={handleSave} disabled={saving}>
+                {saving ? "保存中…" : "保存"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

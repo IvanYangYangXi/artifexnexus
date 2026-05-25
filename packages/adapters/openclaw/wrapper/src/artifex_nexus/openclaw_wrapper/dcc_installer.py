@@ -1562,13 +1562,111 @@ def check_ue_version_compatibility(ue_version: str) -> Tuple[bool, str]:
         return True, f"兼容 (≥ {min_str})"
 
 
+# ── 插件兼容范围用户覆盖配置 ──────────────────────────────────────────
+
+_PLUGIN_COMPAT_CONFIG_PATH = os.path.join(
+    os.path.expandvars(r"%USERPROFILE%\.artifexnexus\config"),
+    "plugin_compat.json",
+)
+
+
+def _load_plugin_compat_overrides() -> dict:
+    """读取用户自定义插件兼容范围覆盖。"""
+    try:
+        if os.path.isfile(_PLUGIN_COMPAT_CONFIG_PATH):
+            with open(_PLUGIN_COMPAT_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"overrides": {}}
+
+
+def _save_plugin_compat_overrides(data: dict) -> None:
+    """保存用户自定义插件兼容范围覆盖。"""
+    os.makedirs(os.path.dirname(_PLUGIN_COMPAT_CONFIG_PATH), exist_ok=True)
+    with open(_PLUGIN_COMPAT_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def get_all_plugins_with_compat() -> List[Dict]:
+    """获取所有 DCC 的所有插件版本及其兼容范围（合并用户覆盖）。
+
+    Returns:
+        [{dcc, dcc_name, version, dcc_min, dcc_max, path, overridden}, ...]
+    """
+    overrides = _load_plugin_compat_overrides().get("overrides", {})
+    all_plugins = []
+    DCC_LIST = ["blender", "maya", "3ds_max"]
+    DCC_DISPLAY = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max"}
+
+    for dcc in DCC_LIST:
+        builtin = get_available_plugin_versions(dcc)
+        for v in builtin:
+            override_key = f"{dcc}/{v['version']}"
+            override = overrides.get(override_key, {})
+            all_plugins.append({
+                "dcc": dcc,
+                "dcc_name": DCC_DISPLAY.get(dcc, dcc),
+                "version": v["version"],
+                "dcc_min": override.get("dcc_min", v["dcc_min"]),
+                "dcc_max": override.get("dcc_max", v.get("dcc_max")),
+                "path": v["path"],
+                "overridden": bool(override),
+                "builtin_dcc_min": v["dcc_min"],
+                "builtin_dcc_max": v.get("dcc_max"),
+            })
+    return all_plugins
+
+
+def update_plugin_compatibility(dcc: str, version: str, dcc_min: str, dcc_max: Optional[str]) -> dict:
+    """更新指定插件的兼容范围覆盖。
+
+    Args:
+        dcc: "blender" | "maya" | "3ds_max"
+        version: 插件版本号（如 "2023", "5.0.0"）
+        dcc_min: 新的最低兼容 DCC 版本
+        dcc_max: 新的最高兼容 DCC 版本（None 表示严格匹配 dcc_min）
+
+    Returns:
+        {"ok": bool, "message": str}
+    """
+    override_key = f"{dcc}/{version}"
+    data = _load_plugin_compat_overrides()
+    overrides = data.setdefault("overrides", {})
+
+    if dcc_max is None or dcc_max.strip() == "":
+        overrides[override_key] = {"dcc_min": dcc_min, "dcc_max": None}
+    else:
+        overrides[override_key] = {"dcc_min": dcc_min, "dcc_max": dcc_max}
+
+    _save_plugin_compat_overrides(data)
+    return {"ok": True, "message": f"已更新 {override_key} 兼容范围: {dcc_min}~{dcc_max or '仅'}"}
+
+
+def reset_plugin_compatibility(dcc: str, version: str) -> dict:
+    """重置指定插件的兼容范围为内置默认值。
+
+    Returns:
+        {"ok": bool, "message": str}
+    """
+    override_key = f"{dcc}/{version}"
+    data = _load_plugin_compat_overrides()
+    overrides = data.get("overrides", {})
+    if override_key in overrides:
+        del overrides[override_key]
+        _save_plugin_compat_overrides(data)
+        return {"ok": True, "message": f"已重置 {override_key} 为内置默认值"}
+    return {"ok": True, "message": f"{override_key} 无覆盖，无需重置"}
+
+
 # ── 通用 DCC plugin_info 解析（Maya / 3ds Max）───────────────────────────
 
 def _parse_plugin_info(content: str, dcc: str) -> Dict:
-    """从 Python 源码中解析 plugin_info 字典（简单 AST）。
+    """从 Python 源码中解析 plugin_info / bl_info 字典（简单 AST）。
 
-    Maya: plugin_info = {"name": "...", "version": (2023,), "maya_max": None}
-    Max:  plugin_info = {"name": "...", "version": (2023,), "max_min": (2023,), "max_max": None}
+    Maya:   plugin_info = {"name": "...", "version": (2023,), "maya_min": ..., "maya_max": None}
+    Max:    plugin_info = {"name": "...", "version": (2023,), "max_min": (2023,), "max_max": None}
+    Blender: bl_info = {"name": "...", "version": (5,0,0), "blender": (5,0,0), "blender_max": (5,1,9)}
     """
     import ast
 
@@ -1576,16 +1674,23 @@ def _parse_plugin_info(content: str, dcc: str) -> Dict:
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "plugin_info":
-                    info = ast.literal_eval(node.value)
+                # 匹配 plugin_info = {...} 或 bl_info = {...}
+                if isinstance(target, ast.Name) and target.id in ("plugin_info", "bl_info"):
+                    info: dict = ast.literal_eval(node.value)
                     version = info.get("version", (0, 0, 0))
-                    # Maya: min = version（无显式 maya_min）
-                    if dcc == "maya":
+
+                    if dcc == "blender":
+                        dcc_min = info.get("blender", version)
+                        dcc_max = info.get("blender_max")
+                    elif dcc == "maya":
                         dcc_min = info.get("maya_min", version)
+                        dcc_max = info.get("maya_max")
+                    elif dcc == "unreal_engine":
+                        dcc_min = info.get("ue_min", version)
+                        dcc_max = info.get("ue_max")
                     else:
                         dcc_min = info.get("max_min", version)
-
-                    dcc_max = info.get("maya_max") if dcc == "maya" else info.get("max_max")
+                        dcc_max = info.get("max_max")
 
                     return {
                         "name": info.get("name", "Artifex Nexus Bridge"),
@@ -1594,16 +1699,16 @@ def _parse_plugin_info(content: str, dcc: str) -> Dict:
                         "dcc_max": dcc_max,
                     }
     raise ValueError(
-        f"无法从 {dcc.upper()} 插件 __init__.py 中解析 plugin_info 字典。"
-        f"请确认 plugin_info = {{...}} 是否存在且格式正确。"
+        f"无法从 {dcc.upper()} 插件 __init__.py 中解析 plugin_info/bl_info。"
+        f"请确认 plugin_info = {{...}} 或 bl_info = {{...}} 是否存在且格式正确。"
     )
 
 
 def get_dcc_plugin_info(dcc: str) -> Dict:
-    """读取 Maya / 3ds Max 插件的 plugin_info 元信息。
+    """读取 DCC 插件的 plugin_info / bl_info 元信息。
 
     Args:
-        dcc: "maya" 或 "3ds_max"
+        dcc: "blender" | "maya" | "3ds_max"
 
     Returns:
         {"name": str, "version": tuple, "dcc_min": tuple, "dcc_max": tuple|None}
@@ -1623,6 +1728,12 @@ def get_dcc_plugin_info(dcc: str) -> Dict:
     return _parse_plugin_info(content, dcc)
 
 
+def _get_plugin_version_from_info(info: dict) -> str:
+    """从 plugin_info 字典提取版本号字符串（如 (2023,) -> "2023", (5,0,0) -> "5.0.0"）"""
+    ver = info.get("version", (0,))
+    return ".".join(str(x) for x in ver)
+
+
 def get_available_plugin_versions(dcc: str) -> List[Dict]:
     """获取 DCC 所有可用插件版本及其兼容范围。
 
@@ -1637,12 +1748,14 @@ def get_available_plugin_versions(dcc: str) -> List[Dict]:
         "blender": "blender",
         "maya": "maya",
         "3ds_max": "max",
+        "unreal_engine": "ue",
     }
     dcc_pkg_dir = _DCC_PKG_DIR.get(dcc, dcc)
     _ADDON_DIR_NAMES = {
         "blender": "blender_addon",
         "maya": "maya_addon",
         "3ds_max": "max_addon",
+        "unreal_engine": "ue_addon",
     }
     addon_dir_name = _ADDON_DIR_NAMES.get(dcc, f"{dcc}_addon")
 
@@ -1677,6 +1790,15 @@ def get_available_plugin_versions(dcc: str) -> List[Dict]:
                 })
             except Exception:
                 continue
+
+    # 合并用户覆盖
+    overrides = _load_plugin_compat_overrides().get("overrides", {})
+    for v in versions:
+        override_key = f"{dcc}/{v['version']}"
+        if override_key in overrides:
+            ov = overrides[override_key]
+            v["dcc_min"] = ov["dcc_min"]
+            v["dcc_max"] = ov.get("dcc_max")
 
     return versions
 
@@ -1727,13 +1849,14 @@ def find_best_plugin_for_dcc(dcc: str, dcc_version: str) -> Optional[Dict]:
 
 
 def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, str]:
-    """检查 DCC 版本是否与插件兼容（通用，用于 Maya / 3ds Max）。
+    """检查 DCC 版本是否与插件兼容（通用，用于 Blender / Maya / 3ds Max）。
 
-    兼容规则：dcc_min <= dcc_version <= dcc_max
+    兼容规则：dcc_min <= dcc_version <= dcc_max（dcc_max=None 则严格匹配 dcc_min）
+    用户可通过 plugin_compat.json 覆盖兼容范围。
 
     Args:
-        dcc: DCC 标识 "maya" 或 "3ds_max"
-        dcc_version: 版本号，如 "2023"
+        dcc: DCC 标识 "blender" | "maya" | "3ds_max"
+        dcc_version: 版本号，如 "2023" 或 "5.1"
 
     Returns:
         (compatible, reason)
@@ -1741,6 +1864,15 @@ def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, s
     info = get_dcc_plugin_info(dcc)
     dcc_min = info["dcc_min"]
     dcc_max = info.get("dcc_max")
+
+    # 合并用户覆盖
+    overrides = _load_plugin_compat_overrides().get("overrides", {})
+    override_key = f"{dcc}/{_get_plugin_version_from_info(info)}"
+    if override_key in overrides:
+        ov = overrides[override_key]
+        dcc_min = tuple(int(x) for x in ov["dcc_min"].split("."))
+        dcc_max_raw = ov.get("dcc_max")
+        dcc_max = tuple(int(x) for x in dcc_max_raw.split(".")) if dcc_max_raw else None
 
     try:
         dv_parts = tuple(int(x) for x in dcc_version.split("."))
@@ -1756,15 +1888,18 @@ def check_dcc_version_compatibility(dcc: str, dcc_version: str) -> Tuple[bool, s
     if dv_parts < dcc_min:
         return False, f"版本 {dcc_version} 低于最低要求 {min_str}"
 
-    if dcc_max is not None and dv_parts > dcc_max:
-        max_str = ".".join(str(x) for x in dcc_max)
-        return False, f"版本 {dcc_version} 高于最高支持 {max_str}"
-
     if dcc_max is not None:
+        if dv_parts > dcc_max:
+            max_str = ".".join(str(x) for x in dcc_max)
+            return False, f"版本 {dcc_version} 高于最高支持 {max_str}"
         max_str = ".".join(str(x) for x in dcc_max)
         return True, f"兼容 ({min_str} ~ {max_str})"
-    else:
-        return True, f"兼容 (≥ {min_str})"
+
+    # dcc_max=None：严格匹配 dcc_min 指定版本（不视为"无上限"）
+    if dv_parts != dcc_min:
+        return False, f"插件 v{'.'.join(str(x) for x in dcc_min)} 仅兼容 {dcc_version}，当前 DCC 版本为 {dcc_version}"
+
+    return True, f"兼容 (v{min_str})"
 
 
 # ── Junction / Symlink 工具 ─────────────────────────────────────────────

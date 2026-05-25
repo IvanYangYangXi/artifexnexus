@@ -709,6 +709,48 @@ export async function getAvailablePluginVersions(
   );
 }
 
+/** 精简版插件信息（用于列表展示） */
+export interface PluginSummary {
+  dcc: string;
+  dcc_name: string;
+  version: string;
+  dcc_min: string;
+  dcc_max: string | null;
+  path: string;
+  overridden: boolean;
+  builtin_dcc_min: string;
+  builtin_dcc_max: string | null;
+}
+
+/** 获取所有 DCC 所有版本的插件兼容信息 */
+export async function getAllPluginsWithCompat(): Promise<{ plugins: PluginSummary[] }> {
+  return invoke<{ plugins: PluginSummary[] }>("openclaw_dcc_plugin_all", {});
+}
+
+/** 更新指定插件的兼容范围 */
+export async function updatePluginCompatibility(
+  dcc: string,
+  version: string,
+  dcc_min: string,
+  dcc_max: string | null,
+): Promise<{ ok: boolean; message: string }> {
+  return invoke<{ ok: boolean; message: string }>(
+    "openclaw_dcc_plugin_compat_update",
+    { dcc, version, dccMin: dcc_min, dccMax: dcc_max },
+  );
+}
+
+/** 重置指定插件的兼容范围为默认值 */
+export async function resetPluginCompatibility(
+  dcc: string,
+  version: string,
+): Promise<{ ok: boolean; message: string }> {
+  return invoke<{ ok: boolean; message: string }>(
+    "openclaw_dcc_plugin_compat_reset",
+    { dcc, version },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // STORY-0029 M2：DCC 端口管理 IPC
 // ---------------------------------------------------------------------------

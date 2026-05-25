@@ -445,6 +445,62 @@ pub async fn openclaw_dcc_plugin_versions(
     manager.call("openclaw.dcc.plugin.versions", json!({"dcc": dcc}))
 }
 
+/// 获取所有 DCC 所有插件版本的兼容信息（含用户覆盖）。
+#[tauri::command]
+pub async fn openclaw_dcc_plugin_all(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.plugin.all", json!({}))
+}
+
+/// 更新指定插件的兼容范围覆盖。
+#[tauri::command]
+pub async fn openclaw_dcc_plugin_compat_update(
+    sidecar: State<'_, SidecarState>,
+    dcc: String,
+    version: String,
+    dcc_min: String,
+    dcc_max: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.plugin.compat_update", json!({
+        "dcc": dcc,
+        "version": version,
+        "dcc_min": dcc_min,
+        "dcc_max": dcc_max,
+    }))
+}
+
+/// 重置指定插件的兼容范围为内置默认值。
+#[tauri::command]
+pub async fn openclaw_dcc_plugin_compat_reset(
+    sidecar: State<'_, SidecarState>,
+    dcc: String,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.dcc.plugin.compat_reset", json!({
+        "dcc": dcc,
+        "version": version,
+    }))
+}
+
 /// 检测可用 UE 插件版本。
 ///
 /// STORY-0051 M5：UE 插件安装/卸载。

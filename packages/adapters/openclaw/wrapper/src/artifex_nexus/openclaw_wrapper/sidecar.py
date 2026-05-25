@@ -1307,6 +1307,55 @@ def _handle_openclaw_dcc_plugin_versions(req_id: Any, params: dict) -> dict:
         }
 
 
+def _handle_openclaw_dcc_plugin_all(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.plugin.all：获取所有 DCC 所有版本的插件兼容信息。"""
+    try:
+        plugins = _dcc_installer.get_all_plugins_with_compat()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"plugins": plugins},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_plugin_compat_update(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.plugin.compat_update：更新插件兼容范围。"""
+    try:
+        dcc = params.get("dcc", "")
+        version = params.get("version", "")
+        dcc_min = params.get("dcc_min", "")
+        dcc_max = params.get("dcc_max")
+        result = _dcc_installer.update_plugin_compatibility(dcc, version, dcc_min, dcc_max)
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_dcc_plugin_compat_reset(req_id: Any, params: dict) -> dict:
+    """openclaw.dcc.plugin.compat_reset：重置插件兼容范围为内置默认值。"""
+    try:
+        dcc = params.get("dcc", "")
+        version = params.get("version", "")
+        result = _dcc_installer.reset_plugin_compatibility(dcc, version)
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> dict:
     """openclaw.gateway.mcp_bridge.install RPC：部署 mcp-bridge 插件到 OpenClaw。
 
@@ -2100,6 +2149,9 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.dcc.max.install": _handle_openclaw_dcc_max_install,
     "openclaw.dcc.max.uninstall": _handle_openclaw_dcc_max_uninstall,
     "openclaw.dcc.plugin.versions": _handle_openclaw_dcc_plugin_versions,
+    "openclaw.dcc.plugin.all": _handle_openclaw_dcc_plugin_all,
+    "openclaw.dcc.plugin.compat_update": _handle_openclaw_dcc_plugin_compat_update,
+    "openclaw.dcc.plugin.compat_reset": _handle_openclaw_dcc_plugin_compat_reset,
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
