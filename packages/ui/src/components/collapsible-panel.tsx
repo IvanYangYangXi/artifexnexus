@@ -169,8 +169,8 @@ export function CollapsiblePanelGroup({
         className={cn("flex h-full w-full flex-col", className)}
       >
         <PanelGroup
+          key={visiblePanels.map(p => (p as React.ReactElement)?.props?.id).filter(Boolean).join(",")}
           direction={direction}
-          autoSaveId={autoSaveId}
           className="flex-1"
         >
           {visiblePanels.map((p, i) => {
@@ -226,7 +226,7 @@ export function CollapsiblePanelGroup({
       return (
         <GroupContext.Provider value={ctxValue}>
           <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
-            <PanelGroup direction="vertical" autoSaveId={autoSaveId} className="flex-1">
+            <PanelGroup key={rightVisible.map(p => (p.props as any)?.id).filter(Boolean).join(",")} direction="vertical" className="flex-1">
               {rightVisible.map((p, i) => {
                 const panelId = (p.props as any)?.id;
                 return (
@@ -247,7 +247,7 @@ export function CollapsiblePanelGroup({
     return (
       <GroupContext.Provider value={ctxValue}>
         <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
-          <PanelGroup direction="horizontal" className="flex-1">
+          <PanelGroup key={`dual-${leftKey}-${rightKey}`} direction="horizontal" className="flex-1">
             {hasLeft && (
               <Panel key={`left-${leftKey}`} defaultSize={defaultColumnRatio} minSize={15}>
                 <PanelGroup direction="vertical" className="h-full">
@@ -502,13 +502,9 @@ export const CollapsiblePanel = React.forwardRef<
   const panelRef = React.useRef<ImperativePanelHandle>(null);
   React.useImperativeHandle(ref, () => panelRef.current!, []);
 
-  // ── 计算 collapsedSize（像素，用于 Panel prop）+ 折叠百分比（用于 min/max/defaultSize）──
-  const collapsedSize = ctx.headerHeight; // Panel collapsedSize 必须用像素
-  const COLLAPSED_PCT = React.useMemo(() => {
-    if (!ctx.containerHeight) return 3;
-    const pct = (ctx.headerHeight / ctx.containerHeight) * 100;
-    return Math.max(2, Math.min(pct, 20));
-  }, [ctx.containerHeight, ctx.headerHeight]);
+  // ── 折叠百分比（恒定值，不随 containerHeight 变化，防止触发 react-resizable-panels 约束重算）──
+  const COLLAPSED_PCT = 3;
+  const collapsedSize = COLLAPSED_PCT;
 
   // ── 声明式尺寸锁定 ──
   // 展开态:  minSize=minSize,  maxSize=undefined → 可拖拽
@@ -542,7 +538,7 @@ export const CollapsiblePanel = React.forwardRef<
       ref={panelRef}
       collapsible
       collapsedSize={collapsedSize}
-      defaultSize={defaultOpen ? defaultSize : COLLAPSED_PCT}
+      defaultSize={open ? defaultSize : COLLAPSED_PCT}
       minSize={effectiveMinSize}
       maxSize={effectiveMaxSize}
       order={order}

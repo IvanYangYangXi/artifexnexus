@@ -194,7 +194,6 @@ export function RightPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
       <CollapsiblePanelGroup
-        autoSaveId="artifex.shell.dpanel"
         dualColumn
         defaultColumnRatio={40}
         columnAssignments={columnAssignments}
