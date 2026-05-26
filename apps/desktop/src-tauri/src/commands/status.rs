@@ -29,6 +29,9 @@ pub struct StatusResponse {
 pub fn get_status(sidecar: State<SidecarState>) -> Result<StatusResponse, String> {
     let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
 
+    // 懒初始化：与其他命令保持一致，首次调用时自动启动 sidecar
+    manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+
     let sidecar_running = manager.is_running();
 
     // 尝试获取 OpenClaw 状态

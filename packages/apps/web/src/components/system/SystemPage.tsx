@@ -289,6 +289,7 @@ function InstallerTab() {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [openclawStatus, setOpenclawStatus] = React.useState<OpenClawStatus | null>(null);
+  const [statusBarRefreshTrigger, setStatusBarRefreshTrigger] = React.useState(0);
   const { showConfirm, showForm, DialogUI } = useAppDialog();
 
   const addLog = (itemId: string, level: LogEntry["level"], message: string) => {
@@ -428,6 +429,9 @@ function InstallerTab() {
       const installedCount = children.filter((c: any) => c.state === "installed").length;
       addLog("max", "info", `检测到 ${result.versions.length} 个版本（已装插件: ${installedCount}）`);
     } catch (e) { addLog("max", "error", `3ds Max 检测失败: ${e instanceof Error ? e.message : String(e)}`); }
+
+    // 全局检测完成后触发 StatusBar 刷新（Sidecar 此时已就绪）
+    setStatusBarRefreshTrigger((n) => n + 1);
   };
 
   const handleInstall = async (id: string) => {
@@ -1007,7 +1011,7 @@ function InstallerTab() {
       {/* 底部：运行状态 + 可调高度日志 */}
       <div className="shrink-0 border-t border-white/[0.06]">
         {/* 运行状态摘要 */}
-        <StatusBar addLog={addLog} />
+        <StatusBar addLog={addLog} refreshTrigger={statusBarRefreshTrigger} />
         {/* 日志头部 */}
         <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground border-t border-white/[0.04]">
           <span>日志</span><span className="flex-1" /><button className="hover:text-foreground" onClick={() => setLogs([])}>清空</button>
@@ -1021,87 +1025,84 @@ function InstallerTab() {
 
 // ─── 运行状态摘要栏 ─────────────────────────────────────────────────────────
 
-function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], msg: string) => void }) {
-  const [dccStatus, setDccStatus] = React.useState<{name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[]>([]);
+/** Sidecar / Gateway / WS 三项核心状态 */
+interface CoreStatus {
+  /** Sidecar 是否运行 */
+  sidecarRunning: boolean;
+  sidecarPort: number | null;
+  /** Gateway 进程状态 */
+  gw: GatewayStatus | null;
+  /** WS 是否已连通（前端→Gateway） */
+  wsConnected: boolean;
+}
+
+function StatusBar({ addLog, refreshTrigger }: { addLog: (id: string, level: LogEntry["level"], msg: string) => void; refreshTrigger: number }) {
+  const [core, setCore] = React.useState<CoreStatus>({ sidecarRunning: false, sidecarPort: null, gw: null, wsConnected: false });
   const [deploy, setDeploy] = React.useState<any>(null);
-  const [sidecarPort, setSidecarPort] = React.useState<number | null>(null);
   const [repairing, setRepairing] = React.useState(false);
 
+  // ── 统一的 refresh：Sidecar → Gateway → WS → 部署校验 → 日志报错 ──
+
   const refresh = async () => {
+    const ipc = await getIpc();
+    const newCore: CoreStatus = { sidecarRunning: false, sidecarPort: null, gw: null, wsConnected: false };
+
+    // ── 1. Sidecar 状态 ──
     try {
-      const ipc = await getIpc();
-      // DCC 状态
-      const items: {name: string; port: number | null; mcpListening: boolean; gatewayConnected: boolean}[] = [];
+      const st = await ipc.getStatus();
+      newCore.sidecarRunning = st.sidecar_running;
+      newCore.sidecarPort = st.port ?? 19789;
+    } catch {
+      console.warn("[StatusBar] getStatus failed");
+    }
 
-      // Bug #6 修复：先检查 Gateway 是否在运行
-      let gatewayRunning = false;
+    // ── 2. Gateway 状态 ──
+    try {
+      newCore.gw = await ipc.getGatewayStatus();
+    } catch {
+      console.warn("[StatusBar] getGatewayStatus failed");
+    }
+
+    // ── 3. WS 连通性探测（500ms 超时避免阻塞 UI） ──
+    if (newCore.gw?.state === "running" && newCore.gw?.port) {
       try {
-        const ocStatus = await ipc.getOpenClawStatus();
-        gatewayRunning = ocStatus.gateway_running;
-      } catch (err) { console.warn("[SystemPage] StatusBar.refresh getOpenClawStatus failed:", err); }
+        const alive = await new Promise<boolean>((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${newCore.gw!.port}`);
+          const timer = setTimeout(() => { ws.close(); resolve(false); }, 500);
+          ws.onopen = () => { clearTimeout(timer); ws.close(); resolve(true); };
+          ws.onerror = () => { clearTimeout(timer); resolve(false); };
+        });
+        newCore.wsConnected = alive;
+      } catch { newCore.wsConnected = false; }
+    }
 
-      // 获取 MCP Bridge 状态（一次调用检测所有 DCC）
-      let bridgeStatus: MCPBridgeStatus | null = null;
-      if (gatewayRunning) {
-        try { bridgeStatus = await ipc.getMCPBridgeStatus(); } catch (err) {
-          console.warn("[SystemPage] StatusBar.refresh getMCPBridgeStatus failed:", err);
-        }
-      }
-
-      // ── Blender ──
+    // ── 4. 日志报错检查（Gateway 运行中才拉） ──
+    if (newCore.gw?.state === "running") {
       try {
-        const p = await ipc.getDCCPort("blender");
-        let mcpListening = false;
-        let gatewayConnected = false;
-
-        if (gatewayRunning && bridgeStatus) {
-          if (bridgeStatus.blenderConnected) {
-            gatewayConnected = true;
-            mcpListening = true;
-          } else {
-            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
+        const logBatch = await ipc.tailGatewayLog({ n: 50 });
+        if (logBatch?.entries) {
+          const errEntries = logBatch.entries.filter(
+            (e: { level: string }) => e.level === "WARN" || e.level === "ERROR"
+          ).slice(-3);
+          for (const e of errEntries) {
+            const time = new Date(e.ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+            addLog("gateway", e.level === "ERROR" ? "error" : "warn", `[${time}] ${e.text}`);
           }
-        } else if (gatewayRunning) {
-          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-        } else {
-          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
         }
+      } catch { /* 日志拉取失败静默处理 */ }
+    }
 
-        items.push({ name: "Blender", port: p.port, mcpListening, gatewayConnected });
-      } catch { items.push({ name: "Blender", port: null, mcpListening: false, gatewayConnected: false }); }
+    setCore(newCore);
 
-      // ── Unreal Engine ──
-      try {
-        const p = await ipc.getDCCPort("unreal");
-        let mcpListening = false;
-        let gatewayConnected = false;
-
-        if (gatewayRunning && bridgeStatus) {
-          if (bridgeStatus.unrealConnected) {
-            gatewayConnected = true;
-            mcpListening = true;
-          } else {
-            try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-          }
-        } else if (gatewayRunning) {
-          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-        } else {
-          try { await fetch(`http://127.0.0.1:${p.port}`, { mode: "no-cors", signal: AbortSignal.timeout(1500) }); mcpListening = true; } catch {}
-        }
-
-        items.push({ name: "Unreal", port: p.port, mcpListening, gatewayConnected });
-      } catch { items.push({ name: "Unreal", port: null, mcpListening: false, gatewayConnected: false }); }
-
-      setDccStatus(items);
-      // Sidecar 端口
-      try { const st = await ipc.getStatus(); setSidecarPort(st.port ?? 19789); } catch { setSidecarPort(19789); }
-      // 部署校验
+    // ── 5. 部署校验 ──
+    try {
       const v = await ipc.validateDeployments();
       setDeploy(v);
-    } catch (err) { console.warn("[SystemPage] StatusBar.refresh failed:", err); }
+    } catch { console.warn("[StatusBar] validateDeployments failed"); }
   };
 
-  React.useEffect(() => { refresh(); }, []);
+  // 首次挂载 + 全局检测完成后均触发刷新
+  React.useEffect(() => { refresh(); }, [refreshTrigger]);
 
   const repairAll = async () => {
     if (!deploy?.deployments) return;
@@ -1124,28 +1125,73 @@ function StatusBar({ addLog }: { addLog: (id: string, level: LogEntry["level"], 
     refresh();
   };
 
+  // ── 状态派生 ──
+  const sidecarDot = core.sidecarRunning ? "bg-emerald-400" : "bg-muted-foreground/40";
+  const sidecarLabel = core.sidecarRunning ? "Sidecar ✓" : "Sidecar ✗";
+  const sidecarDetail = core.sidecarRunning
+    ? `端口 ${core.sidecarPort ?? 19789}`
+    : "未运行";
+
+  const gwState = core.gw?.state ?? "stopped";
+  const isGwRunning = gwState === "running";
+  const isGwErrored = gwState === "errored";
+  const gwDot = isGwRunning ? (core.wsConnected ? "bg-emerald-400" : "bg-amber-400") : isGwErrored ? "bg-red-400" : "bg-muted-foreground/40";
+  const gwLabel = isGwRunning ? (core.wsConnected ? "Gateway ✓" : "Gateway △") : isGwErrored ? "Gateway ✗" : "Gateway ✗";
+  const gwDetail = isGwRunning
+    ? `端口 ${core.gw?.port ?? 19789} · ${core.wsConnected ? "已连接" : "端口不通"}`
+    : isGwErrored ? "进程异常" : "未运行";
+
+  const wsDot = core.wsConnected ? "bg-emerald-400" : "bg-muted-foreground/40";
+  const wsLabel = core.wsConnected ? "WS ✓" : "WS ✗";
+  const wsDetail = core.wsConnected ? "已连接" : (core.gw?.state === "running" ? "连接失败" : "Gateway 未运行");
+
   return (
-    <div className="flex flex-wrap items-center gap-3 px-3 py-1.5 text-[11px]">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-[11px] leading-relaxed">
       <span className="text-muted-foreground">运行状态:</span>
-      {dccStatus.map((d) => (
-        <span key={d.name} className="flex items-center gap-1">
-          <span className={`h-1.5 w-1.5 rounded-full ${d.gatewayConnected ? "bg-emerald-400" : d.mcpListening ? "bg-amber-400" : d.port ? "bg-muted-foreground/40" : "bg-muted-foreground/40"}`} />
-          {d.name} {d.port ? `端口 ${d.port}` : "未配置"}
-          {d.gatewayConnected ? " · Gateway 已连接" : d.mcpListening ? " · MCP Server 监听中 · Gateway 未连接" : d.port ? " · 未启动" : ""}
+
+      {/* Sidecar */}
+      <span className="flex items-center gap-1">
+        <span className={`h-1.5 w-1.5 rounded-full ${sidecarDot}`} />
+        {sidecarLabel}
+        <span className="text-muted-foreground"> · {sidecarDetail}</span>
+      </span>
+
+      {/* Gateway */}
+      <span className="flex items-center gap-1">
+        <span className={`h-1.5 w-1.5 rounded-full ${gwDot}`} />
+        {gwLabel}
+        <span className="text-muted-foreground"> · {gwDetail}</span>
+      </span>
+
+      {/* WS */}
+      <span className="flex items-center gap-1">
+        <span className={`h-1.5 w-1.5 rounded-full ${wsDot}`} />
+        {wsLabel}
+        <span className="text-muted-foreground"> · {wsDetail}</span>
+      </span>
+
+      {/* Gateway last_error（来自 status 报告的进程级报错） */}
+      {core.gw?.last_error && (
+        <span className="text-red-400 truncate max-w-[300px]" title={core.gw.last_error}>
+          ⚠ {core.gw.last_error}
         </span>
-      ))}
+      )}
+
+      {/* 部署校验 */}
       {deploy && (
         <span className="text-muted-foreground">
           · 校验: {deploy.summary?.ok ?? 0}✅ {deploy.summary?.outdated ?? 0}🔄 {deploy.summary?.corrupted ?? 0}⚠️ {deploy.summary?.missing ?? 0}❌
         </span>
       )}
+
+      {/* 修复按钮 */}
       {(deploy?.summary?.corrupted ?? 0) + (deploy?.summary?.missing ?? 0) > 0 && (
         <Button variant="outline" size="sm" className="h-5 text-[11px] rounded-full text-amber-400 border-amber-400/30"
           disabled={repairing} onClick={repairAll}>
           {repairing ? "修复中…" : "修复"}
         </Button>
       )}
-      <span className="text-muted-foreground">· Sidecar 端口 {sidecarPort ?? 19789}</span>
+
       <div className="flex-1" />
       <Button variant="outline" size="sm" className="h-5 text-[11px] rounded-full" onClick={refresh}>刷新</Button>
     </div>

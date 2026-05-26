@@ -50,7 +50,13 @@ impl SidecarManager {
     }
 
     /// 启动 sidecar（首次或重启）。
+    /// 幂等：已有运行中的连接时直接返回，避免重复 kill/spawn 导致崩溃率限制。
     pub fn start(&mut self) -> Result<(), String> {
+        // 已有连接：直接跳过，不做 kill + respawn
+        if self.client.is_some() {
+            return Ok(());
+        }
+
         // 确保隔离目录存在
         self.fs_layout.ensure_dirs()?;
 

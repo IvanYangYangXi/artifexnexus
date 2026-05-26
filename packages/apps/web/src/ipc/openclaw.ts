@@ -832,7 +832,7 @@ export interface StatusResponse {
 
 /** 查询 sidecar 运行状态 */
 export async function getStatus(): Promise<StatusResponse> {
-  return invoke<StatusResponse>("sidecar_status");
+  return invoke<StatusResponse>("get_status");
 }
 
 // ── MCP Bridge 状态 ────────────────────────────────────────────────────────
