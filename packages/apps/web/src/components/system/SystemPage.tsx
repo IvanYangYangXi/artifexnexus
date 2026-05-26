@@ -1063,16 +1063,14 @@ function StatusBar({ addLog, refreshTrigger }: { addLog: (id: string, level: Log
       console.warn("[StatusBar] getGatewayStatus failed");
     }
 
-    // ── 3. WS 连通性探测（500ms 超时避免阻塞 UI） ──
+    // ── 3. Gateway HTTP 连通性探测（用 HTTP 而非 WS，避免 Gateway 日志刷 WARN） ──
     if (newCore.gw?.state === "running" && newCore.gw?.port) {
       try {
-        const alive = await new Promise<boolean>((resolve) => {
-          const ws = new WebSocket(`ws://127.0.0.1:${newCore.gw!.port}`);
-          const timer = setTimeout(() => { ws.close(); resolve(false); }, 500);
-          ws.onopen = () => { clearTimeout(timer); ws.close(); resolve(true); };
-          ws.onerror = () => { clearTimeout(timer); resolve(false); };
+        await fetch(`http://127.0.0.1:${newCore.gw!.port}`, {
+          mode: "no-cors",
+          signal: AbortSignal.timeout(500),
         });
-        newCore.wsConnected = alive;
+        newCore.wsConnected = true;
       } catch { newCore.wsConnected = false; }
     }
 
