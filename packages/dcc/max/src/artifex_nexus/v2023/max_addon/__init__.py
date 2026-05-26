@@ -154,6 +154,7 @@ def get_status() -> Dict[str, Any]:
         "version": _get_adapter().get_software_version(),
         "server_running": server.is_running,
         "server_address": server.server_address,
+        "connected_clients": server.connected_client_count,
         "triggers_enabled": _triggers_enabled,
     }
 

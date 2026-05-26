@@ -150,8 +150,12 @@ class ArtifexNexusPanel(QtWidgets.QDialog):
                 self._status_label.setStyleSheet(
                     "font-size: 13px; font-weight: bold; color: %s;" % _C_GREEN
                 )
+                clients = s.get("connected_clients", 0)
                 addr = s.get("server_address", "ws://127.0.0.1:18082")
-                self._info_label.setText(f"端口 18082  |  %s" % addr)
+                if clients > 0:
+                    self._info_label.setText(f"端口 18082  |  已连接 ({clients})")
+                else:
+                    self._info_label.setText(f"端口 18082  |  等待连接...")
             else:
                 self._status_label.setText("MCP Server 已停止")
                 self._status_label.setStyleSheet(

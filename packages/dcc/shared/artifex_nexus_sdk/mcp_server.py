@@ -137,6 +137,16 @@ class MCPServer:
             return f"ws://{self._host}:{self._actual_port}"
         return ""
 
+    @property
+    def connected_client_count(self) -> int:
+        """当前已连接的客户端数量（WebSocket 连接数）"""
+        return len(self._clients)
+
+    @property
+    def has_connections(self) -> bool:
+        """是否有客户端已连接"""
+        return len(self._clients) > 0
+
     # ── 主线程执行器注入 ──
 
     def set_main_thread_executor(self, executor: Callable) -> None:
