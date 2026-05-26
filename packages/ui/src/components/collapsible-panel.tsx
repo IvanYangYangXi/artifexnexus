@@ -473,6 +473,17 @@ export const CollapsiblePanel = React.forwardRef<
     panelStorageKey ? loadPersistentState<boolean>(panelStorageKey, "open", defaultOpen) : defaultOpen
   );
   const open = controlledOpen ?? uncontrolledOpen;
+
+  // defaultOpen 变化（如预览从无到有）→ 自动展开面板
+  const prevDefaultOpenRef = React.useRef(defaultOpen);
+  React.useEffect(() => {
+    if (controlledOpen !== undefined) return;
+    if (defaultOpen && !prevDefaultOpenRef.current) {
+      setUncontrolledOpen(true);
+    }
+    prevDefaultOpenRef.current = defaultOpen;
+  }, [defaultOpen, controlledOpen]);
+
   const setOpen = (next: boolean) => {
     onOpenChange?.(next);
     if (controlledOpen === undefined) {
