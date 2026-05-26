@@ -658,7 +658,7 @@ export const CollapsiblePanel = React.forwardRef<
         <div
           className={cn(
             "min-h-0 flex-1 overflow-auto",
-            bodyClassName ?? "px-2 pt-0.5 pb-1",
+            bodyClassName ?? "px-2 pt-0 pb-1",
           )}
         >
           {children}
