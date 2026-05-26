@@ -378,16 +378,31 @@ def register():
         logger.info("Maya addon 注册完成")
 
         # 自动显示 UI 面板（尊重偏好设置）
+        # executeDeferred 执行时 Maya 窗口可能尚未完全就位，
+        # QTimer 延迟确保面板不被主窗口遮挡
         try:
             if get_auto_show_panel():
-                from maya_ui import show_panel
-                show_panel()
+                from PySide2.QtCore import QTimer
+                QTimer.singleShot(1500, _auto_show_panel)
             else:
                 logger.info("用户已关闭启动时自动显示面板，跳过")
         except Exception as e:
             logger.warning(f"无法自动显示面板: {e}")
 
     _mu.executeDeferred(_deferred_startup)
+
+
+def _auto_show_panel():
+    """延迟显示面板并确保前台（解决启动时被主窗口遮挡的问题）"""
+    try:
+        import maya_ui
+        maya_ui.show_panel()
+        panel = maya_ui._global_panel
+        if panel is not None:
+            from PySide2.QtCore import QTimer
+            QTimer.singleShot(200, panel.raise_)
+    except Exception as e:
+        logger.warning(f"自动显示面板失败: {e}")
 
 
 def unregister():
