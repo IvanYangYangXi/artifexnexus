@@ -492,6 +492,18 @@ export const CollapsiblePanel = React.forwardRef<
     }
   };
 
+  // 折叠 → 展开：显式 resize 到 defaultSize（react-resizable-panels 的 defaultSize 仅在挂载时生效）
+  const prevOpenRef = React.useRef(open);
+  React.useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      // 从折叠过渡到展开 → 推送到目标尺寸
+      requestAnimationFrame(() => {
+        panelRef.current?.resize(defaultSize);
+      });
+    }
+    prevOpenRef.current = open;
+  }, [open, defaultSize]);
+
   // ── 隐藏态持久化 ──
   // 源：localStorage → fallback: ctx.hiddenRegistry（HiddenTabBar 通过 ctx 恢复）
   const [localHidden, setLocalHidden] = React.useState(() =>
