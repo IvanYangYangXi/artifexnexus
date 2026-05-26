@@ -13,7 +13,10 @@ Methods: list, detail, install, uninstall, enable, disable,
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 try:
@@ -34,6 +37,129 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# scan_all_skills() 缓存（内存 TTL + 文件级持久化）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_SCAN_CACHE_TTL = 30.0  # 30 秒内存缓存（文件缓存跨进程重启不失效）
+_scan_cache_ts: float = 0.0
+
+_STATE_DIR = Path.home() / ".artifexnexus" / ".openclaw" / "state"
+_SKILL_SCAN_CACHE_FILE = _STATE_DIR / "skill_scan_cache.json"
+
+
+def _get_source_fingerprint(hub) -> str:
+    """计算源目录指纹（基于顶层 mtime）。"""
+    parts = []
+    for layer in sorted(hub._layer_sources):
+        source_dir = hub._layer_sources[layer]
+        try:
+            stat = source_dir.stat()
+            parts.append(f"{layer}:{source_dir}:{stat.st_mtime}")
+        except OSError:
+            parts.append(f"{layer}:{source_dir}:missing")
+    return "|".join(parts)
+
+
+def _load_skill_scan_cache(hub) -> bool:
+    """从文件缓存加载扫描结果并注入 hub._entries。成功返回 True。"""
+    try:
+        with open(_SKILL_SCAN_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    current_fp = _get_source_fingerprint(hub)
+    if data.get("fingerprint") != current_fp:
+        return False
+
+    try:
+        from artifex_nexus.skill.hub.core import SkillEntry
+        from artifex_nexus.skill.manifest import SkillManifest
+
+        hub._entries.clear()
+        hub._instances.clear()
+
+        for name, entry_list in data.get("entries", {}).items():
+            entries = []
+            for e in entry_list:
+                entries.append(SkillEntry(
+                    name=e["name"],
+                    layer=e["layer"],
+                    path=Path(e["path"]),
+                    manifest=SkillManifest(**e["manifest"]),
+                    validation_error=e.get("validation_error"),
+                ))
+            # 对每个 name 按优先级排序
+            entries.sort(key=lambda entry: entry.priority)
+            hub._entries[name] = entries
+
+        logger.debug("Skill scan cache hit (%d names)", len(hub._entries))
+        return True
+    except Exception as exc:
+        logger.debug("Skill scan cache deserialization failed: %s", exc)
+        return False
+
+
+def _write_skill_scan_cache(hub) -> None:
+    """将当前 hub._entries 序列化到文件缓存。"""
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        entries_data = {}
+        for name, entry_list in hub._entries.items():
+            entries_data[name] = []
+            for entry in entry_list:
+                entries_data[name].append({
+                    "name": entry.name,
+                    "layer": entry.layer,
+                    "path": str(entry.path),
+                    "manifest": entry.manifest.model_dump(),
+                    "validation_error": entry.validation_error,
+                })
+
+        data = {
+            "fingerprint": _get_source_fingerprint(hub),
+            "entries": entries_data,
+        }
+        with open(_SKILL_SCAN_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        logger.debug("Skill scan cache written (%d names)", len(entries_data))
+    except Exception as exc:
+        logger.debug("Failed to write skill scan cache: %s", exc)
+
+
+def _cached_scan(hub) -> None:
+    """带 TTL 内存缓存 + 文件级缓存的 scan_all_skills()。
+
+    1. 内存缓存命中（30s TTL）→ 直接返回
+    2. 文件缓存命中（源目录未变化）→ 从 JSON 加载（～5ms vs 扫描 150ms）
+    3. 都未命中 → 实际扫描 + 写入文件缓存
+    """
+    global _scan_cache_ts
+    now = time.time()
+    if now - _scan_cache_ts < _SCAN_CACHE_TTL:
+        return  # 内存缓存命中
+
+    # 尝试文件级缓存（跨进程重启也生效）
+    if _load_skill_scan_cache(hub):
+        _scan_cache_ts = now
+        return
+
+    # 文件缓存未命中，实际扫描
+    hub.scan_all_skills()
+    _scan_cache_ts = now
+    _write_skill_scan_cache(hub)
+
+
+def _invalidate_scan_cache() -> None:
+    """强制下次调用时重新扫描（mutation 后调用）。删除内存和文件缓存。"""
+    global _scan_cache_ts
+    _scan_cache_ts = 0.0
+    try:
+        _SKILL_SCAN_CACHE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 
 def _handle_skill_list(req_id: Any, params: dict) -> dict:
@@ -43,7 +169,7 @@ def _handle_skill_list(req_id: Any, params: dict) -> dict:
     """
     try:
         hub = _get_skill_hub()
-        hub.scan_all_skills()
+        _cached_scan(hub)
 
         category = params.get("category")
         tags = params.get("tags")
@@ -96,7 +222,7 @@ def _handle_skill_detail(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         hub = _get_skill_hub()
-        hub.scan_all_skills()
+        _cached_scan(hub)
 
         entry = hub.get_entry(skill_name)
         if entry is None:
@@ -170,6 +296,7 @@ def _handle_skill_install(req_id: Any, params: dict) -> dict:
         if source_layer is None:
             # 自动从 Hub 检测 Skill 所属层级
             hub = _get_skill_hub()
+            _invalidate_scan_cache()
             hub.scan_all_skills()
             entry = hub.get_entry(skill_name)
             source_layer = entry.layer if entry else "00_official"
@@ -217,6 +344,7 @@ def _handle_skill_enable(req_id: Any, params: dict) -> dict:
 
         installer = _get_skill_installer()
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
 
         ok = installer.enable(skill_name)
@@ -239,6 +367,7 @@ def _handle_skill_disable(req_id: Any, params: dict) -> dict:
 
         installer = _get_skill_installer()
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
 
         ok = installer.disable(skill_name)
@@ -263,6 +392,7 @@ def _handle_skill_pin(req_id: Any, params: dict) -> dict:
         cfg.pin(skill_name)
 
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
         entry = hub.get_entry(skill_name)
         item = _entry_to_dict(entry) if entry else {"name": skill_name}
@@ -284,6 +414,7 @@ def _handle_skill_unpin(req_id: Any, params: dict) -> dict:
         cfg.unpin(skill_name)
 
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
         entry = hub.get_entry(skill_name)
         item = _entry_to_dict(entry) if entry else {"name": skill_name}
@@ -305,6 +436,7 @@ def _handle_skill_favorite(req_id: Any, params: dict) -> dict:
         cfg.favorite(skill_name)
 
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
         entry = hub.get_entry(skill_name)
         item = _entry_to_dict(entry) if entry else {"name": skill_name}
@@ -326,6 +458,7 @@ def _handle_skill_unfavorite(req_id: Any, params: dict) -> dict:
         cfg.unfavorite(skill_name)
 
         hub = _get_skill_hub()
+        _invalidate_scan_cache()
         hub.scan_all_skills()
         entry = hub.get_entry(skill_name)
         item = _entry_to_dict(entry) if entry else {"name": skill_name}
@@ -348,6 +481,7 @@ def _handle_skill_sync(req_id: Any, params: dict) -> dict:
         if source_layer is None:
             # 自动从 Hub 检测 Skill 所属层级
             hub = _get_skill_hub()
+            _invalidate_scan_cache()
             hub.scan_all_skills()
             entry = hub.get_entry(skill_name)
             source_layer = entry.layer if entry else "00_official"
@@ -455,7 +589,7 @@ def _handle_skill_search(req_id: Any, params: dict) -> dict:
             return _ok(req_id, [])
 
         hub = _get_skill_hub()
-        hub.scan_all_skills()
+        _cached_scan(hub)
 
         all_entries = hub.list_entries()
         cfg = _get_skill_config()
@@ -496,6 +630,7 @@ def _handle_skill_fix_manifest(req_id: Any, params: dict) -> dict:
         if not skill_name:
             return _err_invalid_params(req_id, "缺少 id 参数")
         result = _skill_fix_manifest(skill_name)
+        _invalidate_scan_cache()
         return _ok(req_id, result)
     except Exception as exc:
         logger.exception("skill.fix_manifest failed")
@@ -538,6 +673,7 @@ def _handle_skill_update_manifest(req_id: Any, params: dict) -> dict:
         if not isinstance(fields, dict):
             return _err_invalid_params(req_id, "fields 必须是字典")
         result = _skill_update_manifest(skill_name, fields)
+        _invalidate_scan_cache()
         return _ok(req_id, result)
     except Exception as exc:
         logger.exception("skill.update_manifest failed")

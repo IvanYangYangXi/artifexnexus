@@ -30,13 +30,13 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional
 
-import yaml
-
 from ..categories import DCCEntry, software_value
 from ..conflict import LAYER_PRIORITY
 from ..decorator import SkillToolResult
 from ..manifest import SkillManifest, load_manifest_model
 from .instance import SkillInstance
+
+import yaml
 
 logger = logging.getLogger("artifex_nexus.skill.hub")
 
@@ -397,6 +397,10 @@ class SkillHub:
 
         返回包含 ``name``、``description``、``metadata`` 等字段的 dict。
         解析失败返回 None。
+
+        注：SKILL.md 普遍使用多行 description（``>`` 折叠标量），
+        必须用 PyYAML 解析。文件级扫描缓存（skill_rpc.py）已消除
+        缓存命中时的解析开销。
         """
         try:
             text = skill_md_path.read_text(encoding="utf-8")

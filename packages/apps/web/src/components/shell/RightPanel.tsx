@@ -33,6 +33,7 @@ import { ScrollFade } from "../chat/ScrollFade";
 import { PreviewFileContext, PreviewContext, PinnedSkillsContext } from "./AppShell";
 import { ToolDetailPanel } from "../skills/ToolDetailPanel";
 import { SkillDetailPanel } from "../skills/SkillDetailPanel";
+import { MarkdownPreview } from "../markdown/MarkdownPreview";
 import { RunPanel } from "../skills/RunPanel";
 import { ResourceExplorer } from "./ResourceExplorer";
 import {
@@ -48,12 +49,12 @@ import { useRecentStore } from "../../lib/useRecentStore";
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
-  const { preview, setPreview, clearPreview } = React.useContext(PreviewContext);
+  const { preview, setPreview, clearPreview, ensurePanelOpen } = React.useContext(PreviewContext);
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
   const { recentItems, addRecentSkill, addRecentTool } = useRecentStore();
   // tool run panel: triggered via PreviewContext, see PreviewRenderer
 
-  // ─── 真实 API：Skill 列表 ─────────────────────────────────────────
+  // ─── 真实 API：Skill 列表 ───────────────────────────────────────
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   React.useEffect(() => {
@@ -66,7 +67,7 @@ export function RightPanel() {
     })();
   }, []);
 
-  // ─── 真实 API：Tool 列表 ──────────────────────────────────────────
+  // ─── 真实 API：Tool 列表 ────────────────────────────────────────
   const [tools, setTools] = React.useState<NexusToolItem[]>([]);
   const [toolsLoading, setToolsLoading] = React.useState(true);
   const loadTools = React.useCallback(async () => {
@@ -475,14 +476,26 @@ function PreviewRenderer({ payload, onClose }: {
   if (payload.kind === "file-preview") {
     const data = payload.data as { content: string; filePath: string } | undefined;
     if (!data) return <FallbackPreview payload={payload} />;
+
+    // .md 文件使用 Markdown 渲染
+    const isMarkdown = /\.md$/i.test(data.filePath);
+
     return (
       <div className="px-3 py-2">
         <div className="mb-1 text-[10px] text-muted-foreground break-all">
           {data.filePath}
         </div>
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[400px]">
-          {data.content.length > 5000 ? data.content.slice(0, 5000) + "\n...(文件较大，仅显示前 5000 字符)" : data.content}
-        </pre>
+        {isMarkdown ? (
+          <div className="max-h-[500px] overflow-y-auto">
+            <MarkdownPreview
+              content={data.content.length > 10000 ? data.content.slice(0, 10000) + "\n\n---\n\n*（文件较大，仅显示前 10000 字符）*" : data.content}
+            />
+          </div>
+        ) : (
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/30 p-2 font-mono text-[11px] leading-relaxed max-h-[400px]">
+            {data.content.length > 5000 ? data.content.slice(0, 5000) + "\n...(文件较大，仅显示前 5000 字符)" : data.content}
+          </pre>
+        )}
       </div>
     );
   }

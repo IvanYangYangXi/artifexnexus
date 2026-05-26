@@ -26,11 +26,34 @@ import os
 import platform
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# ── 插件版本缓存（避免每次打开"插件面板"都重复扫描目录+解析 AST）─────────
+_PLUGIN_CACHE_TTL = 60.0  # 60 秒 TTL，插件版本信息变更频率极低
+_plugin_versions_cache: Dict[str, tuple[float, List[Dict]]] = {}
+
+
+def _cached_get_all_plugins() -> List[Dict]:
+    """带 TTL 的 get_all_plugins_with_compat() 缓存。"""
+    now = time.time()
+    key = "__all__"
+    if key in _plugin_versions_cache:
+        ts, data = _plugin_versions_cache[key]
+        if now - ts < _PLUGIN_CACHE_TTL:
+            return data
+    data = get_all_plugins_with_compat()
+    _plugin_versions_cache[key] = (now, data)
+    return data
+
+
+def _invalidate_plugin_cache() -> None:
+    """mutation 后清空插件缓存。"""
+    _plugin_versions_cache.clear()
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 

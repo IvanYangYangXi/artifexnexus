@@ -47,7 +47,7 @@ export function SkillList() {
   const [publishTarget, setPublishTarget] = React.useState<SkillItem | null>(null);
   const [publishBusy, setPublishBusy] = React.useState(false);
 
-  const { setPreview } = React.useContext(PreviewContext);
+  const { setPreview, ensurePanelOpen } = React.useContext(PreviewContext);
 
   // 加载列表
   const loadSkills = React.useCallback(async () => {
@@ -85,12 +85,13 @@ export function SkillList() {
   /** 点击 Skill → 在 D5 右侧面板打开详情 */
   const handleDetail = React.useCallback((name: string) => {
     setActiveSkill(name);
+    ensurePanelOpen();
     setPreview({
       kind: "skill-detail",
       title: name,
       data: { skillName: name },
     });
-  }, [setPreview]);
+  }, [setPreview, ensurePanelOpen]);
 
   const isBusy = (id: string) => actionLoading.has(id);
 
@@ -247,6 +248,12 @@ export function SkillList() {
           <Inbox className="h-12 w-12" />
           <p className="text-sm">暂无 Skill</p>
           <p className="text-xs">使用 "Plus" 按钮安装或创建新的 Skill</p>
+        </div>
+      )}
+
+      {loading && skills.length > 0 && (
+        <div className="mx-4 h-0.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-primary/50" />
         </div>
       )}
 

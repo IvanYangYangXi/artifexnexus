@@ -11,8 +11,6 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Bot, Copy, Loader2, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import {
   Avatar,
@@ -24,11 +22,10 @@ import {
 } from "@artifex-nexus/ui";
 import type { ChatMessage } from "../../lib/chat/types";
 import { ScrollFade } from "./ScrollFade";
+import { CodeBlock } from "../markdown/CodeBlock";
 
-// ─── 代码块展开状态全局缓存 ──────────────────────────────────────────────
-// 将 expanded 状态提升到组件树外部，用稳定 key（msgId-codeIndex）索引。
-// 避免 ReactMarkdown 重解析导致 CodeBlock unmount/remount 时 useState 重置。
-const codeBlockExpandedCache = new Map<string, boolean>();
+// ─── 代码块展开状态由共享 CodeBlock 模块管理 ──────────────────────────
+// cacheKey 格式: `${messageId}-cb-${idx}`，在 CodeBlock.tsx 的全局 Map 中持久化
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -203,130 +200,8 @@ const MessageBubble = React.memo(function MessageBubble({ message }: { message: 
 });
 
 // ─── Markdown 渲染 ──────────────────────────────────────────────────────────
-
-/** 代码块组件：超过5行自动折叠，展开状态通过外部缓存持久化 */
-function CodeBlock({
-  language,
-  code,
-  cacheKey,
-}: {
-  language: string;
-  code: string;
-  /** 稳定的缓存 key（msgId-codeBlockIndex），用于在 remount 后恢复展开状态 */
-  cacheKey?: string;
-}) {
-  // 处理代码字符串（去首尾空白、空值兜底、兼容 Windows 换行符）
-  // 历史消息中可能含 undefined/null（react-markdown 在边缘情况下传 undefined），
-  // 直接 code.replace 会抛 TypeError 把整棵 ChatMessageList 子树搞崩 → 历史消失。
-  const safeCode = (code ?? "").toString().replace(/\r\n/g, "\n");
-  const trimmed = safeCode.replace(/\n+$/, "");
-  const lines = trimmed.split("\n");
-  const shouldCollapse = lines.length > 5;
-
-  // 从外部缓存恢复展开状态，避免 ReactMarkdown 重渲染导致 useState 重置
-  const cachedState = cacheKey ? codeBlockExpandedCache.get(cacheKey) : undefined;
-  const initialExpanded = cachedState !== undefined ? cachedState : !shouldCollapse;
-  const [expanded, setExpanded] = React.useState(initialExpanded);
-
-  // 同步缓存（展开状态变化时写入）
-  const handleToggle = React.useCallback((next: boolean) => {
-    setExpanded(next);
-    if (cacheKey) {
-      codeBlockExpandedCache.set(cacheKey, next);
-    }
-  }, [cacheKey]);
-
-  const displayCode = expanded || !shouldCollapse
-    ? trimmed
-    : lines.slice(0, 5).join("\n") + "\n";
-
-  // language 兜底：空字符串 / undefined 会让 SyntaxHighlighter 抛错
-  const safeLanguage = (language || "text").toLowerCase();
-
-  return (
-    <div className="my-2 overflow-hidden rounded-md border border-border">
-      <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5 text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 font-mono">{safeLanguage}</span>
-          {shouldCollapse && (
-            <button
-              onClick={() => handleToggle(!expanded)}
-              className="hover:text-foreground transition-colors truncate"
-            >
-              {expanded ? "收起" : `${lines.length} 行（点击展开）`}
-            </button>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 shrink-0"
-          onClick={() => navigator.clipboard.writeText(trimmed)}
-          title="复制代码"
-        >
-          <Copy className="h-2.5 w-2.5" />
-        </Button>
-      </div>
-      <div className={cn(!expanded && shouldCollapse && "max-h-[140px] overflow-hidden")}>
-        <SafeSyntaxHighlighter language={safeLanguage} code={displayCode} />
-      </div>
-      {shouldCollapse && !expanded && (
-        <div
-          className="cursor-pointer bg-muted/30 py-1.5 text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors border-t border-white/[0.04]"
-          onClick={() => handleToggle(true)}
-        >
-          展开全部 {lines.length} 行
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * SyntaxHighlighter 包装：捕获高亮失败回退到 <pre>。
- *
- * react-syntax-highlighter 的 Prism 在不支持的 language 或非法字符串上会抛错，
- * 抛错冒泡到 React 顶层 → 整棵 ChatMessageList unmount → 历史消息看似"丢失"。
- * 用 ErrorBoundary 包一层，失败时降级到普通 <pre>，保证 UI 永不崩。
- */
-class SafeSyntaxHighlighter extends React.Component<
-  { language: string; code: string },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err: unknown) {
-    console.warn("[CodeBlock] SyntaxHighlighter 渲染失败，降级为 <pre>:", err);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <pre className="m-0 overflow-x-auto bg-[#282c34] p-3 text-[12px] text-[#abb2bf]">
-          <code>{this.props.code}</code>
-        </pre>
-      );
-    }
-    try {
-      return (
-        <SyntaxHighlighter
-          style={oneDark}
-          language={this.props.language}
-          PreTag="div"
-          customStyle={{ margin: 0, borderRadius: 0, fontSize: "12px" }}
-        >
-          {this.props.code}
-        </SyntaxHighlighter>
-      );
-    } catch (err) {
-      console.warn("[CodeBlock] SyntaxHighlighter 同步异常，降级:", err);
-      return (
-        <pre className="m-0 overflow-x-auto bg-[#282c34] p-3 text-[12px] text-[#abb2bf]">
-          <code>{this.props.code}</code>
-        </pre>
-      );
-    }
-  }
-}
+// CodeBlock 和 SafeSyntaxHighlighter 已抽取到 components/markdown/CodeBlock.tsx
+// 聊天场景传入 collapsible=true + cacheKey 以支持折叠展开状态持久化
 
 /**
  * MarkdownContent — AI 消息的 Markdown 渲染。

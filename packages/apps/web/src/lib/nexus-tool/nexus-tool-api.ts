@@ -275,16 +275,40 @@ export interface NexusToolPublishOptions {
   description?: string;
 }
 
+// ── 模块级缓存（减少 Tauri IPC 往返次数）─────────────────────────────────────
+
+const CACHE_TTL_MS = 60_000; // 列表/详情缓存 60s（用户切换页面后短时间回来看不需要重新请求）
+
+interface CacheEntry<T> { data: T; ts: number; }
+
+const _listCache = new Map<string, CacheEntry<NexusToolListResult>>();
+const _detailCache = new Map<string, CacheEntry<NexusToolDetail>>();
+
+function _cacheKey(filters?: NexusToolListFilters): string { return JSON.stringify(filters ?? {}); }
+
 // ── API 方法 ──────────────────────────────────────────────────────────────────
 
 /** 分页列表 */
 export async function nexusToolList(filters?: NexusToolListFilters): Promise<NexusToolListResult> {
-  return invoke<NexusToolListResult>("nexus_tool_list", { params: filters ?? {} });
+  const key = _cacheKey(filters);
+  const cached = _listCache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  const result = await invoke<NexusToolListResult>("nexus_tool_list", { params: filters ?? {} });
+  _listCache.set(key, { data: result, ts: Date.now() });
+  // 列表更新后使详情缓存失效（数据可能已变）
+  _detailCache.clear();
+  return result;
 }
 
 /** 详情（含完整 manifest：inputs / outputs / presets / triggers） */
 export async function nexusToolDetail(id: string): Promise<NexusToolDetail> {
-  return invoke<NexusToolDetail>("nexus_tool_detail", { params: { id } });
+  const cached = _detailCache.get(id);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  const result = await invoke<NexusToolDetail>("nexus_tool_detail", { params: { id } });
+  _detailCache.set(id, { data: result, ts: Date.now() });
+  return result;
 }
 
 /** 创建 */
@@ -294,47 +318,65 @@ export async function nexusToolCreate(opts: NexusToolCreateOptions): Promise<Nex
 
 /** 更新 */
 export async function nexusToolUpdate(id: string, opts: NexusToolUpdateOptions): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_update", { params: { id, ...opts } });
+  const result = await invoke<NexusToolItem>("nexus_tool_update", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 删除 */
 export async function nexusToolDelete(id: string): Promise<NexusToolOpResult> {
-  return invoke<NexusToolOpResult>("nexus_tool_delete", { params: { id } });
+  const result = await invoke<NexusToolOpResult>("nexus_tool_delete", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 启用 */
 export async function nexusToolEnable(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_enable", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_enable", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 禁用 */
 export async function nexusToolDisable(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_disable", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_disable", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 钉选 */
 export async function nexusToolPin(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_pin", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_pin", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 取消钉选 */
 export async function nexusToolUnpin(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_unpin", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_unpin", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 收藏 */
 export async function nexusToolFavorite(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_favorite", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_favorite", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 取消收藏 */
 export async function nexusToolUnfavorite(id: string): Promise<NexusToolItem> {
-  return invoke<NexusToolItem>("nexus_tool_unfavorite", { params: { id } });
+  const result = await invoke<NexusToolItem>("nexus_tool_unfavorite", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 发布 */
 export async function nexusToolPublish(id: string, opts?: NexusToolPublishOptions): Promise<NexusToolPublishResult> {
-  return invoke<NexusToolPublishResult>("nexus_tool_publish", { params: { id, ...opts } });
+  const result = await invoke<NexusToolPublishResult>("nexus_tool_publish", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 运行（异步启动，立即返回 task_id，后端线程执行） */

@@ -36,7 +36,7 @@ export function NexusToolList() {
   const [publishTarget, setPublishTarget] = React.useState<NexusToolItem | null>(null);
   const [publishBusy, setPublishBusy] = React.useState(false);
 
-  const { setPreview, preview } = React.useContext(PreviewContext);
+  const { setPreview, preview, ensurePanelOpen } = React.useContext(PreviewContext);
 
   const loadTools = React.useCallback(async () => {
     try {
@@ -96,12 +96,13 @@ export function NexusToolList() {
   /** 点击工具名/图标 → 在 D5 面板打开详情 */
   const handleToolClick = React.useCallback((tool: NexusToolItem) => {
     setActiveTool(tool.id);
+    ensurePanelOpen();
     setPreview({
       kind: "nexus-tool-detail",
       title: tool.name,
       data: { toolId: tool.id, toolName: tool.name },
     });
-  }, [setPreview]);
+  }, [setPreview, ensurePanelOpen]);
 
   const filtered = tools
     .filter((t) => {
@@ -174,6 +175,12 @@ export function NexusToolList() {
         </div>
       )}
 
+      {loading && tools.length > 0 && (
+        <div className="mx-4 h-0.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-primary/50" />
+        </div>
+      )}
+
       <ScrollFade className="flex-1">
         <div className={viewMode === "card" ? "grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col"}>
           {filtered.map((tool) => (
@@ -204,6 +211,7 @@ export function NexusToolList() {
                 <Button size="sm" className="h-7 text-xs"
                   onClick={() => {
                     setActiveTool(tool.id);
+                    ensurePanelOpen();
                     setPreview({
                       kind: "nexus-tool-run",
                       title: `运行: ${tool.name}`,

@@ -96,10 +96,13 @@ export const PreviewContext = React.createContext<{
   preview: PreviewPayload | null;
   setPreview: (p: PreviewPayload) => void;
   clearPreview: () => void;
+  /** 确保右侧面板已打开（当需要展示预览内容时自动调用） */
+  ensurePanelOpen: () => void;
 }>({
   preview: null,
   setPreview: () => {},
   clearPreview: () => {},
+  ensurePanelOpen: () => {},
 });
 
 // Gateway 连接信息 context（Chat 模块用于建立 WebSocket）
@@ -274,6 +277,14 @@ export function AppShell() {
   const [previewFile, setPreviewFile] = React.useState<PreviewFile | null>(null);
   const [preview, setPreview] = React.useState<PreviewPayload | null>(null);
   const clearPreview = React.useCallback(() => setPreview(null), []);
+
+  /** 确保右侧面板打开（从子组件调用 setPreview 时自动触发） */
+  const ensurePanelOpen = React.useCallback(() => {
+    setPanelOpen((prev) => {
+      if (!prev) panelManuallyToggled.current = true;
+      return true;
+    });
+  }, []);
 
   // 钉选 Skill 状态
   const [pinnedSkills, setPinnedSkills] = React.useState<string[]>([]);
@@ -491,7 +502,7 @@ export function AppShell() {
   const showSidebar = !bp.isMobile;
 
   return (
-    <PreviewContext.Provider value={{ preview, setPreview, clearPreview }}>
+    <PreviewContext.Provider value={{ preview, setPreview, clearPreview, ensurePanelOpen }}>
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
     <RunToolContext.Provider value={{ runTool, pendingToolName, clearPendingTool }}>

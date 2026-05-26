@@ -275,11 +275,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
   // ── 渲染 ──────────────────────────────────────────────────────────────
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center p-6 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />加载中...
-      </div>
-    );
+    return <DetailSkeleton tabs={4} />;
   }
 
   if (error) {
@@ -1334,5 +1330,46 @@ export function ToggleSwitch({
         )}
       />
     </button>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 骨架屏（详情加载时显示，避免空白闪烁）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function DetailSkeleton({ tabs }: { tabs: number }) {
+  const shimmer = "animate-pulse rounded bg-white/10";
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 加载提示 */}
+      <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <span>加载工具详情...</span>
+      </div>
+      {/* Tab 栏骨架 */}
+      <div className="flex shrink-0 gap-1 border-b border-border/60 px-3 py-2">
+        {Array.from({ length: tabs }).map((_, i) => (
+          <div key={i} className={`h-5 w-16 ${shimmer}`} />
+        ))}
+      </div>
+      {/* 内容区域骨架 */}
+      <div className="flex-1 space-y-3 p-3">
+        {/* 标题行 */}
+        <div className="flex items-center gap-3">
+          <div className={`h-10 w-10 rounded-xl ${shimmer}`} />
+          <div className="space-y-1.5">
+            <div className={`h-4 w-32 ${shimmer}`} />
+            <div className={`h-3 w-20 ${shimmer}`} />
+          </div>
+        </div>
+        {/* 字段骨架 */}
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="space-y-1">
+            <div className={`h-3 w-12 ${shimmer}`} />
+            <div className={`h-7 w-full ${shimmer}`} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -35,8 +35,7 @@ import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { invoke } from "@tauri-apps/api/core";
 import { TagEditor } from "./TagEditor";
 import { useGlobalTagSuggestions } from "../../lib/useTagSuggestions";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MarkdownPreview } from "../markdown/MarkdownPreview";
 
 // ─── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -90,11 +89,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center p-6 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />加载中...
-      </div>
-    );
+    return <DetailSkeleton tabs={2} />;
   }
 
   if (error) {
@@ -666,25 +661,7 @@ function ReadmeTab({ skillName }: { skillName: string }) {
     );
   }
 
-  return (
-    <div className="prose prose-invert prose-xs max-w-none
-      prose-headings:text-foreground prose-headings:font-semibold
-      prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
-      prose-p:text-xs prose-p:leading-relaxed prose-p:text-muted-foreground
-      prose-code:text-[10px] prose-code:bg-muted/30 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-      prose-pre:bg-muted/20 prose-pre:border prose-pre:border-border/40
-      prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-      prose-li:text-xs prose-li:text-muted-foreground
-      prose-strong:text-foreground prose-strong:font-semibold
-      prose-table:text-xs prose-th:text-muted-foreground prose-td:text-muted-foreground
-      [&_table]:border-collapse [&_th]:border [&_th]:border-border/40 [&_th]:px-2 [&_th]:py-1
-      [&_td]:border [&_td]:border-border/40 [&_td]:px-2 [&_td]:py-1
-    ">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
+  return <MarkdownPreview content={content} />;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -855,6 +832,43 @@ function ErrorsTab({ entry, detail, onFixed }: { entry: SkillDetail["entry"]; de
           </ul>
           <p className="mt-1">SKILL.md frontmatter 提供 name 和 description，manifest.json 提供其他所有字段。</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 骨架屏（详情加载时显示）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function DetailSkeleton({ tabs }: { tabs: number }) {
+  const shimmer = "animate-pulse rounded bg-white/10";
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 加载提示 */}
+      <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <span>加载技能详情...</span>
+      </div>
+      <div className="flex shrink-0 gap-1 border-b border-border/60 px-3 py-2">
+        {Array.from({ length: tabs }).map((_, i) => (
+          <div key={i} className={`h-5 w-16 ${shimmer}`} />
+        ))}
+      </div>
+      <div className="flex-1 space-y-3 p-3">
+        <div className="flex items-center gap-3">
+          <div className={`h-10 w-10 rounded-xl ${shimmer}`} />
+          <div className="space-y-1.5">
+            <div className={`h-4 w-32 ${shimmer}`} />
+            <div className={`h-3 w-20 ${shimmer}`} />
+          </div>
+        </div>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="space-y-1">
+            <div className={`h-3 w-12 ${shimmer}`} />
+            <div className={`h-7 w-full ${shimmer}`} />
+          </div>
+        ))}
       </div>
     </div>
   );

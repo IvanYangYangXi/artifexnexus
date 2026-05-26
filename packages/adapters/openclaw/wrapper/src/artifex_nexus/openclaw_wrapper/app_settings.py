@@ -68,7 +68,7 @@ _LOG_LEVELS = {"DEBUG", "INFO", "WARN", "WARNING", "ERROR"}
 _lock = threading.Lock()
 _cached: Optional[Dict[str, Any]] = None
 _cached_at: float = 0.0
-_CACHE_TTL = 5.0  # 秒；nexus-tool 高频读，但用户改后也要及时生效
+_CACHE_TTL = 30.0  # 秒；nexus-tool 高频读，前端缓存 60s 已兜底；写操作主动失效
 
 
 def _settings_path() -> Path:

@@ -56,6 +56,8 @@ class NexusToolRegistry:
             nexus_tools_root=self._nexus_tools_root,
             tools_path=self._tools_path,
         )
+        # 存储原始扫描结果供外部缓存序列化（避免重复扫描）
+        self._raw_scan = scanned
         disabled_set = self.config.get_disabled_nexus_tools()
         pinned_set = self.config.get_pinned_nexus_tools()
         fav_set = self.config.get_favorite_nexus_tools()

@@ -1310,7 +1310,7 @@ def _handle_openclaw_dcc_plugin_versions(req_id: Any, params: dict) -> dict:
 def _handle_openclaw_dcc_plugin_all(req_id: Any, params: dict) -> dict:
     """openclaw.dcc.plugin.all：获取所有 DCC 所有版本的插件兼容信息。"""
     try:
-        plugins = _dcc_installer.get_all_plugins_with_compat()
+        plugins = _dcc_installer._cached_get_all_plugins()
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1332,6 +1332,7 @@ def _handle_openclaw_dcc_plugin_compat_update(req_id: Any, params: dict) -> dict
         dcc_min = params.get("dcc_min", "")
         dcc_max = params.get("dcc_max")
         result = _dcc_installer.update_plugin_compatibility(dcc, version, dcc_min, dcc_max)
+        _dcc_installer._invalidate_plugin_cache()
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
     except Exception as e:
         return {
@@ -1347,6 +1348,7 @@ def _handle_openclaw_dcc_plugin_compat_reset(req_id: Any, params: dict) -> dict:
         dcc = params.get("dcc", "")
         version = params.get("version", "")
         result = _dcc_installer.reset_plugin_compatibility(dcc, version)
+        _dcc_installer._invalidate_plugin_cache()
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
     except Exception as e:
         return {
@@ -1888,6 +1890,7 @@ def _handle_openclaw_backup(req_id: Any, params: dict) -> dict:
         )
         item_keys = sorted(manifest.get("items", {}).keys())
         skipped = manifest.get("skipped", []) or []
+        _invalidate_backups_cache()
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -2013,6 +2016,7 @@ def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
             # 成功后删除选择性备份 + 安全网
             shutil.rmtree(str(backup_dir_resolved), ignore_errors=True)
             logger.info("restore: 已清理备份 %s", backup_timestamp)
+            _invalidate_backups_cache()
 
         return {
             "jsonrpc": "2.0",
@@ -2032,6 +2036,16 @@ def _handle_openclaw_restore(req_id: Any, params: dict) -> dict:
         }
 
 
+# ── 备份列表缓存（避免每次页面打开都 rglob 计算大小）─────────────────────
+_BACKUPS_CACHE_TTL = 60.0  # 备份列表变更频率低，60s TTL
+_backups_cache: dict = {"ts": 0.0, "data": None}
+
+
+def _invalidate_backups_cache() -> None:
+    _backups_cache["ts"] = 0.0
+    _backups_cache["data"] = None
+
+
 def _handle_openclaw_backups_list(req_id: Any, params: dict) -> dict:
     """openclaw.backups.list RPC：列出所有备份。
 
@@ -2044,13 +2058,27 @@ def _handle_openclaw_backups_list(req_id: Any, params: dict) -> dict:
     import time as _time
 
     openclaw_home = params.get("openclaw_home", str(_get_openclaw_home()))
-    backups_dir = Path(openclaw_home).parent / "backups"
 
-    if not backups_dir.is_dir():
+    # ── 缓存检查 ──
+    cache_key = f"backups:{openclaw_home}"
+    cached = _backups_cache.get(cache_key)
+    now = _time.time()
+    if cached and now - cached["ts"] < _BACKUPS_CACHE_TTL:
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "result": {"backups": []},
+            "result": cached["data"],
+        }
+
+    backups_dir = Path(openclaw_home).parent / "backups"
+
+    if not backups_dir.is_dir():
+        empty_data = {"backups": []}
+        _backups_cache[cache_key] = {"ts": now, "data": empty_data}
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": empty_data,
         }
 
     backups: list[dict] = []
@@ -2075,10 +2103,12 @@ def _handle_openclaw_backups_list(req_id: Any, params: dict) -> dict:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("backups.list: 跳过 %s: %s", entry.name, exc)
 
+    result_data = {"backups": backups}
+    _backups_cache[cache_key] = {"ts": now, "data": result_data}
     return {
         "jsonrpc": "2.0",
         "id": req_id,
-        "result": {"backups": backups},
+        "result": result_data,
     }
 
 
@@ -2115,6 +2145,7 @@ def _handle_openclaw_backups_delete(req_id: Any, params: dict) -> dict:
     try:
         shutil.rmtree(str(backup_dir))
         logger.info("backups.delete: 已删除 %s", backup_dir)
+        _invalidate_backups_cache()
         return {
             "jsonrpc": "2.0",
             "id": req_id,

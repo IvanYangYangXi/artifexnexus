@@ -14,11 +14,14 @@ Methods: list, detail, create, update, delete, enable, disable,
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 import uuid
 import sys
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 # ── 日志 ──
@@ -272,6 +275,140 @@ def _get_project_root() -> Path:
 # Nexus-Tool RPC handlers
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# registry.refresh() 缓存（内存 TTL + 文件级持久化）
+_REFRESH_CACHE_TTL = 30.0  # 30 秒内存缓存
+_refresh_cache_ts: float = 0.0
+
+_STATE_DIR = Path.home() / ".artifexnexus" / ".openclaw" / "state"
+_NT_CACHE_FILE = _STATE_DIR / "nexus_tool_scan_cache.json"
+
+
+def _get_nt_source_fingerprint(registry) -> str:
+    """计算 nexus-tool 源目录指纹（基于顶层 mtime）。"""
+    parts = []
+    for label, d in [("root", registry._nexus_tools_root),
+                     ("tools", registry._tools_path)]:
+        if d is not None and d.is_dir():
+            try:
+                stat = d.stat()
+                parts.append(f"{label}:{d}:{stat.st_mtime}")
+            except OSError:
+                pass
+    return "|".join(parts) if parts else "empty"
+
+
+def _load_nt_cache(registry) -> bool:
+    """从文件缓存加载扫描结果并注入 registry._cache。成功返回 True。
+
+    缓存的是原始 scan_nexus_tools() 结果，加载后重新应用用户偏好
+    （disabled/pinned/favorited），确保配置变更始终生效。
+    """
+    try:
+        with open(_NT_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if data.get("fingerprint") != _get_nt_source_fingerprint(registry):
+        return False
+
+    try:
+        from artifex_nexus.skill.nexus_tool.scanner import ScannedNexusTool
+        from artifex_nexus.skill.nexus_tool.models import NexusToolData
+        from artifex_nexus.skill.categories import DCCEntry
+
+        scanned_list = []
+        for s in data.get("scanned", []):
+            s_copy = dict(s)
+            s_copy["software"] = [DCCEntry(**sw) for sw in s["software"]]
+            scanned_list.append(ScannedNexusTool(**s_copy))
+
+        # 重新应用用户偏好（始终从 config 读取最新值）
+        disabled_set = registry.config.get_disabled_nexus_tools()
+        pinned_set = registry.config.get_pinned_nexus_tools()
+        fav_set = registry.config.get_favorite_nexus_tools()
+
+        result = []
+        for s in scanned_list:
+            tid = s.id
+            result.append(NexusToolData(
+                id=tid, name=s.name, description=s.description,
+                version=s.version, source=s.source, software=s.software,
+                status="disabled" if tid in disabled_set else "installed",
+                nexus_tool_path=s.nexus_tool_path, manifest=s.manifest,
+                is_enabled=tid not in disabled_set,
+                is_pinned=tid in pinned_set,
+                is_favorited=tid in fav_set,
+                author=s.author, created_at=s.created_at,
+                updated_at=s.updated_at,
+            ))
+
+        registry._cache = result
+        logger.debug("Nexus-Tool scan cache hit (%d tools)", len(result))
+        return True
+    except Exception as exc:
+        logger.debug("Nexus-Tool cache deserialization failed: %s", exc)
+        return False
+
+
+def _write_nt_cache(registry) -> None:
+    """将 scan_nexus_tools() 结果序列化到文件缓存。
+
+    优先使用 registry._raw_scan（上次 _scan_and_build 中已缓存的原始结果），
+    避免重复扫描文件系统。
+    """
+    try:
+        scanned = getattr(registry, "_raw_scan", None)
+        if scanned is None:
+            from artifex_nexus.skill.nexus_tool.scanner import scan_nexus_tools
+            scanned = scan_nexus_tools(
+                nexus_tools_root=registry._nexus_tools_root,
+                tools_path=registry._tools_path,
+            )
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "fingerprint": _get_nt_source_fingerprint(registry),
+            "scanned": [asdict(s) for s in scanned],
+        }
+        with open(_NT_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        logger.debug("Nexus-Tool scan cache written (%d tools)", len(scanned))
+    except Exception as exc:
+        logger.debug("Failed to write nexus-tool scan cache: %s", exc)
+
+
+def _cached_refresh(registry) -> None:
+    """带 TTL 内存缓存 + 文件级缓存的 registry.refresh()。
+
+    1. 内存缓存命中（30s TTL）→ 直接返回
+    2. 文件缓存命中（源目录未变化）→ 从 JSON 加载（～5ms vs 扫描 100ms）
+    3. 都未命中 → 实际扫描 + 写入文件缓存
+    """
+    global _refresh_cache_ts
+    now = time.time()
+    if now - _refresh_cache_ts < _REFRESH_CACHE_TTL:
+        return  # 内存缓存命中
+
+    # 尝试文件级缓存（跨进程重启也生效）
+    if _load_nt_cache(registry):
+        _refresh_cache_ts = now
+        return
+
+    # 文件缓存未命中，实际扫描
+    registry.refresh()
+    _refresh_cache_ts = now
+    _write_nt_cache(registry)
+
+
+def _invalidate_refresh_cache() -> None:
+    """强制下次调用时重新扫描（mutation 后调用）。删除内存和文件缓存。"""
+    global _refresh_cache_ts
+    _refresh_cache_ts = 0.0
+    try:
+        _NT_CACHE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 def _handle_nexus_tool_list(req_id: Any, params: dict) -> dict:
     """nexus-tool.list(filters) → (items, total)。
@@ -280,7 +417,7 @@ def _handle_nexus_tool_list(req_id: Any, params: dict) -> dict:
     """
     try:
         registry = _get_nt_registry()
-        registry.refresh()
+        _cached_refresh(registry)
 
         source = params.get("source")
         search = params.get("search")
@@ -313,7 +450,7 @@ def _handle_nexus_tool_detail(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         registry = _get_nt_registry()
-        registry.refresh()
+        _cached_refresh(registry)
 
         ntd = registry.get_nexus_tool(nexus_tool_id)
         if ntd is None:
@@ -345,6 +482,7 @@ def _handle_nexus_tool_create(req_id: Any, params: dict) -> dict:
             software=params.get("software"),
             manifest=params.get("manifest"),
         )
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.create failed")
@@ -382,6 +520,7 @@ def _handle_nexus_tool_update(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在或更新失败: {nexus_tool_id}")
 
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.update failed")
@@ -397,6 +536,7 @@ def _handle_nexus_tool_delete(req_id: Any, params: dict) -> dict:
 
         installer = _get_nt_installer()
         ok = installer.delete_nexus_tool(nexus_tool_id)
+        _invalidate_refresh_cache()
         return _ok(req_id, {"ok": ok})
     except Exception as e:
         logger.exception("nexus-tool.delete failed")
@@ -411,6 +551,7 @@ def _handle_nexus_tool_enable(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         registry = _get_nt_registry()
+        _invalidate_refresh_cache()
         registry.refresh()
 
         ntd = registry.enable_nexus_tool(nexus_tool_id)
@@ -431,6 +572,7 @@ def _handle_nexus_tool_disable(req_id: Any, params: dict) -> dict:
             return _err_invalid_params(req_id, "缺少参数: id")
 
         registry = _get_nt_registry()
+        _invalidate_refresh_cache()
         registry.refresh()
 
         ntd = registry.disable_nexus_tool(nexus_tool_id)
@@ -455,6 +597,7 @@ def _handle_nexus_tool_pin(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.pin failed")
@@ -473,6 +616,7 @@ def _handle_nexus_tool_unpin(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.unpin failed")
@@ -491,6 +635,7 @@ def _handle_nexus_tool_favorite(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.favorite failed")
@@ -509,6 +654,7 @@ def _handle_nexus_tool_unfavorite(req_id: Any, params: dict) -> dict:
         if ntd is None:
             return _err(req_id, f"Nexus-Tool 不存在: {nexus_tool_id}")
 
+        _invalidate_refresh_cache()
         return _ok(req_id, _nt_data_to_dict(ntd))
     except Exception as e:
         logger.exception("nexus-tool.unfavorite failed")
@@ -533,6 +679,7 @@ def _handle_nexus_tool_publish(req_id: Any, params: dict) -> dict:
             version=version,
             description=description,
         )
+        _invalidate_refresh_cache()
         return _ok(req_id, result)
     except Exception as e:
         logger.exception("nexus-tool.publish failed")
@@ -710,7 +857,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
         force = params.get("force", False)
 
         registry = _get_nt_registry()
-        registry.refresh()
+        _cached_refresh(registry)
 
         ntd = registry.get_nexus_tool(nexus_tool_id)
         if ntd is None:

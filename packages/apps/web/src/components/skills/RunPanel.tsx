@@ -34,7 +34,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ScrollFade } from "../chat/ScrollFade";
 import { FiltersTab } from "./FiltersTab";
 import { ToggleSwitch } from "./ToolDetailPanel";
-import { ChatPromptContext } from "../shell/AppShell";
+import { ChatPromptContext, DCCStatusContext } from "../shell/AppShell";
 import {
   nexusToolDetail,
   nexusToolRun,
@@ -84,6 +84,35 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const timeoutTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { navigateWithPrompt } = React.useContext(ChatPromptContext);
+  const { dccStatus } = React.useContext(DCCStatusContext);
+
+  // ── DCC 连接状态检测 ──────────────────────────────────────────────
+  const targetDccs = React.useMemo(() => {
+    if (!detail) return [];
+    return (detail.software || []).map((e) => typeof e === "string" ? e : e.dcc);
+  }, [detail]);
+
+  /** 检查是否有目标 DCC 的 MCP 已连接 */
+  const hasConnectedDCC = React.useMemo(() => {
+    if (targetDccs.length === 0) return true; // 无 DCC 限制的通用工具，不需要检查
+    return targetDccs.some((dcc) => {
+      const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
+      return status?.connected ?? false;
+    });
+  }, [targetDccs, dccStatus]);
+
+  /** 获取已连接/未连接的 DCC 名称列表 */
+  const dccConnectionInfo = React.useMemo(() => {
+    const dccLabels = targetDccs.map((dcc) => ({
+      dcc,
+      label: (DCC_LABELS as Record<string, string>)[dcc] || dcc,
+      connected: dccStatus.some((s) => s.name.toLowerCase() === dcc.toLowerCase() && s.connected),
+    }));
+    return {
+      connected: dccLabels.filter((d) => d.connected).map((d) => d.label),
+      disconnected: dccLabels.filter((d) => !d.connected).map((d) => d.label),
+    };
+  }, [targetDccs, dccStatus]);
 
   // ── 临时参数值（纯内存，不写 manifest）─────────────────────────────
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>({});
@@ -390,6 +419,33 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
           </div>
         </div>
 
+        {/* ── MCP 连接状态警告 ── */}
+        {!hasConnectedDCC && targetDccs.length > 0 && (
+          <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-300/80">
+                <p className="font-medium">
+                  {dccConnectionInfo.disconnected.length > 0
+                    ? `MCP 未连接: ${dccConnectionInfo.disconnected.join("、")}`
+                    : "目标 DCC 的 MCP 服务未连接"}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  请先在目标 DCC 中启动 Artifex Nexus 插件，MCP 连接建立后才能运行工具。
+                  {dccConnectionInfo.connected.length > 0 && (
+                    <span className="text-emerald-400/80 ml-1">
+                      （已连接: {dccConnectionInfo.connected.join("、")}）
+                    </span>
+                  )}
+                </p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  工具仍可运行，但可能无法在目标 DCC 中生效
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Tab 导航 ── */}
         <div className="shrink-0 flex border-b border-border/60 px-2">
           {TABS.map((tab) => (
@@ -609,9 +665,13 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
           )}
           <Button
             size="sm"
-            className="h-7 text-xs"
+            className={cn(
+              "h-7 text-xs",
+              !hasConnectedDCC && targetDccs.length > 0 && "border-amber-500/30 text-amber-400 hover:bg-amber-500/10",
+            )}
             onClick={handleRun}
             disabled={running}
+            title={!hasConnectedDCC && targetDccs.length > 0 ? "MCP 未连接，工具可能无法在目标 DCC 中生效" : "运行工具"}
           >
             {running ? (
               <>

@@ -5,7 +5,7 @@
  */
 
 import * as React from "react";
-import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen, Package } from "lucide-react";
+import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen, Package, Loader2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
@@ -1662,6 +1662,7 @@ const PRESERVE_LABELS: Record<string, string> = {
 function DataManagementTab() {
   const [backups, setBackups] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [listLoading, setListLoading] = React.useState(true); // 列表初始加载状态
   const [msg, setMsg] = React.useState("");
   const [msgType, setMsgType] = React.useState<"info" | "error">("info");
   const { showConfirm, showForm, DialogUI } = useAppDialog();
@@ -1673,12 +1674,15 @@ function DataManagementTab() {
   };
 
   const refreshBackups = async () => {
+    setListLoading(true);
     try {
       const ipc = await getIpc();
       const r = await ipc.listOpenClawBackups();
       setBackups(r.backups || []);
     } catch (e: any) {
       showMessage(`获取备份列表失败: ${e.message}`, "error");
+    } finally {
+      setListLoading(false);
     }
   };
 
@@ -1790,7 +1794,12 @@ function DataManagementTab() {
       )}
 
       <div className="flex-1 overflow-auto">
-        {backups.length === 0 ? (
+        {listLoading ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">加载备份列表...</span>
+          </div>
+        ) : backups.length === 0 ? (
           <div className="text-center text-xs text-muted-foreground pt-8">
             暂无备份。点击「备份数据」创建第一个备份。
           </div>
@@ -1903,9 +1912,14 @@ function PluginVersionsTab() {
       </div>
       <ScrollFade className="flex-1">
         <div className="p-3">
-          {plugins.length === 0 && !loading && (
+          {loading && plugins.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">加载插件版本...</span>
+            </div>
+          ) : plugins.length === 0 && !loading ? (
             <div className="py-8 text-center text-xs text-muted-foreground">暂无插件数据</div>
-          )}
+          ) : null}
           <div className="space-y-1">
             {plugins.map((p) => (
               <div key={`${p.dcc}-${p.version}`}

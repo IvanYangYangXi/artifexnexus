@@ -113,71 +113,116 @@ export interface SkillListFilters {
   sort_order?: string;
 }
 
+// ── 模块级缓存（减少 Tauri IPC 往返次数）─────────────────────────────────────
+
+const CACHE_TTL_MS = 60_000; // 列表/详情缓存 60s
+
+interface CacheEntry<T> { data: T; ts: number; }
+
+const _listCache = new Map<string, CacheEntry<SkillListResult>>();
+const _detailCache = new Map<string, CacheEntry<SkillDetail>>();
+
+function _cacheKey(filters?: SkillListFilters): string { return JSON.stringify(filters ?? {}); }
+
 // ── API 方法 ──────────────────────────────────────────────────────────────────
 
 /** 分页列表 */
 export async function skillList(filters?: SkillListFilters): Promise<SkillListResult> {
-  return invoke<SkillListResult>("skill_list", { params: filters ?? {} });
+  const key = _cacheKey(filters);
+  const cached = _listCache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  const result = await invoke<SkillListResult>("skill_list", { params: filters ?? {} });
+  _listCache.set(key, { data: result, ts: Date.now() });
+  _detailCache.clear();
+  return result;
 }
 
 /** 详情（含 Skill-Tool 列表 + 用户偏好） */
 export async function skillDetail(id: string): Promise<SkillDetail> {
-  return invoke<SkillDetail>("skill_detail", { params: { id } });
+  const cached = _detailCache.get(id);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  const result = await invoke<SkillDetail>("skill_detail", { params: { id } });
+  _detailCache.set(id, { data: result, ts: Date.now() });
+  return result;
 }
 
 /** 安装 */
 export async function skillInstall(id: string, opts?: { sourceLayer?: string; targetLayer?: string }): Promise<SkillOpResult> {
-  return invoke<SkillOpResult>("skill_install", { params: { id, ...opts } });
+  const result = await invoke<SkillOpResult>("skill_install", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 卸载 */
 export async function skillUninstall(id: string, opts?: { targetLayer?: string }): Promise<SkillOpResult> {
-  return invoke<SkillOpResult>("skill_uninstall", { params: { id, ...opts } });
+  const result = await invoke<SkillOpResult>("skill_uninstall", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 启用 */
 export async function skillEnable(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_enable", { params: { id } });
+  const result = await invoke<SkillItem>("skill_enable", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 禁用 */
 export async function skillDisable(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_disable", { params: { id } });
+  const result = await invoke<SkillItem>("skill_disable", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 钉选 */
 export async function skillPin(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_pin", { params: { id } });
+  const result = await invoke<SkillItem>("skill_pin", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 取消钉选 */
 export async function skillUnpin(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_unpin", { params: { id } });
+  const result = await invoke<SkillItem>("skill_unpin", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 收藏 */
 export async function skillFavorite(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_favorite", { params: { id } });
+  const result = await invoke<SkillItem>("skill_favorite", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 取消收藏 */
 export async function skillUnfavorite(id: string): Promise<SkillItem> {
-  return invoke<SkillItem>("skill_unfavorite", { params: { id } });
+  const result = await invoke<SkillItem>("skill_unfavorite", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 同步 */
 export async function skillSync(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillSyncResult> {
-  return invoke<SkillSyncResult>("skill_sync", { params: { id, ...opts } });
+  const result = await invoke<SkillSyncResult>("skill_sync", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 发布 */
 export async function skillPublish(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillPublishResult> {
-  return invoke<SkillPublishResult>("skill_publish", { params: { id, ...opts } });
+  const result = await invoke<SkillPublishResult>("skill_publish", { params: { id, ...opts } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 批量操作 */
 export async function skillBatch(operation: string, ids: string[]): Promise<SkillBatchResult> {
-  return invoke<SkillBatchResult>("skill_batch", { params: { operation, ids } });
+  const result = await invoke<SkillBatchResult>("skill_batch", { params: { operation, ids } });
+  _listCache.clear(); ids.forEach((id) => _detailCache.delete(id));
+  return result;
 }
 
 /** 搜索 */
@@ -187,7 +232,9 @@ export async function skillSearch(query: string): Promise<SkillItem[]> {
 
 /** 一键修复 manifest.json（从 SKILL.md 生成） */
 export async function skillFixManifest(id: string): Promise<{ ok: boolean; path: string; warnings: string[] }> {
-  return invoke("skill_fix_manifest", { params: { id } });
+  const result = await invoke<{ ok: boolean; path: string; warnings: string[] }>("skill_fix_manifest", { params: { id } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 /** 读取 SKILL.md 原始内容 */
@@ -202,7 +249,9 @@ export async function skillCheckSync(id: string): Promise<SyncStateInfo> {
 
 /** 更新已安装 Skill 的 manifest.json */
 export async function skillUpdateManifest(id: string, fields: Record<string, unknown>): Promise<{ ok: boolean; path: string; warnings: string[]; errors: string[] }> {
-  return invoke("skill_update_manifest", { params: { id, fields } });
+  const result = await invoke<{ ok: boolean; path: string; warnings: string[]; errors: string[] }>("skill_update_manifest", { params: { id, fields } });
+  _listCache.clear(); _detailCache.delete(id);
+  return result;
 }
 
 // ── 集合导出 ──────────────────────────────────────────────────────────────────
