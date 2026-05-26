@@ -522,7 +522,7 @@ export const CollapsiblePanel = React.forwardRef<
   React.useImperativeHandle(ref, () => panelRef.current!, []);
 
   // ── 折叠百分比（恒定值，不随 containerHeight 变化，防止触发 react-resizable-panels 约束重算）──
-  const COLLAPSED_PCT = 3;
+  const COLLAPSED_PCT = 4;
   const collapsedSize = COLLAPSED_PCT;
 
   // ── 声明式尺寸锁定 ──
