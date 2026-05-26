@@ -175,7 +175,7 @@ def _create_menu():
         # 1. 注册 MacroScript（幂等：先 cleanup 再注册）
         rt.execute('''
             -- 清理已有
-            for m in #(artifex_nexus_start, artifex_nexus_stop, artifex_nexus_status, artifex_nexus_toggle_triggers) do (
+            for m in #(artifex_nexus_start, artifex_nexus_stop, artifex_nexus_status, artifex_nexus_toggle_triggers, artifex_nexus_panel) do (
                 try (macros.delete m) catch()
             )
 
@@ -205,6 +205,13 @@ def _create_menu():
                 tooltip:"Toggle Artifex Nexus Triggers"
             (
                 python.execute "from artifex_nexus import toggle_triggers, _print_status; toggle_triggers(); _print_status()"
+            )
+
+            macroScript artifex_nexus_panel
+                category:"ArtifexNexus"
+                tooltip:"Show Artifex Nexus Panel"
+            (
+                python.execute "from max_ui import show_panel; show_panel()"
             )
         ''')
 
@@ -248,6 +255,11 @@ def _create_menu():
             statusAction.setTitle "Status"
             statusAction.setUseCustomTitle true
             anMenu.addItem statusAction -1
+
+            panelAction = menuMan.createActionItem "artifex_nexus_panel" "ArtifexNexus"
+            panelAction.setTitle "Show Panel"
+            panelAction.setUseCustomTitle true
+            anMenu.addItem panelAction -1
 
             subItem = menuMan.createSubMenuItem "Artifex Nexus" anMenu
             mainMenu.addItem subItem (mainMenu.numItems())

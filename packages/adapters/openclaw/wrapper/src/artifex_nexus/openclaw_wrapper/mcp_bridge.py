@@ -718,3 +718,109 @@ def check_unreal_mcp_connection(
         # 如果已有运行中的 event loop，尝试用 nest_asyncio 或回退
         logger.warning("check_unreal_mcp_connection: 无法在已有 event loop 中运行，返回未连接")
         return {"connected": False, "address": f"ws://{host}:{port}", "error": "异步运行时冲突"}
+
+
+# ── Maya MCP Server 检测 ─────────────────────────────────────────────────
+
+DEFAULT_MAYA_MCP_PORT = 18081
+
+
+def check_maya_mcp_server_running(
+    host: str = "127.0.0.1", port: int = DEFAULT_MAYA_MCP_PORT, timeout: float = 1.0
+) -> bool:
+    """检测 Maya MCP Server 进程是否在监听端口（纯 TCP socket connect）。"""
+    import socket as _socket
+    try:
+        sock = _socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return True
+    except (OSError, ConnectionRefusedError, TimeoutError):
+        return False
+
+
+def check_maya_mcp_connection(
+    host: str = "127.0.0.1", port: int = DEFAULT_MAYA_MCP_PORT, timeout: float = 3.0
+) -> Dict[str, Any]:
+    """检测 Maya MCP Server 连通性（WebSocket + MCP initialize 握手）。"""
+    import asyncio as _asyncio
+    address = f"ws://{host}:{port}"
+
+    async def _connect():
+        try:
+            async with _asyncio.timeout(timeout):
+                async with websockets.connect(address) as ws:
+                    await ws.send(json.dumps({
+                        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "artifex-nexus-sidecar", "version": "1.0.0"},
+                        },
+                    }))
+                    resp = await _asyncio.wait_for(ws.recv(), timeout=timeout)
+                    data = json.loads(resp)
+                    if "result" in data:
+                        return {"connected": True, "address": address, "error": None}
+                    err_msg = data.get("error", {}).get("message", "未知 MCP 错误")
+                    return {"connected": False, "address": address, "error": f"MCP 握手失败: {err_msg}"}
+        except Exception as e:
+            return {"connected": False, "address": address, "error": str(e)}
+
+    try:
+        return _asyncio.run(_connect())
+    except RuntimeError:
+        logger.warning("check_maya_mcp_connection: 无法在已有 event loop 中运行，返回未连接")
+        return {"connected": False, "address": address, "error": "异步运行时冲突"}
+
+
+# ── 3ds Max MCP Server 检测 ──────────────────────────────────────────────
+
+DEFAULT_MAX_MCP_PORT = 18082
+
+
+def check_max_mcp_server_running(
+    host: str = "127.0.0.1", port: int = DEFAULT_MAX_MCP_PORT, timeout: float = 1.0
+) -> bool:
+    """检测 3ds Max MCP Server 进程是否在监听端口（纯 TCP socket connect）。"""
+    import socket as _socket
+    try:
+        sock = _socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return True
+    except (OSError, ConnectionRefusedError, TimeoutError):
+        return False
+
+
+def check_max_mcp_connection(
+    host: str = "127.0.0.1", port: int = DEFAULT_MAX_MCP_PORT, timeout: float = 3.0
+) -> Dict[str, Any]:
+    """检测 3ds Max MCP Server 连通性（WebSocket + MCP initialize 握手）。"""
+    import asyncio as _asyncio
+    address = f"ws://{host}:{port}"
+
+    async def _connect():
+        try:
+            async with _asyncio.timeout(timeout):
+                async with websockets.connect(address) as ws:
+                    await ws.send(json.dumps({
+                        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "artifex-nexus-sidecar", "version": "1.0.0"},
+                        },
+                    }))
+                    resp = await _asyncio.wait_for(ws.recv(), timeout=timeout)
+                    data = json.loads(resp)
+                    if "result" in data:
+                        return {"connected": True, "address": address, "error": None}
+                    err_msg = data.get("error", {}).get("message", "未知 MCP 错误")
+                    return {"connected": False, "address": address, "error": f"MCP 握手失败: {err_msg}"}
+        except Exception as e:
+            return {"connected": False, "address": address, "error": str(e)}
+
+    try:
+        return _asyncio.run(_connect())
+    except RuntimeError:
+        logger.warning("check_max_mcp_connection: 无法在已有 event loop 中运行，返回未连接")
+        return {"connected": False, "address": address, "error": "异步运行时冲突"}

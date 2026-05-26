@@ -837,21 +837,25 @@ export async function getStatus(): Promise<StatusResponse> {
 
 // ── MCP Bridge 状态 ────────────────────────────────────────────────────────
 
-/** MCP Bridge 状态（含 Blender / UE 连通性） */
+/** MCP Bridge 状态（含 Blender / UE / Maya / Max 连通性） */
 export interface MCPBridgeStatus {
   installed: boolean;
   blenderConnected: boolean;
-  /** Blender MCP Server 进程是否在监听端口（纯 TCP socket，无 MCP 协议） */
   blenderServerRunning: boolean;
   blenderAddress: string;
   blenderError: string | null;
-  /** UE MCP Server 进程是否在监听端口（纯 TCP socket，无 MCP 协议） */
   unrealServerRunning: boolean;
-  /** UE MCP 握手是否完成 + 工具可用 */
   unrealConnected: boolean;
   unrealAddress: string;
   unrealError: string | null;
-  /** mcp-bridge 插件 index.js 是否为最新（SHA-256 对比） */
+  mayaServerRunning: boolean;
+  mayaConnected: boolean;
+  mayaAddress: string;
+  mayaError: string | null;
+  maxServerRunning: boolean;
+  maxConnected: boolean;
+  maxAddress: string;
+  maxError: string | null;
   upToDate: boolean;
   sourceHash: string | null;
   deployedHash: string | null;

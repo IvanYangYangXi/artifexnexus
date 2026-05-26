@@ -442,6 +442,18 @@ export function AppShell() {
             statuses.push({ name: "unreal_engine", connected: bridgeStatus.unrealConnected ?? false });
           }
         } catch {}
+        // ── Maya ──
+        try {
+          if (bridgeStatus?.mayaServerRunning) {
+            statuses.push({ name: "maya", connected: bridgeStatus.mayaConnected ?? false });
+          }
+        } catch {}
+        // ── 3ds Max ──
+        try {
+          if (bridgeStatus?.maxServerRunning) {
+            statuses.push({ name: "3ds_max", connected: bridgeStatus.maxConnected ?? false });
+          }
+        } catch {}
         setDccStatus(statuses);
       } catch {}
     };

@@ -113,8 +113,15 @@ def _deferred_startup():
         adapter.on_startup()
 
         # 启动 MCP Server
-        if server.start():
+        server_started = server.start()
+        if server_started:
             logger.info(f"Max MCP Server 已启动: {server.server_address}")
+
+            # 共享 server/adapter 实例给 UI 面板（避免 __init__.py 创建第二实例）
+            import artifex_nexus as _an
+            _an._mcp_server = server
+            _an._adapter = adapter
+
             try:
                 import pymxs
                 pymxs.runtime.print(
@@ -125,10 +132,26 @@ def _deferred_startup():
         else:
             logger.error("Max MCP Server 启动失败")
 
+        # 自动显示 UI 面板
+        try:
+            from PySide2.QtCore import QTimer as _Qt2
+            _Qt2.singleShot(500, _show_panel_safe)
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"启动失败: {e}")
         import traceback
         traceback.print_exc()
+
+
+def _show_panel_safe():
+    """安全地显示 UI 面板（忽略所有异常）"""
+    try:
+        from max_ui import show_panel
+        show_panel()
+    except Exception as e:
+        logger.warning(f"无法显示面板: {e}")
 
 
 def _main():

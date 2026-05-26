@@ -411,7 +411,9 @@ class MCPServer:
     async def _start_server(self) -> None:
         self._actual_port = self._find_available_port()
 
-        for attempt in range(self._max_port_probe):
+        # max_port_probe=0 表示固定端口（不探测），但仍需尝试绑定一次
+        max_attempts = max(self._max_port_probe, 1)
+        for _ in range(max_attempts):
             try:
                 self._server = await ws_serve(
                     self._connection_handler,
@@ -423,8 +425,13 @@ class MCPServer:
                 break
             except OSError as e:
                 if "address already in use" in str(e).lower() or getattr(e, "errno", 0) == 10048:
-                    logger.warning(f"[{self._dcc_name}] 端口 {self._actual_port} 被占用，尝试下一个...")
-                    self._actual_port += 1
+                    if self._max_port_probe > 0:
+                        logger.warning(f"[{self._dcc_name}] 端口 {self._actual_port} 被占用，尝试下一个...")
+                        self._actual_port += 1
+                        continue
+                    else:
+                        # 固定端口模式，端口占用即失败
+                        raise
                 else:
                     raise
         else:

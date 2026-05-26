@@ -1134,37 +1134,52 @@ def _deploy_max_startup_scripts(max_version: str) -> List[str]:
 
 
 def _sync_max_locales(max_version: str) -> List[str]:
-    """同步 3ds Max locale 目录：物理复制 artifex_nexus/ + 启动脚本"""
+    """同步 3ds Max locale 目录：物理复制 artifex_nexus/ + 启动脚本
+
+    注意：Max 可能同时存在 "2023" 和 "2023 - 64bit" 两个目录。
+    install_dcc_addon 优先安装到 64bit 变体，因此同步源必须找
+    实际存在 artifex_nexus/ 的那个目录（而非碰到的第一个 ENU）。
+    """
     synced = []
     main_locale_info = None
 
-    # 先找到 ENU 主目录
-    for info in _get_max_locale_dirs(max_version):
-        if info["locale"].upper() == "ENU":
+    all_locales = _get_max_locale_dirs(max_version)
+
+    # 找到第一个实际存在 artifex_nexus/ 的 ENU locale 作同步源
+    for info in all_locales:
+        target = os.path.join(info["scripts_dir"], "artifex_nexus")
+        if info["locale"].upper() == "ENU" and os.path.isdir(target):
             main_locale_info = info
             break
-    if not main_locale_info:
-        # 取第一个 locale 作主目录
-        all_locales = _get_max_locale_dirs(max_version)
-        if all_locales:
-            main_locale_info = all_locales[0]
 
     if not main_locale_info:
+        # 回退：任意存在 artifex_nexus/ 的 locale
+        for info in all_locales:
+            target = os.path.join(info["scripts_dir"], "artifex_nexus")
+            if os.path.isdir(target):
+                main_locale_info = info
+                break
+
+    if not main_locale_info:
+        logger.warning(f"Max {max_version}: 没找到任何 artifex_nexus/ 目录，跳过 locale 同步")
         return synced
 
     main_target = os.path.join(main_locale_info["scripts_dir"], "artifex_nexus")
+    logger.info(f"Max locale 同步源: {main_locale_info['locale']} ({main_target})")
 
-    for info in _get_max_locale_dirs(max_version):
-        if info["locale"] == main_locale_info["locale"]:
+    for info in all_locales:
+        if (info["version_dir"] == main_locale_info["version_dir"]
+                and info["locale"] == main_locale_info["locale"]):
             continue
         locale_target = os.path.join(info["scripts_dir"], "artifex_nexus")
         if not os.path.exists(locale_target):
             try:
                 os.makedirs(info["scripts_dir"], exist_ok=True)
                 shutil.copytree(main_target, locale_target, ignore=_get_ignore_patterns_for_shutil())
-                synced.append(info["locale"])
-            except OSError:
-                pass
+                synced.append(f"{info['locale']}@{os.path.basename(info['version_dir'])}")
+                logger.info(f"Max locale 同步: {info['locale']} <- {main_locale_info['locale']}")
+            except OSError as e:
+                logger.warning(f"Max locale 同步失败 ({info['locale']}): {e}")
 
         # 同步 startup 脚本
         main_startup = os.path.join(main_locale_info["scripts_dir"], "startup")
@@ -1172,8 +1187,8 @@ def _sync_max_locales(max_version: str) -> List[str]:
         if os.path.isdir(main_startup) and not os.path.isdir(locale_startup):
             try:
                 shutil.copytree(main_startup, locale_startup)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning(f"Max startup 同步失败 ({info['locale']}): {e}")
 
     return synced
 

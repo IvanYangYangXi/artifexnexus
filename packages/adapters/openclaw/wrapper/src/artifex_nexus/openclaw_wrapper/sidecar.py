@@ -1378,19 +1378,27 @@ def _handle_openclaw_gateway_mcp_bridge_install(req_id: Any, params: dict) -> di
 
 
 def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dict:
-    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender/UE MCP 连通性 + 过时检测。
+    """openclaw.gateway.mcp_bridge.status RPC：检查 mcp-bridge 插件部署状态 + Blender/UE/Maya/Max MCP 连通性 + 过时检测。
 
     返回：
         {
             "installed": bool,
-            "blenderConnected": bool,        # Blender MCP 握手完成 + 工具可用
-            "blenderServerRunning": bool,    # Blender MCP Server 进程在监听端口（TCP socket，无 MCP 协议）
+            "blenderConnected": bool,
+            "blenderServerRunning": bool,
             "blenderAddress": str,
             "blenderError": str | None,
-            "unrealConnected": bool,         # UE MCP 握手完成 + 工具可用
-            "unrealServerRunning": bool,     # UE MCP Server 进程在监听端口（TCP socket，无 MCP 协议）
+            "unrealConnected": bool,
+            "unrealServerRunning": bool,
             "unrealAddress": str,
             "unrealError": str | None,
+            "mayaConnected": bool,
+            "mayaServerRunning": bool,
+            "mayaAddress": str,
+            "mayaError": str | None,
+            "maxConnected": bool,
+            "maxServerRunning": bool,
+            "maxAddress": str,
+            "maxError": str | None,
             "upToDate": bool,
             "sourceHash": str | None,
             "deployedHash": str | None,
@@ -1489,6 +1497,42 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
                 "error": "Gateway 未运行，无法检测 MCP Bridge 连通性",
             }
 
+        # ── Maya MCP 连通性检测 ──
+        maya_server_running = False
+        maya_status = {"connected": False, "address": "ws://127.0.0.1:18081", "error": None}
+        if installed and gateway_running:
+            try:
+                maya_server_running = _mcp_bridge.check_maya_mcp_server_running(timeout=1.0)
+            except Exception as e:
+                logger.warning("check_maya_mcp_server_running() failed: %s", e, exc_info=True)
+            if maya_server_running:
+                try:
+                    maya_status = _mcp_bridge.check_maya_mcp_connection(timeout=3.0)
+                except Exception as e:
+                    maya_status = {"connected": False, "address": "ws://127.0.0.1:18081", "error": str(e)}
+            else:
+                maya_status = {"connected": False, "address": "ws://127.0.0.1:18081", "error": "Maya MCP Server 未启动"}
+        elif not gateway_running:
+            maya_status = {"connected": False, "address": "ws://127.0.0.1:18081", "error": "Gateway 未运行"}
+
+        # ── 3ds Max MCP 连通性检测 ──
+        max_server_running = False
+        max_status = {"connected": False, "address": "ws://127.0.0.1:18082", "error": None}
+        if installed and gateway_running:
+            try:
+                max_server_running = _mcp_bridge.check_max_mcp_server_running(timeout=1.0)
+            except Exception as e:
+                logger.warning("check_max_mcp_server_running() failed: %s", e, exc_info=True)
+            if max_server_running:
+                try:
+                    max_status = _mcp_bridge.check_max_mcp_connection(timeout=3.0)
+                except Exception as e:
+                    max_status = {"connected": False, "address": "ws://127.0.0.1:18082", "error": str(e)}
+            else:
+                max_status = {"connected": False, "address": "ws://127.0.0.1:18082", "error": "3ds Max MCP Server 未启动"}
+        elif not gateway_running:
+            max_status = {"connected": False, "address": "ws://127.0.0.1:18082", "error": "Gateway 未运行"}
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -1502,6 +1546,14 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
                 "unrealServerRunning": unreal_server_running,
                 "unrealAddress": unreal_status.get("address", ""),
                 "unrealError": unreal_status.get("error"),
+                "mayaConnected": maya_status.get("connected", False),
+                "mayaServerRunning": maya_server_running,
+                "mayaAddress": maya_status.get("address", ""),
+                "mayaError": maya_status.get("error"),
+                "maxConnected": max_status.get("connected", False),
+                "maxServerRunning": max_server_running,
+                "maxAddress": max_status.get("address", ""),
+                "maxError": max_status.get("error"),
                 "upToDate": freshness.get("upToDate", False),
                 "sourceHash": freshness.get("sourceHash"),
                 "deployedHash": freshness.get("deployedHash"),
