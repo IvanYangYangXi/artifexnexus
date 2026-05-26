@@ -1,9 +1,10 @@
-/*
- * artifex_startup.ms — Artifex Nexus 3ds Max 启动脚本 (MaxScript)
- * ================================================================
- * 放入 3ds Max 的 scripts/startup/ 目录，自动执行。
- * 通过 python.executeFile 调用 Python 启动脚本。
- */
+-- artifex_startup.ms — Artifex Nexus 3ds Max 启动脚本 (MaxScript)
+-- ================================================================
+-- 放入 3ds Max 的 scripts/startup/ 目录，自动执行。
+-- 通过 python.ExecuteFile 调用 Python 启动脚本。
+--
+-- 注意：MaxScript 仅支持 -- 行注释（不支持 /* */ 块注释），
+--       使用 /* */ 会触发 MaxScript 语法错误 → 启动失败检测。
 
 (
     -- 获取当前脚本所在目录
