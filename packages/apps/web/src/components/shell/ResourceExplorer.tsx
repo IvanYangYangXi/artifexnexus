@@ -181,7 +181,7 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
       </div>
 
       {/* ── 2. 搜索框 ── */}
-      <div className="relative shrink-0 px-2 py-1">
+      <div className="relative shrink-0 px-2 py-0.5">
         <Search className="absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="h-6 pl-6 text-[11px] rounded-[8px] border-white/[0.08]"

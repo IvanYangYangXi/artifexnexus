@@ -499,23 +499,20 @@ export const CollapsiblePanel = React.forwardRef<
     }
   };
 
-  // ── 计算 collapsedSize ──
-  const collapsedSize = React.useMemo(() => {
-    if (!ctx.containerHeight) return 5;
+  const panelRef = React.useRef<ImperativePanelHandle>(null);
+  React.useImperativeHandle(ref, () => panelRef.current!, []);
+
+  // ── 计算 collapsedSize（像素，用于 Panel prop）+ 折叠百分比（用于 min/max/defaultSize）──
+  const collapsedSize = ctx.headerHeight; // Panel collapsedSize 必须用像素
+  const COLLAPSED_PCT = React.useMemo(() => {
+    if (!ctx.containerHeight) return 3;
     const pct = (ctx.headerHeight / ctx.containerHeight) * 100;
     return Math.max(2, Math.min(pct, 20));
   }, [ctx.containerHeight, ctx.headerHeight]);
 
-  const panelRef = React.useRef<ImperativePanelHandle>(null);
-  React.useImperativeHandle(ref, () => panelRef.current!, []);
-
-  // ── 声明式尺寸控制：不需要命令式 p.resize()，React key + defaultSize 负责展开 ──
-
-  // ── 声明式尺寸锁定（替代命令式 collapse/expand） ──
+  // ── 声明式尺寸锁定 ──
   // 展开态:  minSize=minSize,  maxSize=undefined → 可拖拽
-  // 折叠态:  minSize=3%,       maxSize=3%          → 锁定为约 header 高度，不可拖拽
-  // ⚠️ collapsedSize(px) 不可用于 minSize/maxSize → react-resizable-panels 解读为百分比
-  const COLLAPSED_PCT = 3;
+  // 折叠态:  minSize=COLLAPSED_PCT, maxSize=COLLAPSED_PCT → 锁定 header 高度
   const effectiveMinSize = open ? minSize : COLLAPSED_PCT;
   const effectiveMaxSize = open ? undefined : COLLAPSED_PCT;
 
@@ -646,7 +643,7 @@ export const CollapsiblePanel = React.forwardRef<
         <div
           className={cn(
             "min-h-0 flex-1 overflow-auto",
-            bodyClassName ?? "p-2",
+            bodyClassName ?? "px-2 py-1",
           )}
         >
           {children}
