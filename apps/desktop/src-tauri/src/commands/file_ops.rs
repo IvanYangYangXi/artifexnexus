@@ -1,6 +1,7 @@
-// 文件操作 Tauri Commands：列出目录、读取文件文本。
+// 文件操作 Tauri Commands：列出目录、读取文件文本、读取文件 base64（图片预览）。
 // 文件行数硬上限 300。
 
+use base64::Engine;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -72,6 +73,63 @@ pub fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
 
     dirs.append(&mut files);
     Ok(dirs)
+}
+
+/// 图片 base64 结果
+#[derive(Debug, Serialize, Clone)]
+pub struct ReadBase64Result {
+    pub ok: bool,
+    pub data: String,   // base64 编码（不含 data:xxx;base64, 前缀）
+    pub mime: String,   // MIME 类型（如 image/png）
+    pub error: Option<String>,
+}
+
+/// 读取文件为 base64（图片预览用）。
+/// 大小上限 10MB。
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<ReadBase64Result, String> {
+    let p = Path::new(&path);
+
+    if !p.is_file() {
+        return Ok(ReadBase64Result {
+            ok: false,
+            data: String::new(),
+            mime: String::new(),
+            error: Some(format!("不是文件: {path}")),
+        });
+    }
+
+    let metadata = p.metadata().map_err(|e| format!("读取文件元数据失败: {e}"))?;
+    if metadata.len() > 10_485_760 {
+        return Ok(ReadBase64Result {
+            ok: false,
+            data: String::new(),
+            mime: String::new(),
+            error: Some("文件超过 10MB，无法预览".to_string()),
+        });
+    }
+
+    let bytes = fs::read(p).map_err(|e| format!("读取文件失败: {e}"))?;
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    // 根据扩展名推断 MIME
+    let mime = match p.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("tga") => "image/x-targa",
+        _ => "application/octet-stream",
+    };
+
+    Ok(ReadBase64Result {
+        ok: true,
+        data,
+        mime: mime.to_string(),
+        error: None,
+    })
 }
 
 /// 读取文本文件内容（UTF-8）。

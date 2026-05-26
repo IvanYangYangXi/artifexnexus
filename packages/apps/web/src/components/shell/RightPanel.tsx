@@ -630,22 +630,27 @@ function ImagePreview({ filePath, fileName }: { filePath: string; fileName?: str
 
     (async () => {
       try {
-        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        const { invoke } = await import("@tauri-apps/api/core");
 
         if (isNativeImage) {
-          // PNG/JPG 等原生格式：直接用 asset:// URL
-          const url = convertFileSrc(filePath);
+          // PNG/JPG 等原生格式：通过 Rust 命令读取 base64 → data URL
+          const result = await invoke<{ ok: boolean; data: string; mime: string; error?: string }>("read_file_base64", { path: filePath });
+          if (!result.ok) { setError(result.error || "读取失败"); setLoading(false); return; }
+          const url = `data:${result.mime};base64,${result.data}`;
           setImageUrl(url);
           const img = new Image();
           img.onload = () => { if (!cancelled) { imgRef.current = img; setLoading(false); drawCanvas(); } };
           img.onerror = () => { if (!cancelled) { setError("无法解码图像"); setLoading(false); } };
           img.src = url;
         } else {
-          // TGA 等非原生格式：fetch 二进制 + 手动解码
-          const assetUrl = convertFileSrc(filePath);
-          const resp = await fetch(assetUrl);
-          const buf = await resp.arrayBuffer();
-          const decoded = decodeTGA(buf);
+          // TGA 等非原生格式：读取二进制 + 手动解码
+          const result = await invoke<{ ok: boolean; data: string; mime: string; error?: string }>("read_file_base64", { path: filePath });
+          if (!result.ok) { setError(result.error || "读取失败"); setLoading(false); return; }
+          // base64 → ArrayBuffer
+          const binary = atob(result.data);
+          const buf = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+          const decoded = decodeTGA(buf.buffer);
           if (!decoded) { setError("TGA 解码失败"); setLoading(false); return; }
 
           const blob = new Blob([decoded.data as BlobPart], { type: "image/png" });
