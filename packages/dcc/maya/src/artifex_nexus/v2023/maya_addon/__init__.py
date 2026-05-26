@@ -222,6 +222,8 @@ def _create_menu():
             tearOff=True,
         )
 
+        cmds.menuItem(label="Show Panel", command=_menu_show_panel)
+        cmds.menuItem(divider=True)
         cmds.menuItem(label="启动 MCP Server", command=_shelf_start)
         cmds.menuItem(label="停止 MCP Server", command=_shelf_stop)
         cmds.menuItem(divider=True)
@@ -296,6 +298,15 @@ def _shelf_toggle_triggers(*args):
         )
 
 
+def _menu_show_panel(*args):
+    """菜单 → Show Panel"""
+    try:
+        from maya_ui import show_panel
+        show_panel()
+    except Exception as e:
+        logger.error(f"无法打开面板: {e}")
+
+
 # ── 生命周期 ────────────────────────────────────────────────────────────
 
 def register():
@@ -337,6 +348,13 @@ def register():
                 logger.warning("Maya MCP Server 自动启动失败")
 
         logger.info("Maya addon 注册完成")
+
+        # 自动显示 UI 面板
+        try:
+            from maya_ui import show_panel
+            show_panel()
+        except Exception as e:
+            logger.warning(f"无法自动显示面板: {e}")
 
     _mu.executeDeferred(_deferred_startup)
 
