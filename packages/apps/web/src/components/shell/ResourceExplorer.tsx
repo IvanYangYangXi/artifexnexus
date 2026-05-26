@@ -170,7 +170,7 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden" data-ctx="auto">
       {/* ── 1. 面包屑导航 ── */}
       <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-border/40">
         <Button
