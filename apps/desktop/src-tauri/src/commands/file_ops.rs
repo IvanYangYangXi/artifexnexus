@@ -189,3 +189,60 @@ pub fn search_dir(path: String, query: String, max_depth: u32) -> Result<Vec<Fil
 
     Ok(results)
 }
+
+/// 删除文件/目录到回收站（Windows）
+#[tauri::command]
+pub fn delete_to_trash(path: String) -> Result<String, String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(format!("路径不存在: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // 使用 PowerShell 将文件移到回收站
+        let ps_script = format!(
+            "$shell = New-Object -ComObject Shell.Application; \
+             $item = $shell.Namespace(0).ParseName('{}'); \
+             if ($item) {{ $item.InvokeVerb('delete') }} else {{ \
+               Add-Type -AssemblyName Microsoft.VisualBasic; \
+               [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin') \
+             }}",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            path.replace('\\', "\\\\"),
+        );
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+            .output()
+            .map_err(|e| format!("执行失败: {e}"))?;
+        Ok(format!("已移至回收站: {path}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // macOS/Linux: 直接删除（可后续引入 trash crate）
+        if p.is_dir() {
+            fs::remove_dir_all(p).map_err(|e| format!("删除失败: {e}"))?;
+        } else {
+            fs::remove_file(p).map_err(|e| format!("删除失败: {e}"))?;
+        }
+        Ok(format!("已删除: {path}"))
+    }
+}
+
+/// 彻底删除文件/目录（不可恢复）
+#[tauri::command]
+pub fn delete_permanent(path: String) -> Result<String, String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(format!("路径不存在: {path}"));
+    }
+
+    if p.is_dir() {
+        fs::remove_dir_all(p).map_err(|e| format!("删除目录失败: {e}"))?;
+    } else {
+        fs::remove_file(p).map_err(|e| format!("删除文件失败: {e}"))?;
+    }
+
+    Ok(format!("已彻底删除: {path}"))
+}

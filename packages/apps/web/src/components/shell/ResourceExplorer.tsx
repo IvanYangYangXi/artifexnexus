@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import {
   Button,
@@ -110,6 +111,41 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
     try {
       await navigator.clipboard.writeText(entry.path);
     } catch { /* ignore */ }
+  }, []);
+
+  // 右键菜单 → 删除到回收站
+  const handleDeleteToTrash = React.useCallback(async (entry: FileEntry) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("delete_to_trash", { path: entry.path });
+      // 刷新当前目录
+      if (currentDir) setPath(currentDir);
+    } catch (e) {
+      console.error("[ResourceExplorer] 删除失败:", e);
+    }
+  }, [currentDir, setPath]);
+
+  // 右键菜单 → 彻底删除
+  const handleDeletePermanent = React.useCallback(async (entry: FileEntry) => {
+    const confirmed = window.confirm(`确定要彻底删除吗？此操作不可恢复。\n\n${entry.name}`);
+    if (!confirmed) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("delete_permanent", { path: entry.path });
+      if (currentDir) setPath(currentDir);
+    } catch (e) {
+      console.error("[ResourceExplorer] 彻底删除失败:", e);
+    }
+  }, [currentDir, setPath]);
+
+  // 右键菜单 → 打开文件（系统默认程序）
+  const handleOpenFile = React.useCallback(async (entry: FileEntry) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("shell_open_path", { paths: [entry.path] });
+    } catch (e) {
+      console.error("[ResourceExplorer] 打开文件失败:", e);
+    }
   }, []);
 
   // 收藏夹折叠状态
@@ -311,6 +347,9 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
                       onToggleFavorite={() => toggleFavorite(entry)}
                       onOpenInExplorer={() => handleOpenInExplorer(entry)}
                       onCopyPath={() => handleCopyPath(entry)}
+                      onDeleteToTrash={() => handleDeleteToTrash(entry)}
+                      onDeletePermanent={() => handleDeletePermanent(entry)}
+                      onOpenFile={() => handleOpenFile(entry)}
                       getFileIcon={getFileIcon}
                       showSubPath
                     />
@@ -335,6 +374,9 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
                       onToggleFavorite={() => toggleFavorite(entry)}
                       onOpenInExplorer={() => handleOpenInExplorer(entry)}
                       onCopyPath={() => handleCopyPath(entry)}
+                      onDeleteToTrash={() => handleDeleteToTrash(entry)}
+                      onDeletePermanent={() => handleDeletePermanent(entry)}
+                      onOpenFile={() => handleOpenFile(entry)}
                       getFileIcon={getFileIcon}
                     />
                   ))}
@@ -357,6 +399,9 @@ function FileRow({
   onToggleFavorite,
   onOpenInExplorer,
   onCopyPath,
+  onDeleteToTrash,
+  onDeletePermanent,
+  onOpenFile,
   getFileIcon,
   showSubPath,
 }: {
@@ -366,6 +411,9 @@ function FileRow({
   onToggleFavorite: () => void;
   onOpenInExplorer: () => void;
   onCopyPath: () => void;
+  onDeleteToTrash: () => void;
+  onDeletePermanent: () => void;
+  onOpenFile: () => void;
   getFileIcon: (name: string) => string;
   /** 搜索模式：显示相对路径 */
   showSubPath?: boolean;
@@ -400,14 +448,20 @@ function FileRow({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-44">
         {!isDir && (
-          <ContextMenuItem onClick={onClick}>
-            <ExternalLink className="mr-2 h-3.5 w-3.5" />
-            打开
-          </ContextMenuItem>
+          <>
+            <ContextMenuItem onClick={onClick}>
+              <ExternalLink className="mr-2 h-3.5 w-3.5" />
+              预览
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onOpenFile}>
+              <FileText className="mr-2 h-3.5 w-3.5" />
+              打开文件
+            </ContextMenuItem>
+          </>
         )}
         <ContextMenuItem onClick={onOpenInExplorer}>
           <FolderOpen className="mr-2 h-3.5 w-3.5" />
-          在资源管理器中打开
+          {isDir ? "在资源管理器中打开" : "在资源管理器中定位"}
         </ContextMenuItem>
         <ContextMenuItem onClick={onCopyPath}>
           <Copy className="mr-2 h-3.5 w-3.5" />
@@ -421,6 +475,15 @@ function FileRow({
             <Star className="mr-2 h-3.5 w-3.5" />
           )}
           {isFavorited ? "移除收藏" : "添加到收藏"}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onDeleteToTrash}>
+          <Trash2 className="mr-2 h-3.5 w-3.5 text-amber-400" />
+          删除（回收站）
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onDeletePermanent}>
+          <Trash2 className="mr-2 h-3.5 w-3.5 text-red-400" />
+          彻底删除
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

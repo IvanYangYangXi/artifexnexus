@@ -194,6 +194,8 @@ pub fn run() {
             commands::file_ops::list_dir,
             commands::file_ops::read_file_text,
             commands::file_ops::search_dir,
+            commands::file_ops::delete_to_trash,
+            commands::file_ops::delete_permanent,
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar
