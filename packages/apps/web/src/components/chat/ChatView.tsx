@@ -440,6 +440,10 @@ export function ChatView() {
         onCancelPending={handleCancelPending}
         onSwitchToPending={handleSwitchToPending}
         resetFilterVersion={resetFilterVersion}
+        onCleanupComplete={(cleanedKeys) => {
+          chat.cleanExpiredSessions(cleanedKeys);
+          setSessionsVersion((v) => v + 1);
+        }}
       />
 
       {/* C2 消息流（relative 容器承载浮层横幅） */}

@@ -895,6 +895,8 @@ export interface SessionSummary {
   totalTokens: number;
   /** agent ID（从 sessions.json 所在目录提取，用于前端按 agent 筛选） */
   agentId?: string;
+  /** sidecar 返回：transcript .jsonl 文件是否存在（布尔值） */
+  hasTranscript?: boolean;
 }
 
 /** openclaw.sessions.list 返回 */

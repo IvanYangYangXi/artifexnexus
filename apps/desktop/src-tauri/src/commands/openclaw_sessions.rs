@@ -30,6 +30,9 @@ pub struct SessionSummary {
     /// agent ID（来自 sessions.json 所在的 agent 目录名）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// transcript .jsonl 文件是否存在
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_transcript: Option<bool>,
 }
 
 /// openclaw.sessions.list 响应
@@ -86,6 +89,7 @@ pub async fn openclaw_sessions_list(
                 status: s["status"].as_str().unwrap_or("").to_string(),
                 total_tokens: s["totalTokens"].as_u64().unwrap_or(0),
                 agent_id: s["agentId"].as_str().map(|v| v.to_string()),
+                has_transcript: s["hasTranscript"].as_bool(),
             })
         })
         .collect();

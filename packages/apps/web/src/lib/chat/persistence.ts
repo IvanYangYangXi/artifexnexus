@@ -244,6 +244,146 @@ async function deleteMessagesBySession(sessionId: string): Promise<void> {
   });
 }
 
+// ─── 批量操作（自动清理） ──────────────────────────────────────────────────
+
+/** 批量删除的 chunk 大小：每处理此数量后 yield 到事件循环 */
+const BATCH_CHUNK_SIZE = 5;
+
+/**
+ * 单 chunk 删除（在单个 IndexedDB 事务内完成）。
+ */
+async function _deleteChunk(sessionIds: string[]): Promise<string[]> {
+  if (sessionIds.length === 0) return [];
+
+  const db = await openDB();
+  const successIds: string[] = [];
+
+  return new Promise((resolve) => {
+    const tx = db.transaction(
+      [STORE_SESSIONS, STORE_MESSAGES],
+      "readwrite",
+    );
+    const sessionStore = tx.objectStore(STORE_SESSIONS);
+    const messageStore = tx.objectStore(STORE_MESSAGES);
+    const msgIndex = messageStore.index("sessionId");
+
+    let completed = 0;
+    const total = sessionIds.length;
+
+    for (const sessionId of sessionIds) {
+      // 删除消息
+      const cursorReq = msgIndex.openCursor(IDBKeyRange.only(sessionId));
+      cursorReq.onsuccess = (event) => {
+        const cursor = (
+          event.target as IDBRequest<IDBCursorWithValue>
+        ).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+      cursorReq.onerror = () => {
+        console.warn(
+          `[persistence] chunk message delete failed: ${sessionId}`,
+          cursorReq.error,
+        );
+      };
+
+      // 删除会话
+      const delReq = sessionStore.delete(sessionId);
+      delReq.onsuccess = () => {
+        successIds.push(sessionId);
+        completed++;
+      };
+      delReq.onerror = () => {
+        console.warn(
+          `[persistence] chunk session delete failed: ${sessionId}`,
+          delReq.error,
+        );
+        completed++;
+      };
+    }
+
+    tx.oncomplete = () => resolve(successIds);
+    tx.onerror = () => {
+      console.error("[persistence] chunk tx failed:", tx.error);
+      resolve(successIds);
+    };
+  });
+}
+
+/** yield 到事件循环（让 UI 有机会渲染/响应输入） */
+function _yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * 批量删除多个会话及其消息（分块执行，避免阻塞主线程）。
+ *
+ * 每 {@link BATCH_CHUNK_SIZE} 条为一块，块间 yield 到事件循环，
+ * 保证下拉菜单、消息渲染等 UI 操作不被长时间阻塞。
+ *
+ * @param sessionIds - 要删除的会话 ID 列表
+ * @param onChunk - 每完成一块的回调（successIds, chunkIndex, totalChunks）
+ * @returns 成功删除的会话 ID 列表
+ */
+export async function deleteSessionsBatch(
+  sessionIds: string[],
+  onChunk?: (successIds: string[], chunkIndex: number, totalChunks: number) => void,
+): Promise<string[]> {
+  if (sessionIds.length === 0) return [];
+
+  const allSuccess: string[] = [];
+  const totalChunks = Math.ceil(sessionIds.length / BATCH_CHUNK_SIZE);
+
+  for (let i = 0; i < sessionIds.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = sessionIds.slice(i, i + BATCH_CHUNK_SIZE);
+    const chunkIndex = Math.floor(i / BATCH_CHUNK_SIZE);
+
+    const success = await _deleteChunk(chunk);
+    allSuccess.push(...success);
+    onChunk?.(success, chunkIndex, totalChunks);
+
+    // 块间 yield：让 UI 有机会处理事件
+    if (i + BATCH_CHUNK_SIZE < sessionIds.length) {
+      await _yieldToEventLoop();
+    }
+  }
+
+  console.debug(
+    `[persistence] batch deleted: ${allSuccess.length}/${sessionIds.length} sessions (${totalChunks} chunks)`,
+  );
+  return allSuccess;
+}
+
+/**
+ * 清理 localStorage 中的消息缓存。
+ *
+ * 删除所有 `artifex_chat:{sessionKey}` 格式的 key。
+ */
+export function cleanLocalStorageCaches(sessionKeys: string[]): void {
+  const LS_PREFIX = "artifex_chat:";
+  let cleaned = 0;
+
+  for (const key of sessionKeys) {
+    try {
+      const lsKey = `${LS_PREFIX}${key}`;
+      if (localStorage.getItem(lsKey) !== null) {
+        localStorage.removeItem(lsKey);
+        cleaned++;
+      }
+    } catch {
+      // localStorage 不可用，静默忽略
+    }
+  }
+
+  if (cleaned > 0) {
+    console.debug(
+      `[persistence] localStorage caches cleaned: ${cleaned}/${sessionKeys.length}`,
+    );
+  }
+}
+
 // ─── 活动会话 ID ──────────────────────────────────────────────────────────
 
 const ACTIVE_SESSION_KEY = "artifex.chat.activeSessionId";

@@ -1152,6 +1152,32 @@ export function useChatService(options: ChatServiceOptions) {
     // 未来实现：通过 Gateway API 重命名 session
   }
 
+  /**
+   * 批量清理指定会话的内存缓存。
+   *
+   * 由 session-cleanup.ts 调用，在 IndexedDB + localStorage 清理后同步清除内存。
+   * 如果当前活跃会话被清理 → 清空消息列表。
+   */
+  function cleanExpiredSessions(sessionKeys: string[]): number {
+    let cleaned = 0;
+    for (const key of sessionKeys) {
+      if (messageCache.has(key)) {
+        messageCache.delete(key);
+        cleaned++;
+      }
+      // 如果删的是当前活跃会话 → 清空消息
+      if (sessionKeyRef.current === key) {
+        dispatch({ type: "CLEAR_MESSAGES" });
+      }
+    }
+    if (cleaned > 0) {
+      console.log(
+        `[chat-service] cleanExpiredSessions: ${cleaned} memory caches cleared`,
+      );
+    }
+    return cleaned;
+  }
+
   /** 切换合并发送开关，持久化到 localStorage（方案 §3.4） */
   function toggleMerge(): void {
     const newVal = !state.mergeEnabled;
@@ -1229,6 +1255,8 @@ export function useChatService(options: ChatServiceOptions) {
     setSelectedConfig,
     /** UI 切换模型时调用：更新选定模型 + 通过 Gateway RPC 设置会话模型 */
     changeModel,
+    /** 批量清理指定会话的内存缓存（由 session-cleanup 调用） */
+    cleanExpiredSessions,
     /** 获取 WS 实例（供 ChatView 发送 chat.history 等 RPC） */
     getWs: () => wsRef.current,
     /** 发送 agentTurn keep-alive（防止 Gateway 回收会话进程） */

@@ -31,6 +31,10 @@ import {
   NEW_KEY,
 } from "../../lib/chat/session-key";
 import { CHAT_MODEL_STORAGE_KEY } from "../../lib/chat/types";
+import {
+  scanExpiredSessions,
+  executeCleanup,
+} from "../../lib/chat/session-cleanup";
 
 // ─── 思考强度 ──────────────────────────────────────────────────────────────
 
@@ -85,6 +89,8 @@ export interface ChatControlBarProps {
   onSwitchToPending?: () => void;
   /** 父组件 +1 时重置 agent filter 为全部（新建对话后触发） */
   resetFilterVersion?: number;
+  /** 清理完成后回调：ChatView 用此清除 chat-service 内存缓存 + 刷新列表 */
+  onCleanupComplete?: (cleanedKeys: string[]) => void;
 }
 
 // ─── 组件 ─────────────────────────────────────────────────────────────────
@@ -103,6 +109,7 @@ export function ChatControlBar({
   onCancelPending,
   onSwitchToPending,
   resetFilterVersion = 0,
+  onCleanupComplete,
 }: ChatControlBarProps) {
   const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
   const [agents, setAgents] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -135,6 +142,7 @@ export function ChatControlBar({
     if (!gatewayRunning) return;
 
     let cancelled = false;
+    let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
     setSessionsLoading(true);
 
     const loadSessions = async () => {
@@ -143,16 +151,63 @@ export function ChatControlBar({
         const ipc = await getIpc();
         const result = await ipc.getSessionsList({ limit: 50 });
         if (cancelled) return;
-        setSessions(result.sessions);
+
+        // ═══ 即时过滤：隐藏超过 24h 且无 transcript 的空会话 ═══
+        const EMPTY_TTL_MS = 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const visibleSessions = result.sessions.filter((s: SessionSummary) => {
+          // 有 transcript → 正常展示
+          if (s.hasTranscript !== false) return true;
+          // 无 transcript 但新建不到 24h → 保留（可能是正在创建中的对话）
+          const createdAt = s.createdAt || 0;
+          if (now - createdAt < EMPTY_TTL_MS) return true;
+          // > 24h 且无 transcript → 隐藏
+          return false;
+        });
+
+        const hidden = result.sessions.length - visibleSessions.length;
+        if (hidden > 0) {
+          console.log(
+            `[ChatControlBar] 过滤 ${hidden} 个无历史记录的空会话（>24h）`,
+          );
+        }
+
+        setSessions(visibleSessions);
 
         // 如果没有活跃对话，自动选中最近的那个（但 pending 存在时不抢）
-        if (!activeSessionKey && !pendingConfig && result.sessions.length > 0) {
+        if (!activeSessionKey && !pendingConfig && visibleSessions.length > 0) {
           const saved = lsGet(ACTIVE_SESSION_KEY, "");
-          const target = result.sessions.find((s: SessionSummary) => s.sessionKey === saved)
-            ?? result.sessions[0];
+          const target = visibleSessions.find((s: SessionSummary) => s.sessionKey === saved)
+            ?? visibleSessions[0];
           if (target && !isSentinel(target.sessionKey)) {
             onSwitchSession(target.sessionKey);
           }
+        }
+
+        // ═══ 延迟清理：30s 后在后台清理 IndexedDB/localStorage ═══
+        const { emptyKeys, expiredKeys } = scanExpiredSessions(result.sessions);
+        const allKeys = [...new Set([...emptyKeys, ...expiredKeys])];
+
+        if (allKeys.length > 0) {
+          cleanupTimer = setTimeout(async () => {
+            if (cancelled) return;
+            console.log(
+              `[ChatControlBar] 延迟清理启动：${emptyKeys.length} 空 + ${expiredKeys.length} 过期 = ${allKeys.length} 条`,
+            );
+
+            try {
+              const cleaned = await executeCleanup(allKeys);
+              if (cleaned.length > 0 && !cancelled) {
+                console.log(
+                  `[ChatControlBar] 清理完成：${cleaned.length}/${allKeys.length} 条已从 IndexedDB/localStorage 移除`,
+                );
+                // 通知 ChatView 清理内存缓存
+                onCleanupComplete?.(cleaned);
+              }
+            } catch (err) {
+              console.warn("[ChatControlBar] 延迟清理失败（非致命）:", err);
+            }
+          }, 30_000);
         }
       } catch (err) {
         // sidecar 不可用时保持空列表
@@ -163,7 +218,10 @@ export function ChatControlBar({
     };
 
     loadSessions();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+    };
   }, [gatewayRunning, activeSessionKey, sessionsVersion]);
 
   // Gateway 运行后通过 sidecar 读取配置中的 Agent/Model 列表
