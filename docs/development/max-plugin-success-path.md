@@ -118,3 +118,52 @@ netstat -an | findstr 18082
 | 18081 | Maya MCP Server |
 | 18082 | 3ds Max MCP Server |
 | 18083 | Blender MCP Server |
+
+## UI 面板规范
+
+Max 和 Maya 插件共享同一套 UI 面板设计规范。
+
+### 文件结构
+
+```
+max_addon/max_ui.py     — Max PySide2 面板
+maya_addon/maya_ui.py   — Maya PySide2 面板
+```
+
+### 设计原则
+
+1. **Tool 窗口** — `Qt.Tool` 标志，跟随主窗口最小化，不出现独立任务栏条目
+2. **简洁排版** — 不用暗色分组框、不堆叠视觉元素，分隔线即可
+3. **文字分层**：
+   - 状态标题：`13px bold`，绿 `#27ae60` / 红 `#c0392b`
+   - 端口/地址：`11px`，`#b0b0b0`（辅助信息不可太暗）
+   - 前缀说明：`12px`，`#b0b0b0`（如 "触发器状态："）
+   - 版本号：`10px`，`#b0b0b0`（底部小字）
+4. **按钮风格**：
+   - 启动按钮：绿色填充 `#27ae60`，高度 32px
+   - 停止按钮：透明底 + 红色边框，高度 26px（与触发器按钮同高），宽度不固定
+   - 触发器按钮：暗色填充 `#3a3a3a` + `#555` 边框，高度 26px
+5. **自动刷新** — QTimer 2s 间隔 + `__init__` 末尾立即首次刷新
+6. **单例模式** — 重复调用 `show_panel()` 聚焦已有窗口
+7. **父窗口** — `QApplication.activeWindow()` 作 parent
+8. **尺寸** — 260×170，最小宽度 260
+
+### 注册入口
+
+- `__init__.py` 菜单加 "Show Panel" 项
+- `_deferred_startup()` 末尾自动调用 `show_panel()`
+- 启动按钮/停止按钮/触发器按钮均通过 `__init__.py` 的 API 操作，面板只做调用
+
+### Topbar 连接状态
+
+Artifex Nexus 主应用右上角显示 DCC MCP Server 连接状态（绿色=已连接，黄色=未连接）。
+通过以下全链路同步：
+
+```
+DCC MCP Server 端口检测 (mcp_bridge.py)
+  → sidecar.py mcp_bridge.status handler
+    → Rust commands/openclaw.rs
+      → 前端 AppShell.tsx → Topbar.tsx
+```
+
+Max/Maya 状态字段：`maxServerRunning` / `maxConnected` / `mayaServerRunning` / `mayaConnected`。

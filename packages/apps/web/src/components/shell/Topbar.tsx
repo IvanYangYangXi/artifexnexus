@@ -179,7 +179,7 @@ export function Topbar({
             <React.Fragment key={d.name}>
               <span className="text-muted-foreground/50">·</span>
               <span className={`flex h-1.5 w-1.5 rounded-full ${d.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
-              <span className={d.connected ? "text-foreground/80" : "text-muted-foreground"}>{d.name}</span>
+              <span className={d.connected ? "text-foreground/80" : "text-muted-foreground"}>{DCC_DISPLAY[d.name] || d.name}</span>
             </React.Fragment>
           ))}
           {/* 折叠下拉（>3 个） */}
