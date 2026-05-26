@@ -4,12 +4,16 @@
   "private": true,
   "description": "Bridge external MCP servers (WebSocket) into OpenClaw agent tools",
   "type": "commonjs",
+  "scripts": {
+    "build": "npx esbuild src/index.ts --bundle --platform=node --outfile=index.js --format=cjs"
+  },
   "openclaw": {
     "extensions": [
       "./index.js"
     ]
   },
   "devDependencies": {
-    "@types/node": "^20.14.0"
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.28.0"
   }
 }

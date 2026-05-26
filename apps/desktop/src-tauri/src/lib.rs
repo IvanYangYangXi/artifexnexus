@@ -114,6 +114,7 @@ pub fn run() {
             // STORY-0028 M2：Gateway MCP Bridge 插件
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,
+            commands::openclaw::openclaw_gateway_mcp_bridge_uninstall,
             // 触发器诊断
             commands::openclaw::openclaw_trigger_diagnose,
             // STORY-0029 M2：DCC 端口管理

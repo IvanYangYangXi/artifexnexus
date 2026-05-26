@@ -862,6 +862,16 @@ export async function getMCPBridgeStatus(): Promise<MCPBridgeStatus> {
   return invoke<MCPBridgeStatus>("openclaw_gateway_mcp_bridge_status");
 }
 
+/** 安装/重装 MCP Bridge 插件 */
+export async function installGatewayMCPBridge(): Promise<{ success: boolean; target: string; error: string | null }> {
+  return invoke("openclaw_gateway_mcp_bridge_install");
+}
+
+/** 卸载 MCP Bridge 插件 */
+export async function uninstallGatewayMCPBridge(): Promise<{ success: boolean; target: string; error: string | null }> {
+  return invoke("openclaw_gateway_mcp_bridge_uninstall");
+}
+
 // ---------------------------------------------------------------------------
 // STORY-0039 M3：对话列表管理
 // ---------------------------------------------------------------------------

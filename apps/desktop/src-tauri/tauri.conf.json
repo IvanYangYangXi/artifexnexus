@@ -7,7 +7,7 @@
     "frontendDist": "../../../packages/apps/web/out",
     "devUrl": "http://localhost:18790",
     "beforeDevCommand": "pnpm --filter @artifex-nexus/web dev",
-    "beforeBuildCommand": "pnpm --filter @artifex-nexus/web build"
+    "beforeBuildCommand": "pnpm --filter @openclaw/mcp-bridge build && pnpm --filter @artifex-nexus/web build"
   },
   "app": {
     "windows": [

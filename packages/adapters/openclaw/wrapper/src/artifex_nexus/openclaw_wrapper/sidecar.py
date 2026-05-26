@@ -1515,6 +1515,27 @@ def _handle_openclaw_gateway_mcp_bridge_status(req_id: Any, params: dict) -> dic
         }
 
 
+def _handle_openclaw_gateway_mcp_bridge_uninstall(req_id: Any, params: dict) -> dict:
+    """openclaw.gateway.mcp_bridge.uninstall RPC：卸载 mcp-bridge 插件。
+
+    返回：
+        {"success": bool, "target": str, "error": str|None}
+    """
+    try:
+        result = _dcc_installer.uninstall_gateway_mcp_bridge()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result,
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
 def _handle_openclaw_dcc_port_get(req_id: Any, params: dict) -> dict:
     """openclaw.dcc.port.get RPC：获取 DCC MCP Server 端口配置。
 
@@ -2155,6 +2176,7 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0028 M2：Gateway MCP Bridge 插件部署
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
+    "openclaw.gateway.mcp_bridge.uninstall": _handle_openclaw_gateway_mcp_bridge_uninstall,
     # 触发器诊断
     "openclaw.trigger.diagnose": _handle_trigger_diagnose,
     # STORY-0029 M2：DCC 端口管理

@@ -40,6 +40,7 @@ class MaxAdapter(BaseDCCAdapter):
         self._results_lock = threading.Lock()
         self._task_id: int = 0
         self._consumer_registered = False
+        self._poll_timer = None  # QTimer 引用
 
     def set_server(self, server):
         self._server = server
@@ -64,54 +65,80 @@ class MaxAdapter(BaseDCCAdapter):
 
     def on_startup(self) -> None:
         logger.info("Max adapter 启动")
-        self._ensure_consumer()
+        self._start_poll_timer()
 
     def on_shutdown(self) -> None:
         logger.info("Max adapter 关闭")
+        if self._poll_timer is not None:
+            try:
+                self._poll_timer.stop()
+            except Exception:
+                pass
+            self._poll_timer = None
         if self._server and self._server.is_running:
             self._server.stop()
 
-    # ── 主线程调度 ──
+    # ── 主线程调度（QTimer 轮询方案，参照 artclaw）──
 
-    def _ensure_consumer(self):
-        """确保 #timeout 消费者已注册"""
+    def _start_poll_timer(self):
+        """启动 QTimer 轮询主线程任务队列（50ms 间隔）。
+
+        QTimer.singleShot(0, fn) 在 Max 中不可靠，改用持久 QTimer。
+        """
+        if self._poll_timer is not None:
+            return
+        try:
+            from PySide2.QtCore import QTimer
+            self._poll_timer = QTimer()
+            self._poll_timer.setInterval(50)
+            self._poll_timer.timeout.connect(self._pump_tasks)
+            self._poll_timer.start()
+            logger.info("Max 主线程轮询已启动 (50ms QTimer)")
+        except Exception as e:
+            logger.warning(f"无法启动 QTimer 轮询: {e}")
+            # fallback: 注册 timeout 回调
+            self._register_timeout_fallback()
+
+    def _register_timeout_fallback(self):
+        """QTimer 不可用时的 fallback：使用 #timeout 回调"""
         if self._consumer_registered:
             return
         try:
             import pymxs
-            # 通过 max_adapter 模块直接引用 _global_adapter（max_addon/ 已在 sys.path）
             pymxs.runtime.callbacks.addScript(
                 pymxs.runtime.Name("timeout"),
-                "python.execute(\"from max_adapter import _global_adapter; _global_adapter._consume()\")",
+                "python.execute(\"from max_adapter import _global_adapter; _global_adapter._pump_tasks()\")",
                 id=pymxs.runtime.Name("artifex_max_consumer"),
             )
             self._consumer_registered = True
-            logger.info("Max timeout consumer 已注册")
+            logger.info("Max timeout consumer 已注册 (QTimer fallback)")
         except Exception as e:
-            logger.warning(f"注册 consumer 失败 (可能在 CI 环境): {e}")
+            logger.warning(f"注册 consumer 失败: {e}")
 
-    def _consume(self):
-        """消费主线程队列（由 #timeout 回调触发）"""
-        try:
-            while not self._main_thread_queue.empty():
+    def _pump_tasks(self):
+        """在主线程中执行队列里的所有待处理任务。"""
+        while not self._main_thread_queue.empty():
+            try:
+                task_id, fn, args, result_event = self._main_thread_queue.get_nowait()
+                result = fn(*args)
+                with self._results_lock:
+                    self._results[task_id] = result
+                result_event.set()
+            except queue.Empty:
+                break
+            except Exception as e:
+                logger.error(f"主线程执行异常: {e}")
+                # 取 task_id 用于错误报告
                 try:
-                    task_id, fn, args, result_event = self._main_thread_queue.get_nowait()
-                    result = fn(*args)
-                    with self._results_lock:
-                        self._results[task_id] = result
-                    result_event.set()
-                except queue.Empty:
-                    break
-                except Exception as e:
-                    logger.error(f"主线程执行异常: {e}")
                     with self._results_lock:
                         self._results[task_id] = e
                     result_event.set()
-        except Exception:
-            pass
+                except Exception:
+                    pass
 
     def execute_on_main_thread(self, fn: Callable, *args) -> Any:
         """在 Max 主线程执行函数（阻塞等待结果）。"""
+        self._start_poll_timer()  # 确保轮询已启动
         task_id = self._task_id
         self._task_id += 1
         result_event = threading.Event()

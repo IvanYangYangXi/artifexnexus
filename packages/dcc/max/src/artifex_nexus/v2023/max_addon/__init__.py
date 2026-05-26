@@ -163,39 +163,99 @@ def get_status() -> Dict[str, Any]:
 # ── Max UI ──────────────────────────────────────────────────────────────
 
 def _create_menu():
-    """创建 Artifex Nexus 菜单"""
+    """创建 Artifex Nexus 菜单（先注册 MacroScript，再创建菜单项）。
+
+    参照 artclaw：先用 rt.execute('macroScript ...') 注册宏，
+    再用 menuMan.createActionItem 引用它们。
+    """
     if not _HAS_MAX:
         return
 
     try:
         from pymxs import runtime as rt
 
-        # 查找或创建菜单
-        main_menu = rt.menuMan.getMainMenuBar()
+        # 1. 注册 MacroScript（幂等：先 cleanup 再注册）
+        rt.execute('''
+            -- 清理已有
+            for m in #(artifex_nexus_start, artifex_nexus_stop, artifex_nexus_status, artifex_nexus_toggle_triggers) do (
+                try (macros.delete m) catch()
+            )
 
-        # 创建子菜单
-        an_menu = rt.menuMan.createMenu("ArtifexNexus")
+            macroScript artifex_nexus_start
+                category:"ArtifexNexus"
+                tooltip:"Start Artifex Nexus MCP Server"
+            (
+                python.execute "from artifex_nexus.v2023.max_addon import start_server, _print_status; start_server(); _print_status()"
+            )
 
-        # 菜单项（通过 Action 实现）
-        # 注意：3ds Max 菜单宏通过 macroScript 注册
-        # 这里使用简单的 Python 控制台输出作为 fallback
-        action_items = [
-            ("启动 MCP Server", "artifex_nexus_start"),
-            ("停止 MCP Server", "artifex_nexus_stop"),
-            ("查看状态", "artifex_nexus_status"),
-            ("切换触发器", "artifex_nexus_toggle_triggers"),
-        ]
+            macroScript artifex_nexus_stop
+                category:"ArtifexNexus"
+                tooltip:"Stop Artifex Nexus MCP Server"
+            (
+                python.execute "from artifex_nexus.v2023.max_addon import stop_server, _print_status; stop_server(); _print_status()"
+            )
 
-        for label, action_name in action_items:
-            action = rt.menuMan.createActionItem(action_name, "ArtifexNexus")
-            action.setTitle(label)
-            an_menu.addItem(action, -1)
+            macroScript artifex_nexus_status
+                category:"ArtifexNexus"
+                tooltip:"Show Artifex Nexus Status"
+            (
+                python.execute "from artifex_nexus.v2023.max_addon import _print_status; _print_status()"
+            )
 
-        # 添加到主菜单
-        sub_menu_item = rt.menuMan.createSubMenuItem("Artifex Nexus", an_menu)
-        main_menu.addItem(sub_menu_item, -1)
+            macroScript artifex_nexus_toggle_triggers
+                category:"ArtifexNexus"
+                tooltip:"Toggle Artifex Nexus Triggers"
+            (
+                python.execute "from artifex_nexus.v2023.max_addon import toggle_triggers, _print_status; toggle_triggers(); _print_status()"
+            )
+        ''')
 
-        rt.menuMan.updateMenuBar()
+        # 2. 创建菜单（幂等：先清理再创建）
+        rt.execute('''
+            -- 清理已有菜单
+            for i = 1 to 5 do (
+                m = menuMan.findMenu "ArtifexNexus"
+                if m != undefined do menuMan.unRegisterMenu m
+            )
+            mainMenu = menuMan.getMainMenuBar()
+            for i = mainMenu.numItems() to 1 by -1 do (
+                item = mainMenu.getItem i
+                if item != undefined and item.getTitle() == "Artifex Nexus" do
+                    mainMenu.removeItemByPosition i
+            )
+
+            -- 创建新菜单
+            anMenu = menuMan.createMenu "ArtifexNexus"
+
+            startAction = menuMan.createActionItem "artifex_nexus_start" "ArtifexNexus"
+            startAction.setTitle "Start MCP Server"
+            startAction.setUseCustomTitle true
+            anMenu.addItem startAction -1
+
+            stopAction = menuMan.createActionItem "artifex_nexus_stop" "ArtifexNexus"
+            stopAction.setTitle "Stop MCP Server"
+            stopAction.setUseCustomTitle true
+            anMenu.addItem stopAction -1
+
+            anMenu.addItem (menuMan.createSeparatorItem()) -1
+
+            toggleAction = menuMan.createActionItem "artifex_nexus_toggle_triggers" "ArtifexNexus"
+            toggleAction.setTitle "Toggle Triggers"
+            toggleAction.setUseCustomTitle true
+            anMenu.addItem toggleAction -1
+
+            anMenu.addItem (menuMan.createSeparatorItem()) -1
+
+            statusAction = menuMan.createActionItem "artifex_nexus_status" "ArtifexNexus"
+            statusAction.setTitle "Status"
+            statusAction.setUseCustomTitle true
+            anMenu.addItem statusAction -1
+
+            subItem = menuMan.createSubMenuItem "Artifex Nexus" anMenu
+            mainMenu.addItem subItem (mainMenu.numItems())
+            menuMan.updateMenuBar()
+        ''')
+
         logger.info("Max 菜单已创建")
     except Exception as e:
         logger.error(f"创建 Max 菜单失败: {e}")
@@ -222,7 +282,11 @@ def _print_status():
 # ── 生命周期 ────────────────────────────────────────────────────────────
 
 def register():
-    """Max 启动时调用（由 startup.py 触发）"""
+    """Max 启动时调用（由 startup.py 通过 _deferred_startup 触发）。
+
+    仅创建菜单，不自动启动 Server（Server 由 startup.py 管理）。
+    保留此函数用于手动调用场景（如 Shelf 按钮）。
+    """
     if not _HAS_MAX:
         logger.warning("pymxs 不可用，跳过 UI 注册")
         return
@@ -233,15 +297,6 @@ def register():
         _create_menu()
     except Exception as e:
         logger.warning(f"创建菜单失败: {e}")
-
-    # 自动启动
-    auto_start = os.environ.get("ARTIFEX_MAX_AUTO_START", "1") == "1"
-    if auto_start:
-        from trigger_dispatcher import register_max_callbacks
-        register_max_callbacks()
-        adapter = _get_adapter()
-        adapter.on_startup()
-        start_server()
 
     logger.info("Max addon 注册完成")
     _print_status()

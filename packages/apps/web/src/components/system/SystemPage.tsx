@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, Dial
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus, PluginSummary } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility, installGatewayMCPBridge } from "../../ipc/openclaw";
 
 // ─── 版本比较工具 ───────────────────────────────────────────────────
 
@@ -195,6 +195,7 @@ interface LogEntry { time: string; itemId: string; level: "info" | "warn" | "err
 
 const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
+  { id: "gateway-plugin", name: "Gateway Plugin", iconKey: "gateway-plugin", state: "not-installed", expandable: false },
   { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
   { id: "blender", name: "Blender", iconKey: "blender", state: "pending", expandable: true, children: [] },
   { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [] },
@@ -205,7 +206,7 @@ const FIXTURE_ITEMS: InstallItem[] = [
 
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
 const STATE_COLORS: Record<ItemState, string> = { unavailable: "bg-muted text-muted-foreground", pending: "bg-muted text-muted-foreground", "not-installed": "bg-muted text-muted-foreground", installing: "bg-sky-500/15 text-sky-400", installed: "bg-emerald-500/15 text-emerald-400", "update-available": "bg-amber-500/15 text-amber-400", failed: "bg-red-500/15 text-red-400" };
-const ICON_LABELS: Record<string, string> = { openclaw: "OC", "web-ui": "W", blender: "B", unreal_engine: "U", "3ds_max": "3", maya: "M", comfyui: "C" };
+const ICON_LABELS: Record<string, string> = { openclaw: "OC", "gateway-plugin": "GP", "web-ui": "W", blender: "B", unreal_engine: "U", "3ds_max": "3", maya: "M", comfyui: "C" };
 
 // ─── UE 路径清理：去掉尾部多余的 \Plugins 或 \  ─────────────────
 function normalizeProjectPath(raw: string): string {
@@ -366,6 +367,20 @@ function InstallerTab() {
       setItems((prev) => prev.map((it) => it.id === "openclaw" ? { ...it, state: "not-installed" } : it));
       addLog("openclaw", "warn", "OpenClaw 状态查询失败（sidecar 不可用）");
     }
+
+    // Gateway Plugin 检测
+    try {
+      const gps = await ipc.getMCPBridgeStatus();
+      setItems((prev) => prev.map((it) => it.id === "gateway-plugin" ? { ...it, state: gps.installed ? "installed" : "not-installed" } : it));
+      if (!gps.installed) {
+        addLog("gateway-plugin", "info", "Gateway MCP Bridge Plugin: 未部署");
+      } else if (!gps.upToDate) {
+        addLog("gateway-plugin", "warn", `Gateway MCP Bridge Plugin: 已安装（可更新）`);
+        setItems((prev) => prev.map((it) => it.id === "gateway-plugin" ? { ...it, state: "update-available" } : it));
+      } else {
+        addLog("gateway-plugin", "info", "Gateway MCP Bridge Plugin: 已安装");
+      }
+    } catch { addLog("gateway-plugin", "warn", "Gateway Plugin 检测失败"); }
 
     // Blender 检测
     try {
@@ -547,6 +562,20 @@ function InstallerTab() {
           return it;
         }));
       } catch (e: any) { addLog(id, "error", e.message || String(e)); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: e.message || undefined } : it)); }
+      return;
+    }
+    if (id === "gateway-plugin") {
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
+      try {
+        const r = await ipc.installGatewayMCPBridge();
+        if (r.success) {
+          addLog(id, "info", `Gateway Plugin 部署成功 → ${r.target}`);
+          setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it));
+        } else {
+          addLog(id, "error", r.error || "部署失败");
+          setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" } : it));
+        }
+      } catch (e: any) { addLog(id, "error", e.message || String(e)); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState } : it)); }
       return;
     }
     if (id === "blender") {

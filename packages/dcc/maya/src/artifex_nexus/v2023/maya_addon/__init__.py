@@ -305,7 +305,7 @@ def register():
     Maya 启动时调用（由 userSetup.py 触发）。
 
     在 ~/Documents/maya/{ver}/scripts/userSetup.py 中添加:
-        from artifex_nexus.v2023.maya_addon import register
+        from artifex_nexus import register
         register()
     """
     if not _HAS_MAYA:
@@ -314,21 +314,27 @@ def register():
 
     logger.info(f"Artifex Nexus Maya Addon v{'.'.join(map(str, plugin_info['version']))}")
 
-    # 创建 UI
-    _create_menu()
-    _create_shelf()
+    # 延迟执行，等 Maya UI 完全就绪
+    import maya.utils as _mu
 
-    # 注册事件钩子
-    from trigger_dispatcher import register_maya_callbacks
-    register_maya_callbacks()
+    def _deferred_startup():
+        # 创建 UI
+        _create_menu()
+        _create_shelf()
 
-    # 自动启动 MCP Server（可选，由用户配置决定）
-    auto_start = os.environ.get("ARTIFEX_MAYA_AUTO_START", "1") == "1"
-    if auto_start:
-        logger.info("自动启动 MCP Server...")
-        start_server()
+        # 注册事件钩子
+        from trigger_dispatcher import register_maya_callbacks
+        register_maya_callbacks()
 
-    logger.info("Maya addon 注册完成")
+        # 自动启动 MCP Server（可选，由用户配置决定）
+        auto_start = os.environ.get("ARTIFEX_MAYA_AUTO_START", "1") == "1"
+        if auto_start:
+            logger.info("自动启动 MCP Server...")
+            start_server()
+
+        logger.info("Maya addon 注册完成")
+
+    _mu.executeDeferred(_deferred_startup)
 
 
 def unregister():
@@ -360,26 +366,30 @@ def unregister():
 
 # ── userSetup.py 模板────────────────────────────────────────────────────
 
-def generate_user_setup(target_dir: str = None) -> str:
-    """生成 userSetup.py 内容（供安装器使用）"""
-    content = '''# Artifex Nexus Maya Bridge — 自动加载
+def generate_user_setup(maya_version: str = "2023") -> str:
+    """生成 userSetup.py 内容（供安装器使用）。
+
+    Args:
+        maya_version: Maya 版本号，如 "2023"
+    """
+    # 安装后路径：scripts/artifex_nexus/ 下包含 v{maya_version}/maya_addon/
+    content = f'''# Artifex Nexus Maya Bridge — 自动加载
 import sys
 import os
 
-# 添加插件路径（安装器自动填充）
-_addon_path = os.path.join(
-    os.path.expanduser("~"), "Documents", "maya",
-    os.path.basename(os.path.dirname(os.path.dirname(__file__))) if "__file__" in dir() else "",
-    "scripts", "artifex_nexus"
+_addon_dir = os.path.join(
+    os.path.dirname(__file__),
+    "artifex_nexus", "v{maya_version}", "maya_addon"
 )
-if os.path.exists(_addon_path) and _addon_path not in sys.path:
-    sys.path.insert(0, _addon_path)
+if os.path.exists(_addon_dir) and _addon_dir not in sys.path:
+    sys.path.insert(0, _addon_dir)
 
 try:
-    from artifex_nexus.v2023.maya_addon import register
+    from artifex_nexus.v{maya_version}.maya_addon import register
     register()
+    print("[Artifex Nexus] Maya Bridge 已加载")
 except ImportError as e:
-    print(f"[Artifex Nexus] 加载失败: {e}")
+    print(f"[Artifex Nexus] 加载失败: {{e}}")
 '''
     return content
 

@@ -28,7 +28,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -698,11 +698,12 @@ def find_maya_versions() -> List[str]:
 
 
 def install_maya_addon(maya_version: str, force: bool = False) -> Dict:
-    """安装 Maya 插件 + locale 同步。
+    """安装 Maya 插件 + locale 同步 + userSetup.py 部署。
 
     Maya 安装策略：
       1. 安装主目录到 ~/Documents/maya/{ver}/scripts/artifex_nexus/
       2. 扫描 locale 子目录（xx_XX 格式），物理复制到各 locale
+      3. 在 scripts/ 目录生成/更新 userSetup.py（Maya 启动时自动加载）
     """
     result = install_dcc_addon("maya", maya_version, force)
     if not result.get("success"):
@@ -712,6 +713,14 @@ def install_maya_addon(maya_version: str, force: bool = False) -> Dict:
     locale_synced = _sync_maya_locales(maya_version)
     if locale_synced:
         result["locale_synced"] = locale_synced
+
+    # userSetup.py 部署（Maya 启动自动加载）
+    try:
+        user_setup_info = _deploy_maya_user_setup(maya_version)
+        if user_setup_info:
+            result["user_setup"] = user_setup_info
+    except Exception as e:
+        logger.warning(f"Maya userSetup.py 部署失败（不阻断安装）: {e}")
 
     return result
 
@@ -759,6 +768,71 @@ def _cleanup_maya_locales(maya_version: str) -> None:
         locale_target = os.path.join(locale_dir, "artifex_nexus")
         if os.path.exists(locale_target):
             _remove_link_or_dir(locale_target)
+
+
+def _deploy_maya_user_setup(maya_version: str) -> Dict[str, Any]:
+    """在 Maya scripts/ 目录生成/更新 userSetup.py。
+
+    如果已有 userSetup.py，只追加 artifex nexus 代码段（不覆盖原有内容）。
+    同步到所有 locale 目录。
+
+    Returns:
+        {"created": bool, "appended": bool, "path": str}
+    """
+    base = _DCC_VERSION_SCAN_PATHS.get("maya", "")
+    scripts_dir = os.path.join(base, maya_version, "scripts")
+    user_setup_path = os.path.join(scripts_dir, "userSetup.py")
+
+    # 生成 userSetup.py 内容（相对路径注入）
+    addon_code_block = f'''# >>> Artifex Nexus Maya Bridge (auto-generated)
+import sys, os
+_addon = os.path.join(os.path.dirname(__file__), "artifex_nexus", "v{maya_version}", "maya_addon")
+if os.path.exists(_addon) and _addon not in sys.path:
+    sys.path.insert(0, _addon)
+try:
+    from artifex_nexus.v{maya_version}.maya_addon import register
+    register()
+except ImportError:
+    pass
+# <<< Artifex Nexus Maya Bridge
+'''
+
+    created = False
+    appended = False
+
+    if not os.path.exists(user_setup_path):
+        os.makedirs(scripts_dir, exist_ok=True)
+        with open(user_setup_path, "w", encoding="utf-8") as f:
+            f.write(addon_code_block)
+        created = True
+        logger.info(f"Maya userSetup.py 已创建: {user_setup_path}")
+    else:
+        with open(user_setup_path, "r", encoding="utf-8") as f:
+            existing = f.read()
+        if "Artifex Nexus Maya Bridge" not in existing:
+            with open(user_setup_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{addon_code_block}")
+            appended = True
+            logger.info(f"Maya userSetup.py 已追加: {user_setup_path}")
+        else:
+            logger.info(f"Maya userSetup.py 已存在且包含 Artifex Nexus 条目")
+
+    result_info: Dict[str, Any] = {"created": created, "appended": appended, "path": user_setup_path}
+
+    # 同步到 locale 目录
+    for locale_dir in _get_maya_locale_dirs(maya_version):
+        locale_us = os.path.join(os.path.dirname(locale_dir), "userSetup.py")
+        try:
+            if not os.path.exists(locale_us) or "Artifex Nexus Maya Bridge" not in open(locale_us, "r", encoding="utf-8").read():
+                with open(locale_us, "w" if not os.path.exists(locale_us) else "a", encoding="utf-8") as f:
+                    if not os.path.exists(locale_us):
+                        f.write(addon_code_block)
+                    else:
+                        f.write(f"\n{addon_code_block}")
+        except Exception:
+            pass
+
+    return result_info
 
 
 # ── 3ds Max 便捷别名 ──────────────────────────────────────────────────────
@@ -1278,13 +1352,6 @@ def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = Fal
             set_dcc_port("unreal", UE_MCP_DEFAULT_PORT)
         except Exception as e:
             logger.warning("UE MCP Bridge 端口配置更新失败（不阻断安装）: %s", e)
-
-        # 部署 Gateway MCP Bridge 插件文件到 OpenClaw extensions 目录
-        # （确保 index.js / openclaw.plugin.json 为最新版本）
-        try:
-            install_gateway_mcp_bridge()
-        except Exception as e:
-            logger.warning("Gateway MCP Bridge 插件部署失败（不阻断安装）: %s", e)
 
         # 安装后诊断：检查 Python 运行时依赖就绪状态
         _diagnose_ue_python_readiness(target_dir)

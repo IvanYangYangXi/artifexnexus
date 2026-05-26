@@ -18,11 +18,11 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/index.ts
-var src_exports = {};
-__export(src_exports, {
-  default: () => src_default
+var index_exports = {};
+__export(index_exports, {
+  default: () => index_default
 });
-module.exports = __toCommonJS(src_exports);
+module.exports = __toCommonJS(index_exports);
 var nextRequestId = 1;
 function createJsonRpcRequest(method, params) {
   return JSON.stringify({
@@ -116,8 +116,12 @@ var McpWebSocketClient = class {
               handlers.resolve(response.result);
             }
           } else if (response && response.id) {
-            if (response.result && typeof response.result === "object" && Object.keys(response.result).length === 0) {
-              return;
+            const method = response.result ? "result" : response.error ? "error" : "";
+            if (method === "result" && typeof response.result === "object") {
+              const result = response.result;
+              if (result && Object.keys(result).length === 0) {
+                return;
+              }
             }
             this.logger.debug(`[mcp-bridge] unmatched response ${this.name}: id=${response.id} (no pending handler)`);
           }
@@ -276,7 +280,7 @@ var McpWebSocketClient = class {
     this.pendingRequests.clear();
   }
 };
-function src_default(api) {
+function index_default(api) {
   const logger = api.log || console;
   const clients = /* @__PURE__ */ new Map();
   let pluginConfig = {};
@@ -300,7 +304,9 @@ function src_default(api) {
   const servers = pluginConfig.servers || {};
   const DEFAULT_DCC_SERVERS = {
     "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083", enabled: true },
-    "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true }
+    "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true },
+    "maya-primary": { type: "websocket", url: "ws://127.0.0.1:18081", enabled: true },
+    "max-primary": { type: "websocket", url: "ws://127.0.0.1:18082", enabled: true }
   };
   let configPatched = false;
   for (const [name, def] of Object.entries(DEFAULT_DCC_SERVERS)) {
@@ -352,6 +358,34 @@ function src_default(api) {
           properties: {
             code: { type: "string", description: "Python code to execute in Unreal Editor" },
             get_context: { type: "boolean", description: "Set to true to return editor context without executing code", default: false }
+          },
+          required: []
+        }
+      }
+    ],
+    "maya-primary": [
+      {
+        name: "run_python",
+        description: "\u5728 Maya \u4E2D\u6267\u884C Python \u4EE3\u7801\u3002\n\n\u4E0A\u4E0B\u6587\u53D8\u91CF\uFF08\u5DF2\u81EA\u52A8\u6CE8\u5165\uFF0C\u65E0\u9700 import\uFF09:\n  S = \u9009\u4E2D\u5BF9\u8C61\u5217\u8868 (maya.cmds.ls(sl=True))\n  W = \u5F53\u524D\u573A\u666F\u6587\u4EF6\u8DEF\u5F84\n  L = maya.cmds \u6A21\u5757\n  maya = maya.cmds \u6A21\u5757\n  pymel = pymel.core \u6A21\u5757\uFF08\u5982\u679C\u53EF\u7528\uFF09\n\n\u5C06\u8FD4\u56DE\u503C\u8D4B\u7ED9 result \u53D8\u91CF\uFF0C\u6846\u67B6\u4F1A\u81EA\u52A8\u63D0\u53D6\u5E76\u8FD4\u56DE\u3002\n\u5750\u6807\u7CFB\u7EDF\uFF1AY-Up\uFF0C\u5355\u4F4D\u4E3A\u5398\u7C73(cm)\u3002\n\n\u5FEB\u6377\u4E0A\u4E0B\u6587: \u8BBE get_context=true\uFF08\u65E0\u9700 code\uFF09\u53EF\u83B7\u53D6\u7F16\u8F91\u5668\u72B6\u6001\u3002",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "\u8981\u6267\u884C\u7684 Python \u4EE3\u7801" },
+            get_context: { type: "boolean", description: "\u8BBE\u4E3A true \u65F6\u76F4\u63A5\u8FD4\u56DE\u7F16\u8F91\u5668\u4E0A\u4E0B\u6587\uFF08\u8F6F\u4EF6/\u7248\u672C/\u9009\u4E2D\u5BF9\u8C61/\u573A\u666F\uFF09\uFF0C\u65E0\u9700\u63D0\u4F9B code", default: false }
+          },
+          required: []
+        }
+      }
+    ],
+    "max-primary": [
+      {
+        name: "run_python",
+        description: "\u5728 3ds Max \u4E2D\u6267\u884C Python \u4EE3\u7801\uFF08\u901A\u8FC7 pymxs\uFF09\u3002\n\n\u4E0A\u4E0B\u6587\u53D8\u91CF\uFF08\u5DF2\u81EA\u52A8\u6CE8\u5165\uFF0C\u65E0\u9700 import\uFF09:\n  S = \u9009\u4E2D\u5BF9\u8C61\u5217\u8868 (pymxs.runtime.selection)\n  W = \u5F53\u524D\u573A\u666F\u6587\u4EF6\u8DEF\u5F84\n  L = pymxs.runtime \u6A21\u5757\n  rt = pymxs.runtime \u522B\u540D\n  pymxs = pymxs \u6A21\u5757\n\n\u5C06\u8FD4\u56DE\u503C\u8D4B\u7ED9 result \u53D8\u91CF\uFF0C\u6846\u67B6\u4F1A\u81EA\u52A8\u63D0\u53D6\u5E76\u8FD4\u56DE\u3002\n\u5750\u6807\u7CFB\u7EDF\uFF1AZ-Up\u3002\n\n\u5FEB\u6377\u4E0A\u4E0B\u6587: \u8BBE get_context=true\uFF08\u65E0\u9700 code\uFF09\u53EF\u83B7\u53D6\u7F16\u8F91\u5668\u72B6\u6001\u3002",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "\u8981\u6267\u884C\u7684 Python \u4EE3\u7801" },
+            get_context: { type: "boolean", description: "\u8BBE\u4E3A true \u65F6\u76F4\u63A5\u8FD4\u56DE\u7F16\u8F91\u5668\u4E0A\u4E0B\u6587\uFF08\u8F6F\u4EF6/\u7248\u672C/\u9009\u4E2D\u5BF9\u8C61/\u573A\u666F\uFF09\uFF0C\u65E0\u9700\u63D0\u4F9B code", default: false }
           },
           required: []
         }
