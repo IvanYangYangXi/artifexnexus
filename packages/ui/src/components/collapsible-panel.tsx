@@ -447,17 +447,6 @@ export const CollapsiblePanel = React.forwardRef<
 
   const canHide = ctx.hideable && (panelHideable !== false);
 
-  // ── 隐藏态 ──
-  // 派生自 context registry（受控 → context → 默认 false）
-  // HiddenTabBar 调用 ctx.setHidden(id,false) 即可直接恢复
-  const hidden = controlledHidden ?? (id ? ctx.hiddenRegistry[id] === true : false);
-  const setHidden = (next: boolean) => {
-    onHiddenChange?.(next);
-    if (controlledHidden === undefined) {
-      if (id) ctx.setHidden(id, next);
-    }
-  };
-
   // ── 列归属注册 ──
   // 只在 registry 中尚无此 id 时写入默认列，防止 remount（列切换导致）
   // 时用默认 column="left" 覆盖用户选择的结果
@@ -467,19 +456,55 @@ export const CollapsiblePanel = React.forwardRef<
     }
   }, [id, column, ctx.dualColumn, ctx.setColumn, ctx.columnRegistry]);
 
-  // ── 展开/折叠态 ──
+  // ── 展开/折叠态（持久化到 localStorage）──
+  const panelStorageKey = React.useMemo(() => id ? `artifex.shell.dpanel.${id}` : "", [id]);
+  const loadPersistentState = React.useCallback(<T,>(key: string, field: string, fallback: T): T => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? (JSON.parse(raw)[field] ?? fallback) : fallback;
+    } catch { return fallback; }
+  }, []);
+  const savePersistentState = React.useCallback((openVal: boolean, hiddenVal: boolean) => {
+    if (!panelStorageKey) return;
+    try { localStorage.setItem(panelStorageKey, JSON.stringify({ open: openVal, hidden: hiddenVal })); } catch {}
+  }, [panelStorageKey]);
+
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(() =>
+    panelStorageKey ? loadPersistentState<boolean>(panelStorageKey, "open", defaultOpen) : defaultOpen
+  );
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    onOpenChange?.(next);
+    if (controlledOpen === undefined) {
+      setUncontrolledOpen(next);
+      savePersistentState(next, hidden ?? false);
+    }
+  };
+
+  // ── 隐藏态持久化 ──
+  // 源：localStorage → fallback: ctx.hiddenRegistry（HiddenTabBar 通过 ctx 恢复）
+  const [localHidden, setLocalHidden] = React.useState(() =>
+    panelStorageKey ? loadPersistentState<boolean>(panelStorageKey, "hidden", false) : false
+  );
+  // context 作为 secondary sync
+  const ctxHidden = React.useMemo(() => id ? ctx.hiddenRegistry[id] === true : false, [id, ctx.hiddenRegistry]);
+  const hidden = controlledHidden ?? (localHidden || ctxHidden);
+  const setHidden = (next: boolean) => {
+    onHiddenChange?.(next);
+    if (controlledHidden === undefined) {
+      setLocalHidden(next);
+      savePersistentState(open, next);
+      if (id && !next) ctx.setHidden(id, false); // 从隐藏恢复时同步 ctx
+      if (id && next) ctx.setHidden(id, true);
+    }
+  };
+
+  // ── 计算 collapsedSize ──
   const collapsedSize = React.useMemo(() => {
     if (!ctx.containerHeight) return 5;
     const pct = (ctx.headerHeight / ctx.containerHeight) * 100;
     return Math.max(2, Math.min(pct, 20));
   }, [ctx.containerHeight, ctx.headerHeight]);
-
-  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
-  const open = controlledOpen ?? uncontrolledOpen;
-  const setOpen = (next: boolean) => {
-    onOpenChange?.(next);
-    if (controlledOpen === undefined) setUncontrolledOpen(next);
-  };
 
   const panelRef = React.useRef<ImperativePanelHandle>(null);
   React.useImperativeHandle(ref, () => panelRef.current!, []);
