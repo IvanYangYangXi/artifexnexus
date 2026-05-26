@@ -8,7 +8,7 @@
  *   3. 筛选条件（Filters）— DCC 选择 + ObjectTypePicker + 路径规则（分页）
  *   4. 触发器（Triggers）— 事件触发规则的增删改+启用开关
  *
- * 底部操作栏：[刷新] [另存为实例] [保存修改]
+ * 底部操作栏：[保存修改] [另存为实例] ... [刷新]，空间不足时隐藏按钮文字
  */
 
 import * as React from "react";
@@ -382,8 +382,8 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
         </div>
       </ScrollFade>
 
-      {/* 底部操作栏 */}
-      <div className="flex shrink-0 items-center gap-2 border-t border-border/60 px-3 py-2">
+      {/* 底部操作栏 — 自适应压缩：空间不足时隐藏按钮文字 */}
+      <div className="@container flex shrink-0 items-center gap-2 border-t border-border/60 px-3 py-2">
         {/* 另存为实例 — 内联表单 */}
         {showSaveAs ? (
           <div className="flex flex-1 flex-col gap-1.5">
@@ -416,22 +416,25 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
           </div>
         ) : (
           <>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={loadDetail} title="刷新">
-              <RefreshCw className="mr-1 h-3 w-3" />
-              刷新
+            {/* 保存修改 — 最左边 */}
+            <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? <Loader2 className="h-3 w-3" /> : <Save className="h-3 w-3" />}
+              <span className="hidden @[260px]:inline ml-1">保存修改</span>
             </Button>
-            <div className="flex-1" />
+            {/* 另存为实例 */}
             <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
               setSaveAsName(editedName + " (实例)");
               setSaveAsDesc("");
               setShowSaveAs(true);
             }}>
-              <GitBranch className="mr-1 h-3 w-3" />
-              另存为实例
+              <GitBranch className="h-3 w-3" />
+              <span className="hidden @[260px]:inline ml-1">另存为实例</span>
             </Button>
-            <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={!dirty || saving}>
-              {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Save className="mr-1 h-3 w-3" />}
-              保存修改
+            <div className="flex-1" />
+            {/* 刷新 — 最右边 */}
+            <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={loadDetail} title="刷新">
+              <RefreshCw className="h-3 w-3" />
+              <span className="hidden @[260px]:inline ml-1">刷新</span>
             </Button>
           </>
         )}

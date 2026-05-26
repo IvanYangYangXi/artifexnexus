@@ -6,7 +6,7 @@
  *   - 参数为值输入（非定义编辑）
  *   - 无触发器 Tab
  *   - 无基本信息编辑
- *   - 底部 [运行] 按钮执行
+ *   - 底部 [运行] [AI辅助运行] ... [取消]，空间不足时隐藏按钮文字
  */
 
 "use client";
@@ -640,29 +640,8 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         )}
 
         {/* ── 底部运行按钮 ── */}
-        <div className="shrink-0 flex items-center gap-2 border-t border-border/60 px-3 py-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handleAIAssist}
-            title="切换到 Chat 界面，让 AI 帮你运行工具"
-          >
-            <Sparkles className="mr-1.5 h-3 w-3" />
-            AI 辅助运行
-          </Button>
-          <div className="flex-1" />
-          {running && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs text-red-400 border-red-400/30 hover:bg-red-500/10"
-              onClick={handleCancel}
-            >
-              <XCircle className="mr-1.5 h-3 w-3" />
-              取消
-            </Button>
-          )}
+        <div className="@container shrink-0 flex items-center gap-2 border-t border-border/60 px-3 py-2">
+          {/* 运行 — 最左边 */}
           <Button
             size="sm"
             className="h-7 text-xs"
@@ -670,17 +649,37 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             disabled={running}
           >
             {running ? (
-              <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                运行中...
-              </>
+              <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <>
-                <Play className="mr-1.5 h-3 w-3" />
-                运行
-              </>
+              <Play className="h-3 w-3" />
             )}
+            <span className="hidden @[230px]:inline ml-1">
+              {running ? "运行中..." : "运行"}
+            </span>
           </Button>
+          {/* AI 辅助运行 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleAIAssist}
+            title="切换到 Chat 界面，让 AI 帮你运行工具"
+          >
+            <Sparkles className="h-3 w-3" />
+            <span className="hidden @[230px]:inline ml-1">AI 辅助运行</span>
+          </Button>
+          <div className="flex-1" />
+          {running && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs text-red-400 border-red-400/30 hover:bg-red-500/10 shrink-0"
+              onClick={handleCancel}
+            >
+              <XCircle className="h-3 w-3" />
+              <span className="hidden @[230px]:inline ml-1">取消</span>
+            </Button>
+          )}
         </div>
       </div>
     </ScrollFade>
