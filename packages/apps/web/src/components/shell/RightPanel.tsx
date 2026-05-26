@@ -206,8 +206,8 @@ export function RightPanel() {
           title="最近使用"
           icon={<Clock className="h-3 w-3" />}
           badge={recentItems.length || undefined}
-          defaultSize={20}
-          minSize={10}
+          defaultSize={18}
+          minSize={12}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
             <ul className="space-y-px py-1 text-xs">
@@ -281,8 +281,8 @@ export function RightPanel() {
           title="Skill 列表"
           icon={<Puzzle className="h-3 w-3" />}
           badge={filteredSkills.length || undefined}
-          defaultSize={25}
-          minSize={10}
+          defaultSize={22}
+          minSize={14}
           defaultOpen={false}
         >
           <div className="flex h-full flex-col overflow-hidden">
@@ -357,8 +357,8 @@ export function RightPanel() {
           title="Tool 列表"
           icon={<Wrench className="h-3 w-3" />}
           badge={filteredTools.length || undefined}
-          defaultSize={25}
-          minSize={10}
+          defaultSize={22}
+          minSize={14}
           defaultOpen={false}
         >
           <div className="flex h-full flex-col overflow-hidden">
@@ -425,8 +425,8 @@ export function RightPanel() {
           order={4}
           title="资源管理器"
           icon={<FolderTree className="h-3 w-3" />}
-          defaultSize={20}
-          minSize={10}
+          defaultSize={18}
+          minSize={12}
           defaultOpen={false}
         >
           <ResourceExplorer />
@@ -438,8 +438,8 @@ export function RightPanel() {
           order={5}
           title={preview ? `预览: ${preview.title}` : previewFile ? `预览: ${previewFile.name}` : "上下文预览"}
           icon={<FileText className="h-3 w-3" />}
-          defaultSize={preview || previewFile ? 30 : 10}
-          minSize={8}
+          defaultSize={preview || previewFile ? 22 : 10}
+          minSize={preview || previewFile ? 12 : 8}
           defaultOpen={!!(preview || previewFile)}
         >
           <ScrollFade className="h-full" fadeFrom="from-panel" fadeHeight="h-3">
