@@ -13,6 +13,8 @@
 import * as React from "react";
 import {
   Clock,
+  Eye,
+  EyeOff,
   FileText,
   FolderTree,
   Pin,
@@ -531,6 +533,12 @@ function PreviewRenderer({ payload, onClose }: {
     );
   }
 
+  if (payload.kind === "image-preview") {
+    const data = payload.data as { filePath: string; fileName?: string } | undefined;
+    if (!data?.filePath) return <FallbackPreview payload={payload} />;
+    return <ImagePreview filePath={data.filePath} fileName={data.fileName} />;
+  }
+
   // fallback: raw JSON
   return <FallbackPreview payload={payload} />;
 }
@@ -540,6 +548,215 @@ function FallbackPreview({ payload }: { payload: { kind: string; title: string; 
     <pre className="overflow-x-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed">
       {JSON.stringify(payload, null, 2)}
     </pre>
+  );
+}
+
+// ─── 图像预览组件（支持 png/jpg/tga + 通道控制） ──────────────
+
+/** 简易 TGA 解码器 — 支持 24/32 位未压缩 TGA */
+function decodeTGA(buffer: ArrayBuffer): { data: Uint8Array; width: number; height: number } | null {
+  try {
+    const view = new DataView(buffer, 0, 18);
+    const idLen = view.getUint8(0);
+    const imageType = view.getUint8(2);
+    const width = view.getUint16(12, true);
+    const height = view.getUint16(14, true);
+    const depth = view.getUint8(16);
+    const descriptor = view.getUint8(17);
+    const flipY = !(descriptor & 0x20); // bit 5 = 0 → top-left origin
+
+    // 仅支持未压缩 RGB (2) 和 RGBA (2)
+    if (imageType !== 2) return null;
+    if (depth !== 24 && depth !== 32) return null;
+
+    const bytesPerPixel = depth / 8;
+    const headerSize = 18 + idLen;
+    const pixelData = new Uint8Array(buffer, headerSize);
+
+    // 输出 RGBA
+    const out = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      const srcY = flipY ? height - 1 - y : y;
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (srcY * width + x) * bytesPerPixel;
+        const dstIdx = (y * width + x) * 4;
+        out[dstIdx]     = pixelData[srcIdx + 2] || 0; // R (TGA is BGR)
+        out[dstIdx + 1] = pixelData[srcIdx + 1] || 0; // G
+        out[dstIdx + 2] = pixelData[srcIdx]     || 0; // B
+        out[dstIdx + 3] = depth === 32 ? pixelData[srcIdx + 3] : 255; // A
+      }
+    }
+    return { data: out, width, height };
+  } catch {
+    return null;
+  }
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  tga: "image/x-targa",
+};
+
+type ImageChannel = "r" | "g" | "b" | "a";
+
+function ImagePreview({ filePath, fileName }: { filePath: string; fileName?: string }) {
+  const [imageUrl, setImageUrl] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [channels, setChannels] = React.useState<Record<ImageChannel, boolean>>({
+    r: true, g: true, b: true, a: true,
+  });
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const imgRef = React.useRef<HTMLImageElement | null>(null);
+
+  const ext = React.useMemo(() => {
+    const name = fileName || filePath;
+    return name.split(".").pop()?.toLowerCase() || "";
+  }, [fileName, filePath]);
+
+  const isNativeImage = ext !== "tga";
+  const mimeType = IMAGE_EXTENSIONS[ext] || "image/png";
+
+  // 加载图像
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    (async () => {
+      try {
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+
+        if (isNativeImage) {
+          // PNG/JPG 等原生格式：直接用 asset:// URL
+          const url = convertFileSrc(filePath);
+          setImageUrl(url);
+          const img = new Image();
+          img.onload = () => { if (!cancelled) { imgRef.current = img; setLoading(false); drawCanvas(); } };
+          img.onerror = () => { if (!cancelled) { setError("无法解码图像"); setLoading(false); } };
+          img.src = url;
+        } else {
+          // TGA 等非原生格式：fetch 二进制 + 手动解码
+          const assetUrl = convertFileSrc(filePath);
+          const resp = await fetch(assetUrl);
+          const buf = await resp.arrayBuffer();
+          const decoded = decodeTGA(buf);
+          if (!decoded) { setError("TGA 解码失败"); setLoading(false); return; }
+
+          const blob = new Blob([decoded.data as BlobPart], { type: "image/png" });
+          const url = URL.createObjectURL(blob);
+          setImageUrl(url);
+          const img = new Image();
+          img.onload = () => { if (!cancelled) { imgRef.current = img; setLoading(false); drawCanvas(); } };
+          img.onerror = () => { if (!cancelled) { setError("无法解码 TGA 图像"); setLoading(false); } };
+          img.src = url;
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(`读取失败: ${(e as Error).message}`);
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [filePath, isNativeImage]);
+
+  // 通道控制 → 重新绘制 canvas
+  const drawCanvas = React.useCallback(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+
+    // 应用通道过滤
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      data[i]     = channels.r ? data[i] : 0;     // R
+      data[i + 1] = channels.g ? data[i + 1] : 0; // G
+      data[i + 2] = channels.b ? data[i + 2] : 0; // B
+      data[i + 3] = channels.a ? data[i + 3] : 255; // A (不透明)
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }, [channels]);
+
+  React.useEffect(() => {
+    if (imageUrl && !loading) drawCanvas();
+  }, [channels, imageUrl, loading, drawCanvas]);
+
+  const toggleChannel = (ch: ImageChannel) => {
+    setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
+  };
+
+  const channelLabels: { ch: ImageChannel; label: string; color: string }[] = [
+    { ch: "r", label: "R", color: "bg-red-500" },
+    { ch: "g", label: "G", color: "bg-green-500" },
+    { ch: "b", label: "B", color: "bg-blue-500" },
+    { ch: "a", label: "A", color: "bg-gray-400" },
+  ];
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 文件名 + 通道控制 */}
+      <div className="flex shrink-0 items-center gap-2 px-2 py-1 border-b border-border/30">
+        <span className="truncate text-[10px] text-muted-foreground flex-1 min-w-0">
+          {fileName || filePath}
+        </span>
+        <div className="flex items-center gap-0.5">
+          {channelLabels.map(({ ch, label, color }) => (
+            <button
+              key={ch}
+              className={`flex h-5 w-5 items-center justify-center rounded text-[10px] font-mono transition-colors ${
+                channels[ch]
+                  ? `${color} text-white`
+                  : "bg-muted/30 text-muted-foreground"
+              }`}
+              onClick={() => toggleChannel(ch)}
+              title={channels[ch] ? `隐藏 ${label} 通道` : `显示 ${label} 通道`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 图像区域 */}
+      <div className="flex-1 min-h-0 overflow-auto bg-[#1a1a1a] flex items-center justify-center">
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            加载中...
+          </div>
+        )}
+        {error && (
+          <div className="text-xs text-red-400">{error}</div>
+        )}
+        {!loading && !error && (
+          isNativeImage && Object.values(channels).every(Boolean) ? (
+            <img
+              src={imageUrl!}
+              alt={fileName || filePath}
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            <canvas ref={canvasRef} className="max-h-full max-w-full object-contain" />
+          )
+        )}
+      </div>
+    </div>
   );
 }
 
