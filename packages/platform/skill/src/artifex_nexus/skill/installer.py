@@ -353,7 +353,7 @@ class SkillInstaller:
                 message="未安装，请先 install",
             )
 
-        status = compare_skill_dirs(source_dir, target_dir)
+        status = compare_skill_dirs(target_dir, source_dir)
 
         if status.state == SyncState.SYNCED:
             return SyncResult(True, skill_name, state=status.state, message="已是最新")

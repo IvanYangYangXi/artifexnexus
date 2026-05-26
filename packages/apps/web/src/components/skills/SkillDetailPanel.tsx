@@ -58,9 +58,11 @@ const SOURCE_COLORS: Record<string, string> = {
 interface SkillDetailPanelProps {
   skillName: string;
   compact?: boolean;
+  /** 外部变动通知（列表卡片操作后由 PreviewContext 传入） */
+  refreshKey?: number;
 }
 
-export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) {
+export function SkillDetailPanel({ skillName, compact, refreshKey }: SkillDetailPanelProps) {
   const [detail, setDetail] = React.useState<SkillDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,7 +86,7 @@ export function SkillDetailPanel({ skillName, compact }: SkillDetailPanelProps) 
     } finally {
       setLoading(false);
     }
-  }, [skillName]);
+  }, [skillName, refreshKey]);
 
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
 

@@ -278,6 +278,16 @@ export function NexusToolList() {
             });
             setPublishTarget(null);
             await loadTools();
+            // 如果当前详情面板正在预览同一个 Tool，刷新预览
+            if (preview?.kind === "nexus-tool-detail") {
+              const data = preview.data as { toolId?: string; toolName?: string; refreshKey?: number };
+              if (data?.toolId === publishTarget.id) {
+                setPreview({
+                  ...preview,
+                  data: { ...data, refreshKey: Date.now() },
+                });
+              }
+            }
           } catch (e) {
             setError(String(e));
           } finally {

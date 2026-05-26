@@ -462,9 +462,9 @@ function PreviewRenderer({ payload, onClose }: {
   }
 
   if (payload.kind === "skill-detail") {
-    const data = payload.data as { skillName: string } | undefined;
+    const data = payload.data as { skillName: string; refreshKey?: number } | undefined;
     if (!data?.skillName) return <FallbackPreview payload={payload} />;
-    return <SkillDetailPanel skillName={data.skillName} compact />;
+    return <SkillDetailPanel skillName={data.skillName} compact refreshKey={data.refreshKey} />;
   }
 
   if (payload.kind === "nexus-tool-run") {

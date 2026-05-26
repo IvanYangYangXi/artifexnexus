@@ -47,7 +47,7 @@ export function SkillList() {
   const [publishTarget, setPublishTarget] = React.useState<SkillItem | null>(null);
   const [publishBusy, setPublishBusy] = React.useState(false);
 
-  const { setPreview, ensurePanelOpen } = React.useContext(PreviewContext);
+  const { setPreview, preview, ensurePanelOpen } = React.useContext(PreviewContext);
 
   // 加载列表
   const loadSkills = React.useCallback(async () => {
@@ -75,12 +75,22 @@ export function SkillList() {
         return;
       }
       await loadSkills();
+      // 如果当前详情面板正在预览同一个 Skill，刷新 preview 以触发重载
+      if (preview?.kind === "skill-detail") {
+        const data = preview.data as { skillName?: string; refreshKey?: number };
+        if (data?.skillName === id) {
+          setPreview({
+            ...preview,
+            data: { ...data, refreshKey: Date.now() },
+          });
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setActionLoading((prev) => { const next = new Set(prev); next.delete(id); return next; });
     }
-  }, [loadSkills]);
+  }, [loadSkills, preview, setPreview]);
 
   /** 点击 Skill → 在 D5 右侧面板打开详情 */
   const handleDetail = React.useCallback((name: string) => {
@@ -397,6 +407,16 @@ export function SkillList() {
             }
             setPublishTarget(null);
             await loadSkills();
+            // 如果当前详情面板正在预览同一个 Skill，刷新预览
+            if (preview?.kind === "skill-detail") {
+              const data = preview.data as { skillName?: string; refreshKey?: number };
+              if (data?.skillName === publishTarget.name) {
+                setPreview({
+                  ...preview,
+                  data: { ...data, refreshKey: Date.now() },
+                });
+              }
+            }
           } catch (e) {
             setError(String(e));
           } finally {
