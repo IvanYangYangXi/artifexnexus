@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, Dial
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
 import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus, PluginSummary } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility, installGatewayMCPBridge } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility, installGatewayMCPBridge, uninstallGatewayMCPBridge } from "../../ipc/openclaw";
 
 // ─── 版本比较工具 ───────────────────────────────────────────────────
 
@@ -582,8 +582,6 @@ function InstallerTab() {
       setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" } : it));
       addLog(id, "info", "正在安装 Blender 插件...");
       try {
-        const bs = await ipc.getMCPBridgeStatus();
-        if (!bs?.installed) { addLog(id, "info", "部署 MCP Bridge 插件..."); await ipc.invoke("openclaw_gateway_mcp_bridge_install"); }
         const r = await ipc.installBlenderAddon("5.1", false);
         if (r.success) { addLog(id, "info", "Blender 插件安装完成"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installed" } : it)); }
         else { addLog(id, "error", r.error || "安装失败"); setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState, errorMessage: r.error || undefined } : it)); }
@@ -686,6 +684,23 @@ function InstallerTab() {
     }
     const label = `${dccName} ${version}`;
     setItems((prev) => prev.map((it) => it.id === parentId ? { ...it, children: [...(it.children || []), { label, version, installPath, projectPath: "", scriptPath: "", state: "not-installed" as const }] } : it));
+  };
+
+  const handleUninstallGatewayPlugin = async () => {
+    const id = "gateway-plugin";
+    const ok = await showConfirm("确认卸载 Gateway MCP Bridge Plugin？", "卸载后 Maya/Max/Blender/UE 的 MCP 工具将从 Gateway 中移除。");
+    if (!ok) return;
+    setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "installing" as ItemState } : it));
+    try {
+      const r = await uninstallGatewayMCPBridge();
+      if (r.success) {
+        addLog(id, "info", "Gateway Plugin 已卸载");
+        setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "not-installed" as ItemState } : it));
+      } else {
+        addLog(id, "error", r.error || "卸载失败");
+        setItems((prev) => prev.map((it) => it.id === id ? { ...it, state: "failed" as ItemState } : it));
+      }
+    } catch (e: any) { addLog(id, "error", e.message || String(e)); }
   };
 
   const handleDeleteChild = async (parentId: string, childIndex: number) => {
@@ -964,6 +979,7 @@ function InstallerTab() {
                   {item.id === "openclaw" && openclawStatus?.gateway_running && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => window.open(`http://127.0.0.1:${openclawStatus.port}`, "_blank")}>🌐 Web UI</Button>}
                   {item.state === "not-installed" && <Button size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)} disabled={isGated(item)}>安装</Button>}
                   {item.state === "installed" && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)}>重装</Button>}
+                  {item.id === "gateway-plugin" && item.state === "installed" && <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleUninstallGatewayPlugin}><Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" /></Button>}
                   {item.state === "failed" && <Button size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleInstall(item.id)}>重试</Button>}
                   {item.expandable && <Button variant="outline" size="sm" className="h-6 text-[11px] rounded-full" onClick={() => handleAddChild(item.id)}><Plus className="h-3 w-3" /></Button>}
                 </div>

@@ -185,28 +185,28 @@ def _create_menu():
                 category:"ArtifexNexus"
                 tooltip:"Start Artifex Nexus MCP Server"
             (
-                python.execute "from artifex_nexus.v2023.max_addon import start_server, _print_status; start_server(); _print_status()"
+                python.execute "from artifex_nexus import start_server, _print_status; start_server(); _print_status()"
             )
 
             macroScript artifex_nexus_stop
                 category:"ArtifexNexus"
                 tooltip:"Stop Artifex Nexus MCP Server"
             (
-                python.execute "from artifex_nexus.v2023.max_addon import stop_server, _print_status; stop_server(); _print_status()"
+                python.execute "from artifex_nexus import stop_server, _print_status; stop_server(); _print_status()"
             )
 
             macroScript artifex_nexus_status
                 category:"ArtifexNexus"
                 tooltip:"Show Artifex Nexus Status"
             (
-                python.execute "from artifex_nexus.v2023.max_addon import _print_status; _print_status()"
+                python.execute "from artifex_nexus import _print_status; _print_status()"
             )
 
             macroScript artifex_nexus_toggle_triggers
                 category:"ArtifexNexus"
                 tooltip:"Toggle Artifex Nexus Triggers"
             (
-                python.execute "from artifex_nexus.v2023.max_addon import toggle_triggers, _print_status; toggle_triggers(); _print_status()"
+                python.execute "from artifex_nexus import toggle_triggers, _print_status; toggle_triggers(); _print_status()"
             )
         ''')
 

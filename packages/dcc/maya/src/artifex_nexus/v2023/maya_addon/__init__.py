@@ -41,6 +41,7 @@ plugin_info = {
     "name": "Artifex Nexus Bridge",
     "author": "Ivan(杨己力)",
     "version": (2023,),
+    "maya_min": (2023,),
     "maya_max": None,
     "description": "Artifex Nexus MCP Bridge — AI 驱动的 Maya 操作",
 }
@@ -238,16 +239,16 @@ def _create_menu():
 
 # ── Shelf 回调 ──────────────────────────────────────────────────────────
 
-def _shelf_start(*args):
+def _shelf_start(*args, show_alert: bool = True):
     if start_server():
-        if _HAS_MAYA:
+        if _HAS_MAYA and show_alert:
             cmds.confirmDialog(
                 title="Artifex Nexus",
                 message=f"MCP Server 已启动\n端口: 18081",
                 button=["确定"],
             )
     else:
-        if _HAS_MAYA:
+        if _HAS_MAYA and show_alert:
             cmds.confirmDialog(
                 title="Artifex Nexus",
                 message="MCP Server 启动失败",
@@ -305,8 +306,11 @@ def register():
     Maya 启动时调用（由 userSetup.py 触发）。
 
     在 ~/Documents/maya/{ver}/scripts/userSetup.py 中添加:
-        from artifex_nexus import register
-        register()
+        import artifex_nexus
+        artifex_nexus.register()
+
+    Maya 自动将 scripts/ 加入 Python 路径，artifex_nexus 安装后
+    直接是 scripts/artifex_nexus/ 扁平面目录，无需额外路径注入。
     """
     if not _HAS_MAYA:
         logger.warning("Maya 不可用，跳过 UI 注册")
@@ -330,7 +334,10 @@ def register():
         auto_start = os.environ.get("ARTIFEX_MAYA_AUTO_START", "1") == "1"
         if auto_start:
             logger.info("自动启动 MCP Server...")
-            start_server()
+            if start_server():
+                logger.info("Maya MCP Server 已自动启动")
+            else:
+                logger.warning("Maya MCP Server 自动启动失败")
 
         logger.info("Maya addon 注册完成")
 
@@ -369,27 +376,16 @@ def unregister():
 def generate_user_setup(maya_version: str = "2023") -> str:
     """生成 userSetup.py 内容（供安装器使用）。
 
+    Maya 启动时自动将 scripts/ 加入 Python 路径，安装后的 artifex_nexus/
+    是 scripts/ 下的扁平目录，直接 import artifex_nexus 即可。
+
     Args:
-        maya_version: Maya 版本号，如 "2023"
+        maya_version: Maya 版本号，如 "2023"（用于注释标记，不影响导入路径）
     """
-    # 安装后路径：scripts/artifex_nexus/ 下包含 v{maya_version}/maya_addon/
-    content = f'''# Artifex Nexus Maya Bridge — 自动加载
-import sys
-import os
-
-_addon_dir = os.path.join(
-    os.path.dirname(__file__),
-    "artifex_nexus", "v{maya_version}", "maya_addon"
-)
-if os.path.exists(_addon_dir) and _addon_dir not in sys.path:
-    sys.path.insert(0, _addon_dir)
-
-try:
-    from artifex_nexus.v{maya_version}.maya_addon import register
-    register()
-    print("[Artifex Nexus] Maya Bridge 已加载")
-except ImportError as e:
-    print(f"[Artifex Nexus] 加载失败: {{e}}")
+    content = f'''# >>> Artifex Nexus Maya Bridge (auto-generated for Maya {maya_version})
+import artifex_nexus
+artifex_nexus.register()
+# <<< Artifex Nexus Maya Bridge
 '''
     return content
 

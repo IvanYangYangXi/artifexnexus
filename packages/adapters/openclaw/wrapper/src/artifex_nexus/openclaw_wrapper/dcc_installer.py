@@ -783,17 +783,12 @@ def _deploy_maya_user_setup(maya_version: str) -> Dict[str, Any]:
     scripts_dir = os.path.join(base, maya_version, "scripts")
     user_setup_path = os.path.join(scripts_dir, "userSetup.py")
 
-    # 生成 userSetup.py 内容（相对路径注入）
+    # 生成 userSetup.py 内容（Maya 自动将 scripts/ 加入 Python 路径，
+    # 安装后的 artifex_nexus/ 是 scripts/ 下的扁平目录，直接 import 即可）
     addon_code_block = f'''# >>> Artifex Nexus Maya Bridge (auto-generated)
-import sys, os
-_addon = os.path.join(os.path.dirname(__file__), "artifex_nexus", "v{maya_version}", "maya_addon")
-if os.path.exists(_addon) and _addon not in sys.path:
-    sys.path.insert(0, _addon)
-try:
-    from artifex_nexus.v{maya_version}.maya_addon import register
-    register()
-except ImportError:
-    pass
+import artifex_nexus
+artifex_nexus.register()
+print("[Artifex Nexus] Maya Bridge 已加载")
 # <<< Artifex Nexus Maya Bridge
 '''
 

@@ -27,17 +27,22 @@ logger = logging.getLogger("artifex.max.startup")
 _startup_done = False
 
 # ── 路径注入 ──
-_addon_dir = Path(__file__).parent.parent  # startup.py 在 max_addon/ 下
-_addon_str = str(_addon_dir)
-if _addon_str not in sys.path:
-    sys.path.insert(0, _addon_str)
+# 部署后: startup.py 在 scripts/startup/，artifex_nexus/ 在 scripts/
+_scripts_dir = Path(__file__).parent.parent  # → scripts/
+_addon_dir = _scripts_dir / "artifex_nexus"   # → scripts/artifex_nexus/
 
-_sdk_dir = _addon_dir.parents[4] / "shared"
-_sdk_str = str(_sdk_dir)
-if _sdk_str not in sys.path:
-    sys.path.insert(0, _sdk_str)
+for _d in (_scripts_dir, _addon_dir):
+    _ds = str(_d)
+    if _ds not in sys.path:
+        sys.path.insert(0, _ds)
 
-logger.info(f"Artifex Nexus Max Addon 启动中... (addon: {_addon_str})")
+# SDK 路径（开发期：从源目录回溯；部署后可能不存在，静默跳过）
+_sdk_probe = _scripts_dir.parents[3] / "packages" / "dcc" / "shared"
+_sdk_dir = _sdk_probe if _sdk_probe.is_dir() else _addon_dir
+if str(_sdk_dir) not in sys.path:
+    sys.path.insert(0, str(_sdk_dir))
+
+logger.info(f"Artifex Nexus Max Addon 启动中... (addon: {_addon_dir})")
 
 
 def _deferred_startup():
@@ -65,16 +70,19 @@ def _deferred_startup():
             return
 
         adapter = MaxAdapter()
-
         server = create_server()
         server.set_adapter(adapter)
         adapter.set_server(server)
+
+        # 设置全局引用（供 QTimer fallback #timeout 回调使用）
+        import max_adapter as _ma
+        _ma._global_adapter = adapter
 
         register_builtin_tools(server, adapter)
 
         # 创建 UI（菜单 + 宏）
         try:
-            from artifex_nexus.v2023.max_addon import _create_menu
+            from artifex_nexus import _create_menu
             _create_menu()
         except Exception as e:
             logger.warning(f"创建菜单失败: {e}")
