@@ -500,6 +500,14 @@ export const CollapsiblePanel = React.forwardRef<
   // context 作为 secondary sync
   const ctxHidden = React.useMemo(() => id ? ctx.hiddenRegistry[id] === true : false, [id, ctx.hiddenRegistry]);
   const hidden = controlledHidden ?? (localHidden || ctxHidden);
+
+  // 启动时将 localStorage 隐藏态同步到 context 的 hiddenRegistry
+  React.useEffect(() => {
+    if (id && localHidden) {
+      ctx.setHidden(id, true);
+    }
+  }, []); // 仅 mount 时执行一次
+
   const setHidden = (next: boolean) => {
     onHiddenChange?.(next);
     if (controlledHidden === undefined) {
