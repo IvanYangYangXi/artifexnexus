@@ -82,6 +82,26 @@
 4. sidecar 僵尸进程需定期清理
 5. dev.bat 必须是纯 ASCII
 
+## DCC 插件开发规范（2026-05-26，参照 artclaw）
+
+### Maya
+- **userSetup.py 必须部署**到 `scripts/`：Maya 启动自动加载；安装器自动生成
+- **register() 用 `maya.utils.executeDeferred`** 延迟启动（等 UI 就绪）
+- **单例 Server**：模块级变量防重复创建
+
+### 3ds Max
+- **QTimer.singleShot(2000) 延迟启动**：不可在模块顶层立即执行
+- **_startup_done 进程锁**：防重复进程
+- **MacroScript 先注册再引用**：菜单项必须先用 `rt.execute('macroScript ...')` 注册
+- **主线程调度用 QTimer(50ms) 轮询**：比 #timeout 回调可靠；QTimer 不可用时回退 #timeout
+
+### Gateway Plugin
+- 修改 index.ts 后必须重编译 index.js（`pnpm --filter @openclaw/mcp-bridge build`）
+- Tauri build 前 `beforeBuildCommand` 自动编译
+- 部署后需重启 Gateway 才能加载新插件
+- 安装向导独立行放在 openclaw 下方
+- 详见 `docs/development/dcc-plugin-development-guide.md`
+
 ## Auth 单源策略（2026-05-15）
 
 - artifex 所有 API key 只存 `openclaw.json::models.providers.<id>.apiKey`
