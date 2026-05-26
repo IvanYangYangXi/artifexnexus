@@ -38,7 +38,7 @@ class ArtifexNexusPanel(QtWidgets.QDialog):
 
     WINDOW_TITLE = "Artifex Nexus"
     WINDOW_WIDTH = 260
-    WINDOW_HEIGHT = 170
+    WINDOW_HEIGHT = 195
     REFRESH_MS = 2000
 
     def __init__(self, parent=None):
@@ -53,6 +53,7 @@ class ArtifexNexusPanel(QtWidgets.QDialog):
         )
         self._build_ui()
         self._connect_refresh()
+        self._load_prefs()
         self._refresh()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -122,6 +123,21 @@ class ArtifexNexusPanel(QtWidgets.QDialog):
         trig_row.addWidget(self._trigger_btn)
 
         layout.addLayout(trig_row)
+
+        # 启动偏好
+        pref_row = QtWidgets.QHBoxLayout()
+        pref_row.setSpacing(6)
+        self._auto_show_cb = QtWidgets.QCheckBox("启动时自动显示面板")
+        self._auto_show_cb.setStyleSheet(
+            "QCheckBox { font-size: 11px; color: %s; spacing: 6px; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; }"
+            % _C_DIM
+        )
+        self._auto_show_cb.setCursor(QtCore.Qt.PointingHandCursor)
+        self._auto_show_cb.toggled.connect(self._on_auto_show_toggled)
+        pref_row.addWidget(self._auto_show_cb)
+        pref_row.addStretch()
+        layout.addLayout(pref_row)
 
         layout.addStretch()
 
@@ -209,6 +225,22 @@ class ArtifexNexusPanel(QtWidgets.QDialog):
             self._refresh()
         except Exception as e:
             logger.error(f"切换失败: {e}")
+
+    def _load_prefs(self):
+        try:
+            from artifex_nexus import get_auto_show_panel
+            self._auto_show_cb.blockSignals(True)
+            self._auto_show_cb.setChecked(get_auto_show_panel())
+            self._auto_show_cb.blockSignals(False)
+        except Exception:
+            pass
+
+    def _on_auto_show_toggled(self, checked: bool):
+        try:
+            from artifex_nexus import set_auto_show_panel
+            set_auto_show_panel(checked)
+        except Exception as e:
+            logger.warning(f"保存偏好失败: {e}")
 
     def closeEvent(self, event):
         global _global_panel

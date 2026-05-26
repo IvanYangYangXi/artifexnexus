@@ -146,8 +146,12 @@ def _deferred_startup():
 
 
 def _show_panel_safe():
-    """安全地显示 UI 面板（忽略所有异常）"""
+    """安全地显示 UI 面板（尊重用户偏好设置）"""
     try:
+        from artifex_nexus import get_auto_show_panel
+        if not get_auto_show_panel():
+            logger.info("用户已关闭启动时自动显示面板，跳过")
+            return
         from max_ui import show_panel
         show_panel()
     except Exception as e:

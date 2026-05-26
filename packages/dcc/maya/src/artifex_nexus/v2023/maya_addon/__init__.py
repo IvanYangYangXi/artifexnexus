@@ -17,6 +17,7 @@ CI 兼容：maya.cmds 导入失败时暴露空壳 register/unregister。
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -152,7 +153,33 @@ def get_status() -> Dict[str, Any]:
     }
 
 
-# ── Maya UI：Shelf + Menu ───────────────────────────────────────────────
+# ── 用户偏好 ────────────────────────────────────────────────────────────
+
+_PREFS_FILE = os.path.join(str(_addon_dir), ".ui_prefs.json")
+
+
+def _load_prefs() -> Dict[str, Any]:
+    try:
+        with open(_PREFS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_prefs(prefs: Dict[str, Any]) -> None:
+    with open(_PREFS_FILE, "w", encoding="utf-8") as f:
+        json.dump(prefs, f, indent=2, ensure_ascii=False)
+
+
+def get_auto_show_panel() -> bool:
+    """启动时是否自动显示 UI 面板（默认开启）"""
+    return _load_prefs().get("auto_show_panel", True)
+
+
+def set_auto_show_panel(value: bool) -> None:
+    prefs = _load_prefs()
+    prefs["auto_show_panel"] = value
+    _save_prefs(prefs)
 
 def _create_shelf():
     """创建 Artifex Nexus Shelf 按钮"""
@@ -350,10 +377,13 @@ def register():
 
         logger.info("Maya addon 注册完成")
 
-        # 自动显示 UI 面板
+        # 自动显示 UI 面板（尊重偏好设置）
         try:
-            from maya_ui import show_panel
-            show_panel()
+            if get_auto_show_panel():
+                from maya_ui import show_panel
+                show_panel()
+            else:
+                logger.info("用户已关闭启动时自动显示面板，跳过")
         except Exception as e:
             logger.warning(f"无法自动显示面板: {e}")
 
