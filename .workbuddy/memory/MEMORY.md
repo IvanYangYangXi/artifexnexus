@@ -172,3 +172,16 @@
 - **DCC 插件版本号规则**（2026-05-25）：插件版本号 = 目标 DCC 主版本号。Maya/Max 本地测试用 2023，版本标记为 `v2023`。Blender 用 `v5.0.0`（对应 Blender 5.0.x）。`plugin_info.version` = `(主版本号,)` 元组。
 - **端口冲突处理规则**（2026-05-25）：固定端口的 DCC（Maya 18081 / Max 18082）使用 `max_port_probe=0`，端口被占用时 pre-check 跳过启动 + UI 警告。共享 SDK 默认 `max_port_probe=10`（Blender 继续使用自动端口探测）。
 - **触发器调度器共享**（2026-05-25）：`TriggerDispatcher` 类提取到 `trigger_dispatcher_base.py`，Maya/Max 侧仅保留事件钩子注册/注销函数。
+
+## 右侧面板 UI 架构（2026-05-26，v4）
+
+- **单层结构**：所有 D1-D5 面板在同一个 `CollapsiblePanelGroup` 内。
+- **声明式尺寸控制**（v4）：废弃命令式 `collapse()/expand()`，通过 `minSize`/`maxSize` 锁定尺寸：
+  - 展开：`minSize={minSize}`, `maxSize={undefined}` → 可拖拽
+  - 折叠：`minSize={collapsedSize}`, `maxSize={collapsedSize}` → 锁定 header 高度，空间重分配时不会被推动
+  - 隐藏：面板从 PanelGroup DOM 中**移除**（`.filter(!hiddenRegistry[id])`）→ 空间释放到展开面板
+- **展开用 RAF + resize()**：`useEffect([open])` 检测 collapsed→expanded 时，RAF 延迟到下一帧 resize(defaultSize)，避开 "index -1" 错误。
+- **列切换用唯一 key**：Fragment key 使用 `{panelId || i}`（非纯 index），确保 React 在列切换时重新 mount 组件 → `mountedRef` 正确重置。
+- **双列模式**：horizontal PanelGroup 嵌套 left/right vertical PanelGroup。全部默认左列，用户切换列归属持久化到 localStorage。
+- **列归属单向同步**：`setColumn` 只更新内部 state，独立 `useEffect` 在 render 后单向同步。
+- **关键文件**：`packages/ui/src/components/collapsible-panel.tsx`、`packages/apps/web/src/components/shell/RightPanel.tsx`

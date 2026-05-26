@@ -665,13 +665,9 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
           )}
           <Button
             size="sm"
-            className={cn(
-              "h-7 text-xs",
-              !hasConnectedDCC && targetDccs.length > 0 && "border-amber-500/30 text-amber-400 hover:bg-amber-500/10",
-            )}
+            className="h-7 text-xs"
             onClick={handleRun}
             disabled={running}
-            title={!hasConnectedDCC && targetDccs.length > 0 ? "MCP 未连接，工具可能无法在目标 DCC 中生效" : "运行工具"}
           >
             {running ? (
               <>

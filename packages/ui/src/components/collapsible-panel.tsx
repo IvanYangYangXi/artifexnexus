@@ -3,19 +3,14 @@
 /**
  * CollapsiblePanelGroup / CollapsiblePanel — VS Code 风纵向折叠面板组
  *
- * 多个面板纵向堆叠，每个面板可独立折叠 / 展开；
- * 多个展开时，相邻面板间出现拖拽柄，可调高度。
- * 折叠的面板只占 header 高度（约 28px），不参与拖拽。
+ * 多个面板纵向堆叠，每个面板可独立折叠 / 展开 / 隐藏；
+ * 支持双列模式（column='left'|'right'），支持嵌套 PanelGroup。
  *
- * 设计参考：VS Code 资源管理器栏（OUTLINE / TIMELINE / NPM SCRIPTS）。
+ * 三态：展开（内容可见） → 折叠（仅 header 28px） → 隐藏（0px + 边缘标签）
  *
- * 技术栈：基于 react-resizable-panels v2 的 collapsible/collapsedSize/onCollapse/onExpand 原生能力。
- *
- * 关键算法：
- *   - collapsedSize 在 v2 中是百分比；为了让折叠态精准等于 header 高度（28px），
- *     用 ResizeObserver 监听容器实际高度，动态计算 collapsedSize = 28 / containerHeight * 100。
- *   - 折叠态隐藏拖拽柄（`data-collapsed="true"` 时 ResizableHandle 不显示）。
+ * 技术栈：基于 react-resizable-panels v2。
  */
+
 import * as React from "react";
 import {
   Panel,
@@ -23,37 +18,108 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, PanelLeft, PanelRight } from "lucide-react";
 
 import { cn } from "../lib/cn";
+
+/* ─────────────────────── Context ─────────────────────── */
+
+/** 面板隐藏状态注册表：{ panelId → hidden } */
+type HiddenRegistry = Record<string, boolean>;
+
+interface GroupContextValue {
+  containerHeight: number;
+  headerHeight: number;
+  /** 父组命令式 panel ref（用于空间转移） */
+  outerPanelRef?: React.RefObject<ImperativePanelHandle | null>;
+  /** 隐藏态注册表 */
+  hiddenRegistry: HiddenRegistry;
+  setHidden: (id: string, hidden: boolean) => void;
+  /** 列归属注册表 */
+  columnRegistry: Record<string, "left" | "right">;
+  setColumn: (id: string, col: "left" | "right") => void;
+  /** 是否启用双列 */
+  dualColumn: boolean;
+  /** 是否启用隐藏 */
+  hideable: boolean;
+}
+
+const GroupContext = React.createContext<GroupContextValue | null>(null);
+
+export function usePanelGroupContext() {
+  const ctx = React.useContext(GroupContext);
+  if (!ctx) {
+    throw new Error("usePanelGroupContext must be used inside <CollapsiblePanelGroup>");
+  }
+  return ctx;
+}
 
 /* ─────────────────────── Group ─────────────────────── */
 
 export interface CollapsiblePanelGroupProps {
   /** 唯一 id，用于 react-resizable-panels 持久化布局（localStorage） */
   autoSaveId?: string;
-  /** 子节点（必须是 CollapsiblePanel） */
+  /** 子节点（必须是 CollapsiblePanel 或 CollapsiblePanelGroup） */
   children: React.ReactNode;
   className?: string;
+  /** 布局方向，默认 vertical */
+  direction?: "vertical" | "horizontal";
+  /** 是否启用双列模式 */
+  dualColumn?: boolean;
+  /** 双列默认左列宽度百分比 */
+  defaultColumnRatio?: number;
+  /** 列归属初始值 */
+  columnAssignments?: Record<string, "left" | "right">;
+  /** 列归属变更回调 */
+  onColumnChange?: (assignments: Record<string, "left" | "right">) => void;
+  /** 外部 panel ref（嵌套时父组传入，用于折叠时空间转移） */
+  outerPanelRef?: React.RefObject<ImperativePanelHandle | null>;
+  /** 是否启用隐藏功能 */
+  hideable?: boolean;
 }
-
-interface GroupContextValue {
-  /** 容器像素高度（实时） */
-  containerHeight: number;
-  /** 默认 header 高度（px） */
-  headerHeight: number;
-}
-
-const GroupContext = React.createContext<GroupContextValue | null>(null);
 
 export function CollapsiblePanelGroup({
   autoSaveId,
   children,
   className,
+  direction = "vertical",
+  dualColumn = false,
+  defaultColumnRatio = 40,
+  columnAssignments: initialColumnAssignments,
+  onColumnChange,
+  outerPanelRef,
+  hideable = true,
 }: CollapsiblePanelGroupProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = React.useState(400);
   const HEADER_HEIGHT = 28;
+
+  // 隐藏状态（由子 panel 注册）
+  const [hiddenRegistry, setHiddenRegistry] = React.useState<HiddenRegistry>({});
+  // 列归属（由子 panel 注册，外部传入仅用于初始值）
+  const [columnRegistry, setColumnRegistry] = React.useState<Record<string, "left" | "right">>(
+    initialColumnAssignments || {},
+  );
+
+  const setHidden = React.useCallback((id: string, hidden: boolean) => {
+    setHiddenRegistry((prev) => ({ ...prev, [id]: hidden }));
+  }, []);
+
+  // setColumn — 仅更新内部状态，不调用外部回调（避免 render 阶段 setState）
+  const setColumn = React.useCallback((id: string, col: "left" | "right") => {
+    setColumnRegistry((prev) => {
+      if (prev[id] === col) return prev; // 值相同则跳过重渲染
+      return { ...prev, [id]: col };
+    });
+  }, []);
+
+  // 列归属变化时，单向同步给父组件（useEffect 在 render 后执行，安全）
+  React.useEffect(() => {
+    if (Object.keys(columnRegistry).length > 0) {
+      onColumnChange?.(columnRegistry);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnRegistry]);
 
   React.useEffect(() => {
     const el = containerRef.current;
@@ -68,45 +134,237 @@ export function CollapsiblePanelGroup({
     return () => ro.disconnect();
   }, []);
 
-  // 把孩子拆分出来，在每两个 panel 之间插入 ResizeHandle（不在头尾加）
-  const panels = React.Children.toArray(children).filter(Boolean);
+  const ctxValue = React.useMemo<GroupContextValue>(() => ({
+    containerHeight,
+    headerHeight: HEADER_HEIGHT,
+    outerPanelRef,
+    hiddenRegistry,
+    setHidden,
+    columnRegistry,
+    setColumn,
+    dualColumn,
+    hideable,
+  }), [containerHeight, outerPanelRef, hiddenRegistry, setHidden, columnRegistry, setColumn, dualColumn, hideable]);
+
+  // 拆分 children，过滤隐藏的面板
+  const allPanels = React.Children.toArray(children).filter(Boolean);
+  const visiblePanels = allPanels.filter((child) => {
+    if (!React.isValidElement(child)) return true;
+    // CollapsiblePanelGroup 嵌套子组始终可见
+    if ((child.type as any)?.displayName === "CollapsiblePanelGroup") return true;
+    const panelId = (child.props as any)?.id;
+    if (panelId && hiddenRegistry[panelId]) return false;
+    return true;
+  });
+
+  // ── 双列模式布局 ──
+  if (dualColumn && direction === "vertical") {
+    return renderDualColumnLayout();
+  }
 
   return (
-    <GroupContext.Provider
-      value={{ containerHeight, headerHeight: HEADER_HEIGHT }}
-    >
+    <GroupContext.Provider value={ctxValue}>
       <div
         ref={containerRef}
         className={cn("flex h-full w-full flex-col", className)}
       >
         <PanelGroup
-          direction="vertical"
+          direction={direction}
           autoSaveId={autoSaveId}
           className="flex-1"
         >
-          {panels.map((p, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && <CollapsibleResizeHandle />}
-              {p}
-            </React.Fragment>
-          ))}
+          {visiblePanels.map((p, i) => {
+            const panelId = (p as React.ReactElement)?.props?.id;
+            return (
+              <React.Fragment key={panelId || i}>
+                {i > 0 && <CollapsibleResizeHandle direction={direction} />}
+                {p}
+              </React.Fragment>
+            );
+          })}
         </PanelGroup>
+
+        {/* 隐藏面板的标签指示器 */}
+        <HiddenTabBar panels={allPanels} hiddenRegistry={hiddenRegistry} ctx={ctxValue} />
       </div>
     </GroupContext.Provider>
   );
+
+  /** 双列水平 + 垂直嵌套布局 */
+  function renderDualColumnLayout() {
+    const leftPanels: React.ReactElement[] = [];
+    const rightPanels: React.ReactElement[] = [];
+
+    allPanels.forEach((child) => {
+      if (!React.isValidElement(child)) return;
+      const panelId = (child.props as any)?.id;
+      if (!panelId) { rightPanels.push(child as React.ReactElement); return; }
+      const col = columnRegistry[panelId] || "left";
+      if (col === "left") leftPanels.push(child as React.ReactElement);
+      else rightPanels.push(child as React.ReactElement);
+    });
+
+    // 过滤隐藏面板——隐藏即释放空间给展开面板
+    const leftVisible = leftPanels.filter((p) => {
+      const pid = p.props?.id;
+      return !pid || !hiddenRegistry[pid];
+    });
+    const rightVisible = rightPanels.filter((p) => {
+      const pid = p.props?.id;
+      return !pid || !hiddenRegistry[pid];
+    });
+
+    const hasLeft = leftVisible.length > 0;
+    const hasRight = rightVisible.length > 0;
+
+    // 计算列标识 key — 面板移列时强制 PanelGroup 重新初始化
+    const leftKey = leftVisible.map(p => (p.props as any)?.id).filter(Boolean).join(",");
+    const rightKey = rightVisible.map(p => (p.props as any)?.id).filter(Boolean).join(",");
+
+    // 单列退化：全在右列则只渲染右列
+    if (!hasLeft && hasRight) {
+      return (
+        <GroupContext.Provider value={ctxValue}>
+          <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
+            <PanelGroup direction="vertical" autoSaveId={autoSaveId} className="flex-1">
+              {rightVisible.map((p, i) => {
+                const panelId = (p.props as any)?.id;
+                return (
+                  <React.Fragment key={panelId || i}>
+                    {i > 0 && <CollapsibleResizeHandle direction="vertical" />}
+                    {p}
+                  </React.Fragment>
+                );
+              })}
+            </PanelGroup>
+            <HiddenTabBar panels={allPanels} hiddenRegistry={hiddenRegistry} ctx={ctxValue} />
+          </div>
+        </GroupContext.Provider>
+      );
+    }
+
+    // 双列模式
+    return (
+      <GroupContext.Provider value={ctxValue}>
+        <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
+          <PanelGroup direction="horizontal" className="flex-1">
+            {hasLeft && (
+              <Panel key={`left-${leftKey}`} defaultSize={defaultColumnRatio} minSize={15}>
+                <PanelGroup direction="vertical" className="h-full">
+                  {leftVisible.map((p, i) => {
+                    const panelId = (p.props as any)?.id;
+                    return (
+                      <React.Fragment key={panelId || i}>
+                        {i > 0 && <CollapsibleResizeHandle direction="vertical" />}
+                        {p}
+                      </React.Fragment>
+                    );
+                  })}
+                </PanelGroup>
+              </Panel>
+            )}
+            {hasLeft && hasRight && (
+              <PanelResizeHandle
+                className={cn(
+                  "relative flex w-px items-center justify-center bg-border",
+                  "hover:bg-primary/40 data-[resize-handle-state=hover]:bg-primary/40 data-[resize-handle-state=drag]:bg-primary",
+                  "after:absolute after:inset-y-0 after:-left-1 after:w-2 after:cursor-col-resize",
+                )}
+              />
+            )}
+            {hasRight && (
+              <Panel key={`right-${rightKey}`} defaultSize={hasLeft ? 100 - defaultColumnRatio : 100} minSize={15}>
+                <PanelGroup direction="vertical" className="h-full">
+                  {rightVisible.map((p, i) => {
+                    const panelId = (p.props as any)?.id;
+                    return (
+                      <React.Fragment key={panelId || i}>
+                        {i > 0 && <CollapsibleResizeHandle direction="vertical" />}
+                        {p}
+                      </React.Fragment>
+                    );
+                  })}
+                </PanelGroup>
+              </Panel>
+            )}
+          </PanelGroup>
+          <HiddenTabBar panels={allPanels} hiddenRegistry={hiddenRegistry} ctx={ctxValue} />
+        </div>
+      </GroupContext.Provider>
+    );
+  }
 }
 
-/** 内部使用：折叠面板间的拖拽柄；可在折叠态视觉淡化。 */
-function CollapsibleResizeHandle() {
+CollapsiblePanelGroup.displayName = "CollapsiblePanelGroup";
+
+/** 内部使用：折叠面板间的拖拽柄 */
+function CollapsibleResizeHandle({ direction }: { direction?: "vertical" | "horizontal" }) {
+  const isVertical = direction !== "horizontal";
   return (
     <PanelResizeHandle
       className={cn(
-        "relative flex h-px w-full items-center justify-center",
+        isVertical
+          ? cn(
+              "relative flex h-px w-full items-center justify-center",
+              "after:absolute after:inset-x-0 after:-top-1 after:h-2 after:cursor-row-resize",
+            )
+          : cn(
+              "relative flex w-px items-center justify-center",
+              "after:absolute after:inset-y-0 after:-left-1 after:w-2 after:cursor-col-resize",
+            ),
         "bg-border transition-colors",
         "hover:bg-primary/40 data-[resize-handle-state=hover]:bg-primary/40 data-[resize-handle-state=drag]:bg-primary",
-        "after:absolute after:inset-x-0 after:-top-1 after:h-2 after:cursor-row-resize",
       )}
     />
+  );
+}
+
+/* ─────────────────────── Hidden Tab Bar ─────────────────────── */
+
+/** 在面板组底部渲染隐藏面板的恢复标签 */
+function HiddenTabBar({
+  panels,
+  hiddenRegistry,
+  ctx,
+}: {
+  panels: React.ReactNode[];
+  hiddenRegistry: HiddenRegistry;
+  ctx: GroupContextValue;
+}) {
+  if (!ctx.hideable) return null;
+
+  const hiddenPanels = panels.filter((child) => {
+    if (!React.isValidElement(child)) return false;
+    const panelId = (child.props as any)?.id;
+    return panelId && hiddenRegistry[panelId];
+  });
+
+  if (hiddenPanels.length === 0) return null;
+
+  return (
+    <div className="flex shrink-0 flex-wrap gap-px border-t border-border bg-panel px-1 py-px">
+      {hiddenPanels.map((child) => {
+        if (!React.isValidElement(child)) return null;
+        const props = child.props as any;
+        return (
+          <button
+            key={props.id}
+            className={cn(
+              "flex h-5 cursor-pointer items-center gap-1 rounded px-1.5 text-[10px]",
+              "bg-muted/30 text-muted-foreground transition-colors",
+              "hover:bg-muted hover:text-foreground",
+            )}
+            onClick={() => ctx.setHidden(props.id, false)}
+            title={`显示 ${props.title}`}
+          >
+            {props.icon}
+            <span className="truncate max-w-[80px] uppercase tracking-[0.06em]">
+              {props.title}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -141,6 +399,17 @@ export interface CollapsiblePanelProps {
   className?: string;
   /** body padding，默认 p-2；设为 false 完全无 padding */
   bodyClassName?: string;
+
+  // ── 隐藏功能 ──
+  /** 是否可隐藏（需要 Group 启用 hideable） */
+  hideable?: boolean;
+  /** 受控隐藏态 */
+  hidden?: boolean;
+  onHiddenChange?: (hidden: boolean) => void;
+
+  // ── 双列模式 ──
+  /** 双列模式下列归属：'left' | 'right'，默认 'right' */
+  column?: "left" | "right";
 }
 
 export const CollapsiblePanel = React.forwardRef<
@@ -162,6 +431,10 @@ export const CollapsiblePanel = React.forwardRef<
     children,
     className,
     bodyClassName,
+    hideable: panelHideable,
+    hidden: controlledHidden,
+    onHiddenChange,
+    column = "left",
   },
   ref,
 ) {
@@ -172,8 +445,29 @@ export const CollapsiblePanel = React.forwardRef<
     );
   }
 
-  // collapsedSize 百分比 = headerHeight / containerHeight * 100
-  // 容器高度太小会导致 collapsedSize > minSize，react-resizable-panels 会拒绝；做下限保护。
+  const canHide = ctx.hideable && (panelHideable !== false);
+
+  // ── 隐藏态 ──
+  // 派生自 context registry（受控 → context → 默认 false）
+  // HiddenTabBar 调用 ctx.setHidden(id,false) 即可直接恢复
+  const hidden = controlledHidden ?? (id ? ctx.hiddenRegistry[id] === true : false);
+  const setHidden = (next: boolean) => {
+    onHiddenChange?.(next);
+    if (controlledHidden === undefined) {
+      if (id) ctx.setHidden(id, next);
+    }
+  };
+
+  // ── 列归属注册 ──
+  // 只在 registry 中尚无此 id 时写入默认列，防止 remount（列切换导致）
+  // 时用默认 column="left" 覆盖用户选择的结果
+  React.useEffect(() => {
+    if (id && ctx.dualColumn && !(id in ctx.columnRegistry)) {
+      ctx.setColumn(id, column);
+    }
+  }, [id, column, ctx.dualColumn, ctx.setColumn, ctx.columnRegistry]);
+
+  // ── 展开/折叠态 ──
   const collapsedSize = React.useMemo(() => {
     if (!ctx.containerHeight) return 5;
     const pct = (ctx.headerHeight / ctx.containerHeight) * 100;
@@ -190,95 +484,140 @@ export const CollapsiblePanel = React.forwardRef<
   const panelRef = React.useRef<ImperativePanelHandle>(null);
   React.useImperativeHandle(ref, () => panelRef.current!, []);
 
-  // 同步外部 open 态 → react-resizable-panels imperative API
-  React.useEffect(() => {
-    const p = panelRef.current;
-    if (!p) return;
-    if (open && p.isCollapsed()) {
-      p.expand();
-    } else if (!open && p.isExpanded()) {
-      p.collapse();
-    }
-  }, [open]);
+  // ── 声明式尺寸控制：不需要命令式 p.resize()，React key + defaultSize 负责展开 ──
 
-  const toggle = () => setOpen(!open);
+  // ── 声明式尺寸锁定（替代命令式 collapse/expand） ──
+  // 展开态:  minSize=minSize,  maxSize=undefined → 可拖拽
+  // 折叠态:  minSize=3%,       maxSize=3%          → 锁定为约 header 高度，不可拖拽
+  // ⚠️ collapsedSize(px) 不可用于 minSize/maxSize → react-resizable-panels 解读为百分比
+  const COLLAPSED_PCT = 3;
+  const effectiveMinSize = open ? minSize : COLLAPSED_PCT;
+  const effectiveMaxSize = open ? undefined : COLLAPSED_PCT;
+
+  const toggle = () => {
+    if (hidden) {
+      // 从隐藏恢复 → 回到折叠态（header 可见，内容折叠）
+      setHidden(false);
+      setOpen(false);
+    } else {
+      setOpen(!open);
+    }
+  };
+
+  const handleHide = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // 先折叠再隐藏，恢复时回到折叠态
+    setOpen(false);
+    setHidden(true);
+  };
+
+  // 当前列归属
+  const currentColumn = id && ctx.dualColumn ? (ctx.columnRegistry[id] || column) : column;
 
   return (
     <Panel
       ref={panelRef}
       collapsible
       collapsedSize={collapsedSize}
-      defaultSize={defaultOpen ? defaultSize : collapsedSize}
-      minSize={minSize}
-      id={id}
+      defaultSize={defaultOpen ? defaultSize : COLLAPSED_PCT}
+      minSize={effectiveMinSize}
+      maxSize={effectiveMaxSize}
       order={order}
-      onCollapse={() => {
-        if (open) setOpen(false);
-      }}
-      onExpand={() => {
-        if (!open) setOpen(true);
-      }}
       className={cn(
         "flex flex-col overflow-hidden",
         "border-y border-border first:border-t-0 last:border-b-0",
+        hidden && "border-0",
         className,
       )}
       data-collapsed={!open || undefined}
+      data-hidden={hidden || undefined}
     >
-      {/* Header — 整行点击切换。
-       * 用 <div role="button"> 而非 <button>，以避免 actions 槽里嵌真按钮造成
-       * "<button> cannot be a descendant of <button>" 的 hydration 报错。 */}
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-        className={cn(
-          "group/header flex h-7 w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 text-left",
-          "transition-colors hover:bg-white/[0.04]",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-          "select-none",
-        )}
-      >
-        {open ? (
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-        )}
-        {icon && (
-          <span className="shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
-            {icon}
+      {!hidden && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggle();
+            }
+          }}
+          className={cn(
+            "group/header flex h-7 w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 text-left",
+            "transition-colors hover:bg-white/[0.04]",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+            "select-none",
+          )}
+        >
+          {open ? (
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          )}
+          {icon && (
+            <span className="shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
+              {icon}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground/90">
+            {title}
           </span>
-        )}
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground/90">
-          {title}
-        </span>
-        {badge !== undefined && (
-          <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-            {badge}
-          </span>
-        )}
-        {open && actions ? (
+          {badge !== undefined && (
+            <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+              {badge}
+            </span>
+          )}
+
+          {/* Header 右侧操作区 */}
           <span
-            className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/header:opacity-100 focus-within:opacity-100"
-            // 阻止 actions 内的点击冒泡到 header（避免触发 toggle）
+            className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover/header:opacity-100 focus-within:opacity-100"
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
-            {actions}
+            {/* 双列切换按钮 */}
+            {ctx.dualColumn && (
+              <button
+                className="h-4 w-4 rounded p-0 hover:bg-accent/40"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (id) {
+                    const newCol = currentColumn === "left" ? "right" : "left";
+                    ctx.setColumn(id, newCol);
+                  }
+                }}
+                title={currentColumn === "left" ? "移到右列" : "移到左列"}
+              >
+                {currentColumn === "left" ? (
+                  <PanelRight className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <PanelLeft className="h-3 w-3 text-muted-foreground" />
+                )}
+              </button>
+            )}
+
+            {/* 隐藏按钮 */}
+            {canHide && (
+              <button
+                className="h-4 w-4 rounded p-0 hover:bg-accent/40"
+                onClick={handleHide}
+                title="隐藏面板"
+              >
+                <EyeOff className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+
+            {/* 用户自定义 actions */}
+            {open && actions}
           </span>
-        ) : null}
-      </div>
+        </div>
+      )}
 
       {/* Body — 仅展开时占空间 */}
-      {open && (
+      {open && !hidden && (
         <div
           className={cn(
             "min-h-0 flex-1 overflow-auto",

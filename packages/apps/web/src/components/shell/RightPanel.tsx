@@ -7,6 +7,7 @@
  * 所有面板内容区使用 ScrollFade 组件（滚动 + 底部过渡光晕）
  *
  * STORY-0048: D1-D3 接入真实 API，D5 接入 ToolDetailPanel。
+ * STORY-0054: 三态折叠/隐藏 + 双列模式。
  */
 
 import * as React from "react";
@@ -53,6 +54,38 @@ export function RightPanel() {
   const { pinnedSkills, togglePin } = React.useContext(PinnedSkillsContext);
   const { recentItems, addRecentSkill, addRecentTool } = useRecentStore();
   // tool run panel: triggered via PreviewContext, see PreviewRenderer
+
+  // ─── 列归属持久化 ──────────────────────────────────────
+  const COLUMN_STORAGE_KEY = "artifex.shell.dpanel.columnAssignments";
+  const [columnAssignments, setColumnAssignments] = React.useState<Record<string, "left" | "right">>(() => {
+    try {
+      const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+  const handleColumnChange = React.useCallback((assignments: Record<string, "left" | "right">) => {
+    setColumnAssignments(assignments);
+    try { localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(assignments)); } catch {}
+  }, []);
+
+  // ─── 清理 react-resizable-panels 脏布局数据（双列模式结构动态变化，持久化有害）──
+  React.useEffect(() => {
+    try {
+      // getPanelGroupKey(autoSaveId) → `react-resizable-panels:${autoSaveId}`
+      // 核弹式清理：删除所有 react-resizable-panels 相关数据
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("react-resizable-panels")) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      if (keysToRemove.length > 0) {
+        console.log("[RightPanel] 清理了 react-resizable-panels 脏数据:", keysToRemove);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   // ─── 真实 API：Skill 列表 ───────────────────────────────────────
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
@@ -158,7 +191,13 @@ export function RightPanel() {
   }, [setPreview, addRecentTool]);
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-panel-foreground">
-      <CollapsiblePanelGroup autoSaveId="artifex.shell.dpanel">
+      <CollapsiblePanelGroup
+        autoSaveId="artifex.shell.dpanel"
+        dualColumn
+        defaultColumnRatio={40}
+        columnAssignments={columnAssignments}
+        onColumnChange={handleColumnChange}
+      >
         {/* D1 最近使用 */}
         <CollapsiblePanel
           id="recent"
@@ -176,11 +215,6 @@ export function RightPanel() {
                   key={`${item.type}-${item.type === "pin" ? item.name : item.id}`}
                   className="flex h-6 items-center gap-2 rounded px-2 hover:bg-accent/40"
                 >
-                  {item.type === "pin" ? (
-                    <Pin className="h-3 w-3 text-amber-400 shrink-0" />
-                  ) : (
-                    <Play className="h-3 w-3 text-emerald-400 shrink-0" />
-                  )}
                   <span
                     className="truncate text-[11px] cursor-pointer flex-1 min-w-0"
                     onClick={() => {
@@ -192,9 +226,6 @@ export function RightPanel() {
                     }}
                   >
                     {"displayName" in item ? item.displayName : item.name}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {formatRecentTime(item.timestamp)}
                   </span>
                   {item.type === "pin" ? (
                     <Button
@@ -210,7 +241,7 @@ export function RightPanel() {
                       }}
                     >
                       {pinnedSkills.includes(item.name) ? (
-                        <PinOff className="h-3 w-3 text-amber-400" />
+                        <PinOff className="h-3 w-3" />
                       ) : (
                         <Pin className="h-3 w-3" />
                       )}
@@ -400,7 +431,7 @@ export function RightPanel() {
           <ResourceExplorer />
         </CollapsiblePanel>
 
-        {/* D5 上下文预览（STORY-0047 + ToolDetailPanel） */}
+        {/* D5 上下文预览 */}
         <CollapsiblePanel
           id="preview"
           order={5}
@@ -512,11 +543,3 @@ function FallbackPreview({ payload }: { payload: { kind: string; title: string; 
   );
 }
 
-/** 相对时间格式化（刚刚/n分钟前/n小时前/n天前） */
-function formatRecentTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`;
-  return `${Math.floor(diff / 86_400_000)}天前`;
-}
