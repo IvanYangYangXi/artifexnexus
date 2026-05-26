@@ -27,11 +27,9 @@ logger = logging.getLogger("artifex.max")
 _addon_dir = Path(__file__).parent
 if str(_addon_dir) not in sys.path:
     sys.path.insert(0, str(_addon_dir))
-
-_sdk_dir = _addon_dir.parents[4] / "shared"
-_sdk_str = str(_sdk_dir)
-if _sdk_str not in sys.path:
-    sys.path.insert(0, _sdk_str)
+# SDK 路径由 startup.py 统一管理：
+#   部署后：artifex_nexus_sdk/ 已在 _addon_dir 内（自包含设计）
+#   开发期：startup.py 预先添加 packages/dcc/shared/ 到 sys.path
 
 # ── 元信息 ──────────────────────────────────────────────────────────────
 plugin_info = {

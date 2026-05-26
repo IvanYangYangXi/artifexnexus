@@ -46,17 +46,17 @@ def register_max_callbacks() -> None:
         import pymxs
         rt = pymxs.runtime
 
-        # 保存后
+        # 保存后（扁平部署结构：直接 from trigger_dispatcher import）
         rt.callbacks.addScript(
             rt.Name("filePostSave"),
-            'python.execute("from v2023.max_addon.trigger_dispatcher import handle_post_save; handle_post_save()")',
+            'python.execute("from trigger_dispatcher import handle_post_save; handle_post_save()")',
             id=rt.Name("artifex_max_save"),
         )
 
         # 打开后
         rt.callbacks.addScript(
             rt.Name("filePostOpen"),
-            'python.execute("from v2023.max_addon.trigger_dispatcher import handle_post_open; handle_post_open()")',
+            'python.execute("from trigger_dispatcher import handle_post_open; handle_post_open()")',
             id=rt.Name("artifex_max_open"),
         )
 

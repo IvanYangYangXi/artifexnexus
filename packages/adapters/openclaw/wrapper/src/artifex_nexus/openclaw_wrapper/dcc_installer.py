@@ -698,16 +698,22 @@ def find_maya_versions() -> List[str]:
 
 
 def install_maya_addon(maya_version: str, force: bool = False) -> Dict:
-    """安装 Maya 插件 + locale 同步 + userSetup.py 部署。
+    """安装 Maya 插件 + locale 同步 + userSetup.py 部署 + SDK 部署。
 
     Maya 安装策略：
       1. 安装主目录到 ~/Documents/maya/{ver}/scripts/artifex_nexus/
-      2. 扫描 locale 子目录（xx_XX 格式），物理复制到各 locale
-      3. 在 scripts/ 目录生成/更新 userSetup.py（Maya 启动时自动加载）
+      2. 部署 artifex_nexus_sdk/ 到同一目录（自包含设计）
+      3. 扫描 locale 子目录（xx_XX 格式），物理复制到各 locale
+      4. 在 scripts/ 目录生成/更新 userSetup.py（Maya 启动时自动加载）
     """
     result = install_dcc_addon("maya", maya_version, force)
     if not result.get("success"):
         return result
+
+    # 部署 SDK 到插件目录（Maya addon 依赖 artifex_nexus_sdk）
+    sdk_deployed = _deploy_dcc_sdk("maya", maya_version, result["target"])
+    if sdk_deployed:
+        result["sdk_deployed"] = sdk_deployed
 
     # locale 同步
     locale_synced = _sync_maya_locales(maya_version)
@@ -991,16 +997,22 @@ def find_max_versions() -> List[str]:
 
 
 def install_max_addon(max_version: str, force: bool = False) -> Dict:
-    """安装 3ds Max 插件 + locale 同步 + 启动脚本。
+    """安装 3ds Max 插件 + locale 同步 + 启动脚本 + SDK 部署。
 
     Max 安装策略：
       1. 安装主目录到 %LOCALAPPDATA%/Autodesk/3dsMax/{ver}/ENU/scripts/artifex_nexus/
-      2. 部署 startup/artifex_startup.py + artifex_startup.ms
-      3. 扫描所有 locale 目录，同步 artifex_nexus/ + 启动脚本
+      2. 部署 artifex_nexus_sdk/ 到同一目录（自包含，参照 artclaw 设计）
+      3. 部署 startup/artifex_startup.ms + startup.py
+      4. 扫描所有 locale 目录，同步 artifex_nexus/ + 启动脚本
     """
     result = install_dcc_addon("3ds_max", max_version, force)
     if not result.get("success"):
         return result
+
+    # 部署 SDK 到插件目录（Max addon 依赖 artifex_nexus_sdk）
+    sdk_deployed = _deploy_dcc_sdk("3ds_max", max_version, result["target"])
+    if sdk_deployed:
+        result["sdk_deployed"] = sdk_deployed
 
     # 部署启动脚本
     scripts_deployed = _deploy_max_startup_scripts(max_version)
@@ -1013,6 +1025,40 @@ def install_max_addon(max_version: str, force: bool = False) -> Dict:
         result["locale_synced"] = locale_synced
 
     return result
+
+
+def _deploy_dcc_sdk(dcc: str, dcc_version: str, target_dir: str) -> List[str]:
+    """部署 artifex_nexus_sdk 到 DCC 插件目录（自包含设计，参照 artclaw）。
+
+    源目录：packages/dcc/shared/artifex_nexus_sdk/
+    目标目录：{target_dir}/artifex_nexus_sdk/
+    """
+    deployed = []
+
+    # 从 addon 源目录定位项目根 → packages/dcc/shared/artifex_nexus_sdk/
+    env_root = os.environ.get("ARTIFEX_NEXUS_PROJECT_ROOT")
+    if env_root:
+        sdk_src = os.path.join(env_root, "packages", "dcc", "shared", "artifex_nexus_sdk")
+    else:
+        # 开发模式：从 dcc_installer.py 的相对路径推算
+        _here = Path(__file__).resolve().parent
+        sdk_src = str((_here / ".." / ".." / ".." / ".." / "dcc" / "shared" / "artifex_nexus_sdk").resolve())
+
+    if not os.path.isdir(sdk_src):
+        logger.warning(f"SDK 源目录不存在: {sdk_src}，跳过 {dcc} SDK 部署")
+        return deployed
+
+    sdk_dst = os.path.join(target_dir, "artifex_nexus_sdk")
+    try:
+        if os.path.exists(sdk_dst):
+            _remove_link_or_dir(sdk_dst)
+        shutil.copytree(sdk_src, sdk_dst, ignore=_get_ignore_patterns_for_shutil())
+        deployed.append(sdk_dst)
+        logger.info(f"{dcc} SDK 已部署: {sdk_src} → {sdk_dst}")
+    except Exception as e:
+        logger.error(f"{dcc} SDK 部署失败: {e}")
+
+    return deployed
 
 
 def uninstall_max_addon(max_version: str) -> Dict:

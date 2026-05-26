@@ -29,12 +29,9 @@ logger = logging.getLogger("artifex.maya")
 _addon_dir = Path(__file__).parent
 if str(_addon_dir) not in sys.path:
     sys.path.insert(0, str(_addon_dir))
-
-# 共享 SDK 路径（开发期）
-_sdk_dir = _addon_dir.parents[4] / "shared"
-_sdk_path = str(_sdk_dir)
-if _sdk_path not in sys.path:
-    sys.path.insert(0, _sdk_path)
+# SDK 路径由 userSetup.py / startup 统一管理：
+#   部署后：artifex_nexus_sdk/ 已在 _addon_dir 内（自包含设计）
+#   开发期：userSetup.py 预先添加 packages/dcc/shared/ 到 sys.path
 
 # ── Maya 元信息 ──────────────────────────────────────────────────────────
 plugin_info = {
