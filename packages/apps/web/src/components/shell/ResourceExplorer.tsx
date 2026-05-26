@@ -100,7 +100,7 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
   const handleOpenInExplorer = React.useCallback(async (entry: FileEntry) => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("shell_open_path", { paths: [entry.is_dir ? entry.path : entry.path.replace(/[/\\][^/\\]+$/, "")] });
+      await invoke("shell_open_path", { path: entry.is_dir ? entry.path : entry.path.replace(/[/\\][^/\\]+$/, "") });
     } catch (e) {
       console.error("[ResourceExplorer] 打开资源管理器失败:", e);
     }
@@ -142,7 +142,7 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
   const handleOpenFile = React.useCallback(async (entry: FileEntry) => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("shell_open_path", { paths: [entry.path] });
+      await invoke("shell_open_path", { path: entry.path });
     } catch (e) {
       console.error("[ResourceExplorer] 打开文件失败:", e);
     }
