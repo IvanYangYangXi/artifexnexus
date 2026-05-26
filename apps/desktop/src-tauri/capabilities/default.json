@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Artifex Nexus 默认能力：核心 IPC + shell:allow-open（仅限 127.0.0.1 / localhost）",
+  "description": "Artifex Nexus 默认能力：核心 IPC + 文件预览 + shell:allow-open（仅限 127.0.0.1 / localhost）",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
+    "asset:default",
     {
       "identifier": "shell:allow-open",
       "allow": [

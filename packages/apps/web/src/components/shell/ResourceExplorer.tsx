@@ -47,6 +47,10 @@ interface ResourceExplorerProps {
   initialDir?: string;
 }
 
+// ── Image extensions ──────────────────────────────────────────────────────
+
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tga"]);
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
@@ -84,15 +88,27 @@ export function ResourceExplorer({ initialDir }: ResourceExplorerProps) {
   const handleFileClick = React.useCallback(async (entry: FileEntry) => {
     if (entry.is_dir) {
       navigateTo(entry.path);
-    } else {
-      const content = await readFileContent(entry.path);
-      if (content !== null) {
-        setPreview({
-          kind: "file-preview",
-          title: entry.name,
-          data: { content, filePath: entry.path },
-        });
-      }
+      return;
+    }
+
+    // 图片文件：直接触发 image-preview（不走文本读取）
+    const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+    if (IMG_EXTS.has(ext)) {
+      setPreview({
+        kind: "image-preview",
+        title: entry.name,
+        data: { filePath: entry.path, fileName: entry.name },
+      });
+      return;
+    }
+
+    const content = await readFileContent(entry.path);
+    if (content !== null) {
+      setPreview({
+        kind: "file-preview",
+        title: entry.name,
+        data: { content, filePath: entry.path },
+      });
     }
   }, [navigateTo, readFileContent, setPreview]);
 
