@@ -53,6 +53,21 @@ def _deferred_startup():
         return
     _startup_done = True
 
+    # ⚠️ sys.path 优先级修复：
+    #   如果同一 Max 中同时安装了 artclaw，artifex 的模块导入会被 artclaw 的
+    #   同名模块劫持（DCCClawBridge/core/mcp_server.py 等）。
+    #   此时必须把 artifex 的 _addon_dir 提到 sys.path 最前面。
+    _addon_str = str(_addon_dir)
+    while _addon_str in sys.path:
+        sys.path.remove(_addon_str)
+    sys.path.insert(0, _addon_str)
+    # 同时确保 SDK 优先
+    _sdk_str = str(_sdk_dir) if _sdk_dir else ""
+    if _sdk_str and _sdk_str != _addon_str:
+        while _sdk_str in sys.path:
+            sys.path.remove(_sdk_str)
+        sys.path.insert(1, _sdk_str)
+
     try:
         from mcp_server import create_server, register_builtin_tools, DEFAULT_PORT
         from max_adapter import MaxAdapter
