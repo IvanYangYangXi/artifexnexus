@@ -135,7 +135,7 @@ def _deferred_startup():
         # 自动显示 UI 面板
         try:
             from PySide2.QtCore import QTimer as _Qt2
-            _Qt2.singleShot(500, _show_panel_safe)
+            _Qt2.singleShot(1500, _show_panel_safe)
         except Exception:
             pass
 
@@ -152,8 +152,14 @@ def _show_panel_safe():
         if not get_auto_show_panel():
             logger.info("用户已关闭启动时自动显示面板，跳过")
             return
-        from max_ui import show_panel
-        show_panel()
+        import max_ui
+        max_ui.show_panel()
+        # 启动时 Max 主窗口可能尚未就位，面板会落到后面
+        # 延迟 200ms 再次提至前台
+        panel = max_ui._global_panel
+        if panel is not None:
+            from PySide2.QtCore import QTimer
+            QTimer.singleShot(200, panel.raise_)
     except Exception as e:
         logger.warning(f"无法显示面板: {e}")
 
