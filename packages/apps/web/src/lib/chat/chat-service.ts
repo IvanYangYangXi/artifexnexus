@@ -29,6 +29,9 @@ import type { SendResult } from "./gateway-ws";
 // Gateway history 仅作为后台静默刷新源，不阻塞 UI。
 const messageCache = new Map<string, ChatMessage[]>();
 
+/** v4.2: compaction 补齐 — 每次同步从 Gateway 拉取的最大消息数 */
+const SYNC_FETCH_LIMIT = 20;
+
 // ─── AI 错误信息解析（将 Gateway 原始错误映射为用户可理解的中文提示）────
 
 /**
@@ -125,7 +128,8 @@ export type ChatAction =
   | { type: "CLEAR_MESSAGES" }
   | { type: "RESET_STATE" }
   | { type: "TOGGLE_MERGE" }
-  | { type: "LOAD_HISTORY"; messages: ChatMessage[] };
+  | { type: "LOAD_HISTORY"; messages: ChatMessage[] }
+  | { type: "MERGE_MESSAGES"; messages: ChatMessage[] };
 
 export interface ChatServiceState {
   chatState: ChatState;
@@ -267,6 +271,19 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
     case "LOAD_HISTORY":
       // FIX: 加载历史时清空 pendingQueue
       return { ...state, messages: action.messages, pendingQueue: [], chatState: "idle", streamingMessageId: null, error: null, cancelledMessageId: null };
+    case "MERGE_MESSAGES": {
+      // v4.2: compaction 补齐 — 按 ID 去重，按时间排序合并新消息
+      const existingIds = new Set(state.messages.map(m => m.id));
+      const toAdd = action.messages.filter(m => !existingIds.has(m.id));
+      if (toAdd.length === 0) return state;
+      console.log(`[chat] MERGE_MESSAGES: adding ${toAdd.length} new messages (total before=${state.messages.length})`);
+      return {
+        ...state,
+        messages: [...state.messages, ...toAdd].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        ),
+      };
+    }
     default:
       return state;
   }
@@ -328,6 +345,8 @@ export function useChatService(options: ChatServiceOptions) {
     finalAt?: number;
     runId?: string;
   }>>(new Map());
+  /** v4.2: syncFromGateway 并发保护 — 同一时间只允许一次同步在飞 */
+  const syncInFlightRef = React.useRef(false);
 
   // ─── 消息变化时自动同步内存缓存 + localStorage ──────────────────────
   // 仅在非流式状态下写入（避免 APPEND_DELTA 每帧写）
@@ -410,6 +429,7 @@ export function useChatService(options: ChatServiceOptions) {
 
     ws.onStateChange((s) => {
       const mapped = s === "connected" ? "connected" : s === "disconnected" ? "disconnected" : "connecting";
+      const wasDisconnected = prevWsStateRef.current === "disconnected";
       if (mapped === "disconnected" && prevWsStateRef.current === "connected") {
         dispatch({ type: "RESET_STATE" });
       }
@@ -420,6 +440,10 @@ export function useChatService(options: ChatServiceOptions) {
       setEventLoopDegraded(degraded);
       if (mapped === "connected" && degraded) {
         setWsState("degraded");
+      }
+      // v4.2: WS 从断连恢复为 connected → 补齐 compaction 期间丢失的消息
+      if (mapped === "connected" && wasDisconnected) {
+        syncFromGateway();
       }
     });
 
@@ -727,11 +751,16 @@ export function useChatService(options: ChatServiceOptions) {
           runIdToMsgIdRef.current.delete(event.runId);
         }
         // v4 修复：reducer commit 是 React batch，setTimeout(0) 等下一个 tick
-        setTimeout(() => processQueue(), 0);
+        // v4.2: 延迟 200ms 再 processQueue，给 syncFromGateway 时间补齐 compaction 消息
+        setTimeout(() => processQueue(), 200);
+        // v4.2: compaction 补齐 — 每次 final 后异步拉 Gateway 历史，补齐丢失消息
+        syncFromGateway();
         break;
       }
       case "aborted":
       case "error": {
+        // v4.2: 错误/取消时也尝试补齐（可能 compaction 成功但前端收到了 abort 信号）
+        syncFromGateway();
         if (event.state === "error") {
           // 优先用 rawError（含 HTTP 状态码），其次用 message
           const raw = event.rawError || event.message || "";
@@ -746,6 +775,92 @@ export function useChatService(options: ChatServiceOptions) {
         break;
       }
     }
+  }
+
+  // ─── v4.2: compaction 补齐 ─────────────────────────────────────────────
+  // 每次 Gateway 回复 final/error/aborted 后，异步拉取会话最新消息，
+  // 补齐全 compaction 期间可能丢失的后续回复。
+
+  /** 从 chat.history RPC 响应中解析消息（复用 loadHistoryMessages 的解析逻辑） */
+  function _parseHistoryMessages(rawMessages: unknown[]): ChatMessage[] {
+    const messages: ChatMessage[] = [];
+    for (const [idx, m] of rawMessages.entries()) {
+      if (typeof m !== "object" || m === null) continue;
+      const msg = m as Record<string, unknown>;
+      const role = msg.role === "user" ? "user" : msg.role === "system" ? "system" : "assistant";
+      let content = "";
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        content = (msg.content as Array<{ type?: string; text?: string }>)
+          .filter(b => b.type === "text")
+          .map(b => b.text ?? "")
+          .join("");
+      }
+      if (role === "system" && content.length > 500) continue;
+      if (!content) continue;
+      messages.push({
+        id: (msg.id as string) ?? `history-${idx}-${Date.now()}`,
+        role: role as "user" | "assistant" | "system",
+        content,
+        timestamp: (msg.timestamp as string) ?? new Date().toISOString(),
+        isStreaming: false,
+      });
+    }
+    return messages;
+  }
+
+  function syncFromGateway(): void {
+    const ws = wsRef.current;
+    const sk = sessionKeyRef.current;
+    if (!ws || !sk) return;
+    // WS 必须处于可通信状态
+    if (ws.state !== "connected" && ws.state !== "handshaking") return;
+
+    // v4.2 P1-2: 并发保护 — 上一次同步未完成则跳过
+    if (syncInFlightRef.current) {
+      console.log("[chat] syncFromGateway: skipped (already in flight)");
+      return;
+    }
+    syncInFlightRef.current = true;
+    console.log("[chat] syncFromGateway: triggered");
+
+    (async () => {
+      try {
+        const result = await ws.sendRpc("chat.history", { sessionKey: sk, limit: SYNC_FETCH_LIMIT });
+        const payload = result?.payload ?? result;
+        const rawMessages = (payload as Record<string, unknown>)?.messages as unknown[] ?? [];
+        if (rawMessages.length === 0) { console.log("[chat] syncFromGateway: done (0 remote messages)"); return; }
+
+        const remoteMessages = _parseHistoryMessages(rawMessages);
+        const localIds = new Set(stateRef.current.messages.map(m => m.id));
+        const newMessages = remoteMessages.filter(m => !localIds.has(m.id));
+
+        if (newMessages.length > 0) {
+          console.log(
+            `[chat] syncFromGateway: found ${newMessages.length} new messages ` +
+            `(local=${stateRef.current.messages.length}, remote=${remoteMessages.length}), merging...`,
+          );
+          dispatch({ type: "MERGE_MESSAGES", messages: newMessages });
+          // 同步写入内存缓存
+          const existing = messageCache.get(sk) ?? [];
+          const cacheIds = new Set(existing.map(m => m.id));
+          const toCache = newMessages.filter(m => !cacheIds.has(m.id));
+          if (toCache.length > 0) {
+            messageCache.set(sk, [...existing, ...toCache].sort(
+              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+            ));
+          }
+        } else {
+          console.log("[chat] syncFromGateway: done (0 new, all synced)");
+        }
+      } catch (err) {
+        // 静默失败：可能是 WS 断连、会话不存在等，不影响正常流程
+        console.warn("[chat] syncFromGateway failed (non-fatal):", (err as Error).message.slice(0, 100));
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    })();
   }
 
   // ─── 发送/停止/恢复/队列 ──────────────────────────────────────────────
@@ -1205,32 +1320,7 @@ export function useChatService(options: ChatServiceOptions) {
 
   /** 从 Gateway HTTP 历史加载消息（切换对话时调用） */
   function loadHistoryMessages(rawMessages: unknown[]): void {
-    const messages: ChatMessage[] = [];
-    for (const [idx, m] of rawMessages.entries()) {
-      if (typeof m !== "object" || m === null) continue;
-      const msg = m as Record<string, unknown>;
-      const role = msg.role === "user" ? "user" : msg.role === "system" ? "system" : "assistant";
-      // 提取文本内容
-      let content = "";
-      if (typeof msg.content === "string") {
-        content = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        content = (msg.content as Array<{ type?: string; text?: string }>)
-          .filter(b => b.type === "text")
-          .map(b => b.text ?? "")
-          .join("");
-      }
-      // 跳过纯 system 消息（如 system prompt）和空消息
-      if (role === "system" && content.length > 500) continue;
-      if (!content) continue;
-      messages.push({
-        id: (msg.id as string) ?? `history-${idx}-${Date.now()}`,
-        role: role as "user" | "assistant" | "system",
-        content,
-        timestamp: (msg.timestamp as string) ?? new Date().toISOString(),
-        isStreaming: false,
-      });
-    }
+    const messages = _parseHistoryMessages(rawMessages);
     dispatch({ type: "LOAD_HISTORY", messages });
     // 同步写入内存缓存
     if (sessionKeyRef.current && messages.length > 0) {
