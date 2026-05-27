@@ -84,6 +84,11 @@ def register_builtin_tools(server: MCPServer, adapter=None) -> None:
             "  pymxs = pymxs 模块\n\n"
             "将返回值赋给 result 变量，框架会自动提取并返回。\n"
             "坐标系统：Z-Up。\n\n"
+            "Skill 执行（通过 SkillHub）:\n"
+            "  from artifex_nexus_sdk.skill_hub import get_skill_hub\n"
+            "  hub = get_skill_hub()\n"
+            "  hub.execute_skill(\"skill_name\", {\"arg\": \"value\"})\n"
+            "  hub.list_skills()\n\n"
             "快捷上下文: 设 get_context=true（无需 code）可获取编辑器状态。"
         ),
         input_schema={

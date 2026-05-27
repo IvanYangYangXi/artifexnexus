@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from artifex_nexus_logger import UELogger
-from skill_manifest import (
+from artifex_nexus_sdk.skill_manifest import (
     parse_manifest, validate_manifest, SkillManifest,
     VALID_SOFTWARE, VALID_CATEGORIES, VALID_RISK_LEVELS,
 )
@@ -450,7 +450,7 @@ def _generate_init_code(name: str, description: str, category: str,
 Skill Hub auto-discovers and registers. Save to hot-reload.
 """
 
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 
 try:
@@ -475,7 +475,7 @@ def _validate_input(arguments: dict, required_fields: list) -> str:
 # Tools
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="{name}",
     description="{description}",
     category="{category}",
@@ -500,7 +500,7 @@ def {name}(arguments: dict) -> str:
 Skill Hub auto-discovers and registers. Save to hot-reload.
 """
 
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 
 try:
@@ -509,7 +509,7 @@ except ImportError:
     unreal = None
 
 
-@ue_tool(
+@skill_tool(
     name="{name}",
     description="{description}",
     category="{category}",

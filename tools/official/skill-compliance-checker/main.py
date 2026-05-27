@@ -7,7 +7,7 @@
   C. software/dcc 枚举 vs categories.json（唯一数据源，运行时动态读取）
   D. Skill 依赖完整性
   E. tags 格式检查
-  F. __init__.py 装饰器合规（@skill_tool / @ue_tool 等 DCC 特定装饰器）
+  F. __init__.py @skill_tool 装饰器合规（全平台统一，@ue_tool 已废弃）
 """
 # ── SDK 头 ──
 import os as _os, json as _json_mod
@@ -300,29 +300,34 @@ def _check_tags(skill_dir: Path) -> List[Dict[str, str]]:
 
 
 # ============================================================================
-# Check F: __init__.py @skill_tool / DCC 装饰器合规
+# Check F: __init__.py @skill_tool 装饰器合规（全平台统一）
 # ============================================================================
 
-#: DCC 特定装饰器导入模式（优先级低于 @skill_tool，但合法）
-_DCC_DECORATOR_PATTERNS: Dict[str, str] = {
-    # UE: from skill_hub import tool as ue_tool  →  @ue_tool
+#: 合法的 @skill_tool 导入路径
+_SKILL_TOOL_IMPORT_PATTERNS = [
+    # 共享 SDK（推荐）
+    r'from\s+artifex_nexus_sdk\.decorator\s+import\s+.*\bskill_tool\b',
+    r'from\s+artifex_nexus_sdk\s+import\s+.*\bskill_tool\b',
+    # 平台 SDK（兼容）
+    r'from\s+artifex_nexus\.skill(?:\.decorator)?\s+import\s+.*\bskill_tool\b',
+    r'from\s+artifex_nexus\.skill\.decorator\.core\s+import\s+.*\bskill_tool\b',
+]
+
+#: 已废弃的装饰器导入（@ue_tool / skill_hub.tool）
+_DEPRECATED_IMPORT_PATTERNS: Dict[str, str] = {
     "ue_tool": r'from\s+skill_hub\s+import\s+tool\s+as\s+ue_tool',
-    # 通用 skill_hub 导入
     "skill_hub_tool": r'from\s+skill_hub\s+import\s+tool\b',
 }
 
-#: 所有合法的工具装饰器名（包括 @skill_tool 及其 DCC 变体）
-_VALID_TOOL_DECORATORS = {"skill_tool", "ue_tool", "tool", "artclaw_tool"}
+#: 所有装饰器名（@skill_tool 为主，其余标记为废弃）
+_VALID_TOOL_DECORATORS = {"skill_tool"}
+_DEPRECATED_DECORATORS = {"ue_tool", "tool", "artclaw_tool"}
 
 
 def _check_init_py(skill_dir: Path) -> List[Dict[str, str]]:
-    """检查 __init__.py 中工具装饰器合规性。
+    """检查 __init__.py 中 @skill_tool 装饰器合规性。
 
-    支持：
-      - @skill_tool（平台标准，来自 artifex_nexus.skill）
-      - @ue_tool（UE DCC 特定，来自 skill_hub）
-      - @tool（skill_hub 通用别名）
-      - @artclaw_tool（兼容别名）
+    全平台统一为 @skill_tool。@ue_tool / @artclaw_tool 已废弃。
     """
     issues: List[Dict[str, str]] = []
     init_py = skill_dir / "__init__.py"
@@ -336,32 +341,38 @@ def _check_init_py(skill_dir: Path) -> List[Dict[str, str]]:
         issues.append({"severity": "error", "message": f"无法读取 __init__.py: {e}"})
         return issues
 
-    # 检查 @skill_tool 导入（平台标准）
-    has_skill_tool_import = bool(re.search(
-        r'from\s+artifex_nexus\.skill(?:\.decorator)?\s+import\s+.*\bskill_tool\b'
-        r'|from\s+artifex_nexus\.skill\.decorator\.core\s+import\s+.*\bskill_tool\b',
-        content
-    ))
+    # 检查 @skill_tool 导入
+    has_skill_tool_import = any(
+        re.search(pat, content) for pat in _SKILL_TOOL_IMPORT_PATTERNS
+    )
 
-    # 检查 DCC 特定装饰器导入
-    dcc_decorator_found: Optional[str] = None
-    if not has_skill_tool_import:
-        for key, pattern in _DCC_DECORATOR_PATTERNS.items():
-            if re.search(pattern, content):
-                dcc_decorator_found = key
-                break
+    # 检查是否有废弃装饰器导入
+    deprecated_import: Optional[str] = None
+    for key, pattern in _DEPRECATED_IMPORT_PATTERNS.items():
+        if re.search(pattern, content):
+            deprecated_import = key
+            break
 
-    # 判断是否缺少合法装饰器
-    if not has_skill_tool_import and not dcc_decorator_found:
+    # 已废弃装饰器
+    if deprecated_import:
+        issues.append({"severity": "error",
+                       "message": f"使用了已废弃的装饰器导入（{deprecated_import}），"
+                                  "请改用 from artifex_nexus_sdk.decorator import skill_tool"})
+
+    # 缺少合法装饰器但有函数
+    if not has_skill_tool_import and not deprecated_import:
         if "def " in content:
             issues.append({"severity": "warning",
-                           "message": "__init__.py 有函数但未导入合法装饰器（@skill_tool / @ue_tool 等）"})
+                           "message": "__init__.py 有函数但未导入 @skill_tool"})
 
-    # 扫描所有合法装饰器标记的函数
-    decorator_pattern = r'@(' + '|'.join(_VALID_TOOL_DECORATORS) + r')\s*(?:\([^)]*\))?\s*\n\s*def\s+(\w+)'
+    # 扫描所有 @skill_tool 装饰的函数
+    decorator_pattern = r'@(' + '|'.join(_VALID_TOOL_DECORATORS | _DEPRECATED_DECORATORS) + r')\s*(?:\([^)]*\))?\s*\n\s*def\s+(\w+)'
     tool_funcs = re.findall(decorator_pattern, content)
     for decorator_name, fn_name in tool_funcs:
-        # 检查签名是否含 **kwargs（仅对 arguments_dict 风格的函数）
+        if decorator_name in _DEPRECATED_DECORATORS:
+            issues.append({"severity": "error",
+                           "message": f"@{decorator_name} 已废弃，请改用 @skill_tool"})
+            continue
         fn_match = re.search(
             rf'def\s+{fn_name}\s*\(([^)]*)\)',
             content
@@ -370,7 +381,7 @@ def _check_init_py(skill_dir: Path) -> List[Dict[str, str]]:
             params = fn_match.group(1)
             if "**kwargs" not in params and "**kw" not in params:
                 issues.append({"severity": "warning",
-                               "message": f"@{decorator_name} 函数 {fn_name}() 签名缺少 **kwargs"})
+                               "message": f"@skill_tool 函数 {fn_name}() 签名缺少 **kwargs"})
 
     # ── software-装饰器 一致性检查 ──
 
@@ -400,28 +411,18 @@ def _check_init_py(skill_dir: Path) -> List[Dict[str, str]]:
     else:
         software_set = set()
 
-    # DCC 无 SkillHub 的集合
-    _NO_SKILLHUB_DCCS = frozenset({
+    # DCC SkillHub 未实现的集合（规划中，装饰器可提前写入）
+    _SKILLHUB_PLANNED_DCCS = frozenset({
         "blender", "maya", "3ds_max", "houdini",
         "comfyui", "substance_painter", "substance_designer", "unity",
     })
 
-    # 检查 1：UE Skill 错误使用了 @skill_tool
-    if "unreal_engine" in software_set and has_skill_tool_import and dcc_decorator_found != "ue_tool":
-        issues.append({"severity": "error",
-                       "message": "software=unreal_engine 但 __init__.py 使用 @skill_tool（UE SkillHub 不支持）；应用 @ue_tool"})
-
-    # 检查 2：非 UE Skill 错误使用了 @ue_tool
-    if "unreal_engine" not in software_set and dcc_decorator_found == "ue_tool":
-        issues.append({"severity": "warning",
-                       "message": "software 不含 unreal_engine 但使用了 @ue_tool（UE 专用装饰器）"})
-
-    # 检查 3：DCC 无 SkillHub 但有 __init__.py 的装饰函数
-    only_no_hub = bool(software_set) and software_set.issubset(_NO_SKILLHUB_DCCS)
-    if only_no_hub and has_skill_tool_import:
-        issues.append({"severity": "warning",
-                       "message": "目标 DCC 无 SkillHub 运行时，"
-                                  "__init__.py 中的 @skill_tool 函数不会被加载；建议改为纯知识型 Skill"})
+    # DCC SkillHub 规划中 —— 装饰器可提前写入，SkillHub 完成后自动生效
+    only_planned = bool(software_set) and software_set.issubset(_SKILLHUB_PLANNED_DCCS)
+    if only_planned and has_skill_tool_import:
+        issues.append({"severity": "info",
+                       "message": "目标 DCC SkillHub 规划中，@skill_tool 暂不会被自动发现；"
+                                  "装饰器可保留（SkillHub 完成后自动生效），AI 当前通过 run_python 执行"})
 
     return issues
 

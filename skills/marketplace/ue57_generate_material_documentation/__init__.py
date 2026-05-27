@@ -10,7 +10,7 @@ generate_material_documentation - 生成材质使用文档
 Skill Hub 自动发现并注册。保存后热重载生效。
 """
 
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 import os
 
@@ -267,7 +267,7 @@ def _generate_markdown(mat_info: dict, params: dict, expressions: list,
 # Skill 实现
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="ue57_generate_material_documentation",
     description="Read a master material's blueprint and generate comprehensive Markdown "
                 "documentation. Extracts all parameter types (scalar, vector, texture, "

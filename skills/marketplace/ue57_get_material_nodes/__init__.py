@@ -14,7 +14,7 @@ get_material_nodes - 获取材质蓝图节点图
 Skill Hub 自动发现并注册。保存后热重载生效。
 """
 
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 
 try:
@@ -105,7 +105,7 @@ def _extract_props(node, cls_name: str) -> dict:
 # Tool
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="get_material_nodes",
     description=(
         "Get the blueprint node graph (expression nodes) of a Material asset. "

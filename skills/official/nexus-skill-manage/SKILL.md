@@ -189,30 +189,38 @@ metadata:
 
 ### 装饰器规范
 
-Skill 的 `__init__.py` 中工具函数需要根据目标 DCC 使用对应装饰器注册。
+**装饰器 = SkillHub 服务注册的触发器。** 被 ``@skill_tool`` 装饰的函数存入注册表，AI 可以按名调用 ``execute_skill("工具名", {参数})``。没有装饰器的代码 AI 仍可通过 ``run_python`` 执行。
 
-两个 SkillHub 运行时互相隔离：
-- **Platform SkillHub**：扫描 `_artifex_skill_tool` 标记（来自 `@skill_tool`）
-- **UE SkillHub**：扫描 `_ue_agent_tool` 标记（来自 `@ue_tool`）
+**装饰器统一为 ``@skill_tool``**（全平台唯一装饰器，来自 ``artifex_nexus_sdk.decorator``）。
+所有 Hub 通过 walk ``module.__dict__`` 查找 ``_artifex_skill_tool = True`` 标记发现工具。
 
-| 目标 DCC | SkillHub | 装饰器 | 导入方式 |
-|----------|----------|--------|----------|
-| `general`（平台通用） | ✅ Platform | `@skill_tool` | `from artifex_nexus.skill import skill_tool` |
-| `unreal_engine` | ✅ UE | `@ue_tool` | `from skill_hub import tool as ue_tool` |
-| `blender` | ❌ | — | 纯知识型（仅 SKILL.md + manifest.json） |
-| `maya` | ❌ | — | 纯知识型 |
-| `3ds_max` | ❌ | — | 纯知识型 |
-| `houdini` | ❌ | — | 纯知识型 |
-| `comfyui` | ❌ | — | 纯知识型 |
-| `substance_painter` | ❌ | — | 纯知识型 |
-| `substance_designer` | ❌ | — | 纯知识型 |
-| `unity` | ❌ | — | 纯知识型 |
+**什么时候写装饰器？**
+
+| 场景 | 写装饰器？ | 调用方式 |
+|------|-----------|---------|
+| 稳定、高频、可复用的工具（查询、获取信息、通用编辑） | ✅ 写 | SkillHub 按名调用 |
+| 定制化脚本、一次性需求 | ❌ 不写 | AI 读代码 → ``run_python`` 执行 |
+
+**全 DCC 装饰器对照：**
+
+| 目标 DCC | SkillHub 状态 | 装饰器 | 导入方式 |
+|----------|-------------|--------|----------|
+| `general`（平台通用） | ✅ 已实现 | ``@skill_tool`` | ``from artifex_nexus_sdk.decorator import skill_tool`` |
+| `unreal_engine` | ✅ 已实现 | ``@skill_tool`` | 同上 |
+| `blender` | ✅ 已实现 | ``@skill_tool`` | 同上 |
+| `maya` | ✅ 已实现 | ``@skill_tool`` | 同上 |
+| `3ds_max` | ✅ 已实现 | ``@skill_tool`` | 同上 |
+| `houdini` | 📋 规划中 | ``@skill_tool`` | 同上 |
+| `comfyui` | 📋 规划中 | ``@skill_tool`` | 同上 |
+| `substance_painter` | 📋 规划中 | ``@skill_tool`` | 同上 |
+| `substance_designer` | 📋 规划中 | ``@skill_tool`` | 同上 |
+| `unity` | 📋 规划中 | ``@skill_tool`` | 同上 |
 
 > **规则**：
-> - 非 DCC 或跨 DCC Skill → `@skill_tool`（平台标准）
-> - UE Skill → `@ue_tool`（UE SkillHub 不支持 `@skill_tool`）
-> - 其他 DCC（Blender/Maya/Max 等）→ 无装饰器（纯知识型 Skill，无 `__init__.py`）
-> - 兼容别名：`@tool`（skill_hub 通用）、`@artclaw_tool`（过渡期）
+> - 全 DCC 统一使用 ``@skill_tool``，无例外
+> - 装饰器仅标记属性（``_artifex_skill_tool = True``），所有 Hub 统一发现机制（walk ``__dict__``）
+> - 稳定通用工具 → 写装饰器；定制一次性脚本 → 不写装饰器
+> - 共享 SkillHub（``artifex_nexus_sdk.skill_hub``）已为所有 DCC 提供统一实现
 
 ### manifest.json 模板（最小）
 
@@ -273,7 +281,86 @@ else:
     print("✅ 合规检查通过")
 ```
 
-检查项：SKILL.md frontmatter（`metadata.artifex_nexus.*` 必需字段：software、version、author）、manifest.json schema、software/dcc 枚举 vs `categories.json`、依赖完整性、tags 格式、`__init__.py` 装饰器合规（`@skill_tool` / `@ue_tool` 等 DCC 装饰器）。
+检查项：SKILL.md frontmatter（`metadata.artifex_nexus.*` 必需字段：software、version、author）、manifest.json schema、software/dcc 枚举 vs `categories.json`、依赖完整性、tags 格式、`__init__.py` `@skill_tool` 装饰器合规。
+
+---
+
+## Agent 导向 Skill 的分层文档策略
+
+当 Skill 的目标读者是 Agent（AI）而非人类用户时，应采用分层文档结构，让 Agent 按需加载，避免一次性吞入大量 token。
+
+### 设计原则
+
+1. **入口文件尽量短** — `SKILL.md` 仅作为规则索引 + 读取策略指引，不加载全部内容
+2. **按主题拆分子文档** — 每个规则 / 通道 / 场景独立一个 `.md`，放在 `rules/` 子目录
+3. **按需读取** — Agent 先看索引，根据当前任务选择性地加载子文档
+4. **API 参考文档分离** — `api-reference.md` 放在最后加载，仅在需要精确参数时查阅
+
+### 推荐目录结构
+
+```
+skills/official/{skill-name}/
+├── SKILL.md                    # 入口：索引 + 读取策略 + 场景速查表
+├── manifest.json
+├── rules/                      # 规则子文档（按主题拆分）
+│   ├── topic-a.md              #   规则 A 概述
+│   ├── topic-a-channel-1.md    #   规则 A 通道 1 详细指引
+│   ├── topic-a-channel-2.md    #   规则 A 通道 2 详细指引
+│   └── topic-b.md              #   规则 B
+└── api-reference.md            # API 精确参数参考（最后加载）
+```
+
+### SKILL.md 入口模板
+
+```markdown
+# {Skill 标题}
+
+采用分层文档结构：入口索引 → 规则概述 → 详细子文档，按需读取。
+
+## 读取策略
+1. 先读本文件 — 了解有哪些规则、何时加载子文档
+2. 按需读子文档 — 只读当前任务需要的
+3. api-reference.md 最后读 — 仅在需要精确参数时
+
+## 规则索引
+| 规则 | 文档 | 何时加载 |
+|------|------|----------|
+| {规则名} | `rules/{file}.md` | {触发条件} |
+| ...
+
+## 常见场景速查
+| 场景 | 加载文档 |
+|------|----------|
+| ...
+```
+
+### 何时使用分层结构
+
+| 条件 | 是否分层 |
+|------|:---:|
+| Skill 面向 Agent（AI 自动加载执行） | ✅ 分层 |
+| Skill 内容 > 200 行且包含多个独立主题 | ✅ 分层 |
+| Skill 面向人类用户阅读 | ❌ 单文件即可 |
+| Skill 只有一个主题且 < 100 行 | ❌ 单文件即可 |
+
+### 示例
+
+参考 `nexus-agent-guide` Skill 的结构：
+
+```
+nexus-agent-guide/
+├── SKILL.md                     # 入口：4 行规则索引 + 场景速查表
+├── manifest.json
+├── rules/
+│   ├── notifications.md         #  通知规则概述 + 通道选择
+│   ├── notifications-python.md  #  通道 A 详细指引
+│   ├── notifications-gateway.md #  通道 B 详细指引
+│   ├── notifications-tauri.md   #  通道 C 详细指引
+│   └── cron-reply.md            #  cron 回复配置规则
+└── api-reference.md             #  API 精确参数参考
+```
+
+> **关键**：Agent 先读 `SKILL.md`（~40 行）了解全貌，再根据需要加载 1-2 个子文档（各 ~30-50 行），而不是一次性吞入 230 行的单文件。
 
 ---
 

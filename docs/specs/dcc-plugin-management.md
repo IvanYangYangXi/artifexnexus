@@ -1,7 +1,7 @@
 ---
 tags: [spec, dcc, install, standard, master]
 created: 2026-05-08
-updated: 2026-05-25 (19:50)
+updated: 2026-05-27 (18:30)
 status: active
 ---
 
@@ -44,6 +44,9 @@ status: active
 │  base_adapter.py         → BaseDCCAdapter 基类           │
 │  mcp_server.py           → MCPServer 参数化服务器         │
 │  trigger_dispatcher_base.py → TriggerDispatcher 基类     │
+│  decorator.py            → @skill_tool 装饰器（唯一源）   │
+│  skill_manifest.py       → manifest 解析与验证（唯一源）  │
+│  skill_hub.py            → SkillHub 核心（全平台统一）    │
 └──────────────────────────────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────┐
@@ -589,7 +592,54 @@ export async function setDCCPort(dcc: string, port: number): Promise<DCCPortSetR
 | `_parse_ue_plugin_descriptor(path)` | 解析 .uplugin JSON（版本截断到 2 位） |
 | `validate_all_deployments()` | 全面部署校验 + 静默清理过期条目 |
 
-## 13. 相关文档
+### 3.4 @skill_tool 装饰器
+
+**文件**: `decorator.py`（共享 SDK）
+
+全平台统一的 Skill-Tool 装饰器。纯 Python 实现，零 DCC 依赖。
+所有 Hub 通过 walk ``module.__dict__`` 查找 ``_artifex_skill_tool = True`` 标记发现工具。
+
+```python
+from artifex_nexus_sdk.decorator import skill_tool, SkillToolResult
+
+@skill_tool(name="my_tool", description="工具描述", risk_level="low")
+def my_tool(arg1: str) -> SkillToolResult:
+    ...
+    return SkillToolResult.success({"result": "ok"})
+```
+
+**装饰器使用决策**：
+
+| 场景 | 写装饰器？ | 调用方式 |
+|------|-----------|---------|
+| 稳定、高频、可复用的工具（查询、获取信息、通用编辑） | ✅ | SkillHub 按名调用 ``execute_skill()`` |
+| 定制化脚本、一次性需求 | ❌ | AI 读代码 → ``run_python`` 执行 |
+
+### 3.5 SkillHub 运行时
+
+全平台统一的 Skill 服务注册中心。核心实现在共享 SDK 的 ``skill_hub.py`` 中，
+每个 DCC 启动时通过 ``init_skill_hub()`` 初始化单例。
+
+**启动流程**：MCP Server 启动 → ``_init_skill_hub()`` → ``scan_and_register()`` →
+``start_watching()``（轮询热重载）
+
+**AI 调用方式**（通过 ``run_python``）：
+```python
+from artifex_nexus_sdk.skill_hub import get_skill_hub
+hub = get_skill_hub()
+hub.execute_skill("skill_name", {"arg": "value"})
+hub.list_skills()
+```
+
+| DCC | SkillHub 状态 | 实现位置 |
+|-----|-------------|---------|
+| Blender | ✅ 已实现 | ``__init__.py`` → ``_init_skill_hub()`` |
+| Maya | ✅ 已实现 | ``__init__.py`` → ``_init_skill_hub()`` |
+| 3ds Max | ✅ 已实现 | ``__init__.py`` + ``startup.py`` → ``_init_skill_hub()`` |
+| UE | ✅ 已实现 | ``skill_hub.py``（独立实现，复用共享 ``skill_manifest``） |
+| Houdini / ComfyUI / Substance / Unity | 📋 规划中 | 同上模式，参考现有实现 |
+
+详见 `docs/specs/skill-system.md`。
 
 - `docs/specs/maya-max-mcp-integration.md` — Maya / Max 接入详细规范
 - `docs/specs/dcc-extension-trigger-system.md` — DCC 触发器系统
@@ -597,3 +647,4 @@ export async function setDCCPort(dcc: string, port: number): Promise<DCCPortSetR
 - `docs/development/dcc-detection-guide.md` — DCC 检测指南（注册表格式、版本映射、ID 陷阱）
 - `docs/sdk/README.md` — SDK 索引
 - `docs/development/agent-onboarding.md` — 新人上手
+- `docs/specs/skill-system.md` — Skill 系统总规范（装饰器、SkillHub）

@@ -91,16 +91,35 @@ tags: [story, skill, sdk, decorator, manifest, version, M4]
 3. **死代码清理**：移除 ``_TOOL_REGISTRY`` 全局 dict、``get_registered_tools()``、``is_tool()``、``get_tool_name()``、``_ue_agent_tool/``_ue_agent_tool_name`` 标记。
    仅保留 Hub 实际使用的 ``_artifex_tool`` / ``_artifex_tool_name`` 标记。
 
-## PM 决策（2026-05-27）— 双轨装饰器
+## PM 决策（2026-05-27 #3）— 全平台统一 @skill_tool（覆盖 #1 双轨决策）
 
-4. **双轨装饰器体系（不可统一）**：
-   - **Platform SkillHub** 扫描 ``_artifex_skill_tool`` 标记 → 使用 `@skill_tool`
-   - **UE SkillHub**（``skill_hub.py``）扫描 ``_ue_agent_tool`` 标记 → 使用 `@ue_tool`
-   - 两个 Hub 发现机制互相隔离，`@skill_tool` 在 UE 中不可用，反之亦然
-   - **Blender/Maya/Max 等 DCC** 无 SkillHub（仅 MCP Server），面向这些 DCC 的 Skill 应为纯知识型（无 `__init__.py`）
+> **覆盖 2026-05-27 #1 的"双轨装饰器体系（不可统一）"决策。**
+> 经深入分析发现，`@skill_tool` 是纯 Python，无 DCC 依赖。
+> 统一发现机制（walk `__dict__` for `_artifex_skill_tool`）即可使所有 Hub 互通。
+
+4. **全平台统一 `@skill_tool`**：
+   - 装饰器唯一源：`packages/dcc/shared/artifex_nexus_sdk/decorator.py`
+   - 所有 Hub 统一发现机制：walk ``module.__dict__`` for ``_artifex_skill_tool = True``
+   - UE Hub 的 ``_load_and_register_skill`` 改为调用 ``_collect_decorated_from_module(module)``
+   - `@ue_tool` / `@artclaw_tool` / `@tool` 已废弃
+   - 所有 UE Skill（4 个目录，10+ 函数）已替换为 `@skill_tool`
 
 5. **合规检查器同步更新**：
-   - Skill 合规检查器的 `_check_init_py` 增加 DCC 装饰器白名单（`@ue_tool` / `@tool` / `@artclaw_tool`）
-   - 新增 software-装饰器一致性检查：UE + `@skill_tool` → error；非 UE + `@ue_tool` → warning；无 SkillHub DCC + `@skill_tool` → warning
+   - `_check_init_py`：废弃 `@ue_tool` 检查 → error；统一 `@skill_tool` 导入路径白名单
+   - software-装饰器一致性检查：移除 UE 特殊规则，仅保留"规划中 DCC → info"
 
-6. **文档同步**：`docs/specs/skill-system.md` §2-3、`docs/development/skill-authoring/README.md`、`nexus-skill-manage SKILL.md` 均已更新为双轨描述
+6. **共享 SDK 扩展**：
+   - `artifex_nexus_sdk/decorator.py` 新增（全平台统一装饰器）
+   - 已部署到 UE ``Content/Python/artifex_nexus_sdk/decorator.py``
+
+7. **文档全量同步**：`docs/specs/skill-system.md`、`docs/development/skill-authoring/README.md`、`docs/specs/dcc-plugin-management.md`、`nexus-skill-manage SKILL.md` 均已更新
+
+## PM 决策（2026-05-27 #2）— 装饰器使用分层
+
+7. **装饰器不是代码能否执行的前提**：没有装饰器的代码 AI 仍可通过 `run_python` 执行。
+
+8. **装饰器使用决策**：
+   - 稳定、高频、可复用的工具（查询、获取信息、通用编辑）→ 写装饰器 → SkillHub 按名调用
+   - 定制化脚本、一次性需求 → 不写装饰器 → AI 通过 `run_python` 执行
+
+9. **所有 DCC 的统一目标**：全部实现 SkillHub，装饰的稳定工具自动注册，未装饰的脚本由 AI 按需执行

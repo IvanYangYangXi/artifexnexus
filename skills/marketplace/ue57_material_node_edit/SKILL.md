@@ -21,7 +21,7 @@ metadata:
 # Artifex Nexus Material — 材质节点图操作接口
 
 Official Artifex Nexus skill providing atomic tools for Material node graph manipulation.
-All tools are registered via `@ue_tool` and exposed through MCP.
+All tools are registered via `@skill_tool` and exposed through MCP.
 
 ## Architecture
 
@@ -186,4 +186,4 @@ Copy `scripts/material_node_ops.py` to the Artifex Nexus Skills directory:
 {UEPlugin}/Content/Python/Skills/material_node_ops.py
 ```
 Or place in `00_official/artifex_nexus-material/` as a manifest-based skill.
-Skill Hub auto-discovers `@ue_tool` decorated functions on file save.
+Skill Hub auto-discovers `@skill_tool` decorated functions on file save.

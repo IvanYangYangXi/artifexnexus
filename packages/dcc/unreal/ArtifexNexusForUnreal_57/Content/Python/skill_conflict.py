@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from skill_manifest import SkillManifest
+from artifex_nexus_sdk.skill_manifest import SkillManifest
 
 
 # ============================================================================

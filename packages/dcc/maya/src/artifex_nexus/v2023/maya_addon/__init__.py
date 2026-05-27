@@ -30,9 +30,14 @@ logger = logging.getLogger("artifex.maya")
 _addon_dir = Path(__file__).parent
 if str(_addon_dir) not in sys.path:
     sys.path.insert(0, str(_addon_dir))
-# SDK 路径由 userSetup.py / startup 统一管理：
-#   部署后：artifex_nexus_sdk/ 已在 _addon_dir 内（自包含设计）
-#   开发期：userSetup.py 预先添加 packages/dcc/shared/ 到 sys.path
+
+# 共享 SDK 路径注入（开发期：从源目录回溯）
+# 部署后 SDK 已内嵌在 _addon_dir 内，此路径不存在时静默跳过
+_sdk_probe = _addon_dir.parents[4] / "shared"
+if _sdk_probe.is_dir():
+    _sdk_str = str(_sdk_probe)
+    if _sdk_str not in sys.path:
+        sys.path.insert(0, _sdk_str)
 
 # ── Maya 元信息 ──────────────────────────────────────────────────────────
 plugin_info = {
@@ -55,6 +60,7 @@ except ImportError:
 # ── 全局状态 ────────────────────────────────────────────────────────────
 _mcp_server = None
 _adapter = None
+_skill_hub = None   # SkillHub 实例（延迟初始化）
 _triggers_enabled = True
 
 
@@ -74,6 +80,35 @@ def _get_adapter():
         from maya_adapter import MayaAdapter
         _adapter = MayaAdapter()
     return _adapter
+
+
+def _get_skill_hub():
+    """延迟获取 SkillHub 实例"""
+    global _skill_hub
+    return _skill_hub
+
+
+def _init_skill_hub():
+    """初始化 SkillHub（在 MCP Server 启动后调用）"""
+    global _skill_hub
+    if _skill_hub is not None:
+        return _skill_hub
+    try:
+        from artifex_nexus_sdk.skill_hub import init_skill_hub as _init_hub
+        import maya.cmds as _cmds
+        _skills_dir = os.path.join(os.path.expanduser("~"), ".artifexnexus", "skills")
+        _skill_hub = _init_hub(
+            dcc_name="maya",
+            version_func=lambda: str(_cmds.about(version=True)),
+            skills_dir=_skills_dir,
+            module_prefix="maya_skill_",
+        )
+        _skill_hub.scan_and_register()
+        _skill_hub.start_watching(interval=2.0)
+        logger.info("SkillHub 已初始化并完成扫描")
+    except Exception as e:
+        logger.error(f"SkillHub 初始化失败: {e}")
+    return _skill_hub
 
 
 # ── 公共 API ────────────────────────────────────────────────────────────
@@ -110,6 +145,8 @@ def start_server() -> bool:
     success = server.start()
     if success:
         logger.info(f"Maya MCP Server 已启动: {server.server_address}")
+        # 初始化 SkillHub
+        _init_skill_hub()
     else:
         logger.error("Maya MCP Server 启动失败")
     return success
@@ -117,7 +154,11 @@ def start_server() -> bool:
 
 def stop_server() -> None:
     """停止 MCP Server"""
-    global _mcp_server
+    global _mcp_server, _skill_hub
+    # 停止 SkillHub 监控
+    if _skill_hub is not None:
+        _skill_hub.stop_watching()
+        _skill_hub = None
     if _mcp_server and _mcp_server.is_running:
         _mcp_server.stop()
     _mcp_server = None
@@ -407,7 +448,7 @@ def _auto_show_panel():
 
 def unregister():
     """Maya 关闭/卸载时调用"""
-    global _mcp_server, _adapter, _triggers_enabled
+    global _mcp_server, _adapter, _skill_hub, _triggers_enabled
 
     stop_server()
 

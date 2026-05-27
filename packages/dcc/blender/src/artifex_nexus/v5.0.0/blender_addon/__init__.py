@@ -16,6 +16,7 @@ CI 兼容：bpy 导入失败时（非 Blender 环境），仅暴露子模块供�
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -59,6 +60,7 @@ except ImportError:
 # ── 全局状态 ────────────────────────────────────────────────────────────
 _mcp_server = None  # MCPServer 实例（延迟导入）
 _adapter = None     # BlenderAdapter 实例
+_skill_hub = None   # SkillHub 实例（延迟初始化）
 
 
 def _get_mcp_server():
@@ -85,6 +87,36 @@ def _get_trigger_dispatcher():
     return BlenderTriggerDispatcher.get_instance()
 
 
+def _get_skill_hub():
+    """延迟获取 SkillHub 实例"""
+    global _skill_hub
+    return _skill_hub
+
+
+def _init_skill_hub():
+    """初始化 SkillHub（在 MCP Server 启动后调用）"""
+    global _skill_hub
+    if _skill_hub is not None:
+        return _skill_hub
+    try:
+        from artifex_nexus_sdk.skill_hub import init_skill_hub as _init_hub
+        import bpy as _bpy
+        _skills_dir = os.path.join(os.path.expanduser("~"), ".artifexnexus", "skills")
+        _skill_hub = _init_hub(
+            dcc_name="blender",
+            version_func=lambda: _bpy.app.version_string,
+            skills_dir=_skills_dir,
+            module_prefix="blender_skill_",
+        )
+        _skill_hub.scan_and_register()
+        # 启动轮询监控（2s 间隔）
+        _skill_hub.start_watching(interval=2.0)
+        logger.info("SkillHub 已初始化并完成扫描")
+    except Exception as e:
+        logger.error(f"SkillHub 初始化失败: {e}")
+    return _skill_hub
+
+
 def _auto_start_server():
     """自动启动 MCP Server（addon 启用时调用）"""
     try:
@@ -102,6 +134,9 @@ def _auto_start_server():
         if server.start():
             logger.info(f"Artifex Nexus MCP Server 自动启动成功 — 端口 {server.actual_port}")
             print(f"[Artifex Nexus] MCP Server 已启动: ws://127.0.0.1:{server.actual_port}")
+
+            # 初始化 SkillHub（MCP Server 启动后）
+            _init_skill_hub()
         else:
             logger.error("MCP Server 自动启动失败")
             print("[Artifex Nexus] MCP Server 自动启动失败")
@@ -371,6 +406,9 @@ if _HAS_BPY:
                 if server.start():
                     self.report({"INFO"}, f"MCP Server 已启动 — 端口 {server.actual_port}")
                     logger.info(f"Artifex Nexus MCP Server started on port {server.actual_port}")
+
+                    # 初始化 SkillHub
+                    _init_skill_hub()
                 else:
                     self.report({"ERROR"}, "MCP Server 启动失败")
                     logger.error("MCP Server failed to start")
@@ -526,10 +564,15 @@ if _HAS_BPY:
 
     def unregister():
         """Blender addon 反注册入口 — 自动停止 MCP Server"""
-        global _mcp_server, _adapter
+        global _mcp_server, _adapter, _skill_hub
 
         # 注销触发器钩子
         _unregister_trigger_hooks()
+
+        # 停止 SkillHub 监控
+        if _skill_hub is not None:
+            _skill_hub.stop_watching()
+            _skill_hub = None
 
         if _mcp_server is not None and _mcp_server.is_running:
             try:

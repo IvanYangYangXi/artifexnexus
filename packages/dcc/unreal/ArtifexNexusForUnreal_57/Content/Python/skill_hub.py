@@ -37,8 +37,8 @@ import unreal
 from artifex_nexus_logger import UELogger
 
 # Phase B 模块
-from skill_manifest import (
-    SkillManifest, parse_manifest, validate_manifest, scan_skill_dir,
+from artifex_nexus_sdk.skill_manifest import (
+    SkillManifest, parse_manifest, validate_manifest,
     ManifestValidationError,
 )
 from skill_version import (
@@ -271,8 +271,8 @@ def _skip_inline_json_lines(lines: list, start_idx: int, base_indent: int) -> in
     return start_idx + 1
 
 
-def _scan_ue_tools_ast(init_py: Path) -> List[dict]:
-    """通过 AST 静态分析 __init__.py 发现 @ue_tool 装饰器声明的工具。
+def _scan_skill_tools_ast(init_py: Path) -> List[dict]:
+    """通过 AST 静态分析 __init__.py 发现 @skill_tool 装饰器声明的工具。
 
     不执行代码，仅解析语法树提取 name 和 description。
     """
@@ -287,14 +287,14 @@ def _scan_ue_tools_ast(init_py: Path) -> List[dict]:
         if not isinstance(node, ast.FunctionDef):
             continue
         for deco in node.decorator_list:
-            # 匹配 @ue_tool(...) 或 @tool(...)
+            # 匹配 @skill_tool(...)
             if isinstance(deco, ast.Call):
                 func_name = ""
                 if isinstance(deco.func, ast.Name):
                     func_name = deco.func.id
                 elif isinstance(deco.func, ast.Attribute):
                     func_name = deco.func.attr
-                if func_name not in ("ue_tool", "tool"):
+                if func_name != "skill_tool":
                     continue
 
                 # 提取 keyword arguments
@@ -312,61 +312,40 @@ def _scan_ue_tools_ast(init_py: Path) -> List[dict]:
 
 # ============================================================================
 # ============================================================================
-# 2. @ue_agent.tool 装饰器
+# 2. @skill_tool 装饰器（全平台统一）
 # ============================================================================
 
-# 全局注册表：所有通过装饰器声明的 Skill
+# 从共享 SDK 导入统一装饰器
+from artifex_nexus_sdk.decorator import skill_tool, SkillToolResult  # noqa: E402
+
+# 全局注册表：模块加载后由 _collect_decorated_from_module 填充
 _DECORATED_SKILLS: Dict[str, dict] = {}
 
 
-def tool(
-    name: Optional[str] = None,
-    description: str = "",
-    category: str = "general",
-    risk_level: str = "low",
-):
+def _collect_decorated_from_module(module, module_name: str = "") -> None:
+    """Walk 模块 __dict__ 查找 _artifex_skill_tool = True 的函数，
+    注册到 _DECORATED_SKILLS（供后续 MCP 注册使用）。
+
+    统一发现机制：与 Platform SkillHub 的 _collect_tools_from_module 对齐。
     """
-    Skill 装饰器。将 Python 函数标记为 MCP Tool。
+    for obj_name, obj in vars(module).items():
+        if not callable(obj):
+            continue
+        if not getattr(obj, "_artifex_skill_tool", False):
+            continue
+        tool_name = getattr(obj, "_artifex_skill_tool_name", obj_name)
 
-    用法:
-        @ue_agent.tool(name="batch_rename", description="Batch rename actors")
-        def batch_rename(arguments: dict) -> str:
-            ...
-
-    宪法约束:
-      - 核心机制 §1.2: @ue_agent.tool 装饰器 + 自动发现
-
-    Args:
-        name: Tool 名称。默认使用函数名。
-        description: Tool 描述，AI 可见。默认从 docstring 提取。
-        category: 分类标签 (general, material, lighting, layout, asset, ...)
-        risk_level: 风险级别 (low, medium, high, critical)
-    """
-    def decorator(func: Callable) -> Callable:
-        tool_name = name or func.__name__
-        tool_desc = description or (inspect.getdoc(func) or "").split("\n")[0]
-
-        # 尝试从 type hints 生成 input schema
-        input_schema = _generate_schema_from_hints(func)
-
-        # 注册到全局表
+        input_schema = _generate_schema_from_hints(obj)
         _DECORATED_SKILLS[tool_name] = {
             "name": tool_name,
-            "description": tool_desc,
-            "category": category,
-            "risk_level": risk_level,
+            "description": (inspect.getdoc(obj) or "").split("\n")[0],
+            "category": "general",
+            "risk_level": "low",
             "input_schema": input_schema,
-            "handler": func,
-            "module": func.__module__,
-            "source_file": inspect.getfile(func) if hasattr(func, "__code__") else None,
+            "handler": obj,
+            "module": module_name,
+            "source_file": inspect.getfile(obj) if hasattr(obj, "__code__") else None,
         }
-
-        # 在函数上标记元数据
-        func._ue_agent_tool = True
-        func._ue_agent_tool_name = tool_name
-        return func
-
-    return decorator
 
 
 def _generate_schema_from_hints(func: Callable) -> dict:
@@ -784,7 +763,7 @@ class SkillHub:
         """解析一个 Skill 目录的 manifest 并收集。
 
         优先读取 manifest.json；如果不存在但有 SKILL.md，
-        则从 SKILL.md frontmatter + @ue_tool 装饰器自动构建 manifest（兼容 OpenClaw 格式）。
+        则从 SKILL.md frontmatter + @skill_tool 装饰器自动构建 manifest（兼容 OpenClaw 格式）。
         """
         manifest_path = skill_dir / "manifest.json"
         skill_md_path = skill_dir / "SKILL.md"
@@ -843,7 +822,7 @@ class SkillHub:
         """从 SKILL.md YAML frontmatter 构建 SkillManifest。
 
         读取 frontmatter 中的 name/description，然后预加载 __init__.py
-        扫描 @ue_tool 装饰器以发现 tools 列表。
+        扫描 @skill_tool 装饰器以发现 tools 列表。
 
         字段读取优先级（新格式 > 旧格式 > 默认值）:
           - 新格式: metadata.artifexnexus.{field}
@@ -870,11 +849,11 @@ class SkillHub:
             fm_name = canonical_name
         fm_desc = fm.get("description", "")
 
-        # 扫描 __init__.py 中的 @ue_tool 装饰器（AST 静态分析，不执行）
+        # 扫描 __init__.py 中的 @skill_tool 装饰器（AST 静态分析，不执行）
         init_py = skill_dir / "__init__.py"
         tools_from_ast = []
         if init_py.exists():
-            tools_from_ast = _scan_ue_tools_ast(init_py)
+            tools_from_ast = _scan_skill_tools_ast(init_py)
 
         if not tools_from_ast:
             tools_from_ast = [{"name": fm_name, "description": fm_desc}]
@@ -908,7 +887,7 @@ class SkillHub:
             _tags = [t.strip() for t in _tags.split(",") if t.strip()]
 
         # 构建 SkillManifest
-        from skill_manifest import SkillManifest, ToolEntry, SoftwareVersion
+        from artifex_nexus_sdk.skill_manifest import SkillManifest, ToolEntry, SoftwareVersion
         manifest = SkillManifest(
             manifest_version="1.0",
             name=fm_name,
@@ -968,6 +947,9 @@ class SkillHub:
 
         self._loaded_modules[module_name] = module
 
+        # Walk __dict__ 发现 @skill_tool 装饰的函数（统一发现机制）
+        _collect_decorated_from_module(module, module_name)
+
         # 注册装饰器声明的 Tool
         for tool_entry in manifest.tools:
             tool_name = tool_entry.name
@@ -979,7 +961,7 @@ class SkillHub:
             else:
                 UELogger.info(
                     f"SkillHub: tool '{tool_name}' declared in manifest "
-                    f"but not found via @ue_tool decorator in {manifest.name}"
+                    f"but not found via @skill_tool decorator in {manifest.name}"
                 )
 
         UELogger.info(
@@ -1515,7 +1497,7 @@ class SkillHub:
 
         init_path = example_dir / "__init__.py"
         init_code = '''"""Example Skill - demonstrates ArtifexNexus skill structure"""
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 
 try:
@@ -1523,7 +1505,7 @@ try:
 except ImportError:
     unreal = None
 
-@ue_tool(
+@skill_tool(
     name="example_hello",
     description="A simple hello world skill for testing. Returns a greeting.",
     category="utils",

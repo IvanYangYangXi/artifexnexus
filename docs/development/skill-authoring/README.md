@@ -13,21 +13,34 @@ status: draft
 ## 名词约定
 
 - **Skill** = 一个包（目录 + `SKILL.md` + `manifest.json` + 可选的 `__init__.py`），是分发与版本管理的单位
-- **SkillTool** = Skill 包内被 `@skill_tool`（平台）或 `@ue_tool`（UE DCC）装饰的可调用函数，是实际执行的单位
+- **SkillTool** = Skill 包内被 ``@skill_tool`` 装饰的可调用函数，是实际执行的单位
 - 一个 Skill 可暴露多个 SkillTool
-- **纯知识型 Skill** = 仅 SKILL.md + manifest.json，无 `__init__.py`。面向无 SkillHub 的 DCC（Blender/Maya/Max 等）
+- **纯知识型 Skill** = 仅 SKILL.md + manifest.json，无 ``__init__.py``
 
-## 装饰器选择
+## 装饰器的作用
 
-Skill 按目标环境选择装饰器：
+**装饰器 = SkillHub 服务注册的触发器。** 被 ``@skill_tool`` 装饰的函数存入注册表，
+AI 可以直接按名调用 ``execute_skill("工具名", {参数})``，无需每次读代码。
 
-| 目标环境 | 装饰器 | 导入 |
-|----------|--------|------|
-| 平台通用 / 跨 DCC | `@skill_tool` | `from artifex_nexus.skill import skill_tool` |
-| UE（Unreal Engine） | `@ue_tool` | `from skill_hub import tool as ue_tool` |
-| Blender / Maya / Max / 其他 | 无（纯知识型） | —（无 SkillHub 运行时） |
+**全平台统一为 ``@skill_tool``**（来自 ``artifex_nexus_sdk.decorator``）。
+所有 Hub 通过 walk ``module.__dict__`` 查找 ``_artifex_skill_tool = True`` 标记发现工具。
 
-> **`@skill_tool` 在 UE 中不可用**：UE SkillHub 只扫描 `_ue_agent_tool` 标记，不认识 `_artifex_skill_tool`。
+**没有装饰器的代码 AI 仍然可以执行**——通过 ``run_python`` 发送代码。
+
+### 什么时候写装饰器？
+
+| 场景 | 写装饰器？ | 调用方式 |
+|------|-----------|---------|
+| 稳定、高频、可复用的工具（查询、获取信息、通用编辑） | ✅ 写 | SkillHub 按名调用 |
+| 定制化脚本、一次性需求 | ❌ 不写 | AI 读代码 → ``run_python`` 执行 |
+
+### 装饰器选择（全平台统一）
+
+| 目标环境 | SkillHub 状态 | 装饰器 | 导入 |
+|----------|-------------|--------|------|
+| 所有 DCC | ✅ / 📋 | ``@skill_tool`` | ``from artifex_nexus_sdk.decorator import skill_tool`` |
+
+> **已废弃**：``@ue_tool`` / ``@artclaw_tool`` / ``@tool`` 不再使用。全平台统一 ``@skill_tool``。
 
 ## 一个 SkillTool 只做三件事
 
@@ -35,43 +48,19 @@ Skill 按目标环境选择装饰器：
 2. 定义参数 schema
 3. 调用 DCC API
 
-## 模板
-
-### 平台通用 Skill
+## 模板（全平台统一）
 
 ```python
-from artifex_nexus.skill import skill_tool, SkillToolResult
+from artifex_nexus_sdk.decorator import skill_tool, SkillToolResult
 
 @skill_tool(
     name="my_tool",
     description="工具描述 / Tool description.",
-    category="utils",
     risk_level="low",
-    params={"input_path": {"type": "string", "required": True}},
 )
 def my_tool(input_path: str) -> SkillToolResult:
-    # 通用逻辑，不依赖特定 DCC
+    # DCC API 调用（unreal / bpy / maya.cmds ...）
     return SkillToolResult.success({"path": input_path})
-```
-
-### UE Skill
-
-```python
-from skill_hub import tool as ue_tool
-
-@ue_tool(
-    name="create_static_mesh",
-    description="在场景中创建静态网格体 / Spawn a static mesh actor.",
-    category="scene",
-    risk_level="low",
-)
-def create_static_mesh(**kwargs) -> dict:
-    import unreal
-    mesh_path = kwargs.get("mesh_path")
-    actor = unreal.EditorLevelLibrary.spawn_actor_from_object(
-        unreal.load_asset(mesh_path), unreal.Vector(0, 0, 0),
-    )
-    return {"success": True, "actor_name": str(actor.get_name())}
 ```
 
 详细规范见 `docs/specs/skill-system.md` §3。

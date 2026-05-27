@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from artifex_nexus_logger import UELogger
-from skill_manifest import VALID_CATEGORIES, VALID_SOFTWARE, VALID_RISK_LEVELS
+from artifex_nexus_sdk.skill_manifest import VALID_CATEGORIES, VALID_SOFTWARE, VALID_RISK_LEVELS
 
 
 # ============================================================================
@@ -127,7 +127,7 @@ def register_skill_resources(mcp_server, skill_hub) -> None:
 
 def _get_categories_data(skill_hub) -> str:
     """获取分类枚举与统计"""
-    from skill_manifest import VALID_CATEGORIES
+    from artifex_nexus_sdk.skill_manifest import VALID_CATEGORIES
 
     # Category display names — inline fallback to avoid path-dependent import
     _CATEGORY_DISPLAY = {

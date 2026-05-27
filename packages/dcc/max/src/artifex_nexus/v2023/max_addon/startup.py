@@ -122,6 +122,9 @@ def _deferred_startup():
             _an._mcp_server = server
             _an._adapter = adapter
 
+            # 初始化 SkillHub
+            _an._init_skill_hub()
+
             try:
                 import pymxs
                 pymxs.runtime.print(

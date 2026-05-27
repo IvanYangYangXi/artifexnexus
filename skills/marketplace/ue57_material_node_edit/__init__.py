@@ -3,7 +3,7 @@ material_node_ops.py - 材质节点图操作接口
 ==========================================
 
 Artifex Nexus 官方 Skill：材质节点的创建、删除、连接、属性编辑。
-通过 @ue_tool 装饰器注册到 Skill Hub，MCP 自动发现。
+通过 @skill_tool 装饰器注册到 Skill Hub，MCP 自动发现。
 
 接口设计原则：
   - 每个 tool 做一件事，保持原子性
@@ -12,7 +12,7 @@ Artifex Nexus 官方 Skill：材质节点的创建、删除、连接、属性编
   - 高级业务逻辑（如"生成一个金属材质"）不在此处，由 AI 组合调用
 """
 
-from skill_hub import tool as ue_tool
+from artifex_nexus_sdk.decorator import skill_tool
 import json
 
 try:
@@ -124,7 +124,7 @@ def _expression_info(expr) -> dict:
 # Tool: 创建材质资产
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="create_material",
     description=(
         "Create a new empty Material asset at the specified path. "
@@ -198,7 +198,7 @@ def create_material(arguments: dict) -> str:
 # Tool: 创建材质表达式节点
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="create_material_expression",
     description=(
         "Create a MaterialExpression node in a Material's node graph. "
@@ -268,7 +268,7 @@ def create_material_expression(arguments: dict) -> str:
 # Tool: 删除材质表达式节点
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="delete_material_expression",
     description=(
         "Delete a MaterialExpression node from a Material's node graph. "
@@ -320,7 +320,7 @@ def delete_material_expression(arguments: dict) -> str:
 # Tool: 连接表达式节点
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="connect_material_expressions",
     description=(
         "Connect two MaterialExpression nodes in a Material's node graph. "
@@ -401,7 +401,7 @@ def connect_material_expressions(arguments: dict) -> str:
 # Tool: 连接表达式到材质属性输入
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="connect_material_property",
     description=(
         "Connect a MaterialExpression node to a Material property input "
@@ -507,7 +507,7 @@ def connect_material_property(arguments: dict) -> str:
 # Tool: 设置节点属性
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="set_expression_property",
     description=(
         "Set an editor property on a MaterialExpression node. "
@@ -598,7 +598,7 @@ def set_expression_property(arguments: dict) -> str:
 # Tool: 移动节点位置
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="set_expression_position",
     description=(
         "Move a MaterialExpression node to a new position in the graph editor. "
@@ -651,7 +651,7 @@ def set_expression_position(arguments: dict) -> str:
 # Tool: 重编译材质
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="recompile_material",
     description=(
         "Recompile a Material after making changes to its node graph. "
@@ -722,7 +722,7 @@ def recompile_material(arguments: dict) -> str:
 # Tool: 设置材质属性（BlendMode, ShadingModel, TwoSided 等）
 # ============================================================================
 
-@ue_tool(
+@skill_tool(
     name="set_material_properties",
     description=(
         "Set top-level properties on a Material asset (not expression nodes). "

@@ -52,6 +52,7 @@ except ImportError:
 # ── 全局状态 ────────────────────────────────────────────────────────────
 _mcp_server = None
 _adapter = None
+_skill_hub = None   # SkillHub 实例（延迟初始化）
 _triggers_enabled = True
 
 
@@ -72,6 +73,35 @@ def _get_adapter():
         import max_adapter as _ma
         _ma._global_adapter = _adapter
     return _adapter
+
+
+def _get_skill_hub():
+    """延迟获取 SkillHub 实例"""
+    global _skill_hub
+    return _skill_hub
+
+
+def _init_skill_hub():
+    """初始化 SkillHub（在 MCP Server 启动后调用）"""
+    global _skill_hub
+    if _skill_hub is not None:
+        return _skill_hub
+    try:
+        from artifex_nexus_sdk.skill_hub import init_skill_hub as _init_hub
+        import pymxs as _px
+        _skills_dir = os.path.join(os.path.expanduser("~"), ".artifexnexus", "skills")
+        _skill_hub = _init_hub(
+            dcc_name="3ds_max",
+            version_func=lambda: str(int(_px.runtime.MaxVersion())),
+            skills_dir=_skills_dir,
+            module_prefix="max_skill_",
+        )
+        _skill_hub.scan_and_register()
+        _skill_hub.start_watching(interval=2.0)
+        logger.info("SkillHub 已初始化并完成扫描")
+    except Exception as e:
+        logger.error(f"SkillHub 初始化失败: {e}")
+    return _skill_hub
 
 
 def _warn_port_occupied(port: int) -> None:
@@ -113,13 +143,19 @@ def start_server() -> bool:
     success = server.start()
     if success:
         logger.info(f"Max MCP Server 已启动: {server.server_address}")
+        # 初始化 SkillHub
+        _init_skill_hub()
     else:
         logger.error("Max MCP Server 启动失败")
     return success
 
 
 def stop_server() -> None:
-    global _mcp_server
+    global _mcp_server, _skill_hub
+    # 停止 SkillHub 监控
+    if _skill_hub is not None:
+        _skill_hub.stop_watching()
+        _skill_hub = None
     if _mcp_server and _mcp_server.is_running:
         _mcp_server.stop()
     _mcp_server = None
@@ -342,7 +378,7 @@ def register():
 
 def unregister():
     """Max 关闭/卸载时调用"""
-    global _mcp_server, _adapter
+    global _mcp_server, _adapter, _skill_hub
 
     stop_server()
 
