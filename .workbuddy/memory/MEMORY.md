@@ -99,3 +99,15 @@
 - 静默清理（console.log），ChatControlBar 会话加载后延迟 30s 触发，不阻塞 UI
 - 即时过滤：`hasTranscript=false` 且创建 >24h 的会话从下拉列表直接隐藏
 - 清理层次：下拉过滤 → 30s 后 IndexedDB 批量删除 → localStorage 清理 → chat-service 内存清理
+
+## 通知系统（2026-05-27）
+
+- **Toast 气泡 API**：通过 `useNotifications().addNotification()` 触发右下角 sonner toast
+- **铃铛通知中心**：`NotificationBell` 组件 → Popover 历史列表 → 点击打开 `NotificationDetail` 弹窗
+- **双通道输入**：
+  - Tauri IPC：`push_notification` Rust 命令 → emit `notification-received` 事件 → WebView
+  - Gateway WS：`event=notify` → `gateway-ws.ts._handleNotifyEvent()` → NotificationStore
+- **状态管理**：`notification-store.ts`（React Context + useReducer），内存 50 条上限 + localStorage 持久化
+- **外部脚本调用**：`invoke("push_notification", { req: { title, message, type, source } })`
+- **cron 任务通知**：Gateway 发送 `{"event":"notify", "payload":{...}}`
+- **设计文档**：`docs/specs/notification-system.md`

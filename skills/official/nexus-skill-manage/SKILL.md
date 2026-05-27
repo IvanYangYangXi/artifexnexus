@@ -133,7 +133,7 @@ if instance and instance.is_loaded:
 
 1. AI 根据用户需求生成 `SKILL.md`（含 YAML frontmatter）
 2. 生成 `manifest.json`（补充元数据：tags、software、dependencies 等）
-3. 如 Skill 包含可执行逻辑，生成 `__init__.py`（用 `@skill_tool` 装饰工具函数）
+3. 如 Skill 包含可执行逻辑，生成 `__init__.py`（装饰工具函数，见下方 §装饰器规范）
 4. 调用 `SkillInstaller.install()` 写入已安装目录
 5. **运行 skill-compliance-checker 验证**（见下方 §合规检查）
 6. 如检查不通过，修复后重新检查
@@ -150,12 +150,12 @@ description: >
   NOT for: ...
 metadata:
   artifex_nexus:
-    display_name: "中文显示名"
-    author: Artifex Nexus
-    software: [blender, unreal_engine]   # 或 "all"
-    version: 1.0.0
-    tags: ["blender", "modeling"]
-    risk_level: low
+    software: [blender, unreal_engine]   # ✅ 必需："all" 或 DCC 列表
+    version: 1.0.0                       # ✅ 必需：semver
+    author: Artifex Nexus                # ✅ 必需
+    display_name: "中文显示名"            # 可选
+    tags: ["blender", "modeling"]        # 可选
+    risk_level: low                      # 可选，默认 low
 ---
 
 # Skill 标题
@@ -178,14 +178,41 @@ metadata:
 
 **Artifex Nexus 专属字段**（`metadata.artifex_nexus.*`）：
 
-| 字段 | 说明 |
-|------|------|
-| `display_name` | 中文显示名 |
-| `author` | 作者，默认 "Artifex Nexus" |
-| `software` | `"all"` 或 `["blender", "maya", ...]` |
-| `version` | semver，如 `1.0.0` |
-| `tags` | 标签数组（OR 匹配，category 已废弃） |
-| `risk_level` | `low` / `medium` / `high` / `critical` |
+| 字段 | 必需 | 说明 |
+|------|------|------|
+| `software` | ✅ 必需 | `"all"` 或 `["blender", "maya", ...]` |
+| `version` | ✅ 必需 | semver，如 `1.0.0` |
+| `author` | ✅ 必需 | 作者，如 `"Artifex Nexus"` 或 `"Ivan(杨己力)"` |
+| `display_name` | 可选 | 中文显示名 |
+| `tags` | 可选 | 标签数组（OR 匹配，category 已废弃） |
+| `risk_level` | 可选 | `low` / `medium` / `high` / `critical`，默认 `low` |
+
+### 装饰器规范
+
+Skill 的 `__init__.py` 中工具函数需要根据目标 DCC 使用对应装饰器注册。
+
+两个 SkillHub 运行时互相隔离：
+- **Platform SkillHub**：扫描 `_artifex_skill_tool` 标记（来自 `@skill_tool`）
+- **UE SkillHub**：扫描 `_ue_agent_tool` 标记（来自 `@ue_tool`）
+
+| 目标 DCC | SkillHub | 装饰器 | 导入方式 |
+|----------|----------|--------|----------|
+| `general`（平台通用） | ✅ Platform | `@skill_tool` | `from artifex_nexus.skill import skill_tool` |
+| `unreal_engine` | ✅ UE | `@ue_tool` | `from skill_hub import tool as ue_tool` |
+| `blender` | ❌ | — | 纯知识型（仅 SKILL.md + manifest.json） |
+| `maya` | ❌ | — | 纯知识型 |
+| `3ds_max` | ❌ | — | 纯知识型 |
+| `houdini` | ❌ | — | 纯知识型 |
+| `comfyui` | ❌ | — | 纯知识型 |
+| `substance_painter` | ❌ | — | 纯知识型 |
+| `substance_designer` | ❌ | — | 纯知识型 |
+| `unity` | ❌ | — | 纯知识型 |
+
+> **规则**：
+> - 非 DCC 或跨 DCC Skill → `@skill_tool`（平台标准）
+> - UE Skill → `@ue_tool`（UE SkillHub 不支持 `@skill_tool`）
+> - 其他 DCC（Blender/Maya/Max 等）→ 无装饰器（纯知识型 Skill，无 `__init__.py`）
+> - 兼容别名：`@tool`（skill_hub 通用）、`@artclaw_tool`（过渡期）
 
 ### manifest.json 模板（最小）
 
@@ -197,10 +224,11 @@ metadata:
   "author": "Artifex Nexus",
   "software": [{"dcc": "blender"}],
   "tags": ["blender", "modeling"],
-  "entry_point": "__init__.py",
   "dependencies": []
 }
 ```
+
+> **注意**：`entry_point` 字段仅当 Skill 包含可执行 `__init__.py` 时才需要。纯知识型 Skill 不写 `entry_point`。
 
 ## Skill 分层
 
@@ -245,7 +273,7 @@ else:
     print("✅ 合规检查通过")
 ```
 
-检查项：SKILL.md frontmatter（`metadata.artifex_nexus.*`）、manifest.json schema、software/dcc 枚举 vs `categories.json`、依赖完整性、tags 格式、`__init__.py` @skill_tool 合规。
+检查项：SKILL.md frontmatter（`metadata.artifex_nexus.*` 必需字段：software、version、author）、manifest.json schema、software/dcc 枚举 vs `categories.json`、依赖完整性、tags 格式、`__init__.py` 装饰器合规（`@skill_tool` / `@ue_tool` 等 DCC 装饰器）。
 
 ---
 

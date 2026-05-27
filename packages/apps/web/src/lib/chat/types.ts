@@ -145,6 +145,19 @@ export interface GatewayMessageBlock {
   content?: string | GatewayMessageBlock[];
 }
 
+// ─── Gateway 通知事件 ──────────────────────────────────────────────────────
+
+/** Gateway notify 事件（脚本/cron 通知） */
+export interface GatewayNotifyEvent {
+  event: "notify";
+  payload: {
+    type: "info" | "success" | "warning" | "error";
+    title: string;
+    message: string;
+    source?: string;
+  };
+}
+
 // ─── 流式累积器 ────────────────────────────────────────────────────────────
 
 /** 流式累积状态（用于逐 token 渲染 + 工具调用跟踪） */

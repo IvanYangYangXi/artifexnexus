@@ -28,6 +28,7 @@ import {
 
 import {
   Button,
+  cn,
   CollapsiblePanel,
   CollapsiblePanelGroup,
   Input,
@@ -49,6 +50,8 @@ import {
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS } from "../../lib/skillsMock";
 import { useRecentStore } from "../../lib/useRecentStore";
+import type { CalendarTask } from "../../lib/calendar/types";
+import { describeCron } from "../../lib/calendar/cron-utils";
 
 export function RightPanel() {
   const { previewFile } = React.useContext(PreviewFileContext);
@@ -493,6 +496,12 @@ function PreviewRenderer({ payload, onClose }: {
     return <ToolDetailPanel toolId={data.toolId} compact refreshKey={data.refreshKey} />;
   }
 
+  if (payload.kind === "calendar-task-detail") {
+    const data = payload.data as { task: import("../../lib/calendar/types").CalendarTask } | undefined;
+    if (!data?.task) return <FallbackPreview payload={payload} />;
+    return <TaskDetailPreview task={data.task} />;
+  }
+
   if (payload.kind === "skill-detail") {
     const data = payload.data as { skillName: string; refreshKey?: number } | undefined;
     if (!data?.skillName) return <FallbackPreview payload={payload} />;
@@ -540,6 +549,179 @@ function PreviewRenderer({ payload, onClose }: {
 
   // fallback: raw JSON
   return <FallbackPreview payload={payload} />;
+}
+
+// ─── 日历任务详情预览 ──────────────────────────────────────────────
+
+function TaskDetailPreview({ task }: { task: CalendarTask }) {
+  const [sessions, setSessions] = React.useState<Array<{
+    sessionKey: string;
+    title: string;
+    updatedAt: number;
+    totalTokens: number;
+  }>>([]);
+  const [sessionsLoading, setSessionsLoading] = React.useState(false);
+
+  // 加载由当前 cron 任务触发的对话列表（仅 OpenClaw 任务）
+  React.useEffect(() => {
+    if (task.source !== "openclaw" || !task.agentId || !task.jobId) return;
+
+    let cancelled = false;
+    setSessionsLoading(true);
+
+    (async () => {
+      try {
+        const { getSessionsList } = await import("../../ipc/openclaw");
+        // 拉取该 agent 的所有会话，然后按 cron job ID 过滤
+        const result = await getSessionsList({
+          agentId: task.agentId,
+          limit: 200,
+        });
+        if (cancelled) return;
+
+        // 过滤属于当前 cron 任务的会话
+        // sessionKey 模式: agent:{agentId}:cron:{jobId} 或 agent:{agentId}:cron:{jobId}:run:{uuid}
+        const cronPrefix = `agent:${task.agentId}:cron:${task.jobId}`;
+        const filtered = result.sessions
+          .filter((s) =>
+            s.sessionKey === cronPrefix ||
+            s.sessionKey.startsWith(cronPrefix + ":")
+          )
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 10)
+          .map((s) => ({
+            sessionKey: s.sessionKey || "",
+            title: s.title || `对话 ${s.sessionId?.slice(0, 8) || ""}`,
+            updatedAt: s.updatedAt,
+            totalTokens: s.totalTokens,
+          }));
+
+        setSessions(filtered);
+      } catch { /* silent */ }
+      finally {
+        if (!cancelled) setSessionsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [task.source, task.agentId, task.jobId]);
+
+  const scheduleDesc = React.useMemo(() => {
+    switch (task.scheduleType) {
+      case "interval": return `间隔执行 · 每${task.interval}`;
+      case "cron": return `Cron 表达式 · ${task.cron ? describeCron(task.cron) : task.cron}`;
+      case "once": {
+        const time = task.runAt ? new Date(task.runAt).toLocaleString("zh-CN") : "未指定";
+        return `单次执行 · ${time}`;
+      }
+    }
+  }, [task]);
+
+  const handleSwitchSession = React.useCallback((sessionKey: string) => {
+    // 通过设置 chat-view 的 sessionKey 实现对话切换
+    const event = new CustomEvent("artifex:switch-session", {
+      detail: { sessionKey },
+    });
+    window.dispatchEvent(event);
+  }, []);
+
+  return (
+    <div className="px-3 py-2 text-xs space-y-3">
+      {/* 标题 + 来源 */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span
+            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: task.color || "#888" }}
+          />
+          <span className="font-medium text-sm">{task.title}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px]">
+          <span className={cn(
+            "rounded px-1.5 py-px font-medium",
+            task.source === "nexus-tool"
+              ? "bg-blue-400/15 text-blue-400"
+              : "bg-green-400/15 text-green-400",
+          )}>
+            {task.source === "nexus-tool" ? "Nexus-Tool" : "OpenClaw"}
+          </span>
+          <span className={cn(
+            "rounded px-1.5 py-px font-medium",
+            task.enabled
+              ? "bg-emerald-400/15 text-emerald-400"
+              : "bg-muted text-muted-foreground",
+          )}>
+            {task.enabled ? "已启用" : "已禁用"}
+          </span>
+          {task.isHighFreq && (
+            <span className="rounded bg-amber-400/15 px-1.5 py-px text-amber-400 font-medium">
+              ⚡ 高频
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 调度详情 */}
+      <div className="rounded bg-muted/20 p-2 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground shrink-0 w-12">调度</span>
+          <span className="font-medium">{scheduleDesc}</span>
+        </div>
+        {task.source === "nexus-tool" && task.toolName && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground shrink-0 w-12">工具</span>
+            <span className="font-medium text-primary">{task.toolName}</span>
+          </div>
+        )}
+        {task.runTimes.length > 0 && (
+          <div className="flex items-start gap-2">
+            <span className="text-muted-foreground shrink-0 w-12 mt-0.5">执行</span>
+            <span className="text-[10px] text-muted-foreground break-all">
+              {task.runTimes.length > 10
+                ? `本月 ${task.runTimes.length} 次执行`
+                : task.runTimes.map((rt) => new Date(rt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(", ")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* OpenClaw 关联对话列表 */}
+      {task.source === "openclaw" && task.jobId && (
+        <div className="rounded bg-muted/20 p-2 space-y-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-muted-foreground text-[10px]">
+              关联对话 ({sessionsLoading ? "加载中..." : `${sessions.length} 条`})
+            </span>
+          </div>
+          {sessions.length === 0 && !sessionsLoading && (
+            <div className="text-[10px] text-muted-foreground py-1">
+              暂无关联对话记录
+            </div>
+          )}
+          <div className="space-y-0.5 max-h-[200px] overflow-y-auto">
+            {sessions.map((s) => (
+              <button
+                key={s.sessionKey}
+                onClick={() => handleSwitchSession(s.sessionKey)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[10px] hover:bg-accent/30 transition-colors"
+              >
+                <span className="truncate flex-1 font-medium">{s.title}</span>
+                <span className="text-muted-foreground shrink-0">
+                  {new Date(s.updatedAt).toLocaleDateString("zh-CN")}
+                </span>
+                <span className="text-[9px] text-muted-foreground shrink-0">
+                  {s.totalTokens > 1000
+                    ? `${(s.totalTokens / 1000).toFixed(1)}k`
+                    : s.totalTokens}
+                </span>
+                <span className="text-[9px] text-primary shrink-0">切换 →</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FallbackPreview({ payload }: { payload: { kind: string; title: string; data: unknown } }) {

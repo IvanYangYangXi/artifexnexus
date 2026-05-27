@@ -10,11 +10,12 @@
  */
 
 import * as React from "react";
-import { Bell, Menu, Minus, Play, PanelRight, Search, Square, X } from "lucide-react";
+import { Menu, Minus, Play, PanelRight, Search, Square, X } from "lucide-react";
 
 import { Button, Input, cn } from "@artifex-nexus/ui";
 import { uiLog } from "../../lib/ui-log";
 import { invoke } from "@tauri-apps/api/core";
+import { NotificationBell } from "./NotificationBell";
 
 const DCC_DISPLAY: Record<string, string> = {
   blender: "Blender",
@@ -237,15 +238,8 @@ export function Topbar({
           <PanelRight className="h-4 w-4" />
         </Button>
 
-        {/* 通知 */}
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7"
-          aria-label="通知"
-        >
-          <Bell className="h-4 w-4" />
-        </Button>
+        {/* 通知铃铛 */}
+        <NotificationBell />
 
         {/* 窗口控制（frameless 模式） */}
         <WindowControls />

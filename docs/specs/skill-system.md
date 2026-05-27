@@ -30,7 +30,7 @@ packages/platform/skill/src/artifex_nexus/skill/
 
 | 点 | 原项目 | Artifex Nexus | 收益 |
 |----|--------|--------------|------|
-| 装饰器命名 | `@artclaw_tool` / `@ue_tool` | **统一 `@skill_tool`**；`@artclaw_tool` / `@tool` 保留为别名兼容 | 命名一致，区分 Skill（包）与 SkillTool（函数）语义 |
+| 装饰器命名 | `@artclaw_tool` / `@ue_tool` | **平台通用 `@skill_tool`**；UE 保留 `@ue_tool`（UE SkillHub 扫描 `_ue_agent_tool` 标记，不认 `_artifex_skill_tool`，无法统一）。`@artclaw_tool` / `@tool` 保留为兼容别名 | 平台与 DCC 解耦，UE 不可绕过 |
 | manifest 校验 | `jsonschema`（手写校验） | **pydantic v2 模型**（schema 由 contracts 提供） | 类型提示 + 运行时校验一步到位 |
 | 顶层 API | 散落在 `core.version_manager` / `cli.skill_hub` / `core.skill_decorator` | **统一 `from artifex_nexus.skill import ...`** | 隐藏子模块细节 |
 | VersionManager | 一个大类承担"查询 + 安装 + 发布 + 同步" | **拆为 `SkillRegistry` + `SkillInstaller`** | 单一职责，易测易复用 |
@@ -38,6 +38,12 @@ packages/platform/skill/src/artifex_nexus/skill/
 | CLI 命令前缀 | `artclaw skill *` | **`artifex skill *`** | 与品牌一致；子命令集完整保留 |
 
 ## 3. 装饰器使用（Skill 作者视角）
+
+Skill 按目标运行环境分为两个轨道，使用不同的装饰器：
+
+### 3.1 平台通用 Skill（@skill_tool）
+
+适用于非 DCC 环境或跨 DCC 的通用 Skill。由 Platform SkillHub 加载，通过 `_artifex_skill_tool` 标记发现。
 
 ```python
 from artifex_nexus.skill import skill_tool, SkillToolResult
@@ -60,9 +66,53 @@ def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> SkillToolResult:
     return SkillToolResult.success({"actor_name": actor.get_name()})
 ```
 
+### 3.2 UE DCC Skill（@ue_tool）
+
+UE 环境有独立的 SkillHub（`skill_hub.py`），扫描 `_ue_agent_tool` 标记。
+**`@skill_tool` 在 UE 中不可用**，必须使用 `@ue_tool`。
+
+```python
+from skill_hub import tool as ue_tool
+
+@ue_tool(
+    name="create_material_instance",
+    description="创建材质实例 / Create a material instance.",
+    category="material",
+    risk_level="low",
+)
+def create_material_instance(**kwargs) -> dict:
+    import unreal
+    # UE 环境下的具体实现
+    return {"success": True}
+```
+
+### 3.3 其他 DCC（Blender / Maya / 3ds Max）
+
+当前这些 DCC 仅有 MCP Server（`server.register_tool()`），**没有 DCC 内 SkillHub**。
+Skill 可以引用这些 DCC 的 `run_python` 工具，但 `__init__.py` 中的装饰器函数不会被 DCC 运行时加载。
+创建面向这些 DCC 的 Skill 时，应设为**纯知识型 Skill**（仅 SKILL.md + manifest.json，无 `__init__.py`）。
+
+### 3.4 装饰器对照表
+
+| DCC | SkillHub | 装饰器 | 导入 |
+|-----|----------|--------|------|
+| `general`（平台） | ✅ Platform | `@skill_tool` | `from artifex_nexus.skill import skill_tool` |
+| `unreal_engine` | ✅ UE | `@ue_tool` | `from skill_hub import tool as ue_tool` |
+| `blender` | ❌ | — | 纯知识型 |
+| `maya` | ❌ | — | 纯知识型 |
+| `3ds_max` | ❌ | — | 纯知识型 |
+| `houdini` | ❌ | — | 纯知识型 |
+| `comfyui` | ❌ | — | 纯知识型 |
+| `substance_painter` | ❌ | — | 纯知识型 |
+| `substance_designer` | ❌ | — | 纯知识型 |
+| `unity` | ❌ | — | 纯知识型 |
+
+> **兼容别名**：`@artclaw_tool`（过渡期别名，指向 `@skill_tool`）、`@tool`（skill_hub 通用别名）。
+> Platform SkillHub 和 UE SkillHub 的发现机制互相隔离——各自只认自己标记的函数。
+
 > **命名约定**：
-> - **Skill** = 一个包（`SKILL.md` + `manifest.json` + `__init__.py`），是分发与版本管理的单位。
-> - **SkillTool** = Skill 包内被 `@skill_tool` 装饰的可调用函数，是实际执行的单位。一个 Skill 可暴露多个 SkillTool。
+> - **Skill** = 一个包（`SKILL.md` + `manifest.json` + 可选的 `__init__.py`），是分发与版本管理的单位。
+> - **SkillTool** = Skill 包内被 `@skill_tool`（平台）或 `@ue_tool`（UE）装饰的可调用函数，是实际执行的单位。一个 Skill 可暴露多个 SkillTool。
 
 ## 4. AI 调用方式
 

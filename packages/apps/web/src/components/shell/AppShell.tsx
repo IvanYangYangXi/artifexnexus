@@ -38,6 +38,11 @@ import {
   Button,
   Toaster,
 } from "@artifex-nexus/ui";
+import {
+  NotificationProvider,
+  useNotifications,
+  registerExternalNotificationStore,
+} from "../../lib/notification-store";
 
 export interface PreviewFile {
   name: string;
@@ -191,6 +196,57 @@ function useBreakpoint() {
     /** <768 极限窄屏：B 折叠 + D 强制隐藏 */ isNarrow: width < 768,
     isMobile: width < 768, // 与 narrow 同值，保留兼容
   };
+}
+
+/**
+ * NotificationBridge — 桥接 Tauri 事件 → 通知 Store
+ *
+ * 监听 Tauri emit("notification-received") 事件，将外部脚本/cron 的通知
+ * 注入 useNotificationStore。同时注册全局 external store 供 gateway-ws.ts 等
+ * 非 React 模块使用。
+ */
+function NotificationBridge() {
+  const { addNotification } = useNotifications();
+
+  React.useEffect(() => {
+    // 注册全局 external store（供 gateway-ws.ts 等纯 TS 模块使用）
+    registerExternalNotificationStore({ addNotification });
+
+    // 监听 Tauri 事件（仅 Tauri 环境）
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        const fn = await listen<{
+          title: string;
+          message: string;
+          type: string;
+          source?: string;
+        }>("notification-received", (event) => {
+          const payload = event.payload;
+          const validTypes = ["info", "success", "warning", "error"] as const;
+          const type = validTypes.includes(payload.type as (typeof validTypes)[number])
+            ? (payload.type as "info" | "success" | "warning" | "error")
+            : "info";
+          addNotification({
+            type,
+            title: payload.title,
+            message: payload.message,
+            source: payload.source,
+          });
+        });
+        unlisten = fn;
+      } catch {
+        // 非 Tauri 环境（浏览器开发），静默跳过
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [addNotification]);
+
+  return null; // 无 UI 渲染
 }
 
 export function AppShell() {
@@ -502,6 +558,8 @@ export function AppShell() {
   const showSidebar = !bp.isMobile;
 
   return (
+    <NotificationProvider>
+    <NotificationBridge />
     <PreviewContext.Provider value={{ preview, setPreview, clearPreview, ensurePanelOpen }}>
     <PreviewFileContext.Provider value={{ previewFile, setPreviewFile }}>
     <PinnedSkillsContext.Provider value={{ pinnedSkills, togglePin }}>
@@ -686,5 +744,6 @@ export function AppShell() {
     </PinnedSkillsContext.Provider>
     </PreviewFileContext.Provider>
     </PreviewContext.Provider>
+    </NotificationProvider>
   );
 }

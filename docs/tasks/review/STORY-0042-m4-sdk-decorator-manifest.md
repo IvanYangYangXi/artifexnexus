@@ -90,3 +90,17 @@ tags: [story, skill, sdk, decorator, manifest, version, M4]
 
 3. **死代码清理**：移除 ``_TOOL_REGISTRY`` 全局 dict、``get_registered_tools()``、``is_tool()``、``get_tool_name()``、``_ue_agent_tool/``_ue_agent_tool_name`` 标记。
    仅保留 Hub 实际使用的 ``_artifex_tool`` / ``_artifex_tool_name`` 标记。
+
+## PM 决策（2026-05-27）— 双轨装饰器
+
+4. **双轨装饰器体系（不可统一）**：
+   - **Platform SkillHub** 扫描 ``_artifex_skill_tool`` 标记 → 使用 `@skill_tool`
+   - **UE SkillHub**（``skill_hub.py``）扫描 ``_ue_agent_tool`` 标记 → 使用 `@ue_tool`
+   - 两个 Hub 发现机制互相隔离，`@skill_tool` 在 UE 中不可用，反之亦然
+   - **Blender/Maya/Max 等 DCC** 无 SkillHub（仅 MCP Server），面向这些 DCC 的 Skill 应为纯知识型（无 `__init__.py`）
+
+5. **合规检查器同步更新**：
+   - Skill 合规检查器的 `_check_init_py` 增加 DCC 装饰器白名单（`@ue_tool` / `@tool` / `@artclaw_tool`）
+   - 新增 software-装饰器一致性检查：UE + `@skill_tool` → error；非 UE + `@ue_tool` → warning；无 SkillHub DCC + `@skill_tool` → warning
+
+6. **文档同步**：`docs/specs/skill-system.md` §2-3、`docs/development/skill-authoring/README.md`、`nexus-skill-manage SKILL.md` 均已更新为双轨描述

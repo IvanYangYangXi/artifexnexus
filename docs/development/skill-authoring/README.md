@@ -12,9 +12,22 @@ status: draft
 
 ## 名词约定
 
-- **Skill** = 一个包（目录 + `SKILL.md` + `manifest.json` + `__init__.py`），是分发与版本管理的单位
-- **SkillTool** = Skill 包内被 `@skill_tool` 装饰的可调用函数，是实际执行的单位
+- **Skill** = 一个包（目录 + `SKILL.md` + `manifest.json` + 可选的 `__init__.py`），是分发与版本管理的单位
+- **SkillTool** = Skill 包内被 `@skill_tool`（平台）或 `@ue_tool`（UE DCC）装饰的可调用函数，是实际执行的单位
 - 一个 Skill 可暴露多个 SkillTool
+- **纯知识型 Skill** = 仅 SKILL.md + manifest.json，无 `__init__.py`。面向无 SkillHub 的 DCC（Blender/Maya/Max 等）
+
+## 装饰器选择
+
+Skill 按目标环境选择装饰器：
+
+| 目标环境 | 装饰器 | 导入 |
+|----------|--------|------|
+| 平台通用 / 跨 DCC | `@skill_tool` | `from artifex_nexus.skill import skill_tool` |
+| UE（Unreal Engine） | `@ue_tool` | `from skill_hub import tool as ue_tool` |
+| Blender / Maya / Max / 其他 | 无（纯知识型） | —（无 SkillHub 运行时） |
+
+> **`@skill_tool` 在 UE 中不可用**：UE SkillHub 只扫描 `_ue_agent_tool` 标记，不认识 `_artifex_skill_tool`。
 
 ## 一个 SkillTool 只做三件事
 
@@ -24,26 +37,44 @@ status: draft
 
 ## 模板
 
+### 平台通用 Skill
+
 ```python
 from artifex_nexus.skill import skill_tool, SkillToolResult
 
 @skill_tool(
+    name="my_tool",
+    description="工具描述 / Tool description.",
+    category="utils",
+    risk_level="low",
+    params={"input_path": {"type": "string", "required": True}},
+)
+def my_tool(input_path: str) -> SkillToolResult:
+    # 通用逻辑，不依赖特定 DCC
+    return SkillToolResult.success({"path": input_path})
+```
+
+### UE Skill
+
+```python
+from skill_hub import tool as ue_tool
+
+@ue_tool(
     name="create_static_mesh",
     description="在场景中创建静态网格体 / Spawn a static mesh actor.",
     category="scene",
     risk_level="low",
-    params={
-        "mesh_path": {"type": "string", "required": True},
-        "location":  {"type": "vec3", "default": [0, 0, 0]},
-    },
 )
-def create_static_mesh(mesh_path: str, location=(0, 0, 0)) -> SkillToolResult:
-    import unreal  # 仅在 UE 环境可用
+def create_static_mesh(**kwargs) -> dict:
+    import unreal
+    mesh_path = kwargs.get("mesh_path")
     actor = unreal.EditorLevelLibrary.spawn_actor_from_object(
-        unreal.load_asset(mesh_path), unreal.Vector(*location),
+        unreal.load_asset(mesh_path), unreal.Vector(0, 0, 0),
     )
-    return SkillToolResult.success({"actor_name": actor.get_name()})
+    return {"success": True, "actor_name": str(actor.get_name())}
 ```
+
+详细规范见 `docs/specs/skill-system.md` §3。
 
 ## 安装路径
 

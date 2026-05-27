@@ -1106,3 +1106,31 @@ export async function readShellConfig(): Promise<ShellConfig> {
 export async function writeShellConfig(config: ShellConfig): Promise<void> {
   await invoke("write_shell_config", { json: JSON.stringify(config) });
 }
+
+// ─── 日历面板：OpenClaw Cron Jobs ───────────────────────────────────
+
+export interface OpenClawCronSchedule {
+  kind: string;            // "cron" | "at"
+  expr?: string;           // cron 表达式 (kind=cron)
+  at?: string;             // ISO datetime (kind=at)
+  tz?: string;             // 时区
+}
+
+export interface OpenClawCronJob {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  schedule?: OpenClawCronSchedule;
+  agentId?: string;
+  sessionKey?: string;
+}
+
+export interface ReadCronJobsResult {
+  ok: boolean;
+  jobs: OpenClawCronJob[];
+  error?: string;
+}
+
+export async function readOpenClawCronJobs(): Promise<ReadCronJobsResult> {
+  return invoke<ReadCronJobsResult>("read_openclaw_cron_jobs");
+}

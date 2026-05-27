@@ -12,6 +12,7 @@
  */
 
 import type { GatewayChatEvent, GatewayMessageBlock } from "./types";
+import { getExternalNotificationStore } from "../notification-store";
 
 // ─── 常量 ──────────────────────────────────────────────────────────────────
 
@@ -845,8 +846,14 @@ export class GatewayWebSocket {
         return;
       }
 
+      // notify 事件（脚本/cron 通知）
+      if (msg.event === "notify") {
+        this._handleNotifyEvent(msg);
+        return;
+      }
+
       // 调试：打印所有事件（帮助理解 Gateway 协议格式）
-      if (msg.event && msg.event !== "chat" && msg.event !== "agent" && msg.event !== "tick" && msg.event !== "health") {
+      if (msg.event && msg.event !== "chat" && msg.event !== "agent" && msg.event !== "tick" && msg.event !== "health" && msg.event !== "notify") {
         console.log(`[gateway-ws] event=${msg.event}`, JSON.stringify(msg.payload ?? msg).slice(0, 300));
       }
 
@@ -956,6 +963,27 @@ export class GatewayWebSocket {
       }
     }
     return undefined;
+  }
+
+  /** 处理 Gateway notify 事件（脚本/cron 通知 → 前端 NotificationStore） */
+  private _handleNotifyEvent(msg: Record<string, unknown>): void {
+    const payload = (msg.payload ?? msg) as Record<string, unknown>;
+    try {
+      const store = getExternalNotificationStore();
+      const validTypes = ["info", "success", "warning", "error"];
+      const rawType = typeof payload.type === "string" ? payload.type : "info";
+      const type = validTypes.includes(rawType)
+        ? (rawType as "info" | "success" | "warning" | "error")
+        : "info";
+      store.addNotification({
+        type,
+        title: typeof payload.title === "string" ? payload.title : "通知",
+        message: typeof payload.message === "string" ? payload.message : "",
+        source: typeof payload.source === "string" ? payload.source : "gateway",
+      });
+    } catch (err) {
+      console.warn("[gateway-ws] Failed to handle notify event:", err);
+    }
   }
 
   /** P2-8：跟踪工具调用结果，连续失败超过阈值 → MCP Bridge 标记为不可用 */

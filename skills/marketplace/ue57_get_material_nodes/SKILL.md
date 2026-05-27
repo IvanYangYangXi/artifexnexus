@@ -9,6 +9,8 @@ description: >
   parameter queries (use get_material_parameters instead).
 metadata:
   artifex_nexus:
+    version: 1.0.5
+    author: Ivan(杨己力)
     software: unreal_engine
 ---
 

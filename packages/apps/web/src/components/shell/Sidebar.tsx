@@ -14,6 +14,7 @@
 
 import * as React from "react";
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -58,7 +59,7 @@ import {
   createQuickLink,
 } from "../../lib/quickLinks";
 
-export type ModuleId = "chat" | "skills" | "system" | "settings";
+export type ModuleId = "chat" | "skills" | "calendar" | "system" | "settings";
 
 interface ModuleEntry {
   id: ModuleId;
@@ -70,6 +71,7 @@ interface ModuleEntry {
 const MODULES: ModuleEntry[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "skills", label: "技能", icon: Puzzle, badge: 12 },
+  { id: "calendar", label: "日历", icon: CalendarDays },
   { id: "system", label: "系统", icon: Terminal },
   { id: "settings", label: "设置", icon: Settings },
 ];

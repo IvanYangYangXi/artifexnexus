@@ -13,6 +13,8 @@ description: >
   instance parameter queries (use get_material_parameters tool).
 metadata:
   artifex_nexus:
+    version: 1.1.1
+    author: Ivan(杨己力)
     software: unreal_engine
 ---
 

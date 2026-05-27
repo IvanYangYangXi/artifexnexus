@@ -13,6 +13,5 @@
     "installer",
     "publish"
   ],
-  "entry_point": "__init__.py",
   "dependencies": []
 }

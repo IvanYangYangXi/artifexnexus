@@ -13,6 +13,5 @@
     "nexus-tool",
     "development"
   ],
-  "entry_point": "__init__.py",
   "dependencies": []
 }

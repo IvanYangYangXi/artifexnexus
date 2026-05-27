@@ -62,7 +62,7 @@ export function ChatView() {
   const lastRealSessionKeyRef = React.useRef<string>("");
 
   // ─── 切换对话（纯同步，消息从内存缓存瞬间加载）─────────────────────
-  async function handleSwitchSession(sessionKey: string) {
+  const handleSwitchSession = React.useCallback(async (sessionKey: string) => {
     uiLog.click("ChatView", "switchSession", { sessionKey: sessionKey.slice(0, 30) });
     if (!sessionKey) return;
     // 哨兵：切到未发送的新建对话
@@ -89,7 +89,7 @@ export function ChatView() {
     scrollBehaviorRef.current = "instant";
     chat.switchSession(sessionKey);
     silentLoadHistory(sessionKey);
-  }
+  }, [chat]);
 
   // ─── 新建对话（从弹窗获取配置后暂存，第一条消息时才真正创建 session）──
   const pendingNewConfigRef = React.useRef<{ agentId: string; model: string; thinking: string } | null>(null);
@@ -400,6 +400,18 @@ export function ChatView() {
       scrollBehaviorRef.current = "smooth";
     }
   }, [chat.messages]);
+
+  // 监听外部会话切换事件（来自右侧面板等）
+  React.useEffect(() => {
+    function onSwitchSession(e: Event) {
+      const detail = (e as CustomEvent<{ sessionKey: string }>).detail;
+      if (detail?.sessionKey) {
+        handleSwitchSession(detail.sessionKey);
+      }
+    }
+    window.addEventListener("artifex:switch-session", onSwitchSession);
+    return () => window.removeEventListener("artifex:switch-session", onSwitchSession);
+  }, [handleSwitchSession]);
 
   // v4.1.7 已废弃：Keep-Alive useEffect
   //
