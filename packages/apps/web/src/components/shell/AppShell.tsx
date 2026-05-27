@@ -201,9 +201,11 @@ function useBreakpoint() {
 /**
  * NotificationBridge — 桥接 Tauri 事件 → 通知 Store
  *
- * 监听 Tauri emit("notification-received") 事件，将外部脚本/cron 的通知
- * 注入 useNotificationStore。同时注册全局 external store 供 gateway-ws.ts 等
- * 非 React 模块使用。
+ * 双通道：
+ *   1. 监听 Tauri emit("notification-received") 事件（Rust push_notification 命令触发）
+ *   2. 定时轮询 scan_pending_notifications（消费 Python 写入的文件通知）
+ *
+ * 同时注册全局 external store 供 gateway-ws.ts 等非 React 模块使用。
  */
 function NotificationBridge() {
   const { addNotification } = useNotifications();
@@ -241,8 +243,25 @@ function NotificationBridge() {
       }
     })();
 
+    // 定时轮询扫描 Python 等外部脚本写入的文件通知
+    let scanTimer: ReturnType<typeof setInterval> | undefined;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        // 立即执行一次扫描
+        invoke("scan_pending_notifications").catch(() => {});
+        // 每 3 秒轮询一次
+        scanTimer = setInterval(() => {
+          invoke("scan_pending_notifications").catch(() => {});
+        }, 3000);
+      } catch {
+        // 非 Tauri 环境，静默跳过
+      }
+    })();
+
     return () => {
       unlisten?.();
+      if (scanTimer) clearInterval(scanTimer);
     };
   }, [addNotification]);
 

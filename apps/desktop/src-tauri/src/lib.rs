@@ -201,6 +201,7 @@ pub fn run() {
             commands::openclaw_cron::read_openclaw_cron_jobs,
             // 通知推送
             commands::notification::push_notification,
+            commands::notification::scan_pending_notifications,
         ])
         .setup(|_app| {
             // 应用启动后自动启动 sidecar

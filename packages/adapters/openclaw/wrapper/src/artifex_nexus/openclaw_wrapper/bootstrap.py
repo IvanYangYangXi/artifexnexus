@@ -237,6 +237,12 @@ def _generate_default_config(
         "browser": {
             "cdpPortRangeStart": port + 11,
         },
+        # 工具可见性：所有 session 对当前 agent 可见
+        "tools": {
+            "sessions": {
+                "visibility": "all",
+            },
+        },
     }
 
     return config
