@@ -1,7 +1,7 @@
 ---
 tags: [spec, openclaw, developer, build]
 created: 2026-05-03
-status: draft
+status: accepted
 ---
 
 # OpenClaw Wrapper — 开发者视角（Dev）

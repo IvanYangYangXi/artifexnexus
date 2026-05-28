@@ -2,13 +2,13 @@
 id: EPIC-0001
 kind: epic
 title: M1 · 基地改造 · 一键安装
-status: done
+status: review
 priority: P1
 owner: "@ivan"
 assignee: pair
 estimate: 2w
 created: 2026-05-04
-updated: 2026-05-07
+updated: 2026-05-28
 parent: "[[../../vision/roadmap]]"
 milestone: M1
 related_adr: [0002, 0005, 0006]

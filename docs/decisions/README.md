@@ -18,3 +18,4 @@ created: 2026-05-02
 | `[[0007-windows-openclaw-shell-spawn]]` | Windows 上 spawn `openclaw` CLI 的统一约定（npm shell wrapper / `.cmd` / `CREATE_NO_WINDOW`） | accepted |
 | `[[0008-copy-model-deploy-manifest]]` | 弃用 Junction/Symlink，统一为物理拷贝 + 部署清单校验 | accepted |
 | `[[0009-skill-multi-agent-junction]]` | 多 Agent Skill 共享：Junction 联结 + 禁用 systemPromptOverride | accepted |
+| `[[0010-trigger-persistence]]` | Nexus-Tool 触发器启用/禁用持久化（Per-Trigger / Per-Scope / Per-Skill） | accepted |

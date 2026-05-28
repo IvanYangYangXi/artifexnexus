@@ -1,3 +1,9 @@
+---
+tags: [development, max, debugging, troubleshooting]
+created: 2026-05-28
+status: draft
+---
+
 # 3ds Max 插件成功路径
 
 > 本文档记录 Artifex Nexus 3ds Max 插件从启动到正常工作的完整链路，

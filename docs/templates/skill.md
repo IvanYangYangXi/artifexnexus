@@ -32,6 +32,7 @@ result = execute_skill("{{skill_name}}", {...})
 
 ## 限制 / 注意
 
+- 装饰器统一使用 `@skill_tool`（已废弃别名：`@ue_tool` / `@artclaw_tool` / `@tool`，不再使用）
 - ...
 
 ## 相关 Skill

@@ -1,5 +1,7 @@
 # 日志埋点强制规则（AI 写代码必读）
 
+> 本文档为速查表，权威规则参见 `.ai/rules/30-agent-behavior.md` §8
+
 > 基于 2026-05-13 全项目日志审计（`docs/specs/logging-spec.md`）制定的 AI 强制执行规则。
 
 ## 强制要求

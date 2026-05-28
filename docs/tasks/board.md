@@ -9,11 +9,6 @@ tags:
 
 ## Backlog
 
-- [ ] [[EPIC-0003-m3-web-ui-chat]]
-- [ ] [[EPIC-0004-m4-skill-system]]
-- [ ] [[EPIC-0005-m5-nexus-tool-system]]
-- [ ] [[EPIC-0006-m6-memory-system]]
-- [ ] [[EPIC-0007-m7-multi-dcc-inapp-chat]]
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
 - [ ] [[STORY-0059-shared-module-extraction]]
@@ -28,12 +23,16 @@ tags:
 
 ## Ready
 
+- [ ] [[STORY-0049-skill-publish-update-button]]
+
 
 
 
 
 
 ## In Progress
+
+- [ ] [[EPIC-0007-m7-multi-dcc-inapp-chat]]
 
 
 
@@ -57,6 +56,10 @@ tags:
 - [ ] [[STORY-0042-m4-sdk-decorator-manifest]]
 
 ## Done
+- [x] [[EPIC-0003-m3-web-ui-chat]]
+- [x] [[EPIC-0004-m4-skill-system]]
+- [x] [[EPIC-0005-m5-nexus-tool-system]]
+- [x] [[EPIC-0006-m6-memory-system]]
 - [x] [[STORY-0040-m3-func-modules-api]] *(已拆解覆盖，不复执行 → 2026-05-15)*
 - [x] [[STORY-0039-m3-func-chat-api]]
 - [x] [[TASK-0050-chat-panel-interaction-optimization]]

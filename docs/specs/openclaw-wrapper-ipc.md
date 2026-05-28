@@ -1,7 +1,7 @@
 ---
 tags: [spec, openclaw, ipc, architecture]
 created: 2026-05-03
-status: draft
+status: accepted
 ---
 
 # OpenClaw Wrapper — IPC 边界（Front ↔ Rust ↔ Python）

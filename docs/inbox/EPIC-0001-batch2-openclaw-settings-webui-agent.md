@@ -16,6 +16,8 @@ related_specs:
 # EPIC-0001 第二批需求 — OpenClaw 设置 / Web UI 入口 / agent 预设
 
 > 已 triaged 进 EPIC-0001，作为 S8/S9/S10 三个并列 STORY 落地。
+> 
+> **Promoted to STORY-0015/0016/0017 — all done**（2026-05-28）
 
 ## 原始描述（用户）
 

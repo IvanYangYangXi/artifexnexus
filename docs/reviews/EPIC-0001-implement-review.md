@@ -241,7 +241,7 @@ apps/desktop/src-tauri/target/release/
 
 > **本 review 未在新机器上"双击 setup.exe → 装出 → 启动 → 看到清单"完成最后一公里**，
 > 因当前会话不允许写代码也无 disposable Win 沙箱。建议 implement 阶段补一份
-> `docs/_handoff/M1-smoke-on-clean-vm.md` 记录新机实测脚本与截屏。
+> `docs/tasks/_handoff/M1-smoke-on-clean-vm.md` 记录新机实测脚本与截屏。
 
 ### 5.4 文件行数
 
@@ -315,7 +315,7 @@ Rust 源码、TS、docs，因而误报"全绿"。这正是约束 #2 失败的根
 
 ### 建议
 implement 会话恢复后，必须在**全新 Linux VM + 全新 Win11 VM** 各跑一次 9 步脚本，
-把每步实际输出贴到 `docs/_handoff/M1-smoke-2026-MM-DD.md`，作为 EPIC-0001 真正归档的
+把每步实际输出贴到 `docs/tasks/_handoff/M1-smoke-2026-MM-DD.md`，作为 EPIC-0001 真正归档的
 前提。当前 review 在缺少这份证据的前提下，**不能给"集成 smoke 通过"绿灯**。
 
 ---
@@ -332,7 +332,7 @@ implement 会话恢复后，必须在**全新 Linux VM + 全新 Win11 VM** 各�
 
 ### 7.2 任务/文档层 🔴
 **没有任何新任务卡 / spec patch / 进展日志记录这次"补打 artifact"动作**。
-- `docs/_handoff/EPIC-0001-implement-handoff.md:95` 仍写 "Rust 编译未验证"
+- `docs/tasks/_handoff/EPIC-0001-implement-handoff.md:95` 仍写 "Rust 编译未验证"
 - 7 份 STORY 进展日志最新一条仍是 2026-05-06，没人记 "2026-05-07 补 tauri build 验证"
 - 没有新增 STORY-0015（"S8 桌面 artifact 验收"之类）
 
@@ -383,7 +383,7 @@ EPIC-0001 子节点表里指向 `[[../review/STORY-NNNN-...]]` 与文件一致�
 6. 实装前端进度条：sidecar `openclaw.install` 改成 streaming RPC（Tauri channel
    或多次 emit event），前端 `InstallItemRow` 监听并显示百分比
 7. 实装 toast 系统 + 端口切换 toast（STORY-0013 验收 6）
-8. 完成 dev home 全栈 9 步 smoke，把日志存 `docs/_handoff/M1-smoke-2026-MM-DD.md`
+8. 完成 dev home 全栈 9 步 smoke，把日志存 `docs/tasks/_handoff/M1-smoke-2026-MM-DD.md`
 
 ### P2（卫生 / 一致性）
 

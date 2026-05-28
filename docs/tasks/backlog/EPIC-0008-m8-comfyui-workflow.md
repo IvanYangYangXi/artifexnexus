@@ -2,27 +2,34 @@
 id: EPIC-0008
 kind: epic
 title: M8 · ComfyUI MCP + Web UI Workflow 管理
-status: backlog
+status: planned
 priority: P2
 owner: "@ivan"
 assignee: pair
 estimate: 3w
 created: 2026-05-04
-updated: 2026-05-04
+updated: 2026-05-28
 parent: "[[../../vision/roadmap]]"
 milestone: M8
 related_adr: []
 related_specs: []
 related_packages:
   - "packages/apps/web"
-tags: [epic, comfyui, workflow, M8]
+tags: [epic, comfyui, workflow, M8, planned]
 ---
 
-# M8 · ComfyUI MCP + Web UI Workflow 管理
+# M8 · ComfyUI MCP + Web UI Workflow 管理 📋 PLANNED
 
 ## 背景与目标
 
 将 ComfyUI 以 MCP 身份接入；Web UI 提供 workflow 的导入 / 编辑 / 调度 / 执行视图。
+
+## 当前状态
+
+- ✅ **14 个 ComfyUI Skills 已创建**：txt2img / img2img / inpainting / controlnet / hires-fix / workflow-builder / workflow-manager / workflow-repair / workflow-validator / model-manager / node-installer / civitai / operation-rules / context
+- ❌ **ComfyUI MCP Server 未开发**
+- ❌ **Workflow 管理 UI 未开发**
+- ❌ **Gateway MCP Bridge 未配置 ComfyUI 端口**
 
 ## 范围 / 非范围
 
@@ -44,4 +51,5 @@ tags: [epic, comfyui, workflow, M8]
 
 ## 进展日志
 
+- 2026-05-28 **状态更新**：14 个 ComfyUI Skills 已创建（含完整 workflow 操作链），待 MCP 接入和 UI 开发
 - 2026-05-04 created

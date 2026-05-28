@@ -1,3 +1,9 @@
+---
+tags: [development, dcc, blender, maya, max]
+created: 2026-05-28
+status: draft
+---
+
 # DCC 检测指南
 
 ## 概览

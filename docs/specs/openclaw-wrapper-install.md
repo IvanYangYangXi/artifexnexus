@@ -1,7 +1,7 @@
 ---
 tags: [spec, openclaw, installer, tauri]
 created: 2026-05-03
-status: draft
+status: accepted
 ---
 
 # OpenClaw Wrapper — 安装器（Install）

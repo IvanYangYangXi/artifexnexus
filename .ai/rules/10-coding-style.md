@@ -4,7 +4,7 @@
 
 - TS 包：`@artifex-nexus/<kebab-case>`
 - Python 包：发布名 `artifex-nexus-<kebab>`，导入名 `artifex_nexus_<snake>`
-- UE C++ 模块：`UEClawBridge`（保持与原项目一致，便于迁移）
+- UE C++ 模块：`ArtifexNexus / ArtifexNexusAPI`（已从 `UEClawBridge` 重命名，参见 STORY-0051）
 
 ## 文件结构（Python 包）
 

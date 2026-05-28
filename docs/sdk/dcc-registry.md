@@ -20,7 +20,7 @@ interface DCCDetectResult {
 
 interface DCCInstallResult {
   success: boolean;
-  method: "junction" | "symlink" | "copy" | null;
+  method: "copy" | null;
   target: string;
   error: string | null;
 }

@@ -39,7 +39,7 @@ is_dcc_addon_installed("blender", "5.1")  # → True / False
 
 ```python
 result = install_dcc_addon("blender", "5.1")
-# → {"success": True, "method": "junction", "target": "...", "error": None}
+# → {"success": True, "method": "copy", "target": "...", "error": None}
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -51,7 +51,7 @@ result = install_dcc_addon("blender", "5.1")
 | 返回字段 | 类型 | 说明 |
 |----------|------|------|
 | `success` | `bool` | 是否成功 |
-| `method` | `"junction"` \| `"symlink"` \| `"copy"` \| `None` | 安装方式 |
+| `method` | `"copy"` \| `None` | 安装方式 |
 | `target` | `str` | 目标路径 |
 | `error` | `str` \| `None` | 失败原因 |
 
@@ -129,15 +129,15 @@ _DCC_ADDON_PATH_TEMPLATES["maya"] = "{base}/{version}/scripts/"
 ```
 1. find_blender_versions() → 获取已安装版本列表
 2. check_version_compatibility(version) → 兼容检查
-3. install_blender_addon(version) → junction/symlink/copy
+3. install_blender_addon(version) → copy
    ├─ 自动调用 install_gateway_mcp_bridge()
    └─ 自动 patch openclaw.json
 ```
 
-### 安装方式优先级
+### 安装方式
 
 ```
-junction (Windows) > symlink > copy (fallback)
+copy（物理拷贝，唯一方式，遵循 ADR 0008）
 ```
 
 ## TypeScript API
@@ -160,7 +160,7 @@ const result = await detectBlenderVersions();
 
 ```ts
 const result = await installBlenderAddon("5.1");
-// → { success: true, method: "junction", target: "...", error: null }
+// → { success: true, method: "copy", target: "...", error: null }
 ```
 
 ### `uninstallBlenderAddon(version: string) → Promise<BlenderUninstallResult>`
@@ -194,7 +194,7 @@ interface BlenderDetectResult {
 
 interface BlenderInstallResult {
   success: boolean;
-  method: "junction" | "symlink" | "copy" | null;
+  method: "copy" | null;
   target: string;
   error: string | null;
 }

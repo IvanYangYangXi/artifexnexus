@@ -1,7 +1,7 @@
 ---
 tags: [spec, install, draft]
 created: 2026-05-02
-status: draft
+status: accepted
 ---
 
 # 安装与部署

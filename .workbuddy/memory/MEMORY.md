@@ -124,3 +124,16 @@
 - **外部脚本调用**：`invoke("push_notification", { req: { title, message, type, source } })`
 - **cron 任务通知**：Gateway 发送 `{"event":"notify", "payload":{...}}`
 - **设计文档**：`docs/specs/notification-system.md`
+
+## 新目标优先级（2026-05-28）
+
+| 优先级 | 里程碑 | 名称 | 状态 |
+|--------|--------|------|------|
+| P0 | M10 | 数据图形视图 | ANDF + CSV 导入 + 8 视图 + 反向编辑 |
+| P0 | M11 | 节点式工作流编辑器 | WorkflowEngine + 节点画布 + 右侧面板分页 |
+| P1 | M1 | EPIC-0001 审查修复 | 5 个 P0 问题 |
+| P1 | M7 | UE 插件增强 | Blueprint API / Trigger System |
+| P2 | M7 | Maya/Max E2E | 端到端贯通 |
+| P3 | M8 | ComfyUI MCP | MCP Server + Workflow UI |
+| P3 | M9 | 扩展 DCC 插件 | SP/SD/Houdini/Unity |
+| P3 | M12 | DCC 平台化 API | 最后做 |

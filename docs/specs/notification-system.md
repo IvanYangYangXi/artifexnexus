@@ -1,3 +1,9 @@
+---
+tags: [spec, notification, development]
+created: 2026-05-28
+status: implemented
+---
+
 # 通知系统实现计划
 
 ## 目标

@@ -1,7 +1,7 @@
 ---
 tags: [spec, openclaw, runtime, isolation]
 created: 2026-05-03
-status: draft
+status: accepted
 ---
 
 # OpenClaw Wrapper — 运行时（Runtime）

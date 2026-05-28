@@ -1,3 +1,9 @@
+---
+tags: [development, ue, troubleshooting]
+created: 2026-05-28
+status: reference
+---
+
 # UE 5.7 超长 IncludePath 编译错误修复指南
 
 ## 错误类型

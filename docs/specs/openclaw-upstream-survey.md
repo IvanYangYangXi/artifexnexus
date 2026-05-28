@@ -222,7 +222,7 @@ Windows 等价：调用 `install.ps1` 同名 flag。
 | T3 | Windows 纯 native（无 WSL）跑 sharp/playwright 的真实成功率 | S1 implement 时先在 Win11 跑一遍记结果 |
 | T4 | install-cli.sh 在中国大陆网络的可达性（openclaw.ai / npm registry / Node tarball CDN） | ✅ 已解决（2026-05-06 S1）：PowerShell Invoke-WebRequest 成功下载 install.ps1（~15s），openclaw.ai 在中国大陆网络可达；npm registry 待首次完整安装时验证 |
 | T5 | install.ps1 是否有等价的 `--version` / `--prefix` / `--no-onboard` | ✅ 已解决（2026-05-06 S1）：实测 install.ps1 参数为 `-Tag`（等价 --version，默认 "latest"）、`-InstallMethod`（npm/git）、`-NoOnboard`（switch）、`-DryRun`（switch）；**无 --prefix 参数**，Windows 薄壳改用 `npm install -g --prefix <path>` 模拟 |
-| T6 | `openclaw.json` `models.providers.*` / `auth.profiles.*` 完整字段矩阵 | ✅ 已解决（2026-05-07 STORY-0015 spike）：`openclaw config schema` 实测产出 1.8MB JSON Schema（落 `docs/specs/_spikes/openclaw-v2026.5.4-config-schema.json`）；**关键发现：模型与鉴权解耦——`models.providers.<id>` 存连接配置，`auth.profiles.<id>` 存 token**；详见 §13 |
+| T6 | `openclaw.json` `models.providers.*` / `auth.profiles.*` 完整字段矩阵 | ✅ 已解决（2026-05-07 STORY-0015 spike）：`openclaw config schema` 实测产出 JSON Schema（原始文件 1.8MB，已于 2026-05-28 清理，可通过 `openclaw config schema` 重新生成）；**关键发现：模型与鉴权解耦——`models.providers.<id>` 存连接配置，`auth.profiles.<id>` 存 token**；详见 §13 |
 | T7 | OpenClaw v2026.5.4 是否带内建 Web UI；URL 从何处获取 | ✅ 已解决（2026-05-07 STORY-0016 spike）：**OpenClaw 自带 Control UI**，复用 `gateway.port`，配置在 `gateway.controlUi.*`；CLI 命令 `openclaw dashboard --no-open` 直接打印含 token 的 URL；详见 §14 |
 | T8 | OpenClaw v2026.5.4 注册 agent 预设的官方机制 | ✅ 已解决（2026-05-07 STORY-0017 spike）：**`agents.list[]` 数组**，每条含 `id` / `default` / `systemPromptOverride` / `model` / `skills` / `thinkingDefault` 等丰富字段；CLI `openclaw agents add` 不支持 `--system-prompt`，注入预设必须走 `config patch --file`；详见 §15 |
 
@@ -281,8 +281,10 @@ openclaw config --help
 openclaw config schema > openclaw-v2026.5.4-config-schema.json   # 1.8 MB JSON Schema
 ```
 
-完整 schema 落 `docs/specs/_spikes/openclaw-v2026.5.4-config-schema.json`（git ignore，可重生）。
-关键节点切片落 `docs/specs/_spikes/openclaw-v2026.5.4-schema-slice.json`。
+完整 schema 原始产出为 `docs/specs/_spikes/openclaw-v2026.5.4-config-schema.json`，
+切片为 `docs/specs/_spikes/openclaw-v2026.5.4-schema-slice.json`。
+> **注意**：两份 JSON 文件因体积过大（1.8MB + 366KB Git 膨胀）已于 2026-05-28 清理删除，
+> 可通过 `openclaw config schema` 命令重新生成。
 
 ### 13.2 顶层字段（共 38 个）
 

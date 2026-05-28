@@ -1,3 +1,9 @@
+---
+tags: [spec, skill, development]
+created: 2026-05-28
+status: draft
+---
+
 # SkillList 发布/更新按钮 — 对齐 ArtClaw 双按钮模型
 
 ## 改动范围

@@ -1,7 +1,7 @@
 ---
 tags: [spec, skill-system, draft]
 created: 2026-05-02
-status: draft
+status: accepted
 ---
 
 # Skill 子系统设计

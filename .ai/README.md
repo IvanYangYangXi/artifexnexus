@@ -1,4 +1,4 @@
-# .ai/ — Vibe Coding 工作台
+# .ai/ — Agentic Development Workspace
 
 > 本目录是 AI 协作的"操作系统"，让 Cursor / Claude Code / Codex 等 AI 编程助手立刻 onboard。
 
@@ -10,7 +10,7 @@
 | `prompts/` | 复用 prompt 片段（新 Skill / 新 ADR / 新平台） | 人类 + AI |
 | `context/` | 工程长程上下文（项目速览 + 术语表） | AI |
 
-## Vibe Coding 三条铁律
+## Agentic Development 三条铁律
 
 1. **Docs is the source of truth.** 改架构必先改 `docs/specs/`，再改代码。
 2. **Skill ≠ Tool；MCP 工具最小化。** 唯一 MCP 工具是 `run_python`，新能力一律以 Skill 包 + `@tool` 函数形式提供。
@@ -30,9 +30,9 @@
 ## 常见 AI 任务速查
 
 - **SDD 工作流总入口**：`docs/development/sdd-workflow.md`（口令：`/sdd triage|align|implement|done`）
-- 新建 Skill：`prompts/new-skill.md` → 在 `packages/dcc/{unreal,blender}/.../skills/` 建包
+- 新建 Skill：`prompts/new-skill.md` → 在 `packages/dcc/{unreal,blender,maya,max}/.../skills/` 建包
 - 新增 ADR：`prompts/new-adr.md` → 在 `docs/decisions/` 按编号建文件
-- 接入新平台：`prompts/new-platform.md` → 在 `packages/adapters/<name>/` 建包
+- 接入新平台：在 `packages/adapters/<name>/` 建包
 
 ## 与 Obsidian 的关系
 

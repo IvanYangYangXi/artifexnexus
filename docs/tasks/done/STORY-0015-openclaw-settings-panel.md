@@ -93,6 +93,8 @@ API Key / 模型名 / 高级配置（视觉输入、推理模式、maxTokens 等
 
 - [x] **T6 spike**（2026-05-07）：sidecar 跑 `openclaw config schema` 等命令，把
       schema 全文落 `docs/specs/_spikes/openclaw-v2026.5.4-config-schema.json`（1.8MB）；
+      > **注意**：该 JSON 文件因体积过大（>1.8MB Git 膨胀）已于 2026-05-28 清理删除，
+      > 可通过 `openclaw config schema` 命令重新生成。
       关键发现：**模型与鉴权解耦**（`models.providers.<id>` + `auth.profiles.<id>` 两张表）；
       回填 [[../../specs/openclaw-upstream-survey]] §13；驱动重写 [[../../specs/openclaw-settings-panel]] 为 v2
 - [ ] **P1/P2 深挖** implement 启动时立刻做：用 `node` 抽 `models.providers.<id>` 与

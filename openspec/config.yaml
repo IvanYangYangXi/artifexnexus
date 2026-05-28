@@ -5,19 +5,23 @@ schema: spec-driven
 # 本文件是 AI 助手的 spec-driven 开发入口。
 # 所有 spec / task / decision 的权威源在 docs/（Obsidian Vault），
 # 此处仅做索引引用，不复制内容。
+# 最后更新：2026-05-28（全量对照代码功能更新）
 # ============================================================
 
 context: |
   ## 项目
   Artifex Nexus — AI Agent ↔ DCC 的桥（The AI-Agent Bridge for Digital Creation）。
   前身：artclaw_bridge（重构 fork）。
-  目标平台：OpenClaw（唯一首发，vendor 锁定版本）。
-  目标 DCC：Unreal Engine 5.7、Blender 5.1。
+  目标平台：OpenClaw（唯一首发，vendor 锁定版本 v2026.5.4）。
+  核心 DCC：Unreal Engine 5.7、Blender 5.1、Maya 2023+、3ds Max 2024+。
+  Skill 覆盖：ComfyUI、Houdini、Substance Painter、Substance Designer、Unity。
 
   ## 技术栈
-  - 前端：TypeScript (React, strict mode), CSS Modules, Tauri (Rust)
-  - 后端/Python：Python 3.11+, pydantic v2, ruff (line-length=100)
-  - DCC 插件：C++ (UE), Python (Blender addon)
+  - 前端：TypeScript (React, strict mode), Next.js 15, Tailwind CSS v4, @artifex-nexus/ui
+  - 桌面壳：Tauri 2 (Rust), Vite 5
+  - 后端/Python：Python 3.11+, pydantic v2, ruff (line-length=100), JSON-RPC 2.0 sidecar
+  - DCC 插件：C++ (UE), Python (Blender/Maya/3ds Max addon)
+  - 共享 SDK：packages/dcc/shared/artifex_nexus_sdk/
   - 仓库形态：monorepo (pnpm + Turborepo + uv workspaces)
   - 文档形态：Obsidian Vault (docs/)，单一信息源
 
@@ -25,14 +29,23 @@ context: |
   - 上行（聊天）：DCC → WebSocket RPC → OpenClaw Gateway
   - 下行（工具）：Gateway → MCP JSON-RPC → DCC MCP Server
   - 唯一 MCP 工具：run_python（Gateway 端自动加 mcp_<dcc>_ 前缀隔离）
-  - Skill ≠ Tool：Skill 是包，Tool 是包内被 @tool 装饰的函数
+  - Skill ≠ Tool：Skill 是包，Tool 是包内被 @skill_tool 装饰的函数
   - 契约即源：跨进程数据结构在 packages/platform/contracts/schemas/ 定义 JSON Schema，派生 Python/TS
+  - SkillHub 全平台架构：共享核心 + DCC 特定注入（UE 独立实现因需要 unreal.DirectoryWatcher）
 
   ## 分层依赖（单向，禁止反向）
   apps/web → platform/contracts / platform/skill / platform/core
   platform/cli → platform/contracts / platform/skill / platform/core
   adapters/<platform> → platform/core + platform/contracts
-  dcc/<dcc> → platform/core + platform/skill + platform/contracts
+  dcc/<dcc> → platform/core + platform/skill + platform/contracts + dcc/shared/artifex_nexus_sdk
+
+  ## 端口分配
+  - 18080: UE MCP Server
+  - 18081: Maya MCP Server
+  - 18082: 3ds Max MCP Server
+  - 18083: Blender MCP Server
+  - 18790: Next.js dev server
+  - 19789: OpenClaw Gateway + Control UI
 
   ## 平台默认路径
   - 锚定 ~/.artifexnexus/
@@ -45,24 +58,21 @@ context: |
   - 状态迁移三处同步铁律：文件位置 / frontmatter.status / board.md 列
   - 不允许 Agent 自标 done
   - GUI 任务必须先出 docs/specs/ui/<module>-structure.md，再写代码
-  - 设计语言由 M3 统一，之前不硬编码视觉
+  - 设计语言由 M3 统一（已完成：@artifex-nexus/ui, Tailwind v4, 27 个组件）
 
   ## 编码规范
   - 代码注释中文，公共 API docstring 中英双语
   - 代码文件 ≤ 500 行（黄金区 100–300）
   - 文档 ≤ 2000 字/文件
   - Conventional Commits
+  - 零静默 catch，全量日志埋点
 
 # ============================================================
 # Spec 索引（权威源：docs/specs/）
 # ============================================================
 specs:
   - path: docs/specs/系统架构设计.md
-    description: 系统架构设计（四层 SDK、上下行链路、MCP 工具最小化）
-  - path: docs/specs/install.md
-    description: 安装与分发规约
-  - path: docs/specs/skill-system.md
-    description: Skill 子系统设计（Skill ≠ Tool，@tool 装饰器，manifest.json）
+    description: 系统架构设计（四层 SDK、上下行链路、MCP 工具最小化、多 DCC 支持）
   - path: docs/specs/openclaw-wrapper.md
     description: OpenClaw 包装器总览
   - path: docs/specs/openclaw-wrapper-install.md
@@ -77,17 +87,19 @@ specs:
     description: OpenClaw 上游调研报告（v2026.5.4 事实底，含 TBD 集合）
   - path: docs/specs/openclaw-settings-panel.md
     description: OpenClaw 设置面板（9 大 LLM provider 矩阵 / 字段表 / 状态机 / sidecar 对接）
-  - path: docs/specs/openclaw-agent-preset.md
-    description: Artifex Nexus 默认 agent 预设（system prompt v1 / 注入策略 / 幂等规则）
+  - path: docs/specs/notification-system.md
+    description: 通知系统设计（双通道：Tauri IPC + Gateway WS / 存储 / UI）
+  - path: docs/specs/ui/design-language.md
+    description: 设计语言规格（Tailwind v4 / CSS 变量 token / 组件规范）
   - path: docs/specs/ui/installer-structure.md
-    description: 安装向导 UI 结构（信息架构 / 7 状态机 / 三按钮规则 / 线框；§11 OpenClaw 行 4 按钮）
+    description: 安装向导 UI 结构（信息架构 / 状态机 / 多 DCC 子项）
 
 # ============================================================
 # 决策索引（权威源：docs/decisions/）
 # ============================================================
 decisions:
   - path: docs/decisions/
-    description: ADR 目录，关键决策记录
+    description: ADR 目录，关键决策记录（8 个 ADR：0001-0008）
 
 # ============================================================
 # 任务体系（权威源：docs/tasks/）
@@ -99,76 +111,41 @@ tasks:
   management: docs/development/task-management.md
 
 # ============================================================
-# 当前活跃 EPIC
+# 当前活跃工作
 # ============================================================
-active_epic:
-  id: EPIC-0001
-  title: M1 · 基地改造 · 一键安装
-  path: docs/tasks/ready/EPIC-0001-m1-onboarding-install.md
-  status: ready
-  children:
-    - id: STORY-0007
-      title: OpenClaw spec realign（上游调研 + spec 校正）
-      path: docs/tasks/done/STORY-0007-openclaw-spec-realign.md
-      status: done
-    - id: STORY-0008
-      title: 薄壳安装器 — install-cli.sh + NDJSON 进度
-      path: docs/tasks/review/STORY-0008-thin-wrapper-installer.md
-      status: review
-    - id: STORY-0009
-      title: bootstrap + openclaw.json
-      path: docs/tasks/review/STORY-0009-openclaw-bootstrap-config.md
-      status: review
-    - id: STORY-0010
-      title: runtime 拉起 gateway
-      path: docs/tasks/review/STORY-0010-openclaw-runtime-spawn.md
-      status: review
-    - id: STORY-0011
-      title: 健康检查三通道
-      path: docs/tasks/review/STORY-0011-openclaw-health-check.md
-      status: review
-    - id: STORY-0012
-      title: 端口冲突自愈
-      path: docs/tasks/review/STORY-0012-openclaw-port-conflict.md
-      status: review
-    - id: STORY-0013
-      title: 安装清单 UI 接真实状态
-      path: docs/tasks/review/STORY-0013-openclaw-status-ui.md
-      status: review
-    - id: STORY-0014
-      title: 升级通道接口预留
-      path: docs/tasks/review/STORY-0014-openclaw-upgrade-scaffold.md
-      status: review
-    - id: STORY-0015
-      title: OpenClaw 设置面板 · 9 大 LLM provider
-      path: docs/tasks/backlog/STORY-0015-openclaw-settings-panel.md
-      status: backlog
-    - id: STORY-0016
-      title: OpenClaw Web UI 入口按钮 + URL 探测
-      path: docs/tasks/backlog/STORY-0016-openclaw-web-ui-entry.md
-      status: backlog
-    - id: STORY-0017
-      title: Artifex Nexus 默认 agent 预设自动注入
-      path: docs/tasks/backlog/STORY-0017-openclaw-agent-preset.md
-      status: backlog
-
-# ============================================================
-# OpenSpec changes（变更提案）— 索引型，权威源在 docs/
-# ============================================================
-changes:
-  - id: epic-0001-batch2-openclaw-settings-webui-agent
-    path: openspec/changes/epic-0001-batch2-openclaw-settings-webui-agent/
+active_work:
+  # M1 审查修复（P0）
+  - id: EPIC-0001-review-fix
+    title: M1 · EPIC-0001 审查问题修复
     status: in-progress
-    epic: EPIC-0001
-    stories:
-      - STORY-0015
-      - STORY-0016
-      - STORY-0017
-    inbox: docs/inbox/EPIC-0001-batch2-openclaw-settings-webui-agent.md
-    capabilities:
-      - openclaw-settings-panel
-      - openclaw-web-ui-entry
-      - openclaw-agent-preset
+    priority: P0
+
+  # M7 UE 插件增强（P0）
+  - id: EPIC-0007-ue-enhance
+    title: M7 · UE 插件增强（Blueprint API / Trigger System / Control Panel）
+    path: docs/tasks/backlog/EPIC-0007-m7-multi-dcc-inapp-chat.md
+    status: in-progress
+    priority: P0
+
+  # M7 Maya/Max E2E（P1）
+  - id: EPIC-0007-maya-max-e2e
+    title: M7 · Maya/Max 端到端验证
+    status: planned
+    priority: P1
+
+  # 重装确认（P1）
+  - id: openclaw-reinstall-confirm
+    title: OpenClaw 重装确认弹窗
+    path: openspec/changes/openclaw-reinstall-confirm/
+    status: in-progress
+    priority: P1
+
+  # M3 设计语言回填（P2）
+  - id: m3-design-language-backfill
+    title: M3 · 设计语言 Spec 文档补完
+    path: openspec/changes/m3-design-language/
+    status: in-progress
+    priority: P2
 
 # ============================================================
 # 路线图（权威源：docs/vision/roadmap.md）
@@ -179,33 +156,43 @@ roadmap:
     - id: M0
       title: 安装向导框架
       epic: EPIC-0000
+      status: done
     - id: M1
       title: 基地改造 · 一键安装
       epic: EPIC-0001
+      status: review
     - id: M2
       title: 骨架贯通 · Blender MCP
       epic: EPIC-0002
+      status: done
     - id: M3
-      title: Web UI 框架 + Chat
+      title: Web UI 框架 + Chat + 设计语言
       epic: EPIC-0003
+      status: done
     - id: M4
       title: Skill 系统
       epic: EPIC-0004
+      status: done
     - id: M5
-      title: Tool 系统
+      title: Nexus-Tool 系统
       epic: EPIC-0005
+      status: done
     - id: M6
       title: 定制记忆
       epic: EPIC-0006
+      status: done
     - id: M7
       title: 多 DCC 接入 + 内嵌 Chat
       epic: EPIC-0007
+      status: in-progress
     - id: M8
       title: ComfyUI MCP + Workflow 管理
       epic: EPIC-0008
+      status: planned
     - id: M9
-      title: 扩展 DCC（SP/SD/Houdini）
+      title: 扩展 DCC（SP/SD/Houdini/Unity）
       epic: EPIC-0009
+      status: planned
 
 # ============================================================
 # Per-artifact 规则

@@ -24,7 +24,7 @@ dcc/<dcc>           ──► platform/core + platform/skill + platform/contract
 ## 2. MCP 工具最小化与命名
 
 每个 DCC 的 MCP Server **只注册 1 个工具**：`run_python`。
-Gateway 端会自动加 `mcp_{server}_` 前缀变成 `mcp_unreal_run_python` / `mcp_blender_run_python`。
+Gateway 端会自动加 `mcp_{server}_` 前缀变成 `mcp_unreal_run_python` / `mcp_blender_run_python` / `mcp_maya_run_python` / `mcp_max_run_python`。
 
 新增能力 = **新增 Skill 包**（用 `@tool` 装饰函数）+ `manifest.json`。
 不要在 MCP Server 里注册新工具，不要写 `@mcp_tool` 之类装饰器——违反此约束的 PR 将被拒绝。
@@ -33,12 +33,12 @@ Gateway 端会自动加 `mcp_{server}_` 前缀变成 `mcp_unreal_run_python` / `
 
 - **Skill** = 一个包（目录 + `SKILL.md` + `manifest.json` + `__init__.py`），分发与版本管理的单位
 - **Tool** = Skill 包内被 `@tool` 装饰的可调用函数，实际执行的单位
-- 一个 Skill 可暴露多个 Tool；装饰器统一为 `@tool`（`@artclaw_tool` 是兼容别名）
+- 一个 Skill 可暴露多个 Tool；装饰器统一为 `@skill_tool`（`@tool` 是推荐简写，`@artclaw_tool` 是历史兼容别名，不推荐新代码使用）
 
 ## 4. 主线程安全
 
 DCC 内任何 API 调用必须在主线程执行。MCP 处理线程通过 `command_queue` 入队，
-由主线程 tick 消费。直接在 MCP 线程调用 `unreal.*` / `bpy.*` 会崩溃。
+由主线程 tick 消费。直接在 MCP 线程调用 `unreal.*` / `bpy.*` / `maya.cmds` / `pymxs.*` 会崩溃。
 
 ## 5. 平台默认路径
 

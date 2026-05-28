@@ -1,6 +1,10 @@
-# Nexus-Tool 触发器启用/禁用持久化方案
+---
+tags: [adr, nexus-tool, trigger, persistence, manifest]
+created: 2026-05-19
+status: accepted
+---
 
-> 决策日期：2026-05-19 | 状态：已完成（Phase A + Phase B）
+# ADR 0010 — Nexus-Tool 触发器启用/禁用持久化方案
 
 ## 背景
 

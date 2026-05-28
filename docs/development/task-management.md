@@ -141,7 +141,7 @@ Add：`kind / milestone / status / priority / owner / assignee / estimate`。
 ```
 ## Backlog        ↔  frontmatter.status: backlog        目录: docs/tasks/backlog/
 ## Ready          ↔  frontmatter.status: ready          目录: docs/tasks/ready/
-## In Progress    ↔  frontmatter.status: in-progress    目录: docs/tasks/in-progress/
+## In Progress    ↔  frontmatter.status: in-progress    （已废弃，in-progress 任务直移 done/）
 ## Review         ↔  frontmatter.status: review         目录: docs/tasks/review/
 ## Done           ↔  frontmatter.status: done           目录: docs/tasks/done/
 ```

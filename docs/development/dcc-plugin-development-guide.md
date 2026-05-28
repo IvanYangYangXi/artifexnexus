@@ -1,3 +1,9 @@
+---
+tags: [development, dcc, maya, max, plugin]
+created: 2026-05-28
+status: draft
+---
+
 # DCC 插件开发指南
 
 > 记录 Maya / 3ds Max 插件开发的坑位、规范、artclaw 参考。

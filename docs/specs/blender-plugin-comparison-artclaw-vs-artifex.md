@@ -1,3 +1,9 @@
+---
+tags: [spec, blender, comparison, analysis]
+created: 2026-05-28
+status: reference
+---
+
 # Artifex Nexus vs ArtClaw — Blender 插件实现差异分析
 
 > **分析日期**: 2026-05-18  
