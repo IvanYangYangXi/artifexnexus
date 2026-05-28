@@ -13,7 +13,7 @@ description: >
   installing skills (use nexus-skill-manage).
 metadata:
   artifex_nexus:
-    version: 1.2.0
+    version: 1.3.0
     author: Artifex Nexus
     software: all
     tags: ["tool-creator", "nexus-tool", "development", "notification"]
@@ -74,13 +74,43 @@ start → select_method → collect_info → generate → preview → confirm �
 ```python
 """工具名称 — 一句话描述。"""
 # ── SDK 头（tool-creator 自动注入）──
-import os, json
+import os, json, time, random
+from pathlib import Path
 import artifex_nexus_sdk as sdk
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+def _notify(title: str, message: str, notif_type: str = "success"):
+    """发送平台通知（气泡弹窗 + 铃铛中心）。
+    工具执行完成后调用此函数，让用户无需切回 DCC 也能感知结果。
+    写入 ~/.artifexnexus/pending_notifications/ 文件桥接，
+    前端自动展示 toast 气泡 + 写入铃铛通知中心。"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    filepath = notif_dir / f"tool_{ts}_{random.randint(1000, 9999)}.json"
+    filepath.write_text(json.dumps({
+        "type": notif_type,
+        "title": title,
+        "message": message,
+        "source": "nexus-tool"
+    }, ensure_ascii=False), encoding="utf-8")
+
+def _toast(message: str):
+    """发送轻量气泡通知（不写入铃铛中心）。
+    用于进度更新、中间状态等不需要持久化的提示。"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    filepath = notif_dir / f"tool_toast_{ts}_{random.randint(1000, 9999)}.json"
+    filepath.write_text(json.dumps({
+        "type": "info",
+        "title": message,
+        "source": "nexus-tool"
+    }, ensure_ascii=False), encoding="utf-8")
 # ── SDK 头结束 ──
 
 
@@ -113,8 +143,17 @@ def main_function(**kwargs):
     # import unreal  # UE
     # ...
 
-    # ── 4. 结果上报 ──
-    return sdk.result.success(data={}, message="完成")
+    # ── 4. 业务执行（替换为实际逻辑）──
+    processed_count = len(objects)
+    # ... 实际业务代码 ...
+
+    # ── 5. 结果上报 ──
+    result_msg = f"完成，处理了 {processed_count} 个对象"
+
+    # ── 6. 通知用户（气泡 + 铃铛）──
+    _notify("工具执行完成", f"✅ {result_msg}", "success")
+
+    return sdk.result.success(data={"count": processed_count}, message=result_msg)
 ```
 
 > **脚本配置分层原则**（见下方 manifest schema → 配置分层决策）：所有路径范围、类型列表等规则配置统一写入 manifest，脚本只负责读取。禁止将它们定义为模块级常量。
@@ -384,3 +423,107 @@ notify("工具创建完成", "✅ 快速 UV 重排 已创建，合规检查通�
 ```
 
 > 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。
+
+---
+
+## 被创建工具的通知集成
+
+AI 生成工具的 `main.py` 时，**必须为工具本身加入通知能力**。
+让用户在 DCC 外也能感知工具执行结果 —— 工具跑完、失败、跳过，用户都能收到提示。
+
+### 何时通知
+
+| 场景 | 通知方式 | 示例 |
+|------|----------|------|
+| 工具正常执行完成 | `_notify()` 气泡 + 铃铛 | "✅ 批量重命名完成，共处理 23 个模型" |
+| 工具执行失败 | `_notify()` 气泡 + 铃铛 | "❌ 批量重命名失败：未选中任何模型" |
+| 工具无操作/跳过 | `_toast()` 仅气泡 | "ℹ️ 未找到需要重命名的模型" |
+| 长时间任务进度 | `_toast()` 仅气泡 | "正在处理... (15/200)" |
+
+### Helper 函数
+
+脚本模板的 SDK 头已内置两个辅助函数（见上文 §脚本模板）：
+
+| 函数 | 通道 | 何时用 |
+|------|------|--------|
+| `_notify(title, msg, type)` | 气泡 + 铃铛 | 任务完成、失败等**需要回溯**的结果 |
+| `_toast(message)` | 仅气泡 | 进度更新、中间状态等轻量提示 |
+
+### AI 应遵循的规则
+
+1. **工具执行完成 → 必须调 `_notify()`**：让结果写入铃铛通知中心，用户可回溯
+2. **工具执行失败 → 必须调 `_notify()`**：`type="error"`，让用户知道出了问题
+3. **进度更新 → 可选 `_toast()`**：长任务（预计 >5s）建议加，短任务可省略
+4. **无操作/跳过 → 调 `_toast()`**：不需要写铃铛，气泡提醒即可
+
+### 完整示例：批量重命名工具
+
+以下展示一个创建"批量重命名模型"工具时，AI 应生成的 `main.py`：
+
+```python
+"""批量重命名模型 — 按规则重命名选中的模型对象。"""
+# ── SDK 头 ──
+import os, json, time, random
+from pathlib import Path
+import artifex_nexus_sdk as sdk
+
+def _load_manifest() -> dict:
+    manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def _notify(title, message, notif_type="success"):
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    p = notif_dir / f"tool_{ts}_{random.randint(1000,9999)}.json"
+    p.write_text(json.dumps({"type": notif_type, "title": title, "message": message, "source": "nexus-tool"}, ensure_ascii=False), encoding="utf-8")
+
+def _toast(message):
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    p = notif_dir / f"tool_toast_{ts}_{random.randint(1000,9999)}.json"
+    p.write_text(json.dumps({"type": "info", "title": message, "source": "nexus-tool"}, ensure_ascii=False), encoding="utf-8")
+# ── SDK 头结束 ──
+
+
+def main_function(**kwargs):
+    manifest = _load_manifest()
+    parsed = sdk.params.parse_params(manifest.get("inputs", []), kwargs)
+
+    # 1. 获取选中对象
+    objects = sdk.context.get_selected_assets()
+    if not objects:
+        _notify("批量重命名失败", "❌ 未选中任何模型", "error")
+        return sdk.result.fail("NO_INPUT", "未选中任何对象。")
+
+    prefix = parsed.get("prefix", "Model_")
+    start_index = parsed.get("start_index", 1)
+    _toast(f"开始批量重命名，共 {len(objects)} 个对象")
+
+    # 2. 执行业务逻辑
+    renamed = 0
+    for i, obj in enumerate(objects):
+        new_name = f"{prefix}{start_index + i:03d}"
+        # obj.name = new_name  # DCC 原生重命名
+        renamed += 1
+
+    # 3. 通知用户完成
+    _notify(
+        "批量重命名完成",
+        f"✅ 共重命名 {renamed} 个模型，前缀 '{prefix}'，编号 {start_index}-{start_index + renamed - 1}",
+        "success"
+    )
+    return sdk.result.success(data={"count": renamed}, message=f"重命名了 {renamed} 个模型")
+```
+
+### 通知 vs 日志
+
+| | 通知（_notify / _toast） | 日志（print / sdk.log） |
+|---|---|---|
+| 目标受众 | **用户**（在桌面看到） | 开发者 / AI（控制台查看） |
+| 可见位置 | 桌面右下角气泡 + 铃铛中心 | DCC 控制台 / 终端 |
+| 用途 | 让用户知道工具"做完了" | 调试、排查问题 |
+
+**规则**：通知和日志不互斥 —— 工具应同时输出日志（给 AI 排错）和通知（给用户反馈）。

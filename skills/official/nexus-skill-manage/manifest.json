@@ -1,7 +1,7 @@
 {
   "name": "nexus-skill-manage",
-  "description": "Manage Artifex Nexus skills: list, install, uninstall, sync, publish, and create new skills. After every operation, send toast + bell notification.",
-  "version": "1.1.0",
+  "description": "Manage Artifex Nexus skills: list, install, uninstall, sync, publish, and create new skills. Generated skills include notification guidance for @skill_tool functions.",
+  "version": "1.2.0",
   "author": "Artifex Nexus",
   "software": [
     {

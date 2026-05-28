@@ -13,7 +13,7 @@ description: >
   Nexus-Tool management (use nexus-tool-creator instead).
 metadata:
   artifex_nexus:
-    version: 1.1.0
+    version: 1.2.0
     author: Artifex Nexus
     software: all
     tags: ["skill-management", "installer", "publish", "notification"]
@@ -506,3 +506,69 @@ config.rename(old_name, new_name)  # 如果 SkillConfig 支持此方法
 
 > **规则**：`name`（SKILL.md frontmatter）= `"name"`（manifest.json）= 源码目录名 = 已安装目录名。
 > 任何不一致都是 bug，`hub/core.py` 的 `_build_skill_entry()` 会输出 WARNING。
+
+---
+
+## 被创建 Skill 的通知集成
+
+当 Skill 包含可执行 `__init__.py` 且 `@skill_tool` 函数执行面向用户的操作时，
+**应通知用户执行结果**——让用户在无需查看 DCC 控制台的情况下感知 Skill 的执行状态。
+
+### 何时通知
+
+| 场景 | 通知方式 | 示例 |
+|------|----------|------|
+| 操作执行完成 | 气泡 + 铃铛 | "✅ 场景清理完成，移除了 15 个空对象" |
+| 操作执行失败 | 气泡 + 铃铛 | "❌ UV 展开失败：无选中网格" |
+| 无需操作/跳过 | 仅气泡 | "ℹ️ 当前场景无需清理" |
+
+### 在 `@skill_tool` 函数中发送通知
+
+```python
+import json, time, random
+from pathlib import Path
+
+def _notify(title: str, message: str, notif_type: str = "success"):
+    """工具执行通知（气泡 + 铃铛）。"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    p = notif_dir / f"skill_{ts}_{random.randint(1000,9999)}.json"
+    p.write_text(json.dumps({
+        "type": notif_type, "title": title,
+        "message": message, "source": "nexus-skill"
+    }, ensure_ascii=False), encoding="utf-8")
+
+def _toast(message: str):
+    """轻量气泡（不写铃铛）。"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    p = notif_dir / f"skill_toast_{ts}_{random.randint(1000,9999)}.json"
+    p.write_text(json.dumps({
+        "type": "info", "title": message, "source": "nexus-skill"
+    }, ensure_ascii=False), encoding="utf-8")
+
+from artifex_nexus_sdk.decorator import skill_tool
+
+@skill_tool
+def cleanup_empty_objects():
+    """清理场景中的空对象。"""
+    removed = 0
+    # ... 清理逻辑 ...
+    
+    if removed == 0:
+        _toast("ℹ️ 当前场景无空对象需要清理")
+    else:
+        _notify("场景清理完成", f"✅ 已移除 {removed} 个空对象", "success")
+    
+    return {"removed": removed}
+```
+
+### 规则
+
+1. **面向用户的操作完成 → 必须 `_notify()`**（写入铃铛中心可回溯）
+2. **操作失败 → 必须 `_notify()`**（`type="error"`）
+3. **无操作/跳过 → `_toast()`**（仅气泡提示）
+
+> 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。

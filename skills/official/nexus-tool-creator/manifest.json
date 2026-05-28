@@ -1,7 +1,7 @@
 {
   "name": "nexus-tool-creator",
-  "description": "AI-guided custom DCC check/fix tool creation. Supports wrapping Skills, writing scripts, and composing tools. After creation, send toast + bell notification.",
-  "version": "1.2.0",
+  "description": "AI-guided custom DCC check/fix tool creation. Supports wrapping Skills, writing scripts, and composing tools. Generated tools include built-in notification support (_notify/_toast) for user feedback.",
+  "version": "1.3.0",
   "author": "Artifex Nexus",
   "software": [
     {
