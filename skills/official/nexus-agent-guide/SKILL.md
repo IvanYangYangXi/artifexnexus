@@ -44,7 +44,7 @@ metadata:
 | ├ 通道 A：Python 文件桥接 | `rules/notifications-python.md` | 外部 Python 脚本发送通知 |
 | ├ 通道 B：Gateway WebSocket | `rules/notifications-gateway.md` | cron 任务通过 WS 发送通知 |
 | └ 通道 C：Tauri IPC | `rules/notifications-tauri.md` | 桌面应用内前端代码通知 |
-| **Cron 回复配置** | `rules/cron-reply.md` | 配置 cron 任务的会话投递 |
+| **Cron 回复配置**（两种投递 + 决策流程） | `rules/cron-reply.md` | 配置 cron 任务的会话投递方式 |
 
 ---
 
@@ -57,4 +57,4 @@ metadata:
 | "装一个 Blender 的 Skill" | `rules/skills-and-tools.md` + nexus-skill-manage |
 | "怎么知道 Maya 有没有连上" | `rules/connection-status.md` |
 | "发个通知提醒用户" | `rules/notifications.md` → 按通道选子文档 |
-| "设置一个定时任务" | `rules/cron-reply.md` |
+| "设置一个定时任务" | `rules/cron-reply.md`（含方法推荐 + 用户确认流程） |
