@@ -49,10 +49,14 @@ export interface ToolPublishResult {
 export interface SkillPublishData {
   name: string;
   version: string;
+  /** 源层级（用于默认目标层级选择） */
+  layer: string;
 }
 
 export interface SkillPublishResult {
   targetLayer: string;
+  /** 用户输入的新版本号 */
+  version: string;
 }
 
 // ─── Union Props ─────────────────────────────────────────────────────────────
@@ -84,9 +88,20 @@ const TOOL_TARGETS: Record<string, string> = {
 };
 
 const SKILL_TARGET_LAYERS: Record<string, string> = {
-  "01_team": "团队 (team)",
+  "01_marketplace": "市集 (marketplace)",
   "00_official": "官方 (official)",
 };
+
+/** 比较两个 x.y.z 版本号：v1 > v2 返回 true */
+function _isVersionGt(v1: string, v2: string): boolean {
+  const a = v1.split(".").map(Number);
+  const b = v2.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return true;
+    if (a[i] < b[i]) return false;
+  }
+  return false; // 相等不算大于
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -109,12 +124,20 @@ export function PublishConfirmDialog({
   const [toolErrors, setToolErrors] = React.useState<Record<string, string>>({});
 
   // ── Skill state ──
-  const [skillTargetLayer, setSkillTargetLayer] = React.useState("01_team");
+  const [skillTargetLayer, setSkillTargetLayer] = React.useState("01_marketplace");
+  const [skillVersion, setSkillVersion] = React.useState("");
   const [skillErrors, setSkillErrors] = React.useState<Record<string, string>>({});
 
-  // ── 重置状态 ──
+  // ── 默认目标层级：用户层 → 市集，否则 → 源层级 ──
+  const defaultSkillLayer = React.useMemo(() => {
+    if (!skillData) return "01_marketplace";
+    return skillData.layer.startsWith("02_") ? "01_marketplace" : skillData.layer;
+  }, [skillData]);
+
+  // ── 重置状态（仅 open 从 false→true 时触发）──
+  const prevOpen = React.useRef(false);
   React.useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
       if (isTool && toolData) {
         setToolTarget("marketplace");
         setToolVersion(toolData.currentVersion || "");
@@ -122,11 +145,13 @@ export function PublishConfirmDialog({
         setToolErrors({});
       }
       if (!isTool && skillData) {
-        setSkillTargetLayer("01_team");
+        setSkillTargetLayer(defaultSkillLayer);
+        setSkillVersion(skillData.version || "");
         setSkillErrors({});
       }
     }
-  }, [open, isTool, toolData, skillData]);
+    prevOpen.current = open;
+  }, [open, isTool, toolData, skillData, defaultSkillLayer]);
 
   // ── 校验 ──
   const validateTool = (): boolean => {
@@ -143,6 +168,18 @@ export function PublishConfirmDialog({
   const validateSkill = (): boolean => {
     const errs: Record<string, string> = {};
     if (!skillTargetLayer) errs.targetLayer = "请选择发布目标层级";
+    // 版本号格式校验
+    const v = skillVersion.trim();
+    if (!v) {
+      errs.version = "版本号不能为空";
+    } else if (!/^\d+\.\d+\.\d+/.test(v)) {
+      errs.version = "版本号格式应为 x.y.z（如 1.0.0）";
+    } else if (skillData?.version) {
+      // 必须大于当前版本号
+      if (!_isVersionGt(v, skillData.version)) {
+        errs.version = `版本号必须大于当前版本（${skillData.version}）`;
+      }
+    }
     setSkillErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -158,7 +195,7 @@ export function PublishConfirmDialog({
       });
     } else {
       if (!validateSkill()) return;
-      onConfirmSkill?.({ targetLayer: skillTargetLayer });
+      onConfirmSkill?.({ targetLayer: skillTargetLayer, version: skillVersion.trim() });
     }
   };
 
@@ -242,10 +279,22 @@ export function PublishConfirmDialog({
                 <div className="text-sm font-medium">{skillData.name}</div>
               </div>
 
-              {/* Version (read-only) */}
+              {/* Version (editable + 校验) */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">版本</Label>
-                <div className="text-sm text-muted-foreground">{skillData.version || "unknown"}</div>
+                <Label className="text-xs text-muted-foreground">
+                  版本号 <span className="text-red-400">*</span>
+                </Label>
+                <Input
+                  value={skillVersion}
+                  onChange={(e) => setSkillVersion(e.target.value)}
+                  placeholder={`当前 ${skillData.version || "unknown"}，请输入新版本`}
+                  className={cn("h-8 text-sm", skillErrors.version && "border-red-500")}
+                />
+                {skillErrors.version ? (
+                  <p className="text-xs text-red-400">{skillErrors.version}</p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">格式：x.y.z，必须大于当前版本</p>
+                )}
               </div>
 
               {/* Target Layer */}

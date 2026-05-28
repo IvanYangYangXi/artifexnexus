@@ -417,21 +417,7 @@ function InfoTab({ entry, detail, labelCls, compact, onDetailRefresh, globalTagS
         {/* 版本 */}
         <div>
           <div className={labelCls}>版本</div>
-          {isInstalled ? (
-            <div>
-              <input
-                className={versionValid ? inputCls : inputClsErr}
-                placeholder="0.0.1"
-                value={version}
-                onChange={e => setVersion(e.target.value)}
-              />
-              {!versionValid && (
-                <p className="text-[10px] text-red-400 mt-0.5">版本号需符合 semver 格式 (如 0.0.1)</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-foreground">{entry.version || "—"}</p>
-          )}
+          <p className="text-xs text-foreground">{entry.version || "—"}</p>
         </div>
 
         {/* 作者 */}

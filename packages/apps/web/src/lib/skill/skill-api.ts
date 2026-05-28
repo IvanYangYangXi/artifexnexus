@@ -212,7 +212,7 @@ export async function skillSync(id: string, opts?: { source_layer?: string; targ
 }
 
 /** 发布 */
-export async function skillPublish(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillPublishResult> {
+export async function skillPublish(id: string, opts?: { source_layer?: string; target_layer?: string; version?: string }): Promise<SkillPublishResult> {
   const result = await invoke<SkillPublishResult>("skill_publish", { params: { id, ...opts } });
   _listCache.clear(); _detailCache.delete(id);
   return result;

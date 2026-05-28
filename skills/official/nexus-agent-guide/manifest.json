@@ -1,7 +1,7 @@
 {
   "name": "nexus-agent-guide",
   "description": "Artifex Nexus Agent integration rules — layered documents for notifications (toast+bell), cron reply config, and platform APIs. Designed for on-demand reading to minimize token usage.",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "author": "Artifex Nexus",
   "software": [
     {

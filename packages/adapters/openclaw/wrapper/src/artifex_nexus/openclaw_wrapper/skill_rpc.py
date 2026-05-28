@@ -510,8 +510,15 @@ def _handle_skill_publish(req_id: Any, params: dict) -> dict:
         installer = _get_skill_installer()
         source_layer = params.get("source_layer", "02_user")
         target_layer = params.get("target_layer", "01_team")
+        version = params.get("version")  # 用户输入的新版本号
 
-        result = installer.publish(skill_name, source_layer=source_layer, target_layer=target_layer)
+        result = installer.publish(
+            skill_name,
+            source_layer=source_layer,
+            target_layer=target_layer,
+            version=version,
+        )
+        _invalidate_scan_cache()
         return _ok(req_id, {
             "ok": result.ok,
             "skill_name": result.skill_name,

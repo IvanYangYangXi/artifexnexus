@@ -9,8 +9,8 @@ import { PreviewContext } from "../shell/AppShell";
 import {
   skillList, skillInstall, skillUninstall, skillEnable, skillDisable,
   skillPin, skillUnpin, skillFavorite, skillUnfavorite,
-  skillSync, skillPublish, skillBatch,
-  type SkillItem,
+  skillSync, skillPublish, skillBatch, skillCheckSync,
+  type SkillItem, type SyncStateInfo,
 } from "../../lib/skill/skill-api";
 import { DCC_LABELS, SOURCE_LABELS, type SkillSource } from "../../lib/skillsMock";
 import { PublishConfirmDialog, type SkillPublishData, type SkillPublishResult } from "./PublishConfirmDialog";
@@ -47,6 +47,9 @@ export function SkillList() {
   const [publishTarget, setPublishTarget] = React.useState<SkillItem | null>(null);
   const [publishBusy, setPublishBusy] = React.useState(false);
 
+  // ── 版本管理：skillName → SyncStateInfo（needs_publish / needs_update）──
+  const [syncStates, setSyncStates] = React.useState<Record<string, SyncStateInfo>>({});
+
   const { setPreview, preview, ensurePanelOpen } = React.useContext(PreviewContext);
 
   // 加载列表
@@ -56,6 +59,25 @@ export function SkillList() {
       setError(null);
       const result = await skillList({ page: 1, limit: 200 });
       setSkills(result.items);
+
+      // ── 批量获取所有已安装 Skill 的版本管理信息 ──
+      const installedIds = result.items
+        .filter((s) => s.installed)
+        .map((s) => s.name);
+
+      const syncResults = await Promise.allSettled(
+        installedIds.map((id) => skillCheckSync(id)),
+      );
+
+      const nextSyncStates: Record<string, SyncStateInfo> = {};
+      installedIds.forEach((id, index) => {
+        const settled = syncResults[index];
+        if (settled.status === "fulfilled") {
+          nextSyncStates[id] = settled.value;
+        }
+        // 单个 skillCheckSync 失败则静默跳过 — 该 skill 的按钮降级为常规样式
+      });
+      setSyncStates(nextSyncStates);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -341,23 +363,43 @@ export function SkillList() {
                   </Button>
                 )}
 
-                {/* 已安装 + 非用户层 → 同步（从官方/市场同步最新版本） */}
-                {skill.installed && !skill.layer.startsWith("02_") && (
-                  <Button variant="outline" size="sm" className="h-7 text-xs"
-                    onClick={() => doAction(skill.name, () => skillSync(skill.name))}
-                    disabled={isBusy(skill.name)}>
-                    同步
-                  </Button>
-                )}
+                {/* 已安装 → 版本管理按钮（对齐 ArtClaw 双按钮模型） */}
+                {skill.installed && (() => {
+                  const sync = syncStates[skill.name];
+                  const needsUpdate = sync?.needs_update ?? false;
+                  const needsPublish = sync?.needs_publish ?? false;
+                  const isUserLayer = skill.layer.startsWith("02_");
 
-                {/* 已安装 + 用户层 → 发布（发布到团队/官方） */}
-                {skill.installed && skill.layer.startsWith("02_") && (
-                  <Button variant="outline" size="sm" className="h-7 text-xs text-purple-400 hover:text-purple-300"
-                    onClick={() => setPublishTarget(skill)}
-                    disabled={isBusy(skill.name)}>
-                    发布
-                  </Button>
-                )}
+                  const doPublish = () => setPublishTarget(skill);
+
+                  return <>
+                    {/* needs_update → 高亮"更新"按钮（从源码拉取） */}
+                    {needsUpdate && (
+                      <Button variant="default" size="sm" className="h-7 text-xs"
+                        onClick={() => doAction(skill.name, () => skillSync(skill.name))}
+                        disabled={isBusy(skill.name)}
+                        title={`有更新可用：已安装 ${sync?.installed_version ?? "?"} → 源码 ${sync?.source_version ?? "?"}`}>
+                        更新
+                      </Button>
+                    )}
+                    {/* needs_publish → 高亮"发布"，否则 → 常规"发布" */}
+                    <Button
+                      variant={needsPublish ? "default" : "outline"}
+                      size="sm"
+                      className={`h-7 text-xs ${!needsPublish && isUserLayer ? "text-purple-400 hover:text-purple-300" : ""}`}
+                      onClick={doPublish}
+                      disabled={isBusy(skill.name)}
+                      title={
+                        needsPublish
+                          ? sync?.message || "需要发布到源码"
+                          : isUserLayer
+                            ? "发布到上级层级"
+                            : "发布到市集"
+                      }>
+                      发布
+                    </Button>
+                  </>;
+                })()}
 
                 {/* 已安装 → 钉选/取消钉选 */}
                 {skill.installed && (
@@ -392,14 +434,16 @@ export function SkillList() {
         skillData={publishTarget ? {
           name: publishTarget.name,
           version: publishTarget.version || "unknown",
+          layer: publishTarget.layer,
         } : undefined}
         onConfirmSkill={async (result: SkillPublishResult) => {
           if (!publishTarget) return;
           setPublishBusy(true);
           try {
             const res = await skillPublish(publishTarget.name, {
-              source_layer: "02_user",
+              source_layer: publishTarget.layer,
               target_layer: result.targetLayer,
+              version: result.version,
             });
             if (!res.ok) {
               setError("发布失败: " + JSON.stringify(res));

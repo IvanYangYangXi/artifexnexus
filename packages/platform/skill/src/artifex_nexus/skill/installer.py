@@ -402,44 +402,34 @@ class SkillInstaller:
         target_dir: Path,
         status: SyncStatus,
     ) -> SyncResult:
-        """执行源 → 目标的文件复制同步。
+        """从源码目录全量覆盖安装目录（暴力同步）。
 
-        保守策略：不主动删除目标侧多余文件。
+        删除安装目录 → 复制整个源码目录。不 diff，确保完全一致。
         """
-        synced: List[str] = []
-        errors: List[str] = []
+        try:
+            # 删除旧安装目录
+            if target_dir.exists():
+                logger.info("sync '%s': 删除旧安装目录 %s", skill_name, target_dir)
+                shutil.rmtree(target_dir)
 
-        for rel_path in status.changed_files:
-            src_file = source_dir / rel_path
-            dst_file = target_dir / rel_path
+            # 全量复制源码到安装目录
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source_dir, target_dir)
+            logger.info("sync '%s': 全量同步完成 %s → %s", skill_name, source_dir, target_dir)
 
-            if not src_file.exists():
-                logger.debug(
-                    "sync '%s': 跳过已删除的源文件 %s", skill_name, rel_path
-                )
-                continue
-
-            try:
-                dst_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_file, dst_file)
-                synced.append(rel_path)
-            except OSError as exc:
-                errors.append(f"{rel_path}: {exc}")
-
-        if errors:
+            return SyncResult(
+                True, skill_name,
+                synced_files=["<全量覆盖>"],
+                state=status.state,
+                message="同步完成（全量覆盖）",
+            )
+        except OSError as exc:
+            logger.exception("sync '%s' 全量同步失败", skill_name)
             return SyncResult(
                 False, skill_name,
-                synced_files=synced,
                 state=status.state,
-                message=f"部分文件同步失败 ({len(errors)}): {'; '.join(errors[:3])}",
+                message=f"同步失败: {exc}",
             )
-
-        return SyncResult(
-            True, skill_name,
-            synced_files=synced,
-            state=status.state,
-            message=f"已同步 {len(synced)} 个文件",
-        )
 
     def sync_all(
         self,
@@ -475,15 +465,17 @@ class SkillInstaller:
         skill_name: str,
         source_layer: str = "02_user",
         target_layer: str = "01_team",
+        version: str | None = None,
     ) -> PublishResult:
-        """发布 Skill（扁平化后为 metadata 操作）。
+        """发布 Skill：更新安装目录版本 → 删除源码目录 → 全量复制安装目录到源码。
 
-        扁平化目标目录下，source 和 target 是同一路径，
-        不再做文件复制。此方法验证 Skill 存在、读取版本号并返回成功。
+        暴力策略：不 diff，直接删除目标源码目录并以安装目录整体覆盖，
+        确保两端完全一致，消除任何增量同步导致的不一致。
 
         :param skill_name: Skill 名称。
-        :param source_layer: 源层级（保留兼容，扁平化后不使用）。
-        :param target_layer: 目标层级（保留兼容，扁平化后不使用）。
+        :param source_layer: 源层级（定位安装目录）。
+        :param target_layer: 目标层级（定位源码目录）。
+        :param version: 可选，指定新版本号。
         :return: PublishResult。
         """
         skill_dir = self._target_skill_dir(source_layer, skill_name)
@@ -493,16 +485,73 @@ class SkillInstaller:
                 False, skill_name, "", message="Skill 未安装，请先 install"
             )
 
-        # 读取版本号（优先 manifest.json，回退到 SKILL.md frontmatter）
-        version = "unknown"
+        # 1. 更新安装目录 manifest.json 版本号
+        resolved_version = version or "unknown"
+        if version:
+            manifest_file = skill_dir / "manifest.json"
+            if manifest_file.exists():
+                try:
+                    manifest_data = json.loads(manifest_file.read_text("utf-8"))
+                    manifest_data["version"] = version
+                    manifest_file.write_text(
+                        json.dumps(manifest_data, ensure_ascii=False, indent=2), "utf-8"
+                    )
+                    logger.info("Skill '%s' 安装目录 manifest.json 版本 → %s", skill_name, version)
+                except (json.JSONDecodeError, OSError) as exc:
+                    logger.warning("Skill '%s' 安装目录 manifest.json 更新失败: %s", skill_name, exc)
+            else:
+                logger.warning("Skill '%s' 安装目录缺少 manifest.json", skill_name)
+
+        # 读取最终版本号
+        resolved_version = self._read_skill_version(skill_dir, skill_name, version)
+
+        # 2. 暴力同步：删除源码目录 → 全量复制安装目录
+        if target_layer in self._layer_sources:
+            target_base = self._layer_sources[target_layer]
+            source_skill_dir = target_base / skill_name  # 直接拼接，不用 _source_skill_dir 的 fallback 逻辑
+
+            try:
+                # 删除旧目录
+                if source_skill_dir.exists():
+                    logger.info("Skill '%s' 删除旧源码目录 %s", skill_name, source_skill_dir)
+                    shutil.rmtree(source_skill_dir)
+
+                # 全量复制
+                source_skill_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(skill_dir, source_skill_dir)
+                logger.info(
+                    "Skill '%s' v%s 发布完成，安装目录 → 源码目录 (%s) 全量覆盖",
+                    skill_name, resolved_version, source_skill_dir,
+                )
+            except OSError as exc:
+                logger.exception("Skill '%s' 发布复制失败: %s", skill_name, exc)
+                return PublishResult(
+                    False, skill_name, resolved_version,
+                    message=f"发布失败（文件复制错误: {exc}）",
+                )
+        else:
+            logger.info("Skill '%s' target_layer=%s 无源码映射，跳过文件复制", skill_name, target_layer)
+
+        return PublishResult(
+            True, skill_name, resolved_version, skill_dir,
+            "发布成功",
+        )
+
+    def _read_skill_version(
+        self, skill_dir: Path, skill_name: str, fallback_version: str | None = None,
+    ) -> str:
+        """读取 Skill 版本号（优先 manifest.json，回退 SKILL.md frontmatter）。"""
+        resolved = fallback_version or "unknown"
         manifest_file = skill_dir / "manifest.json"
         if manifest_file.exists():
             try:
                 manifest_data = json.loads(manifest_file.read_text("utf-8"))
-                version = manifest_data.get("version", "unknown")
+                resolved = manifest_data.get("version", resolved)
+                return resolved
             except (json.JSONDecodeError, OSError):
                 pass
-        elif (skill_dir / "SKILL.md").exists():
+
+        if (skill_dir / "SKILL.md").exists():
             try:
                 import re as _re2
                 text = (skill_dir / "SKILL.md").read_text("utf-8")
@@ -513,18 +562,10 @@ class SkillInstaller:
                     if isinstance(meta, dict):
                         afx = meta.get("artifex_nexus", {})
                         if isinstance(afx, dict):
-                            version = str(afx.get("version", "unknown"))
+                            resolved = str(afx.get("version", resolved))
             except Exception:
                 pass
-
-        logger.info(
-            "Skill '%s' v%s 已发布（metadata，扁平目录无需复制）",
-            skill_name, version,
-        )
-        return PublishResult(
-            True, skill_name, version, skill_dir,
-            "发布成功（扁平目录，无需文件复制）",
-        )
+        return resolved
 
     # ── enable / disable ──────────────────────────────────────────────────
 
