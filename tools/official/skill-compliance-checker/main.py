@@ -108,9 +108,12 @@ def _check_artifex_nexus_metadata(
     fm_text: str, data: Dict[str, Any], issues: List[Dict[str, str]]
 ) -> None:
     """检查 metadata.artifex_nexus.* 字段。"""
+    # 规范化换行符 + 确保末行有换行（正则要求每行以 \n 结尾）
+    fm_text = fm_text.replace("\r\n", "\n") + "\n"
+
     # 提取 metadata 下的 artifex_nexus 块
     block_match = re.search(
-        r'metadata\s*:[^\n]*\n((?:\s+\S[^\n]*\n)*)',
+        r'metadata\s*:\s*\n((?:\s+\S[^\r\n]*\n)*)',
         fm_text, re.MULTILINE
     )
     if not block_match:
@@ -454,6 +457,49 @@ def _scan_source_skills(source_root: Path) -> Dict[str, Any]:
 
 
 # ============================================================================
+# 通知发送
+# ============================================================================
+
+def _send_compliance_notification(
+    title: str,
+    total_checked: int,
+    errors: int,
+    warnings: int,
+    success: bool,
+) -> None:
+    """通过文件桥接发送检查完成通知到前端 toast/铃铛。"""
+    try:
+        notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+        notif_dir.mkdir(parents=True, exist_ok=True)
+
+        if success:
+            notif_type = "success"
+            message = f"检查 {total_checked} 个 Skill，全部通过"
+        elif errors > 0:
+            notif_type = "error"
+            message = f"检查 {total_checked} 个 Skill，{errors} 个错误，{warnings} 个警告"
+        else:
+            notif_type = "warning"
+            message = f"检查 {total_checked} 个 Skill，{warnings} 个警告"
+
+        import time as _time
+        import random as _random
+        ts = int(_time.time() * 1000)
+        rand = _random.randint(1000, 9999)
+        notif_file = notif_dir / f"notif_{ts}_{rand}.json"
+
+        payload = {
+            "type": notif_type,
+            "title": title,
+            "message": message,
+            "source": "cron:skill-compliance-checker",
+        }
+        notif_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # 通知失败不阻塞主流程
+
+
+# ============================================================================
 # 主入口
 # ============================================================================
 
@@ -511,22 +557,25 @@ def check_skill_compliance(**kwargs) -> Dict[str, Any]:
             all_issues.extend(fm_result["issues"])
 
             # B: manifest.json schema
-            for iss in _check_manifest_schema(skill_dir, categories_enum):
+            _manifest_issues = _check_manifest_schema(skill_dir, categories_enum)
+            for iss in _manifest_issues:
                 iss["skill"] = skill_name
                 iss["check"] = "manifest_schema"
-            all_issues.extend(_check_manifest_schema(skill_dir, categories_enum))
+            all_issues.extend(_manifest_issues)
 
             # E: tags 格式
-            for iss in _check_tags(skill_dir):
+            _tag_issues = _check_tags(skill_dir)
+            for iss in _tag_issues:
                 iss["skill"] = skill_name
                 iss["check"] = "tags"
-            all_issues.extend(_check_tags(skill_dir))
+            all_issues.extend(_tag_issues)
 
             # F: __init__.py @skill_tool
-            for iss in _check_init_py(skill_dir):
+            _init_issues = _check_init_py(skill_dir)
+            for iss in _init_issues:
                 iss["skill"] = skill_name
                 iss["check"] = "skill_tool"
-            all_issues.extend(_check_init_py(skill_dir))
+            all_issues.extend(_init_issues)
 
     else:
         all_issues.append({"severity": "error", "check": "setup",
@@ -561,6 +610,15 @@ def check_skill_compliance(**kwargs) -> Dict[str, Any]:
             for i in items:
                 skill_tag = f"[{i.get('skill', '?')}] " if i.get("skill") else ""
                 report_lines.append(f"  • {skill_tag}{i['message']}")
+
+    # ── 发送通知 ──
+    _send_compliance_notification(
+        title="Skill 合规检查",
+        total_checked=total_checked,
+        errors=len(errors),
+        warnings=len(warnings),
+        success=success,
+    )
 
     return sdk.result.success(data={
         "total_checked": total_checked,

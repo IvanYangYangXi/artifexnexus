@@ -140,6 +140,49 @@ def _get_source_tool_names(project_root: str) -> set:
     return names
 
 
+# ============================================================================
+# 通知发送
+# ============================================================================
+
+def _send_compliance_notification(
+    title: str,
+    total_checked: int,
+    issues_len: int,
+    errors: int,
+    warnings: int,
+) -> None:
+    """通过文件桥接发送检查完成通知到前端 toast/铃铛。"""
+    try:
+        notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+        notif_dir.mkdir(parents=True, exist_ok=True)
+
+        if issues_len == 0:
+            notif_type = "success"
+            message = f"检查 {total_checked} 个 Tool，全部通过"
+        elif errors > 0:
+            notif_type = "error"
+            message = f"检查 {total_checked} 个 Tool，{errors} 个错误，{warnings} 个警告"
+        else:
+            notif_type = "warning"
+            message = f"检查 {total_checked} 个 Tool，{warnings} 个警告"
+
+        import time as _time
+        import random as _random
+        ts = int(_time.time() * 1000)
+        rand = _random.randint(1000, 9999)
+        notif_file = notif_dir / f"notif_{ts}_{rand}.json"
+
+        payload = {
+            "type": notif_type,
+            "title": title,
+            "message": message,
+            "source": "cron:tool-compliance-checker",
+        }
+        notif_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # 通知失败不阻塞主流程
+
+
 def check_compliance(**kwargs) -> Dict[str, Any]:
     """
     检查工具合规性。
@@ -249,6 +292,15 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
     
     # 调用报警 API
     _update_alerts(issues)
+
+    # ── 发送通知 ──
+    _send_compliance_notification(
+        title="Tool 合规检查",
+        total_checked=total_checked,
+        issues_len=len(issues),
+        errors=len([i for i in issues if i.get("severity") == "error"]),
+        warnings=len([i for i in issues if i.get("severity") == "warning"]),
+    )
     
     result_data = {
         "total_checked": total_checked,
