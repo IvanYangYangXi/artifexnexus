@@ -2,4 +2,4 @@
 
 - **称呼**：主人
 - **时区**：GMT+8
-- **备注**：Artifex Nexus 使用者，DCC 创作者
+- **备注**：Artifex Nexus 平台使用者，创作者

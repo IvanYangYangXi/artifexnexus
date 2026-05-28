@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # 常量
 # ---------------------------------------------------------------------------
 
-PRESET_VERSION = "1.0.0"
-"""当前预设版本（写入 lock 文件）。"""
+PRESET_VERSION = "2.0.0"
+"""当前预设版本（写入 lock 文件）。v2.0.0: 人格描述从 DCC 桥接扩展为全平台通用助理。"""
 
 PRESET_ID = "artifex-nexus"
 """agents.list[].id。"""

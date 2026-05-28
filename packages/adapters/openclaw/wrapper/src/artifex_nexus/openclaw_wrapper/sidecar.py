@@ -57,6 +57,7 @@ try:
     from . import skill_rpc as _skill_rpc
     from . import nexus_tool_rpc as _nexus_tool_rpc
     from . import app_settings as _app_settings
+    from . import dcc_connections as _dcc_connections
     from . import web_ui as _web_ui
 except ImportError:
     import agent_preset as _agent_preset  # type: ignore[no-redef]
@@ -73,6 +74,7 @@ except ImportError:
     import skill_rpc as _skill_rpc  # type: ignore[no-redef]
     import nexus_tool_rpc as _nexus_tool_rpc  # type: ignore[no-redef]
     import app_settings as _app_settings  # type: ignore[no-redef]
+    import dcc_connections as _dcc_connections  # type: ignore[no-redef]
     import web_ui as _web_ui  # type: ignore[no-redef]
 
 sys.stderr.write("[sidecar.boot] all submodules imported\n")
@@ -2265,6 +2267,8 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0029 M2：DCC 端口管理
     "openclaw.dcc.port.get": _handle_openclaw_dcc_port_get,
     "openclaw.dcc.port.set": _handle_openclaw_dcc_port_set,
+    # DCC 连接状态统一查询（v2: agent 无需逐个探测）
+    **_dcc_connections.DCC_CONNECTIONS_METHODS,
     # STORY-0029 T2：全局部署校验
     "openclaw.deploy.validate": _handle_openclaw_deploy_validate,
     "openclaw.deploy.repair": _handle_openclaw_deploy_repair,
