@@ -24,7 +24,10 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from . import mcp_bridge as _mcp_bridge
+try:
+    from . import mcp_bridge as _mcp_bridge
+except ImportError:
+    import mcp_bridge as _mcp_bridge  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -274,9 +277,12 @@ def _handle_dcc_connections_list(req_id: Any, params: dict) -> dict:
         gateway_online = False
         try:
             from . import _runtime
+        except ImportError:
+            import _runtime  # type: ignore[no-redef]
+        try:
             gateway_online = _runtime.is_running()
         except Exception:
-            pass
+            gateway_online = False
 
         with _cache_lock:
             old_cache = dict(_cache) if _cache else {}

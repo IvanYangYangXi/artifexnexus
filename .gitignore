@@ -80,4 +80,7 @@ apps/desktop/staging/
 # --- 临时目录 ---
 MyProject_Dartifexnexus_packages/
 
+# --- WorkBuddy 工作目录 ---
+.workbuddy/
+
 # --- Spike 参考文件（Schema 等）---
