@@ -7,14 +7,16 @@ description: >
   (3) list available skills and filter by tags/software/layer,
   (4) create new skills with AI-generated SKILL.md + manifest.json + __init__.py.
   All operations via Python API through SkillHub + SkillInstaller.
+  After every operation (install/sync/publish/uninstall/create/rename/compliance-check),
+  MUST send a toast + bell notification via the platform notification system.
   NOT for: OpenClaw CLI skill commands, ClawHub marketplace publishing,
   Nexus-Tool management (use nexus-tool-creator instead).
 metadata:
   artifex_nexus:
-    version: 1.0.0
+    version: 1.1.0
     author: Artifex Nexus
     software: all
-    tags: ["skill-management", "installer", "publish"]
+    tags: ["skill-management", "installer", "publish", "notification"]
 ---
 
 # Artifex Nexus 技能管理
@@ -282,6 +284,54 @@ else:
 ```
 
 检查项：SKILL.md frontmatter（`metadata.artifex_nexus.*` 必需字段：software、version、author）、manifest.json schema、software/dcc 枚举 vs `categories.json`、依赖完整性、tags 格式、`__init__.py` `@skill_tool` 装饰器合规。
+
+---
+
+## 通知集成
+
+完成以下操作后**必须**发送通知（toast 气泡 + 铃铛通知中心），让用户实时感知结果：
+
+| 操作 | 触发时机 | 通知内容示例 |
+|------|---------|-------------|
+| 安装 Skill | 安装成功/失败后 | "✅ 已安装 blender-operation-rules v1.0.0" |
+| 同步 Skill | 同步完成后 | "🔄 已同步 dcc-node-graph-workflow：更新 3 个文件" |
+| 发布 Skill | 发布成功后 | "📤 已发布 my-skill v1.0.0 → marketplace" |
+| 卸载 Skill | 卸载完成后 | "🗑️ 已卸载 blender-operation-rules" |
+| 创建 Skill | 创建 + 合规检查后 | "✅ 新 Skill my-skill 已创建，合规检查通过" |
+| 合规检查 | 检查完成后 | "⚠️ Skill 合规检查：3 错误 2 警告" 或 "✅ Skill 合规检查通过" |
+| 重命名 Skill | 重命名完成后 | "✅ 已将 old-name 重命名为 new-name（5 处已同步）" |
+
+### 通知发送方式
+
+通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`：
+
+```python
+import json, time, random
+from pathlib import Path
+
+def send_notification(title: str, message: str, notif_type: str = "success"):
+    """发送通知到前端 toast + 铃铛。type: success / warning / error"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    rand = random.randint(1000, 9999)
+    notif_file = notif_dir / f"notif_{ts}_{rand}.json"
+    notif_file.write_text(json.dumps({
+        "type": notif_type,
+        "title": title,
+        "message": message,
+        "source": "nexus-skill-manage",
+    }, ensure_ascii=False), encoding="utf-8")
+
+# 示例：安装成功后
+send_notification(
+    "Skill 安装完成",
+    "✅ 已安装 blender-operation-rules v1.0.0",
+    "success",
+)
+```
+
+> 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。
 
 ---
 

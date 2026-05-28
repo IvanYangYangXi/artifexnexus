@@ -7,14 +7,16 @@ description: >
   (2) wrap an existing Skill as a parameterized quick-access tool,
   (3) compose multiple tools into a pipeline.
   All tools stored in ~/.artifexnexus/nexus-tools/user/{name}/.
+  After tool creation and compliance check, MUST send a toast + bell notification
+  via the platform notification system.
   NOT for: running or executing tools (use nexus-tool-executor),
   installing skills (use nexus-skill-manage).
 metadata:
   artifex_nexus:
-    version: 1.1.0
+    version: 1.2.0
     author: Artifex Nexus
     software: all
-    tags: ["tool-creator", "nexus-tool", "development"]
+    tags: ["tool-creator", "nexus-tool", "development", "notification"]
 ---
 
 # Artifex Nexus 工具创建器
@@ -321,3 +323,58 @@ else:
 ```
 
 检查项：`import artifex_nexus_sdk` 是否存在、入口函数调用参数解析、返回值格式、DCC 工具是否有 `defaultFilters.typeFilter`、software 枚举、trigger 范式等。
+
+---
+
+## 通知集成
+
+完成以下操作后**必须**发送通知（toast 气泡 + 铃铛通知中心），让用户实时感知结果：
+
+| 操作 | 触发时机 | 通知内容示例 |
+|------|---------|-------------|
+| 创建工具 | 创建 + 合规检查后 | "✅ 新工具「快速 UV 重排」已创建，合规检查通过" |
+| 合规检查 | 检查完成后 | "⚠️ 工具合规检查：2 错误 1 警告" 或 "✅ 工具合规检查通过" |
+
+### 通知发送方式
+
+通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`：
+
+```python
+import json, time, random
+from pathlib import Path
+
+def send_notification(title: str, message: str, notif_type: str = "success"):
+    """发送通知到前端 toast + 铃铛。type: success / warning / error"""
+    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    rand = random.randint(1000, 9999)
+    notif_file = notif_dir / f"notif_{ts}_{rand}.json"
+    notif_file.write_text(json.dumps({
+        "type": notif_type,
+        "title": title,
+        "message": message,
+        "source": "nexus-tool-creator",
+    }, ensure_ascii=False), encoding="utf-8")
+
+# 示例：创建成功后
+send_notification(
+    "工具创建完成",
+    "✅ 新工具「快速 UV 重排」已创建，合规检查通过",
+    "success",
+)
+```
+
+> 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。
+
+### 创建流程中的通知时机
+
+```
+start → select_method → collect_info → generate → preview → confirm
+                                                                    ↓
+  complete ← [通知] ← save ← [通知] ← 合规检查
+```
+
+- `save` 之后、`complete` 之前 → 先发「创建中」通知（type: info）
+- 合规检查完成 → 发「通过」或「不通过」通知
+- `complete` → 如通过发成功通知，不通过发警告通知并要求修复
