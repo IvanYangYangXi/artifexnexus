@@ -17,7 +17,7 @@ const NEXUS_COLORS = {
 
 const OPENCLAW_COLORS = {
   enabled: "#22c55e",   // green-500
-  disabled: "#ef4444",  // red-500
+  disabled: "#6b7280",  // gray-500（已执行完的单次任务不需要引起关注）
 };
 
 // ─── 核心导出函数 ──────────────────────────────────────────────────────────────
