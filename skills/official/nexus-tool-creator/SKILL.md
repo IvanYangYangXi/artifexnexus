@@ -7,8 +7,8 @@ description: >
   (2) wrap an existing Skill as a parameterized quick-access tool,
   (3) compose multiple tools into a pipeline.
   All tools stored in ~/.artifexnexus/nexus-tools/user/{name}/.
-  After tool creation and compliance check, MUST send a toast + bell notification
-  via the platform notification system.
+  During creation workflow, use platform toast/bell notifications for step progress
+  (toast) and important results like compliance check outcome (toast + bell).
   NOT for: running or executing tools (use nexus-tool-executor),
   installing skills (use nexus-skill-manage).
 metadata:
@@ -328,53 +328,59 @@ else:
 
 ## 通知集成
 
-完成以下操作后**必须**发送通知（toast 气泡 + 铃铛通知中心），让用户实时感知结果：
+创建工具的过程中，**必须利用平台通知能力**让用户实时感知进度和结果。
 
-| 操作 | 触发时机 | 通知内容示例 |
-|------|---------|-------------|
-| 创建工具 | 创建 + 合规检查后 | "✅ 新工具「快速 UV 重排」已创建，合规检查通过" |
-| 合规检查 | 检查完成后 | "⚠️ 工具合规检查：2 错误 1 警告" 或 "✅ 工具合规检查通过" |
+### 两级通知
 
-### 通知发送方式
+| 级别 | 通道 | 场景 | 示例 |
+|------|------|------|------|
+| **轻量状态** | 气泡弹窗 | 步骤进度、中间状态 | "正在生成 manifest.json..."、"正在运行合规检查..." |
+| **重要结果** | 气泡 + 铃铛 | 创建完成、合规检查结果 | "✅ 工具创建完成"、"⚠️ 合规检查不通过" |
 
-通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`：
+### 创建流程中的通知时机
+
+```
+select_method → collect_info → generate [气泡] → preview → confirm
+                                                                    ↓
+  complete ← [气泡+铃铛] ← 合规检查 ← [气泡] ← save
+```
+
+- 生成文件阶段 → 轻量气泡（"正在生成 manifest.json..."、"正在生成 main.py..."）
+- 保存后 → 轻量气泡（"正在运行 tool-compliance-checker..."）
+- 合规检查结果 → **气泡 + 铃铛**
+  - 通过 → `"✅ {name} 创建完成，合规检查通过"`
+  - 不通过 → `"⚠️ 合规检查 {N} 错误 {M} 警告，需修复"`
+
+### 发送方式
+
+通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`。
+
+**轻量气泡**（不写铃铛）：
 
 ```python
 import json, time, random
 from pathlib import Path
 
-def send_notification(title: str, message: str, notif_type: str = "success"):
-    """发送通知到前端 toast + 铃铛。type: success / warning / error"""
+def toast(message: str):
     notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
     notif_dir.mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000)
-    rand = random.randint(1000, 9999)
-    notif_file = notif_dir / f"notif_{ts}_{rand}.json"
-    notif_file.write_text(json.dumps({
-        "type": notif_type,
-        "title": title,
-        "message": message,
-        "source": "nexus-tool-creator",
-    }, ensure_ascii=False), encoding="utf-8")
+    f = notif_dir / f"toast_{ts}_{random.randint(1000,9999)}.json"
+    f.write_text(json.dumps({"type": "info", "title": message, "source": "tool-create"}, ensure_ascii=False), encoding="utf-8")
 
-# 示例：创建成功后
-send_notification(
-    "工具创建完成",
-    "✅ 新工具「快速 UV 重排」已创建，合规检查通过",
-    "success",
-)
+# 例：生成 manifest 后
+toast("正在生成 manifest.json...")
+```
+
+**气泡 + 铃铛**（重要结果）：
+
+```python
+def notify(title: str, message: str, notif_type: str):
+    path = Path.home() / ".artifexnexus" / "pending_notifications" / f"notif_{int(time.time()*1000)}_{random.randint(1000,9999)}.json"
+    path.write_text(json.dumps({"type": notif_type, "title": title, "message": message, "source": "tool-create"}, ensure_ascii=False), encoding="utf-8")
+
+# 例：创建完成
+notify("工具创建完成", "✅ 快速 UV 重排 已创建，合规检查通过", "success")
 ```
 
 > 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。
-
-### 创建流程中的通知时机
-
-```
-start → select_method → collect_info → generate → preview → confirm
-                                                                    ↓
-  complete ← [通知] ← save ← [通知] ← 合规检查
-```
-
-- `save` 之后、`complete` 之前 → 先发「创建中」通知（type: info）
-- 合规检查完成 → 发「通过」或「不通过」通知
-- `complete` → 如通过发成功通知，不通过发警告通知并要求修复
