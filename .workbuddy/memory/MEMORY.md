@@ -22,6 +22,8 @@
 - **SDK 单一源**：`packages/dcc/shared/artifex_nexus_sdk/`
 - **构建命令**：`pnpm -C apps/desktop tauri build`（不能用 `pnpm build`）
 - **sessionKey 格式**：`agent:{agentId}:{subKey}`，统一用 `lib/chat/session-key.ts`
+- **装饰器唯一源**：`@skill_tool` from `artifex_nexus_sdk.decorator`，全平台统一
+- **SkillHub 统一实现**：`artifex_nexus_sdk.skill_hub`，Blender/Maya/Max/UE 共用核心，通过构造函数注入 DCC 差异
 
 ## 关键架构
 
@@ -73,6 +75,17 @@
 - Skill = SKILL.md + manifest.json + __init__.py
 - Nexus-Tool 三态：无触发器/启动触发/禁用触发；`is_enabled` 只控制触发器
 - Tool ID 为 UUID v4 GUID
+
+## SkillHub 全平台架构（2026-05-27）
+
+- **共享核心**：`packages/dcc/shared/artifex_nexus_sdk/skill_hub.py` + `skill_manifest.py`
+- **装饰器唯一源**：`@skill_tool` from `artifex_nexus_sdk.decorator`
+- **发现机制**：所有 Hub 统一 walk `module.__dict__` → `_artifex_skill_tool = True`
+- **每个 DCC 启动流程**：MCP Server 启动 → `_init_skill_hub()` → `scan_and_register()` → `start_watching()`
+- **AI 调用**：`from artifex_nexus_sdk.skill_hub import get_skill_hub; hub.execute_skill("name", params)`
+- **Skills 目录**：`~/.artifexnexus/skills/`，分层结构（official/marketplace/user/custom）
+- **双格式**：manifest.json + SKILL.md frontmatter 均支持
+- **UE 例外**：拥有独立 `skill_hub.py`（因为需要 `unreal.DirectoryWatcher`），但复用共享 `skill_manifest.py`
 
 ## Chat 模型切换
 
