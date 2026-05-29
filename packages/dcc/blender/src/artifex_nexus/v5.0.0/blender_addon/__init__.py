@@ -69,7 +69,10 @@ def _get_mcp_server():
     """延迟导入 MCPServer，避免循环依赖"""
     global _mcp_server
     if _mcp_server is None:
-        from mcp_server import create_server
+        try:
+            from .mcp_server import create_server
+        except ImportError:
+            from mcp_server import create_server  # type: ignore[no-redef]
         _mcp_server = create_server()
     return _mcp_server
 
@@ -78,14 +81,20 @@ def _get_adapter():
     """延迟导入 BlenderAdapter"""
     global _adapter
     if _adapter is None:
-        from blender_adapter import BlenderAdapter
+        try:
+            from .blender_adapter import BlenderAdapter
+        except ImportError:
+            from blender_adapter import BlenderAdapter  # type: ignore[no-redef]
         _adapter = BlenderAdapter()
     return _adapter
 
 
 def _get_trigger_dispatcher():
     """延迟导入 BlenderTriggerDispatcher"""
-    from trigger_dispatcher import BlenderTriggerDispatcher
+    try:
+        from .trigger_dispatcher import BlenderTriggerDispatcher
+    except ImportError:
+        from trigger_dispatcher import BlenderTriggerDispatcher  # type: ignore[no-redef]
     return BlenderTriggerDispatcher.get_instance()
 
 
@@ -129,7 +138,10 @@ def _auto_start_server():
             logger.info("MCP Server 已在运行，跳过自动启动")
             return
 
-        from mcp_server import register_builtin_tools
+        try:
+            from .mcp_server import register_builtin_tools
+        except ImportError:
+            from mcp_server import register_builtin_tools  # type: ignore[no-redef]
         register_builtin_tools(server, adapter)
         server.set_adapter(adapter)
 
@@ -401,7 +413,10 @@ if _HAS_BPY:
                 return {"FINISHED"}
 
             try:
-                from mcp_server import register_builtin_tools
+                try:
+                    from .mcp_server import register_builtin_tools
+                except ImportError:
+                    from mcp_server import register_builtin_tools  # type: ignore[no-redef]
                 register_builtin_tools(server, adapter)
                 server.set_adapter(adapter)
 
