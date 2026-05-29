@@ -70,10 +70,6 @@
       "executionMode": "notify",
       "id": "on-change",
       "name": "工具变更时检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
       "triggerType": "watch",
       "useDefaultFilters": true,
       "watchEvents": [
@@ -96,7 +92,7 @@
     }
   ],
   "presets": [],
-  "updatedAt": "2026-05-29 10:53:23",
+  "updatedAt": "2026-05-29 11:57:47",
   "author": "Ivan(杨己力)",
   "software": [
     {
