@@ -1,7 +1,7 @@
 ---
 tags: [spec, dcc, install, standard, master]
 created: 2026-05-08
-updated: 2026-05-27 (18:30)
+updated: 2026-05-29 (09:05)
 status: active
 ---
 
@@ -9,8 +9,15 @@ status: active
 
 > **本文档是 DCC 插件扩展的主入口。** 接入新 DCC 时以此文档为检查清单，确保不遗漏任何模块。
 > 已完成接入的 DCC 详细文档链接在 §10 中。
+>
+> **DCC 身份唯一源**：所有 DCC 的 `shortName`、`mcpServerId` 定义在 `contracts/data/categories.json` 的 `dcc` 节中，
+> 代码通过 `categories.py`（Python）或直接 import JSON（TypeScript）访问。
+> 新增 DCC 的第一步是在 `categories.json` 中添加条目（参见 §2 步骤 0）。详见 ADR 0011。
 
 ## 1. 架构总览
+
+> **DCC 身份层**：所有 DCC 名称/简称/MCP Server ID 统一从 `contracts/data/categories.json` 读取。
+> 架构图下方的前端和后端代码均消费此单一数据源（ADR 0011）。
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -62,6 +69,7 @@ status: active
 
 | # | 模块 | 文件 | 做什么 |
 |---|------|------|--------|
+| 0 | **DCC 身份定义** | `packages/platform/contracts/data/categories.json` | `dcc` 节中新增条目，定义 `shortName` 和 `mcpServerId`（ADR 0011 — DCC 身份唯一源） |
 | 1 | **DCC 插件源码** | `packages/dcc/{dcc}/src/artifex_nexus/v{ver}/{dcc}_addon/` | `__init__.py` (plugin_info + register/unregister)、`{dcc}_adapter.py`、`mcp_server.py`、`trigger_dispatcher.py` |
 | 2 | **共享 SDK** | `packages/dcc/shared/artifex_nexus_sdk/` | 继承 `BaseDCCAdapter`（§3.1）、使用 `MCPServer`（§3.2）、继承 `TriggerDispatcher`（§3.3） |
 | 3 | **Python 安装器** | `dcc_installer.py` | 扫描路径 `_DCC_VERSION_SCAN_PATHS`、安装模板 `_DCC_ADDON_PATH_TEMPLATES`、便捷别名函数 |
@@ -94,7 +102,10 @@ from artifex_nexus_sdk.base_adapter import BaseDCCAdapter
 
 class MyDCCAdapter(BaseDCCAdapter):
     @property
-    def dcc_name(self) -> str: ...
+    def dcc_name(self) -> str:
+        # 返回 categories.json 中的 DCC key（如 "blender"、"unreal_engine"）
+        return "mydcc"
+
     @property
     def dcc_version(self) -> str: ...
 
@@ -105,6 +116,10 @@ class MyDCCAdapter(BaseDCCAdapter):
     # 线程调度（3 种模式）
     def execute_in_main_thread(self, fn, *args) -> Any: ...
 ```
+
+> **`dcc_name` 取值规范**：必须使用 `categories.json` → `dcc` 节中定义的 DCC key（如 `"unreal_engine"`、`"3ds_max"`），
+> 而非显示名或简称。所有 DCC 身份信息（`shortName`、`mcpServerId`）均从此 key 派生。
+> 详见 ADR 0011。
 
 **关键差异 — 主线程调度**：
 
@@ -125,7 +140,7 @@ class MyDCCAdapter(BaseDCCAdapter):
 from artifex_nexus_sdk.mcp_server import MCPServer
 
 server = MCPServer(
-    dcc_name="maya",           # DCC 标识
+    dcc_name="maya",           # DCC 标识 — 必须是 categories.json 中的 DCC key
     dcc_version="2023",        # DCC 版本
     host="127.0.0.1",          # 绑定地址
     port=18081,                # 端口
@@ -412,6 +427,10 @@ METHODS = {
 }
 ```
 
+> **RPC 方法名中的 DCC 标识**：为保持接口稳定，UE 的 RPC 方法名沿用 `"unreal"`，
+> 但 `categories.json` 中的 DCC key 为 `"unreal_engine"`。
+> 新接入 DCC 时，RPC 方法名应与 `categories.json` 的 DCC key 保持一致。
+
 ### 6.4 插件版本管理 RPC
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -463,11 +482,12 @@ commands::openclaw::openclaw_dcc_{dcc}_uninstall,
 
 ### 8.3 新增 DCC Server
 
-**index.ts — `SERVERS` 对象**:
+**index.ts — `SERVERS` 对象**（server ID 来自 `categories.json` → `dcc.{key}.mcpServerId`）:
 
 ```typescript
 const SERVERS: Record<string, ServerConfig> = {
   "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083" },
+  "unreal-editor":  { type: "websocket", url: "ws://127.0.0.1:18080" },
   "maya-primary":   { type: "websocket", url: "ws://127.0.0.1:18081" },
   "max-primary":    { type: "websocket", url: "ws://127.0.0.1:18082" },
 };
@@ -482,6 +502,7 @@ const SERVERS: Record<string, ServerConfig> = {
   "contracts": {
     "tools": [
       "mcp_blender-editor_run_python",
+      "mcp_unreal-editor_run_python",
       "mcp_maya-primary_run_python",
       "mcp_max-primary_run_python"
     ]
