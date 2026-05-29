@@ -44,25 +44,19 @@
   ],
   "triggers": [
     {
-      "id": "periodic",
-      "name": "每2小时检查",
-      "enabled": true,
-      "triggerType": "schedule",
-      "executionMode": "silent",
-      "useDefaultFilters": true,
       "conditions": {},
+      "enabled": true,
+      "executionMode": "silent",
+      "id": "periodic",
+      "name": "每4小时检查",
       "scheduleConfig": {
-        "type": "interval",
-        "interval": "2h"
-      }
+        "interval": " 4h",
+        "type": "interval"
+      },
+      "triggerType": "schedule",
+      "useDefaultFilters": true
     },
     {
-      "id": "on-skill-change",
-      "name": "Skill文件变化时检查",
-      "enabled": true,
-      "triggerType": "watch",
-      "executionMode": "notify",
-      "useDefaultFilters": false,
       "conditions": {
         "path": [
           {
@@ -85,20 +79,26 @@
           }
         ]
       },
+      "debounceMs": 3000,
+      "enabled": true,
+      "executionMode": "notify",
+      "id": "on-skill-change",
+      "name": "Skill文件变化时检查",
+      "scheduleConfig": {
+        "interval": "30m",
+        "type": "interval"
+      },
+      "triggerType": "watch",
+      "useDefaultFilters": false,
       "watchEvents": [
         "created",
         "modified",
         "deleted"
-      ],
-      "debounceMs": 3000,
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      }
+      ]
     }
   ],
   "author": "Ivan(杨己力)",
-  "updatedAt": "2026-05-16 13:32:38",
+  "updatedAt": "2026-05-29 12:03:43",
   "software": [
     {
       "dcc": "general"

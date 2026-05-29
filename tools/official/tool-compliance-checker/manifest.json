@@ -82,7 +82,7 @@
       "enabled": true,
       "executionMode": "silent",
       "id": "periodic",
-      "name": "每30分钟全量检查",
+      "name": "每 4 小时全量检查",
       "scheduleConfig": {
         "interval": "4h",
         "type": "interval"
@@ -92,7 +92,7 @@
     }
   ],
   "presets": [],
-  "updatedAt": "2026-05-29 11:57:47",
+  "updatedAt": "2026-05-29 12:04:27",
   "author": "Ivan(杨己力)",
   "software": [
     {
