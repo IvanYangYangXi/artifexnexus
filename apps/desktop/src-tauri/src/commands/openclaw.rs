@@ -833,3 +833,20 @@ pub async fn openclaw_backups_delete(
 
     manager.call("openclaw.backups.delete", json!({"timestamp": timestamp}))
 }
+
+/// 获取所有已配置的 MCP Server 及其连接状态。
+///
+/// 从 openclaw.json 读取 plugins.entries.mcp-bridge.config.servers，
+/// 对已知 DCC Server 进行连通性检测（TCP + WebSocket MCP 握手）。
+#[tauri::command]
+pub async fn openclaw_mcp_servers_list(
+    sidecar: State<'_, SidecarState>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    manager.call("openclaw.mcp.servers.list", json!({}))
+}

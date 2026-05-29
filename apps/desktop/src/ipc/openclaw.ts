@@ -636,3 +636,24 @@ export async function checkUnrealPluginInstalled(
     projectPath,
   });
 }
+
+// ── MCP Server 列表 ──────────────────────────────────────────────────────────
+
+/** 单个 MCP Server 信息 */
+export interface MCPServerInfo {
+  name: string;
+  displayName: string;
+  dcc: string | null;
+  type: string;
+  url: string;
+  enabled: boolean;
+  connected: boolean;
+  serverRunning: boolean;
+  address: string;
+  error: string | null;
+}
+
+/** 获取所有已配置的 MCP Server 及其连接状态 */
+export async function getMCPServersList(): Promise<{ servers: MCPServerInfo[] }> {
+  return invoke<{ servers: MCPServerInfo[] }>("openclaw_mcp_servers_list");
+}

@@ -115,6 +115,8 @@ pub fn run() {
             commands::openclaw::openclaw_gateway_mcp_bridge_install,
             commands::openclaw::openclaw_gateway_mcp_bridge_status,
             commands::openclaw::openclaw_gateway_mcp_bridge_uninstall,
+            // MCP Server 列表（系统页面）
+            commands::openclaw::openclaw_mcp_servers_list,
             // 触发器诊断
             commands::openclaw::openclaw_trigger_diagnose,
             // STORY-0029 M2：DCC 端口管理

@@ -1131,6 +1131,38 @@ export interface ReadCronJobsResult {
   error?: string;
 }
 
+/** 读取所有 OpenClaw cron 任务 */
 export async function readOpenClawCronJobs(): Promise<ReadCronJobsResult> {
   return invoke<ReadCronJobsResult>("read_openclaw_cron_jobs");
+}
+
+// ── MCP Server 列表 ──────────────────────────────────────────────────────────
+
+/** 单个 MCP Server 信息 */
+export interface MCPServerInfo {
+  /** 服务端名称，如 "blender-editor" / "unreal-editor" */
+  name: string;
+  /** 显示名称，如 "Blender MCP" */
+  displayName: string;
+  /** DCC 标识，如 "blender" / "unreal_engine"；非 DCC 则为 null */
+  dcc: string | null;
+  /** 连接类型，如 "websocket" / "sse" */
+  type: string;
+  /** 连接地址 */
+  url: string;
+  /** 是否启用 */
+  enabled: boolean;
+  /** Gateway ↔ MCP Server WebSocket 是否连通 */
+  connected: boolean;
+  /** MCP Server 进程是否在监听端口 */
+  serverRunning: boolean;
+  /** 实际地址 */
+  address: string;
+  /** 连接错误信息 */
+  error: string | null;
+}
+
+/** 获取所有已配置的 MCP Server 及其连接状态 */
+export async function getMCPServersList(): Promise<{ servers: MCPServerInfo[] }> {
+  return invoke<{ servers: MCPServerInfo[] }>("openclaw_mcp_servers_list");
 }

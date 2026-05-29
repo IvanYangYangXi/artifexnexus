@@ -89,7 +89,7 @@ Artifex Nexus 支持 10 个 DCC 软件（Blender、Unreal Engine、Maya、3ds Ma
 | `categories.json` | 新增 `dcc` 节 |
 | `categories.py` | 新增 5 个 getter + fallback |
 | `sidecar.py` | 删除 DCC_NAME_MAP/SERVER_DCC_MAP，改用 categories |
-| `dcc_installer.py` | DCC_DISPLAY → `get_dcc_display_name()` |
+| `dcc_installer.py` | DCC_DISPLAY → `get_dcc_display_name()`; `_EXPECTED_SERVERS` 动态生成；`_DCC_DEFAULT_PORTS` key 统一为 `unreal_engine` |
 | `dcc_connections.py` | _DCC_REGISTRY displayName → 动态获取 |
 | `SystemPage.tsx` | DCC_DISPLAY_NAMES → import categories.json |
 | `gateway-plugin/index.ts` | 添加注释标记 |

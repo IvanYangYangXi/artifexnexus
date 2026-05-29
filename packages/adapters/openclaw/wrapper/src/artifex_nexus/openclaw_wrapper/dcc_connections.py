@@ -51,8 +51,10 @@ EVENT_LOG_MAX = 50  # 最多保留的事件数
 
 # 所有已知 DCC 的注册表（key = dcc_name）
 # displayName unified from categories.json (ADR 0011)
-try:/n    from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
-except ImportError:/n    def _get_dcc_display_name(k): return k
+try:
+    from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
+except ImportError:
+    def _get_dcc_display_name(k): return k
 
 _DCC_REGISTRY: Dict[str, Dict[str, Any]] = {
     "unreal_engine": {

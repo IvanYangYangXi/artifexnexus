@@ -96,7 +96,8 @@ def _builtin_fallback() -> dict:
     """内置 fallback（categories.json 不可用时的最小保证）。"""
     return {
         "software": ["general", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
-        "risk_level": ["low", "medium", "high", "critical"],`n        "dcc": {},
+        "risk_level": ["low", "medium", "high", "critical"],
+        "dcc": {},
         "display": {
             "software": {},
             "risk_level": {},

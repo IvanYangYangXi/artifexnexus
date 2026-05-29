@@ -31,7 +31,7 @@ function _versionGte(a: number[], b: number[]): boolean {
 
 // DCC identity 统一从 categories.json 读取（ADR 0011）
 // 在组件内通过 useMemo + categoriesData 访问
-import categoriesData from "../../../../platform/contracts/data/categories.json";
+import categoriesData from "../../../../../platform/contracts/data/categories.json";
 
 function getDccDisplayName(dccKey: string): string {
   const d = categoriesData.display.software as Record<string, string>;

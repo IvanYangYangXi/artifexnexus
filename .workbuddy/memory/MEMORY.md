@@ -137,3 +137,11 @@
 | P3 | M8 | ComfyUI MCP | MCP Server + Workflow UI |
 | P3 | M9 | 扩展 DCC 插件 | SP/SD/Houdini/Unity |
 | P3 | M12 | DCC 平台化 API | 最后做 |
+
+## MCP 连接状态页（2026-05-28）
+
+- SystemPage 新增第 5 个 Tab「MCP 连接」，展示所有已配置 MCP Server 及连接状态
+- **数据流**：`openclaw.mcp.servers.list` RPC → sidecar 读取 `openclaw.json` → `plugins.entries.mcp-bridge.config.servers` → 对各 Server 做 TCP + MCP 握手检测 → 返回统一列表
+- **状态灯**：🟢已连接 / 🟡监听中未连接 / ⚪未启动 / 🔴错误
+- **依赖 Gateway**：Gateway 未运行时显示提示，自动跳过连通性检测
+- 关键文件：sidecar.py (新增 handler)、openclaw.ts (IPC 封装)、SystemPage.tsx (MCPStatusTab)

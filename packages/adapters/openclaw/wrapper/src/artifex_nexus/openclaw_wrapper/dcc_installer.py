@@ -494,10 +494,10 @@ def uninstall_dcc_addon(dcc: str, dcc_version: str) -> Dict:
 
 # ── DCC 端口管理 ──────────────────────────────────────────────────────────
 
-# DCC 默认端口映射（key = dcc_id）
+# DCC 默认端口映射（key = dcc_id，与 categories.json 的 software key 及 dcc 节一致，ADR 0011）
 _DCC_DEFAULT_PORTS: Dict[str, int] = {
     "blender": 18083,
-    "unreal": 18080,
+    "unreal_engine": 18080,
     "maya": 18081,
     "3ds_max": 18082,
 }
@@ -514,7 +514,7 @@ def get_dcc_port(dcc: str) -> Dict:
     Returns:
         {"port": int, "url": str, "server_name": str}
     """
-    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal") else f"{dcc}-primary"
+    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal", "unreal_engine") else f"{dcc}-primary"
     default_port = _DCC_DEFAULT_PORTS.get(dcc, 18083)
 
     # 从 openclaw.json 读取当前配置
@@ -561,7 +561,7 @@ def set_dcc_port(dcc: str, port: int) -> Dict:
     Returns:
         {"success": bool, "port": int, "url": str, "error": str|None}
     """
-    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal") else f"{dcc}-primary"
+    server_name = f"{dcc}-editor" if dcc in ("blender", "unreal", "unreal_engine") else f"{dcc}-primary"
     new_url = f"ws://127.0.0.1:{port}"
 
     openclaw_home = _get_openclaw_home_dir()
@@ -1428,7 +1428,7 @@ def install_ue_plugin(ue_version: str, project_path: str = "", force: bool = Fal
         # 确保 MCP Bridge 配置中包含 unreal-editor server 条目
         # （bootstrap 已默认创建，但安装/重装时显式确保，防止用户手动删除后缺失）
         try:
-            set_dcc_port("unreal", UE_MCP_DEFAULT_PORT)
+            set_dcc_port("unreal_engine", UE_MCP_DEFAULT_PORT)
         except Exception as e:
             logger.warning("UE MCP Bridge 端口配置更新失败（不阻断安装）: %s", e)
 
@@ -1797,9 +1797,11 @@ def get_all_plugins_with_compat() -> List[Dict]:
     all_plugins = []
     DCC_LIST = ["blender", "maya", "3ds_max", "unreal_engine"]
     # DCC display name unified from categories.json (ADR 0011)
-try:/n    from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
-except ImportError:/n    _DCC_DISPLAY_FALLBACK = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max", "unreal_engine": "Unreal Engine"}
-    def _get_dcc_display_name(k): return _DCC_DISPLAY_FALLBACK.get(k, k)
+    try:
+        from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
+    except ImportError:
+        _DCC_DISPLAY_FALLBACK = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max", "unreal_engine": "Unreal Engine"}
+        def _get_dcc_display_name(k): return _DCC_DISPLAY_FALLBACK.get(k, k)
 
     for dcc in DCC_LIST:
         builtin = get_available_plugin_versions(dcc)
@@ -2702,13 +2704,27 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
         logger.info("openclaw.json: plugins.allow 已添加 mcp-bridge")
 
     # 确保 plugins.entries.mcp-bridge 已配置
-    # 预期所有 DCC MCP Server（与 bootstrap.py 一致）
-    _EXPECTED_SERVERS = {
-        "blender-editor": {"type": "websocket", "url": "ws://127.0.0.1:18083", "enabled": True},
-        "unreal-editor": {"type": "websocket", "url": "ws://127.0.0.1:18080", "enabled": True},
-        "maya-primary":  {"type": "websocket", "url": "ws://127.0.0.1:18081", "enabled": True},
-        "max-primary":   {"type": "websocket", "url": "ws://127.0.0.1:18082", "enabled": True},
-    }
+    # 从 categories.json 动态生成 MCP Server 配置（ADR 0011）
+    _EXPECTED_SERVERS = {}
+    try:
+        from artifex_nexus.skill.categories import get_all_dcc_mcp_servers
+        _all_servers = get_all_dcc_mcp_servers()
+        for _dcc_key, _srv_id in _all_servers.items():
+            _port = _DCC_DEFAULT_PORTS.get(_dcc_key)
+            if _port:
+                _EXPECTED_SERVERS[_srv_id] = {
+                    "type": "websocket",
+                    "url": f"ws://127.0.0.1:{_port}",
+                    "enabled": True,
+                }
+    except ImportError:
+        # fallback: 最小硬编码列表
+        _EXPECTED_SERVERS = {
+            "blender-editor": {"type": "websocket", "url": "ws://127.0.0.1:18083", "enabled": True},
+            "unreal-editor": {"type": "websocket", "url": "ws://127.0.0.1:18080", "enabled": True},
+            "maya-primary":  {"type": "websocket", "url": "ws://127.0.0.1:18081", "enabled": True},
+            "max-primary":   {"type": "websocket", "url": "ws://127.0.0.1:18082", "enabled": True},
+        }
 
     if "mcp-bridge" not in entries:
         entries["mcp-bridge"] = {
