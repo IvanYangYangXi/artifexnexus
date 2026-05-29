@@ -120,6 +120,22 @@ def _inject_sdk_path() -> None:
         sys.stderr.write(f"[sidecar.boot] SDK path injection failed: {e}\n")
 
 
+def _inject_skill_path() -> None:
+    """将 packages/platform/skill/src/ 加入 sys.path，
+    使 sidecar 能通过 from artifex_nexus.skill import categories 访问合约。"""
+    try:
+        _project_root = _find_project_root()
+        _skill_src = _project_root / "packages" / "platform" / "skill" / "src"
+        _skill_src_str = str(_skill_src)
+        if _skill_src.is_dir() and _skill_src_str not in sys.path:
+            sys.path.insert(0, _skill_src_str)
+            sys.stderr.write(
+                f"[sidecar.boot] injected skill path (contracts): {_skill_src_str}\n"
+            )
+    except Exception as e:
+        sys.stderr.write(f"[sidecar.boot] skill path injection failed: {e}\n")
+
+
 # ---------------------------------------------------------------------------
 # 路径工具
 # ---------------------------------------------------------------------------
@@ -2161,6 +2177,209 @@ def _handle_openclaw_backups_delete(req_id: Any, params: dict) -> dict:
         }
 
 
+# ── MCP Server 列表 RPC ───────────────────────────────────────────────────
+
+def _handle_mcp_servers_list(req_id: Any, params: dict) -> dict:
+    """openclaw.mcp.servers.list RPC：列出所有已配置的 MCP Server 及其连接状态。
+
+    从 openclaw.json 读取 plugins.entries.mcp-bridge.config.servers，
+    对已知 DCC Server 进行连通性检测，返回统一列表。
+
+    返回：
+        {
+            "servers": [
+                {
+                    "name": "blender-editor",
+                    "displayName": "Blender MCP",
+                    "dcc": "blender",
+                    "type": "websocket",
+                    "url": "ws://127.0.0.1:18083",
+                    "enabled": true,
+                    "connected": false,
+                    "serverRunning": false,
+                    "address": "ws://127.0.0.1:18083",
+                    "error": null,
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        # 读取 openclaw.json 中的 MCP Server 配置
+        from . import config_io as _config_io
+    except ImportError:
+        import config_io as _config_io  # type: ignore[no-redef]
+
+    openclaw_home = _get_openclaw_home_dir()
+    config_path = openclaw_home / "openclaw.json"
+
+    if not config_path.is_file():
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"servers": []},
+        }
+
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": f"读取 openclaw.json 失败: {e}"},
+        }
+
+    raw_servers = (
+        config.get("plugins", {})
+        .get("entries", {})
+        .get("mcp-bridge", {})
+        .get("config", {})
+        .get("servers", {})
+    )
+
+    if not raw_servers:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"servers": []},
+        }
+
+    # DCC 端口映射（运行时配置，不从 categories.json 读取）
+    DCC_PORTS = {
+        "blender": 18083,
+        "unreal_engine": 18080,
+        "maya": 18081,
+        "3ds_max": 18082,
+    }
+
+    # 从 categories.json 加载 DCC identity（延迟导入，避免循环依赖）
+    try:
+        from artifex_nexus.skill.categories import (
+            get_dcc_display_name,
+            get_dcc_short_name,
+            find_dcc_by_mcp_server_id,
+        )
+    except ImportError:
+        def get_dcc_display_name(k): return k
+        def get_dcc_short_name(k): return k
+        def find_dcc_by_mcp_server_id(k): return None
+
+    # 检查 Gateway 是否运行
+    gateway_running = False
+    try:
+        gateway_running = _runtime.is_running()
+    except Exception:
+        pass
+
+    # 检查 mcp-bridge 是否已安装
+    installed = False
+    try:
+        installed = _dcc_installer.is_gateway_mcp_bridge_installed()
+    except Exception:
+        pass
+
+    servers = []
+    for srv_name, srv_def in raw_servers.items():
+        srv_type = srv_def.get("type", "websocket")
+        srv_url = srv_def.get("url", "")
+        srv_enabled = srv_def.get("enabled", True)
+
+        # 通过 MCP Server 名反向查找 DCC key（统一来源：categories.json）
+        dcc = find_dcc_by_mcp_server_id(srv_name)
+        display_name = get_dcc_display_name(dcc) if dcc else srv_name.replace("-", " ").title()
+
+        # 连接状态：默认未连接
+        connected = False
+        server_running = False
+        error = None
+
+        if installed and gateway_running and dcc:
+            try:
+                # 轻量 TCP 探测
+                port = DCC_PORTS.get(dcc, 0)
+                if port:
+                    import socket as _socket
+                    try:
+                        sock = _socket.create_connection(("127.0.0.1", port), timeout=1.0)
+                        sock.close()
+                        server_running = True
+                    except (OSError, ConnectionRefusedError, TimeoutError):
+                        server_running = False
+
+                    if server_running:
+                        # WebSocket + MCP 握手检测
+                        try:
+                            import asyncio as _asyncio
+                            import websockets as _websockets
+
+                            async def _mcp_handshake():
+                                async with _asyncio.timeout(3.0):
+                                    async with _websockets.connect(srv_url) as ws:
+                                        await ws.send(json.dumps({
+                                            "jsonrpc": "2.0", "id": 1,
+                                            "method": "initialize",
+                                            "params": {
+                                                "protocolVersion": "2024-11-05",
+                                                "capabilities": {},
+                                                "clientInfo": {
+                                                    "name": "artifex-nexus-sidecar",
+                                                    "version": "1.0.0",
+                                                },
+                                            },
+                                        }))
+                                        resp = await _asyncio.wait_for(ws.recv(), timeout=3.0)
+                                        data = json.loads(resp)
+                                        if "result" in data:
+                                            return True, None
+                                        err_msg = data.get("error", {}).get("message", "MCP 握手失败")
+                                        return False, err_msg
+
+                            try:
+                                connected, handshake_err = _asyncio.run(_mcp_handshake())
+                                if handshake_err:
+                                    error = handshake_err
+                            except RuntimeError:
+                                pass  # 已有 event loop 运行，回退
+                        except Exception:
+                            pass
+                    else:
+                        error = f"{display_name} 未启动（端口无监听）"
+            except Exception as e:
+                error = str(e)
+        elif not gateway_running:
+            error = "Gateway 未运行，无法检测连通性"
+        elif not installed:
+            error = "MCP Bridge 未安装"
+
+        servers.append({
+            "name": srv_name,
+            "displayName": display_name,
+            "dcc": dcc,
+            "type": srv_type,
+            "url": srv_url,
+            "enabled": srv_enabled,
+            "connected": connected,
+            "serverRunning": server_running,
+            "address": srv_url,
+            "error": error,
+        })
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {"servers": servers},
+    }
+
+
+def _get_openclaw_home_dir() -> Path:
+    """获取 OPENCLAW_HOME 目录（从环境变量或默认路径）。"""
+    import os as _os
+    env_home = _os.environ.get("OPENCLAW_HOME", "")
+    if env_home:
+        return Path(env_home).expanduser().resolve()
+    return Path.home() / ".artifexnexus" / ".openclaw"
+
+
 # ---------------------------------------------------------------------------
 # 方法路由表
 # ── 触发器诊断 RPC ───────────────────────────────────────────────────────
@@ -2262,6 +2481,8 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.gateway.mcp_bridge.install": _handle_openclaw_gateway_mcp_bridge_install,
     "openclaw.gateway.mcp_bridge.status": _handle_openclaw_gateway_mcp_bridge_status,
     "openclaw.gateway.mcp_bridge.uninstall": _handle_openclaw_gateway_mcp_bridge_uninstall,
+    # MCP Server 列表（系统页面）
+    "openclaw.mcp.servers.list": _handle_mcp_servers_list,
     # 触发器诊断
     "openclaw.trigger.diagnose": _handle_trigger_diagnose,
     # STORY-0029 M2：DCC 端口管理
@@ -2494,6 +2715,7 @@ def main() -> None:
     """
     # ── 注入 artifex_nexus_sdk 路径（单一源：packages/dcc/shared/）──
     _inject_sdk_path()
+    _inject_skill_path()
 
     # 注册退出 hook
     atexit.register(_shutdown_gateway_quietly)

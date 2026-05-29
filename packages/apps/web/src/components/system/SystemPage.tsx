@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * SystemPage — 系统模块（安装向导 + 插件版本 + Gateway + 运行状态）
+ * SystemPage — 系统模块（安装向导 + 插件版本 + Gateway + MCP 连接 + 数据管理）
  */
 
 import * as React from "react";
-import { Terminal, Server, Activity, Play, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen, Package, Loader2 } from "lucide-react";
+import { Terminal, Server, Activity, Play, RotateCw, ChevronDown, ChevronRight, Plus, Trash2, FolderOpen, Package, Loader2, Plug } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@artifex-nexus/ui";
 import { ScrollFade } from "../chat/ScrollFade";
 import { getIpc } from "../../lib/ipc";
-import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus, PluginSummary } from "../../ipc/openclaw";
-import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility, installGatewayMCPBridge, uninstallGatewayMCPBridge } from "../../ipc/openclaw";
+import type { OpenClawStatus, GatewayStatus, DeployValidationResult, MCPBridgeStatus, PluginSummary, MCPServerInfo } from "../../ipc/openclaw";
+import { detectUEVersions, installUEPlugin, uninstallUEPlugin, validateUEProjectPath, getAvailablePluginVersions, getAllPluginsWithCompat, updatePluginCompatibility, resetPluginCompatibility, installGatewayMCPBridge, uninstallGatewayMCPBridge, getMCPServersList } from "../../ipc/openclaw";
 
 // ─── 版本比较工具 ───────────────────────────────────────────────────
 
@@ -29,10 +29,19 @@ function _versionGte(a: number[], b: number[]): boolean {
 
 // ─── 工具函数 ───────────────────────────────────────────────────────
 
-/** DCC 名称映射 */
-const DCC_DISPLAY_NAMES: Record<string, string> = {
-  blender: "Blender", maya: "Maya", "3ds_max": "3ds Max", unreal_engine: "UE",
-};
+// DCC identity 统一从 categories.json 读取（ADR 0011）
+// 在组件内通过 useMemo + categoriesData 访问
+import categoriesData from "../../../../platform/contracts/data/categories.json";
+
+function getDccDisplayName(dccKey: string): string {
+  const d = categoriesData.display.software as Record<string, string>;
+  return d?.[dccKey] ?? dccKey;
+}
+
+function getDccShortName(dccKey: string): string {
+  const d = categoriesData.dcc as Record<string, { shortName: string }>;
+  return d?.[dccKey]?.shortName ?? dccKey;
+}
 
 /** 检查插件与 DCC 软件版本兼容性。不兼容时弹窗提示（返回用户选择）。 */
 async function _checkDCCPluginCompatibility(
@@ -48,7 +57,7 @@ async function _checkDCCPluginCompatibility(
     if (!versions || versions.length === 0) return true;
 
     const dccParts = _parseVersion(dccVersion);
-    const name = DCC_DISPLAY_NAMES[dcc] || dcc;
+    const name = getDccDisplayName(dcc);
 
     // 兼容检查：dcc_max=None 表示只严格匹配 dcc_min
     const matching = versions.filter((v) => {
@@ -197,11 +206,11 @@ const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
   { id: "gateway-plugin", name: "Gateway Plugin", iconKey: "gateway-plugin", state: "not-installed", expandable: false },
   { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
-  { id: "blender", name: "Blender", iconKey: "blender", state: "pending", expandable: true, children: [] },
-  { id: "unreal_engine", name: "Unreal Engine", iconKey: "unreal_engine", state: "pending", expandable: true, children: [] },
-  { id: "3ds_max", name: "3ds Max", iconKey: "3ds_max", state: "pending", expandable: true, children: [] },
-  { id: "maya", name: "Maya", iconKey: "maya", state: "pending", expandable: true, children: [] },
-  { id: "comfyui", name: "ComfyUI", iconKey: "comfyui", state: "unavailable", expandable: true, comingSoon: true, children: [] },
+  { id: "blender", name: getDccDisplayName("blender"), iconKey: "blender", state: "pending", expandable: true, children: [] },
+  { id: "unreal_engine", name: getDccDisplayName("unreal_engine"), iconKey: "unreal_engine", state: "pending", expandable: true, children: [] },
+  { id: "3ds_max", name: getDccDisplayName("3ds_max"), iconKey: "3ds_max", state: "pending", expandable: true, children: [] },
+  { id: "maya", name: getDccDisplayName("maya"), iconKey: "maya", state: "pending", expandable: true, children: [] },
+  { id: "comfyui", name: getDccDisplayName("comfyui"), iconKey: "comfyui", state: "unavailable", expandable: true, comingSoon: true, children: [] },
 ];
 
 const STATE_LABELS: Record<ItemState, string> = { unavailable: "不可用", pending: "等待中", "not-installed": "未安装", installing: "安装中", installed: "已安装", "update-available": "可更新", failed: "失败" };
@@ -269,6 +278,7 @@ export function SystemPage() {
           <TabsList className="h-7">
             <TabsTrigger value="installer" className="h-6 gap-1 text-xs"><Terminal className="h-3 w-3" />安装向导</TabsTrigger>
             <TabsTrigger value="gateway" className="h-6 gap-1 text-xs"><Server className="h-3 w-3" />Gateway</TabsTrigger>
+            <TabsTrigger value="mcp" className="h-6 gap-1 text-xs"><Plug className="h-3 w-3" />MCP 连接</TabsTrigger>
             <TabsTrigger value="dataman" className="h-6 gap-1 text-xs"><FolderOpen className="h-3 w-3" />数据管理</TabsTrigger>
             <TabsTrigger value="plugins" className="h-6 gap-1 text-xs"><Package className="h-3 w-3" />插件版本</TabsTrigger>
           </TabsList>
@@ -276,6 +286,7 @@ export function SystemPage() {
       </div>
       {tab === "installer" && <InstallerTab />}
       {tab === "gateway" && <GatewayTab />}
+      {tab === "mcp" && <MCPStatusTab />}
       {tab === "dataman" && <DataManagementTab />}
       {tab === "plugins" && <PluginVersionsTab />}
     </div>
@@ -1645,6 +1656,145 @@ function StatusTab() {
           {deploy ? deploy.deployments?.map((d: any) => <div key={d.id}>{d.status === "ok" ? "✅" : "⚠️"} {d.id} — {d.details}</div>) : <div>点击校验按钮检测</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── MCP 连接状态 Tab ─────────────────────────────────────────────────────
+
+function MCPStatusTab() {
+  const [servers, setServers] = React.useState<MCPServerInfo[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [gatewayRunning, setGatewayRunning] = React.useState(true);
+
+  const loadServers = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const ipc = await getIpc();
+
+      // 检查 Gateway 是否运行
+      try {
+        const ocStatus = await ipc.getOpenClawStatus();
+        setGatewayRunning(ocStatus.gateway_running);
+      } catch {
+        setGatewayRunning(false);
+      }
+
+      // 获取 MCP Server 列表
+      const { servers: list } = await getMCPServersList();
+      setServers(list);
+    } catch (e: any) {
+      console.error("加载 MCP Server 列表失败:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { loadServers(); }, [loadServers]);
+
+  const getStatusColor = (server: MCPServerInfo) => {
+    if (server.connected) return "bg-emerald-400";
+    if (server.serverRunning) return "bg-amber-400";
+    if (server.error && server.error !== "Gateway 未运行，无法检测连通性" && server.error !== "MCP Bridge 未安装") return "bg-red-400";
+    return "bg-muted-foreground/40";
+  };
+
+  const getStatusText = (server: MCPServerInfo) => {
+    if (server.connected) return "Gateway 已连接";
+    if (server.serverRunning) return "MCP Server 监听中 · Gateway 未连接";
+    if (server.error) return server.error;
+    if (server.enabled) return "等待连接...";
+    return "已禁用";
+  };
+
+  const getStatusTextColor = (server: MCPServerInfo) => {
+    if (server.connected) return "text-emerald-400";
+    if (server.serverRunning) return "text-amber-400";
+    if (server.error && server.error !== "Gateway 未运行，无法检测连通性" && server.error !== "MCP Bridge 未安装") return "text-red-400";
+    return "text-muted-foreground";
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 py-2">
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px] rounded-full" onClick={loadServers} disabled={loading}>
+          <RotateCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />{loading ? "加载中…" : "刷新"}
+        </Button>
+        <span className="text-[11px] text-muted-foreground">
+          共 {servers.length} 个 MCP Server
+        </span>
+        {!gatewayRunning && (
+          <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-400">
+            Gateway 未运行
+          </span>
+        )}
+      </div>
+
+      {loading && servers.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">加载 MCP Server 列表...</span>
+        </div>
+      ) : servers.length === 0 && !loading ? (
+        <div className="py-8 text-center text-xs text-muted-foreground">
+          暂无已配置的 MCP Server。请先在安装向导中完成部署。
+        </div>
+      ) : (
+        <ScrollFade className="flex-1">
+          <div className="space-y-2 p-4">
+            {servers.map((srv) => (
+              <div key={srv.name}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 hover:bg-white/[0.05] transition-colors">
+                <div className="flex items-start gap-3">
+                  {/* 状态指示灯 */}
+                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+                    <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(srv)}`} />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    {/* 标题行 */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{srv.displayName}</span>
+                      <span className="rounded bg-white/[0.06] px-1.5 py-0 text-[10px] text-muted-foreground uppercase">
+                        {srv.type}
+                      </span>
+                      {!srv.enabled && (
+                        <span className="rounded bg-red-400/10 px-1.5 py-0 text-[10px] text-red-400">
+                          已禁用
+                        </span>
+                      )}
+                      {srv.dcc && srv.connected && (
+                        <span className="rounded bg-emerald-400/10 px-1.5 py-0 text-[10px] text-emerald-400">
+                          已连接
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 地址信息 */}
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="font-mono">{srv.url}</span>
+                      <span className="text-white/10">·</span>
+                      <span className={getStatusTextColor(srv)}>{getStatusText(srv)}</span>
+                    </div>
+
+                    {/* 错误信息（仅显示非预期错误） */}
+                    {srv.error && !gatewayRunning && srv.error === "Gateway 未运行，无法检测连通性" ? null : srv.error && srv.error !== "Gateway 未运行，无法检测连通性" && srv.error !== "MCP Bridge 未安装" ? (
+                      <div className="mt-1.5 rounded bg-red-400/5 px-2 py-1 text-[10px] text-red-400/70">
+                        {srv.error}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* 服务端名称（右侧标签） */}
+                  <span className="shrink-0 text-[10px] text-muted-foreground/50 font-mono">
+                    {srv.name}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollFade>
+      )}
     </div>
   );
 }

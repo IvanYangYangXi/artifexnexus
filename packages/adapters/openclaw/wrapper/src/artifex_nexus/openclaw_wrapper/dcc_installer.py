@@ -1796,7 +1796,10 @@ def get_all_plugins_with_compat() -> List[Dict]:
     overrides = _load_plugin_compat_overrides().get("overrides", {})
     all_plugins = []
     DCC_LIST = ["blender", "maya", "3ds_max", "unreal_engine"]
-    DCC_DISPLAY = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max", "unreal_engine": "Unreal Engine"}
+    # DCC display name unified from categories.json (ADR 0011)
+try:/n    from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
+except ImportError:/n    _DCC_DISPLAY_FALLBACK = {"blender": "Blender", "maya": "Maya", "3ds_max": "3ds Max", "unreal_engine": "Unreal Engine"}
+    def _get_dcc_display_name(k): return _DCC_DISPLAY_FALLBACK.get(k, k)
 
     for dcc in DCC_LIST:
         builtin = get_available_plugin_versions(dcc)
@@ -1805,7 +1808,7 @@ def get_all_plugins_with_compat() -> List[Dict]:
             override = overrides.get(override_key, {})
             all_plugins.append({
                 "dcc": dcc,
-                "dcc_name": DCC_DISPLAY.get(dcc, dcc),
+                "dcc_name": _get_dcc_display_name(dcc),
                 "version": v["version"],
                 "dcc_min": override.get("dcc_min", v["dcc_min"]),
                 "dcc_max": override.get("dcc_max", v.get("dcc_max")),
@@ -2699,23 +2702,30 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
         logger.info("openclaw.json: plugins.allow 已添加 mcp-bridge")
 
     # 确保 plugins.entries.mcp-bridge 已配置
-    entries = config["plugins"].get("entries", {})
+    # 预期所有 DCC MCP Server（与 bootstrap.py 一致）
+    _EXPECTED_SERVERS = {
+        "blender-editor": {"type": "websocket", "url": "ws://127.0.0.1:18083", "enabled": True},
+        "unreal-editor": {"type": "websocket", "url": "ws://127.0.0.1:18080", "enabled": True},
+        "maya-primary":  {"type": "websocket", "url": "ws://127.0.0.1:18081", "enabled": True},
+        "max-primary":   {"type": "websocket", "url": "ws://127.0.0.1:18082", "enabled": True},
+    }
+
     if "mcp-bridge" not in entries:
         entries["mcp-bridge"] = {
             "enabled": True,
-            "config": {
-                "servers": {
-                    "blender-editor": {
-                        "type": "websocket",
-                        "url": "ws://127.0.0.1:18083",
-                        "enabled": True,
-                    }
-                }
-            },
+            "config": {"servers": dict(_EXPECTED_SERVERS)},
         }
         config["plugins"]["entries"] = entries
         changed = True
-        logger.info("openclaw.json: plugins.entries.mcp-bridge 已添加")
+        logger.info("openclaw.json: plugins.entries.mcp-bridge 已添加（4 DCC）")
+    else:
+        # mcp-bridge 已存在：合并缺失的 server
+        servers = entries["mcp-bridge"].setdefault("config", {}).setdefault("servers", {})
+        for srv_name, srv_def in _EXPECTED_SERVERS.items():
+            if srv_name not in servers:
+                servers[srv_name] = dict(srv_def)
+                changed = True
+                logger.info(f"openclaw.json: 合并缺失的 MCP Server '{srv_name}'")
 
     if changed:
         try:

@@ -96,7 +96,7 @@ def _builtin_fallback() -> dict:
     """内置 fallback（categories.json 不可用时的最小保证）。"""
     return {
         "software": ["general", "unreal_engine", "blender", "maya", "3ds_max", "houdini", "comfyui", "substance_painter", "substance_designer", "unity"],
-        "risk_level": ["low", "medium", "high", "critical"],
+        "risk_level": ["low", "medium", "high", "critical"],`n        "dcc": {},
         "display": {
             "software": {},
             "risk_level": {},
@@ -127,11 +127,50 @@ RiskLevel.__doc__ = "Skill 风险级别（硬约束，来自 categories.json）�
 ALL_SOFTWARE: set[str] = set(_DATA["software"])
 ALL_RISK_LEVELS: set[str] = set(_DATA["risk_level"])
 
-# ── 中文显示名映射 ──────────────────────────────────────────────────────────
+# ── 显示名映射 ──────────────────────────────────────────────────────────────
 
 _display = _DATA.get("display", {})
 SOFTWARE_DISPLAY: dict[str, str] = _display.get("software", {})
 RISK_DISPLAY: dict[str, str] = _display.get("risk_level", {})
+
+# ── DCC Identity（ADR 0011）──────────────────────────────────────────────────
+
+_DCC_IDENTITY: dict[str, dict] = _DATA.get("dcc", {})
+
+
+def get_dcc_display_name(dcc_key: str) -> str:
+    """获取 DCC 显示名称（英文），如 'Unreal Engine'。
+    优先从 display.software 取，回退到原始 key。"""
+    return SOFTWARE_DISPLAY.get(dcc_key, dcc_key)
+
+
+def get_dcc_short_name(dcc_key: str) -> str:
+    """获取 DCC 短名称（如 'UE'、'Max'），用于状态栏/徽标。"""
+    return _DCC_IDENTITY.get(dcc_key, {}).get("shortName", dcc_key)
+
+
+def get_dcc_mcp_server_id(dcc_key: str) -> str | None:
+    """获取 DCC 对应的 MCP Server 名称（如 'unreal-editor'）。无 MCP Server 的返回 None。"""
+    return _DCC_IDENTITY.get(dcc_key, {}).get("mcpServerId")
+
+
+def find_dcc_by_mcp_server_id(server_id: str) -> str | None:
+    """反向查找：通过 MCP Server 名称找到对应的 DCC key。
+    如 'unreal-editor' → 'unreal_engine'。"""
+    for key, identity in _DCC_IDENTITY.items():
+        if identity.get("mcpServerId") == server_id:
+            return key
+    return None
+
+
+def get_all_dcc_mcp_servers() -> dict[str, str]:
+    """获取所有有 MCP Server 的 DCC：{dcc_key: mcpServerId}。"""
+    return {
+        k: v["mcpServerId"]
+        for k, v in _DCC_IDENTITY.items()
+        if v.get("mcpServerId")
+    }
+
 
 # ── 工具函数 ────────────────────────────────────────────────────────────────
 

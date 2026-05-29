@@ -36,6 +36,18 @@
     "fx",
     "compositing"
   ],
+  "dcc": {
+    "blender":       { "shortName": "Blender", "mcpServerId": "blender-editor" },
+    "unreal_engine": { "shortName": "UE",      "mcpServerId": "unreal-editor" },
+    "maya":          { "shortName": "Maya",     "mcpServerId": "maya-primary" },
+    "3ds_max":       { "shortName": "Max",      "mcpServerId": "max-primary" },
+    "houdini":       { "shortName": "Houdini",  "mcpServerId": "houdini-primary" },
+    "substance_painter":  { "shortName": "SP",   "mcpServerId": null },
+    "substance_designer": { "shortName": "SD",   "mcpServerId": null },
+    "comfyui":       { "shortName": "Comfy",    "mcpServerId": "comfyui-primary" },
+    "unity":         { "shortName": "Unity",    "mcpServerId": "unity-primary" },
+    "general":       { "shortName": "通用",      "mcpServerId": null }
+  },
   "display": {
     "software": {
       "general": "通用",

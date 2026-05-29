@@ -395,7 +395,8 @@ export default function (api: PluginAPI) {
 
   const servers = (pluginConfig.servers as Record<string, Record<string, unknown>>) || {};
 
-  // 防御层：确保已知 DCC 都存在默认条目（用户配置可能因旧版 bootstrap 缺失）
+  // DCC identity 统一源在 contracts/data/categories.json（ADR 0011）
+  // 此处 fallback 为防御层，端口来自运行时映射
   const DEFAULT_DCC_SERVERS: Record<string, { type: string; url: string; enabled: boolean }> = {
     "blender-editor": { type: "websocket", url: "ws://127.0.0.1:18083", enabled: true },
     "unreal-editor": { type: "websocket", url: "ws://127.0.0.1:18080", enabled: true },

@@ -50,34 +50,38 @@ EVENT_LOG_MAX = 50  # 最多保留的事件数
 """环形缓冲上限。"""
 
 # 所有已知 DCC 的注册表（key = dcc_name）
+# displayName unified from categories.json (ADR 0011)
+try:/n    from artifex_nexus.skill.categories import get_dcc_display_name as _get_dcc_display_name
+except ImportError:/n    def _get_dcc_display_name(k): return k
+
 _DCC_REGISTRY: Dict[str, Dict[str, Any]] = {
     "unreal_engine": {
         "dcc": "unreal_engine",
-        "displayName": "Unreal Engine",
+        "displayName": _get_dcc_display_name("unreal_engine"),
         "port": 18080,
         "installKey": "unreal",
     },
     "blender": {
         "dcc": "blender",
-        "displayName": "Blender",
+        "displayName": _get_dcc_display_name("blender"),
         "port": 18083,
         "installKey": "blender",
     },
     "maya": {
         "dcc": "maya",
-        "displayName": "Maya",
+        "displayName": _get_dcc_display_name("maya"),
         "port": 18081,
         "installKey": "maya",
     },
     "3ds_max": {
         "dcc": "3ds_max",
-        "displayName": "3ds Max",
+        "displayName": _get_dcc_display_name("3ds_max"),
         "port": 18082,
         "installKey": "max",
     },
     "houdini": {
         "dcc": "houdini",
-        "displayName": "Houdini",
+        "displayName": _get_dcc_display_name("houdini"),
         "port": 18086,
         "installKey": "houdini",
     },
