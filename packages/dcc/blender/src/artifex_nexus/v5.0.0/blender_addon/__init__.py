@@ -129,8 +129,32 @@ def _init_skill_hub():
 
 
 def _auto_start_server():
-    """自动启动 MCP Server（addon 启用时调用）"""
+    """自动启动 MCP Server（addon 启用时调用，延迟到 Blender 完全就绪后）。
+
+    参照 Maya 逻辑：
+    - 检测端口是否可用
+    - 端口被占用时跳过并记录警告
+    - 通过 ARTIFEX_BLENDER_AUTO_START 环境变量控制（默认自动启动）
+
+    此函数通过 bpy.app.timers 延迟调用，确保 Blender 主界面和事件循环就绪。
+    """
     try:
+        # 检查用户是否关闭了自动启动
+        auto_start = os.environ.get("ARTIFEX_BLENDER_AUTO_START", "1") == "1"
+        if not auto_start:
+            logger.info("MCP Server 自动启动已通过环境变量禁用")
+            print("[Artifex Nexus] MCP Server 自动启动已禁用 (ARTIFEX_BLENDER_AUTO_START=0)")
+            return
+
+        from mcp_server import DEFAULT_PORT
+
+        # 端口预检查：被占用时跳过启动
+        from artifex_nexus_sdk.mcp_server import MCPServer as _MCPServer
+        if not _MCPServer._is_port_available("127.0.0.1", DEFAULT_PORT):
+            logger.warning(f"端口 {DEFAULT_PORT} 被占用，MCP Server 无法自动启动")
+            print(f"[Artifex Nexus] 端口 {DEFAULT_PORT} 被占用，MCP Server 未启动（可在面板手动启动）")
+            return
+
         server = _get_mcp_server()
         adapter = _get_adapter()
 
@@ -562,21 +586,30 @@ if _HAS_BPY:
 
 
     def register():
-        """Blender addon 注册入口 — 注册完成后自动启动 MCP Server"""
+        """Blender addon 注册入口 — 注册 UI 类后延迟自动启动 MCP Server
+
+        自动启动通过 bpy.app.timers 延迟到下一帧执行，
+        确保 Blender 主界面和事件循环已完全就绪后再检测端口并启动。
+        """
         for cls in _classes:
             bpy.utils.register_class(cls)
         logger.info("Artifex Nexus Blender addon registered")
 
-        # 自动启动 MCP Server
-        _auto_start_server()
-
-        # 注册触发器钩子
+        # 注册触发器钩子（立即，不依赖事件循环）
         _register_trigger_hooks()
 
         # 注入回调
         dispatcher = _get_trigger_dispatcher()
         dispatcher.set_status_reporter(_report_trigger_status)
         dispatcher.set_ui_callback(_trigger_ui_callback)
+
+        # 自动启动 MCP Server — 延迟到 Blender 完全就绪后
+        # 参照 Maya 的 executeDeferred + 端口检测逻辑
+        def _deferred_auto_start():
+            _auto_start_server()
+            return None  # 单次调用，停止 timer
+
+        bpy.app.timers.register(_deferred_auto_start, first_interval=2.0)
 
 
     def unregister():

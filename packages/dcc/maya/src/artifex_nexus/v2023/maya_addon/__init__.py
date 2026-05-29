@@ -114,8 +114,12 @@ def _init_skill_hub():
 
 # ── 公共 API ────────────────────────────────────────────────────────────
 
-def start_server() -> bool:
-    """启动 MCP Server（端口 18081）"""
+def start_server(quiet: bool = False) -> bool:
+    """启动 MCP Server（端口 18081）
+
+    Args:
+        quiet: True 时不弹出弹窗（用于自动启动场景，避免主界面未就绪时弹窗出错）
+    """
     from mcp_server import DEFAULT_PORT
 
     server = _get_mcp_server()
@@ -123,11 +127,11 @@ def start_server() -> bool:
         logger.info("MCP Server 已在运行")
         return True
 
-    # 端口预检查：被占用时跳过启动并提示
+    # 端口预检查：被占用时跳过启动并提示（quiet 模式下不弹窗）
     from artifex_nexus_sdk.mcp_server import MCPServer as _MCPServer
     if not _MCPServer._is_port_available("127.0.0.1", DEFAULT_PORT):
         logger.warning(f"端口 {DEFAULT_PORT} 被占用，MCP Server 无法启动")
-        if _HAS_MAYA:
+        if _HAS_MAYA and not quiet:
             cmds.confirmDialog(
                 title="Artifex Nexus",
                 message=f"端口 {DEFAULT_PORT} 被占用\nMCP Server 无法启动，请检查端口占用",
@@ -408,30 +412,65 @@ def register():
         from trigger_dispatcher import register_maya_callbacks
         register_maya_callbacks()
 
-        # 自动启动 MCP Server（可选，由用户配置决定）
+        # 自动启动 MCP Server（quiet 模式：主界面未就绪时不弹窗）
         auto_start = os.environ.get("ARTIFEX_MAYA_AUTO_START", "1") == "1"
         if auto_start:
             logger.info("自动启动 MCP Server...")
-            if start_server():
+            if start_server(quiet=True):
                 logger.info("Maya MCP Server 已自动启动")
             else:
-                logger.warning("Maya MCP Server 自动启动失败")
+                logger.warning("Maya MCP Server 自动启动失败（端口被占用或启动异常）")
 
         logger.info("Maya addon 注册完成")
 
-        # 自动显示 UI 面板（尊重偏好设置）
-        # executeDeferred 执行时 Maya 窗口可能尚未完全就位，
-        # QTimer 延迟确保面板不被主窗口遮挡
-        try:
-            if get_auto_show_panel():
-                from PySide2.QtCore import QTimer
-                QTimer.singleShot(1500, _auto_show_panel)
-            else:
-                logger.info("用户已关闭启动时自动显示面板，跳过")
-        except Exception as e:
-            logger.warning(f"无法自动显示面板: {e}")
+        # 自动显示 UI 面板（仅在主窗口就绪后，且尊重偏好设置）
+        if get_auto_show_panel():
+            # 分两阶段延迟：
+            # 1. executeDeferred 确保菜单/shelf 创建完毕
+            # 2. _check_main_window_then_show 轮询主窗口就绪后再显示面板
+            _check_main_window_then_show()
+        else:
+            logger.info("用户已关闭启动时自动显示面板，跳过")
 
     _mu.executeDeferred(_deferred_startup)
+
+
+def _check_main_window_then_show():
+    """轮询检测主窗口是否就绪，就绪后显示面板。
+
+    使用 QTimer 轮询而非固定延迟，避免以下场景：
+    - 慢机器上 1500ms 不够
+    - executeDeferred 在主窗口完全绘制前触发
+    """
+    try:
+        from PySide2.QtWidgets import QApplication
+        from PySide2.QtCore import QTimer
+
+        app = QApplication.instance()
+        if app is None:
+            QTimer.singleShot(500, _check_main_window_then_show)
+            return
+
+        # 找 Maya 主窗口
+        main_window = None
+        for widget in app.topLevelWidgets():
+            if widget.objectName() == "MayaWindow" and widget.isVisible():
+                main_window = widget
+                break
+
+        if main_window is not None:
+            # 主窗口已可见，再延迟一小段确保布局完成
+            QTimer.singleShot(500, _auto_show_panel)
+        else:
+            # 主窗口尚未创建，500ms 后重试（最多重试 10 次 = 5s）
+            retries = getattr(_check_main_window_then_show, "_retries", 0) + 1
+            _check_main_window_then_show._retries = retries  # type: ignore[attr-defined]
+            if retries < 10:
+                QTimer.singleShot(500, _check_main_window_then_show)
+            else:
+                logger.warning("Maya 主窗口在 5s 内未能检测到，放弃自动显示面板")
+    except Exception as e:
+        logger.warning(f"无法自动显示面板: {e}")
 
 
 def _auto_show_panel():
