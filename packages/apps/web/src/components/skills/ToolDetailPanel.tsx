@@ -1141,8 +1141,8 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
         </div>
       )}
 
-      {/* 触发器需要 DCC 插件支持提示 — 仅在没有已连接的 DCC 时显示 */}
-      {!hasConnectedDCC && localTriggers.length > 0 && (
+      {/* 触发器需要 DCC 插件支持提示 — 仅在有 event 类型触发器且目标为特定 DCC 时显示 */}
+      {!hasConnectedDCC && localTriggers.some(t => t.triggerType === "event" && t.dcc && t.dcc !== "general") && (
         <div className="flex items-start gap-2 rounded border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
           <Info className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-300/80">
