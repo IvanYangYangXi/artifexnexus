@@ -43,12 +43,14 @@ _addon_dir = Path(__file__).parent
 if str(_addon_dir) not in sys.path:
     sys.path.insert(0, str(_addon_dir))
 
-# 共享 SDK 路径
+# 共享 SDK 路径注入（开发期：从源目录回溯）
+# 部署后：artifex_nexus_sdk/ 已在 _addon_dir 内（自包含设计）
 # blender_addon → v5.0.0 → artifex_nexus → src → blender → dcc → shared
 _sdk_dir = _addon_dir.parents[4] / "shared"
-_sdk_path = str(_sdk_dir)
-if _sdk_path not in sys.path:
-    sys.path.insert(0, _sdk_path)
+if _sdk_dir.is_dir():
+    _sdk_path = str(_sdk_dir)
+    if _sdk_path not in sys.path:
+        sys.path.insert(0, _sdk_path)
 
 # ── bpy 导入（CI 环境无 bpy，跳过 Blender 特有代码）────────────────────
 try:

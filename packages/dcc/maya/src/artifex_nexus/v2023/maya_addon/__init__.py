@@ -33,6 +33,7 @@ if str(_addon_dir) not in sys.path:
 
 # 共享 SDK 路径注入（开发期：从源目录回溯）
 # 部署后 SDK 已内嵌在 _addon_dir 内，此路径不存在时静默跳过
+# maya_addon → v2023 → artifex_nexus → src → maya → dcc → shared
 _sdk_probe = _addon_dir.parents[4] / "shared"
 if _sdk_probe.is_dir():
     _sdk_str = str(_sdk_probe)

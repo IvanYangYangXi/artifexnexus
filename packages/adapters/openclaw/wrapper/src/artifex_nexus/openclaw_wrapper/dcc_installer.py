@@ -635,7 +635,22 @@ def find_blender_versions() -> List[str]:
 
 
 def install_blender_addon(blender_version: str, force: bool = False) -> Dict:
-    return install_dcc_addon("blender", blender_version, force)
+    """安装 Blender 插件 + SDK 部署。
+
+    Blender 安装策略：
+      1. 安装主目录到 Blender scripts/addons/ 下
+      2. 部署 artifex_nexus_sdk/ 到同一目录（自包含设计，参照 Maya/Max）
+    """
+    result = install_dcc_addon("blender", blender_version, force)
+    if not result.get("success"):
+        return result
+
+    # 部署 SDK 到插件目录（Blender addon 依赖 artifex_nexus_sdk）
+    sdk_deployed = _deploy_dcc_sdk("blender", blender_version, result["target"])
+    if sdk_deployed:
+        result["sdk_deployed"] = sdk_deployed
+
+    return result
 
 
 def uninstall_blender_addon(blender_version: str) -> Dict:
