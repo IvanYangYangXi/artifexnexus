@@ -147,7 +147,13 @@ export default function TriggerRuleEditor({
             {TRIGGER_TYPES.map((t) => (
               <button
                 key={t.value}
-                onClick={() => updateField("triggerType", t.value)}
+                onClick={() => {
+                  const patch: Partial<TriggerFormData> = { triggerType: t.value };
+                  if (t.value === "schedule" && !form.scheduleConfig) {
+                    patch.scheduleConfig = { type: "interval", interval: "30m" };
+                  }
+                  updateFields(patch);
+                }}
                 className={cn(
                   "px-3 py-1 rounded text-xs transition-colors",
                   form.triggerType === t.value
