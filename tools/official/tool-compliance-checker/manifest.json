@@ -88,7 +88,7 @@
       "id": "periodic",
       "name": "每30分钟全量检查",
       "scheduleConfig": {
-        "interval": "30m",
+        "interval": "4h",
         "type": "interval"
       },
       "triggerType": "schedule",
@@ -96,7 +96,7 @@
     }
   ],
   "presets": [],
-  "updatedAt": "2026-05-26 21:40:31",
+  "updatedAt": "2026-05-29 10:53:23",
   "author": "Ivan(杨己力)",
   "software": [
     {

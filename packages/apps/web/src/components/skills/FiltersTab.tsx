@@ -35,7 +35,15 @@ export function FiltersTab({
   const [page, setPage] = React.useState(1);
 
   const dccNames = software.map((e) => e.dcc);
-  const dccOptions = ["", "general", ...dccNames];
+  const dccOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    // order: "" (空), then "general", then software-specific DCCs, dedup
+    return ["", "general", ...dccNames].filter((d) => {
+      if (seen.has(d)) return false;
+      seen.add(d);
+      return true;
+    });
+  }, [dccNames]);
   const selectedDcc = filters.dcc || dccNames[0] || "";
   const pathRules = filters.path || [];
   const selectedTypes = filters.types || [];

@@ -1061,7 +1061,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
       executionMode: data.executionMode,
       useDefaultFilters: data.useDefaultFilters,
       conditions: data.conditions,
-      scheduleConfig: data.scheduleConfig,
+      scheduleConfig: data.triggerType === "schedule" ? data.scheduleConfig : undefined,
     };
     const updated = [...localTriggers, newTrigger];
     setLocalTriggers(updated);
@@ -1083,7 +1083,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
             executionMode: data.executionMode,
             useDefaultFilters: data.useDefaultFilters,
             conditions: data.conditions,
-            scheduleConfig: data.scheduleConfig,
+            scheduleConfig: data.triggerType === "schedule" ? data.scheduleConfig : undefined,
           }
         : t,
     );
@@ -1119,7 +1119,12 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
     useDefaultFilters: t.useDefaultFilters,
     conditions: t.conditions || {},
     isEnabled: t.enabled,
-    scheduleConfig: t.scheduleConfig || { type: "interval", interval: "30m" },
+    // 仅 "schedule" 类型触发器才需要 scheduleConfig；
+    // watch/event 类型保留原始值或 undefined，避免在 UI 上误显示 "每30m" 标签
+    scheduleConfig:
+      t.triggerType === "schedule"
+        ? t.scheduleConfig || { type: "interval", interval: "30m" }
+        : undefined,
   });
 
   const hasInlineFilter = (t: NexusToolTrigger) => {
