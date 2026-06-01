@@ -496,8 +496,10 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
     "h-7 rounded-[12px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md px-2 text-xs focus:outline-none focus:border-primary/40 transition-colors font-mono";
 
   return (
-    <ScrollFade className="h-full" fadeFrom="from-card" fadeHeight="h-3">
-      <div className="flex flex-col h-full min-w-0">
+    <div className="flex flex-col h-full">
+      {/* 可滚动内容区：头部 + Tab + 依赖/结果 */}
+      <ScrollFade className="flex-1 min-h-0" fadeFrom="from-card" fadeHeight="h-3">
+        <div className="flex flex-col min-w-0">
         {/* ── 头部 ── */}
         <div className="shrink-0 px-3 py-3 border-b border-border/60">
           <div className="flex items-center gap-2">
@@ -744,51 +746,52 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             )}
           </div>
         )}
+        </div>
+      </ScrollFade>
 
-        {/* ── 底部运行按钮 ── */}
-        <div className="@container shrink-0 flex items-center gap-1.5 border-t border-border/60 px-2 py-2">
-          {/* 运行 — 最左边 */}
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handleRun}
-            disabled={running}
-          >
-            {running ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Play className="h-3 w-3" />
-            )}
-            <span className="hidden @[230px]:inline ml-1">
-              {running ? "运行中..." : "运行"}
-            </span>
-          </Button>
-          {/* AI 辅助运行 */}
+      {/* ── 底部运行按钮（ScrollFade 外，不受 overflow-x-hidden 影响）── */}
+      <div className="@container shrink-0 flex items-center gap-1.5 border-t border-border/60 px-2 py-2 min-w-0">
+        {/* 运行 — 最左边 */}
+        <Button
+          size="sm"
+          className="h-7 text-xs shrink-0"
+          onClick={handleRun}
+          disabled={running}
+        >
+          {running ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Play className="h-3 w-3" />
+          )}
+          <span className={running ? "hidden @[300px]:inline ml-1" : "ml-1"}>
+            {running ? "运行中..." : "运行"}
+          </span>
+        </Button>
+        {/* AI 辅助运行 */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs shrink-0"
+          onClick={handleAIAssist}
+          title="切换到 Chat 界面，让 AI 帮你运行工具"
+        >
+          <Sparkles className="h-3 w-3" />
+          <span className={running ? "hidden @[300px]:inline ml-1" : "ml-1"}>AI 辅助运行</span>
+        </Button>
+        <div className="flex-1 min-w-0" />
+        {running && (
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
-            onClick={handleAIAssist}
-            title="切换到 Chat 界面，让 AI 帮你运行工具"
+            className="h-7 text-xs text-red-400 border-red-400/30 hover:bg-red-500/10 shrink-0"
+            onClick={handleCancel}
           >
-            <Sparkles className="h-3 w-3" />
-            <span className="hidden @[230px]:inline ml-1">AI 辅助运行</span>
+            <XCircle className="h-3 w-3" />
+            <span className="hidden @[300px]:inline ml-1">取消</span>
           </Button>
-          <div className="flex-1" />
-          {running && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs text-red-400 border-red-400/30 hover:bg-red-500/10 shrink-0"
-              onClick={handleCancel}
-            >
-              <XCircle className="h-3 w-3" />
-              <span className="hidden @[230px]:inline ml-1">取消</span>
-            </Button>
-          )}
-        </div>
+        )}
       </div>
-    </ScrollFade>
+    </div>
   );
 }
 

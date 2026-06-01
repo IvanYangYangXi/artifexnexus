@@ -17,7 +17,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  ScrollArea,
   Button,
   Badge,
   cn,
@@ -217,7 +216,7 @@ export function NotificationBell() {
               <p className="text-sm text-muted-foreground">暂无通知</p>
             </div>
           ) : (
-            <ScrollArea className="max-h-[400px]">
+            <div className="max-h-[360px] overflow-y-auto">
               <div className="py-1">
                 {notifications.map((n) => (
                   <NotificationItem
@@ -227,7 +226,7 @@ export function NotificationBell() {
                   />
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </PopoverContent>
       </Popover>

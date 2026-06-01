@@ -419,7 +419,7 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
             {/* 保存修改 — 最左边 */}
             <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={!dirty || saving}>
               {saving ? <Loader2 className="h-3 w-3" /> : <Save className="h-3 w-3" />}
-              <span className="hidden @[260px]:inline ml-1">保存修改</span>
+              <span className="hidden @[300px]:inline ml-1">保存修改</span>
             </Button>
             {/* 另存为实例 */}
             <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
@@ -428,13 +428,13 @@ export function ToolDetailPanel({ toolId, onLoaded, compact, refreshKey }: ToolD
               setShowSaveAs(true);
             }}>
               <GitBranch className="h-3 w-3" />
-              <span className="hidden @[260px]:inline ml-1">另存为实例</span>
+              <span className="hidden @[300px]:inline ml-1">另存为实例</span>
             </Button>
             <div className="flex-1" />
             {/* 刷新 — 最右边 */}
             <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={loadDetail} title="刷新">
               <RefreshCw className="h-3 w-3" />
-              <span className="hidden @[260px]:inline ml-1">刷新</span>
+              <span className="hidden @[300px]:inline ml-1">刷新</span>
             </Button>
           </>
         )}
