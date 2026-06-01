@@ -17,7 +17,7 @@
   "implementation": {
     "type": "script",
     "entry": "main.py",
-    "function": "check_skill_versions"
+    "function": "check_skill_compliance"
   },
   "inputs": [],
   "outputs": [
