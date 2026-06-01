@@ -497,7 +497,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
 
   return (
     <ScrollFade className="h-full" fadeFrom="from-card" fadeHeight="h-3">
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-w-0">
         {/* ── 头部 ── */}
         <div className="shrink-0 px-3 py-3 border-b border-border/60">
           <div className="flex items-center gap-2">
@@ -746,7 +746,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         )}
 
         {/* ── 底部运行按钮 ── */}
-        <div className="@container shrink-0 flex items-center gap-2 border-t border-border/60 px-3 py-2">
+        <div className="@container shrink-0 flex items-center gap-1.5 border-t border-border/60 px-2 py-2">
           {/* 运行 — 最左边 */}
           <Button
             size="sm"

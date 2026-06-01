@@ -284,7 +284,11 @@ _NT_CACHE_FILE = _STATE_DIR / "nexus_tool_scan_cache.json"
 
 
 def _get_nt_source_fingerprint(registry) -> str:
-    """计算 nexus-tool 源目录指纹（基于顶层 mtime）。"""
+    """计算 nexus-tool 源目录指纹。
+
+    收集所有 manifest.json 的路径+mtime，确保单个 manifest 修改也会触发缓存失效。
+    （顶层目录 mtime 在 NTFS 上不保证子文件修改后会更新。）
+    """
     parts = []
     for label, d in [("root", registry._nexus_tools_root),
                      ("tools", registry._tools_path)]:
@@ -292,6 +296,12 @@ def _get_nt_source_fingerprint(registry) -> str:
             try:
                 stat = d.stat()
                 parts.append(f"{label}:{d}:{stat.st_mtime}")
+            except OSError:
+                pass
+            # 追加每个 manifest.json 的 mtime 作为细粒度指纹
+            try:
+                for mf in sorted(d.rglob("manifest.json")):
+                    parts.append(f"mf:{mf}:{mf.stat().st_mtime}")
             except OSError:
                 pass
     return "|".join(parts) if parts else "empty"
