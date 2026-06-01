@@ -35,6 +35,7 @@ import { ScrollFade } from "../chat/ScrollFade";
 import { FiltersTab } from "./FiltersTab";
 import { ToggleSwitch } from "./ToolDetailPanel";
 import { ChatPromptContext, DCCStatusContext } from "../shell/AppShell";
+import { useNotifications } from "../../lib/notification-store";
 import {
   nexusToolDetail,
   nexusToolRun,
@@ -82,9 +83,12 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const taskIdRef = React.useRef<string | null>(null);
   const pollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 防重入：确保 maybeNotify 每次运行只触发一次（setInterval 竞态） */
+  const notifiedRef = React.useRef(false);
 
   const { navigateWithPrompt } = React.useContext(ChatPromptContext);
   const { dccStatus } = React.useContext(DCCStatusContext);
+  const { addNotification } = useNotifications();
 
   // ── DCC 连接状态检测 ──────────────────────────────────────────────
   const targetDccs = React.useMemo(() => {
@@ -92,10 +96,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
     return (detail.software || []).map((e) => typeof e === "string" ? e : e.dcc);
   }, [detail]);
 
-  /** 检查是否有目标 DCC 的 MCP 已连接 */
+  /** 检查是否有目标 DCC 的 MCP 已连接。filter out "general" — 通用工具无需 DCC 连接 */
   const hasConnectedDCC = React.useMemo(() => {
-    if (targetDccs.length === 0) return true; // 无 DCC 限制的通用工具，不需要检查
-    return targetDccs.some((dcc) => {
+    const dccTargets = targetDccs.filter((d) => d !== "general");
+    if (dccTargets.length === 0) return true;
+    return dccTargets.some((dcc) => {
       const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
       return status?.connected ?? false;
     });
@@ -150,10 +155,59 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
 
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
 
+  // ── 通知生成：工具执行完成时，由前端直接发通知（取代 sidecar 文件桥接）─
+  const maybeNotify = React.useCallback(
+    (result: NexusToolRunResult) => {
+      try {
+        const data = (result as any).data;
+        let type: "success" | "warning" | "error" = result.success ? "success" : "error";
+        let message: string;
+        let notifDetail: string | undefined;
+
+        if (data && (data.issues_found !== undefined || data.report)) {
+          // 合规检查类工具
+          const issuesFound: number = data.issues_found ?? 0;
+          const total: number = data.total_checked ?? issuesFound;
+          const report: string = data.report ?? "";
+          if (issuesFound > 0) {
+            type = "warning";
+            const errors = (data.issues || []).filter((i: any) => i.severity === "error").length;
+            const warnings = (data.issues || []).filter((i: any) => i.severity === "warning").length;
+            const parts: string[] = [];
+            if (errors) parts.push(`${errors} 个错误`);
+            if (warnings) parts.push(`${warnings} 个警告`);
+            message = `检查 ${total} 个 Tool，${parts.join("，")}`;
+          } else {
+            message = `检查 ${total} 个 Tool，全部通过`;
+          }
+          notifDetail = report;
+        } else if (!result.success) {
+          message = result.error ? `执行失败: ${result.error.slice(0, 80)}` : "执行失败";
+        } else if (data?.stdout && typeof data.stdout === "string" && data.stdout.length > 3) {
+          message = `执行成功（输出 ${data.stdout.length} 字符）`;
+        } else {
+          message = "执行成功";
+        }
+
+        addNotification({
+          type,
+          title: `工具: ${detail?.name ?? ""}`,
+          message,
+          source: "nexus-tool",
+          detail: notifDetail,
+        });
+      } catch (_) {
+        // 通知失败不影响主流程
+      }
+    },
+    [addNotification, detail],
+  );
+
   // ── 运行（异步：启动 → 轮询）──
   const handleRun = async () => {
     if (!detail) return;
     cleanup();
+    notifiedRef.current = false;
     setRunning(true);
     setRunResult(null);
     setDepsMissing(null);
@@ -187,21 +241,35 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         return;
       }
 
-      // 2. 轮询结果
+      // 2. 轮询结果（setInterval 竞态防护：回调顶部检查 + notifiedRef 防重入）
       pollTimerRef.current = setInterval(async () => {
+        // 回调入口检查：cleanup 已将 taskIdRef 置 null，直接跳过
+        if (!taskIdRef.current) return;
         try {
           const poll: NexusToolPollResult = await nexusToolResult(taskId);
+          // await 之后再次检查：上一个回调可能已在等待期间 cleanup
+          if (!taskIdRef.current) return;
 
           if (poll.status === "done") {
             cleanup();
-            setRunResult(poll.result || { success: true });
+            const result = poll.result || { success: true };
+            setRunResult(result);
             setRunning(false);
+            if (!notifiedRef.current) {
+              notifiedRef.current = true;
+              maybeNotify(result);
+            }
             if (detail) addRecentTool(detail.id, detail.name);
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "error") {
             cleanup();
-            setRunResult({ success: false, error: poll.error || "执行失败" });
+            const errorResult = { success: false, error: poll.error || "执行失败" };
+            setRunResult(errorResult);
             setRunning(false);
+            if (!notifiedRef.current) {
+              notifiedRef.current = true;
+              maybeNotify(errorResult);
+            }
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "cancelled") {
             cleanup();
@@ -218,14 +286,24 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
       // 3. 超时保护（125s > 120s 执行超时）
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();
-        setRunResult({ success: false, error: "执行超时（超过 120 秒）" });
+        const timeoutResult = { success: false, error: "执行超时（超过 120 秒）" };
+        setRunResult(timeoutResult);
         setRunning(false);
+        if (!notifiedRef.current) {
+          notifiedRef.current = true;
+          maybeNotify(timeoutResult);
+        }
         if (taskId) nexusToolCancel(taskId).catch(() => {});
       }, 125_000);
     } catch (e) {
       cleanup();
-      setRunResult({ success: false, error: String(e) });
+      const catchResult = { success: false, error: String(e) };
+      setRunResult(catchResult);
       setRunning(false);
+      if (!notifiedRef.current) {
+        notifiedRef.current = true;
+        maybeNotify(catchResult);
+      }
     }
   };
 
@@ -264,6 +342,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
     setDepsMissing(null);
     setDepsInstallResult(null);
     cleanup();
+    notifiedRef.current = false;
     setRunning(true);
 
     try {
@@ -277,18 +356,30 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
       }
 
       pollTimerRef.current = setInterval(async () => {
+        if (!taskIdRef.current) return;
         try {
           const poll: NexusToolPollResult = await nexusToolResult(taskId);
+          if (!taskIdRef.current) return;
           if (poll.status === "done") {
             cleanup();
-            setRunResult(poll.result || { success: true });
+            const result = poll.result || { success: true };
+            setRunResult(result);
             setRunning(false);
+            if (!notifiedRef.current) {
+              notifiedRef.current = true;
+              maybeNotify(result);
+            }
             if (detail) addRecentTool(detail.id, detail.name);
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "error") {
             cleanup();
-            setRunResult({ success: false, error: poll.error || "执行失败" });
+            const errorResult = { success: false, error: poll.error || "执行失败" };
+            setRunResult(errorResult);
             setRunning(false);
+            if (!notifiedRef.current) {
+              notifiedRef.current = true;
+              maybeNotify(errorResult);
+            }
             nexusToolAck(taskId).catch(() => {});
           } else if (poll.status === "cancelled") {
             cleanup();
@@ -301,14 +392,24 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
 
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();
-        setRunResult({ success: false, error: "执行超时（超过 120 秒）" });
+        const timeoutResult = { success: false, error: "执行超时（超过 120 秒）" };
+        setRunResult(timeoutResult);
         setRunning(false);
+        if (!notifiedRef.current) {
+          notifiedRef.current = true;
+          maybeNotify(timeoutResult);
+        }
         if (taskId) nexusToolCancel(taskId).catch(() => {});
       }, 125_000);
     } catch (e) {
       cleanup();
-      setRunResult({ success: false, error: String(e) });
+      const catchResult = { success: false, error: String(e) };
+      setRunResult(catchResult);
       setRunning(false);
+      if (!notifiedRef.current) {
+        notifiedRef.current = true;
+        maybeNotify(catchResult);
+      }
     }
   };
 

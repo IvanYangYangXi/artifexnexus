@@ -457,49 +457,6 @@ def _scan_source_skills(source_root: Path) -> Dict[str, Any]:
 
 
 # ============================================================================
-# 通知发送
-# ============================================================================
-
-def _send_compliance_notification(
-    title: str,
-    total_checked: int,
-    errors: int,
-    warnings: int,
-    success: bool,
-) -> None:
-    """通过文件桥接发送检查完成通知到前端 toast/铃铛。"""
-    try:
-        notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
-        notif_dir.mkdir(parents=True, exist_ok=True)
-
-        if success:
-            notif_type = "success"
-            message = f"检查 {total_checked} 个 Skill，全部通过"
-        elif errors > 0:
-            notif_type = "error"
-            message = f"检查 {total_checked} 个 Skill，{errors} 个错误，{warnings} 个警告"
-        else:
-            notif_type = "warning"
-            message = f"检查 {total_checked} 个 Skill，{warnings} 个警告"
-
-        import time as _time
-        import random as _random
-        ts = int(_time.time() * 1000)
-        rand = _random.randint(1000, 9999)
-        notif_file = notif_dir / f"notif_{ts}_{rand}.json"
-
-        payload = {
-            "type": notif_type,
-            "title": title,
-            "message": message,
-            "source": "cron:skill-compliance-checker",
-        }
-        notif_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass  # 通知失败不阻塞主流程
-
-
-# ============================================================================
 # 主入口
 # ============================================================================
 
@@ -611,14 +568,7 @@ def check_skill_compliance(**kwargs) -> Dict[str, Any]:
                 skill_tag = f"[{i.get('skill', '?')}] " if i.get("skill") else ""
                 report_lines.append(f"  • {skill_tag}{i['message']}")
 
-    # ── 发送通知 ──
-    _send_compliance_notification(
-        title="Skill 合规检查",
-        total_checked=total_checked,
-        errors=len(errors),
-        warnings=len(warnings),
-        success=success,
-    )
+    # 通知由 RunPanel 结果区统一展示，不再额外发送 toast/bell（避免手动运行时双重通知）
 
     return sdk.result.success(data={
         "total_checked": total_checked,
@@ -626,16 +576,7 @@ def check_skill_compliance(**kwargs) -> Dict[str, Any]:
         "issues": all_issues,
         "report": "\n".join(report_lines),
         "success": success,
-    }, message=report_lines[0]) if success else sdk.result.fail(
-        "ISSUES_FOUND",
-        report_lines[0],
-        data={
-            "total_checked": total_checked,
-            "issues_found": len(errors) + len(warnings),
-            "issues": all_issues,
-            "report": "\n".join(report_lines),
-            "success": success,
-        })
+    }, message=report_lines[0])
 
 
 if __name__ == "__main__":

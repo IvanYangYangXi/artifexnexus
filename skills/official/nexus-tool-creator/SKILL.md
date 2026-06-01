@@ -394,6 +394,9 @@ select_method → collect_info → generate [气泡] → preview → confirm
 
 通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`。
 
+> **注意**：合规检查工具本身运行后，通知由前端 RunPanel 自动生成（含详细 issue 列表），
+> 无需在 checker 中调用此方法。此方法用于创建流程中的进度提示。
+
 **轻量气泡**（不写铃铛）：
 
 ```python
@@ -430,6 +433,11 @@ notify("工具创建完成", "✅ 快速 UV 重排 已创建，合规检查通�
 
 AI 生成工具的 `main.py` 时，**必须为工具本身加入通知能力**。
 让用户在 DCC 外也能感知工具执行结果 —— 工具跑完、失败、跳过，用户都能收到提示。
+
+> **注意**：此规则适用于 **DCC 内执行的工具**（Blender/Maya/Max/UE 等）。
+> 这些工具运行在 DCC 进程中，无法直接访问 Artifex Nexus 前端，必须通过文件桥接发送通知。
+> **通用工具**（`software: ["general"]` 或 `software: []`）运行在 sidecar 中，
+> 通知由前端 RunPanel 自动生成，**不需要**在 `main.py` 中手动调用 `_notify()`。
 
 ### 何时通知
 

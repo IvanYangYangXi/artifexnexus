@@ -16,6 +16,9 @@ pub struct PushNotificationRequest {
     pub type_: String,
     #[serde(default)]
     pub source: Option<String>,
+    /// 详细内容（合规检查的问题列表等），点击详情弹窗时展示
+    #[serde(default)]
+    pub detail: Option<String>,
 }
 
 /// 扫描结果（返回给前端）
@@ -127,8 +130,13 @@ pub fn scan_pending_notifications(
             }
         }
 
-        // 删除已处理的文件（成功或失败都删，避免重复处理）
-        let _ = std::fs::remove_file(&path);
+        // 删除已处理的文件。Windows 上文件可能被 Python 写进程短暂锁定，
+        // remove_file 静默失败会导致下次扫描重复处理 → 双重通知。
+        // 删除失败时重命名为 .processed 后缀，防止重复消费。
+        if std::fs::remove_file(&path).is_err() {
+            let processed_path = path.with_extension("json.processed");
+            let _ = std::fs::rename(&path, &processed_path);
+        }
     }
 
     Ok(ScanResult { processed, errors })

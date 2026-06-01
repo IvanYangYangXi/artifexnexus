@@ -916,10 +916,6 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                                     "missing_deps": missing, "failed_deps": failed,
                                     "created_at": time.time(),
                                 }
-                            _send_tool_completion_notification(
-                                ntd.name, task_id, "error",
-                                error=f"依赖安装失败: {', '.join(failed)}",
-                            )
                             return
                         # 安装成功，继续执行
                         with _task_lock:
@@ -936,9 +932,6 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                             if t:
                                 t["status"] = "done"
                                 t["result"] = run_result
-                        _send_tool_completion_notification(
-                            ntd.name, task_id, "done", result=run_result,
-                        )
                     except Exception as e:
                         logger.exception("install_and_run task %s failed", task_id)
                         with _task_lock:
@@ -948,9 +941,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                                 "error": repr(e),
                                 "created_at": time.time(),
                             }
-                        _send_tool_completion_notification(
-                            ntd.name, task_id, "error", error=repr(e),
-                        )
+                        # 通知已改由前端 RunPanel 统一处理
 
                 func_name = manifest.get("implementation", {}).get("function", "")
                 threading.Thread(
@@ -1001,7 +992,6 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                 result = _execute_tool_sync(ntd, run_args, func_name, cancel_event, task_id=task_id)
                 logger.info("[nt-run] task=%s completed result_keys=%s",
                             task_id, list(result.keys()) if isinstance(result, dict) else type(result).__name__)
-                _task_cancelled = False
                 with _task_lock:
                     t = _task_store.get(task_id)
                     # 检查是否在执行期间被取消
@@ -1012,7 +1002,6 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                             "created_at": time.time(),
                         }
                         logger.info("[nt-run] task=%s marked cancelled", task_id)
-                        _task_cancelled = True
                     else:
                         _task_store[task_id] = {
                             "task_id": task_id,
@@ -1020,11 +1009,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                             "result": result,
                             "created_at": time.time(),
                         }
-                # 工具执行完成 → 推送通知到前端铃铛 + toast
-                if not _task_cancelled:
-                    _send_tool_completion_notification(
-                        ntd.name, task_id, "done", result=result,
-                    )
+                # 通知已改由前端 RunPanel 统一处理
             except Exception as e:
                 logger.exception("_run task %s failed", task_id)
                 with _task_lock:
@@ -1034,9 +1019,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                         "error": repr(e),  # repr 保留异常类型信息
                         "created_at": time.time(),
                     }
-                _send_tool_completion_notification(
-                    ntd.name, task_id, "error", error=repr(e),
-                )
+                # 通知已改由前端 RunPanel 统一处理
             except BaseException as e:
                 # 非 Exception 异常（SystemExit, KeyboardInterrupt 等）——
                 # 工具可能调用了 sys.exit()，必须捕获，否则线程静默死亡
@@ -1050,10 +1033,7 @@ def _handle_nexus_tool_run(req_id: Any, params: dict) -> dict:
                         "error": f"{type(e).__name__}: {e}",
                         "created_at": time.time(),
                     }
-                _send_tool_completion_notification(
-                    ntd.name, task_id, "error",
-                    error=f"{type(e).__name__}: {e}",
-                )
+                # 通知已改由前端 RunPanel 统一处理
 
         with _task_lock:
             _task_store[task_id] = {
@@ -1651,10 +1631,33 @@ def _handle_nexus_tool_result(req_id: Any, params: dict) -> dict:
         logger.warning("[nt-result] task=%s NOT_FOUND (expired?)", task_id)
         return _err(req_id, f"task 不存在或已过期: {task_id}")
 
+    raw_result = t.get("result")
+    # ── 归一化 SDK 格式 ──
+    # sdk.result.success/fail() 返回 {action, data, message/code/reason}
+    # 顶层没有 success，前端 RunPanel 需要统一格式
+    if isinstance(raw_result, dict) and "action" in raw_result:
+        action = raw_result.get("action", "")
+        inner = raw_result.get("data")
+        if action == "allow":
+            normalized: Dict[str, Any] = {"success": True}
+        elif action == "error":
+            normalized = {
+                "success": False,
+                "error": raw_result.get("reason") or raw_result.get("message", ""),
+            }
+        else:
+            normalized = {}
+        # 保留 data 键：RunPanel 通过 runResult.data 渲染结果内容
+        if isinstance(inner, dict):
+            normalized["data"] = inner
+        if "message" in raw_result:
+            normalized["message"] = raw_result["message"]
+        raw_result = normalized
+
     result: dict = {
         "task_id": task_id,
         "status": t.get("status"),
-        "result": t.get("result"),
+        "result": raw_result,
         "error": t.get("error"),
     }
     # 透传依赖相关附加字段
@@ -1946,10 +1949,29 @@ def _send_tool_completion_notification(
         if status == "done":
             notif_type = "success"
             if isinstance(result, dict):
+                # 解包 sdk.result.* 包裹（action/data/message）→ 内层 data 才是真正的 payload
+                inner = result.get("data")
+                if isinstance(inner, dict) and ("issues_found" in inner or "report" in inner):
+                    result = inner
+
                 if result.get("success") is False:
                     notif_type = "warning"
                     err_text = result.get("error", "")
                     summary = f"执行完成但有错误: {err_text[:80]}" if err_text else "执行完成但有错误"
+                elif "issues_found" in result or "report" in result:
+                    # 合规检查类工具：用 report 的第一行作摘要，完整 report 入 detail
+                    issues_found = result.get("issues_found", 0)
+                    report = result.get("report", "")
+                    if issues_found > 0:
+                        notif_type = "warning"
+                        errors = sum(1 for i in result.get("issues", []) if i.get("severity") == "error")
+                        warnings = sum(1 for i in result.get("issues", []) if i.get("severity") == "warning")
+                        parts = []
+                        if errors: parts.append(f"{errors} 个错误")
+                        if warnings: parts.append(f"{warnings} 个警告")
+                        summary = f"检查 {result.get('total_checked', issues_found)} 个 Tool，" + "，".join(parts)
+                    else:
+                        summary = f"检查 {result.get('total_checked', 'N')} 个 Tool，全部通过"
                 else:
                     data = result.get("data", {})
                     if isinstance(data, dict):
@@ -1972,11 +1994,17 @@ def _send_tool_completion_notification(
             notif_type = "info"
             summary = f"状态: {status}"
 
+        # 构建详情：合规检查类工具附完整 report，通用工具附 JSON 结果
+        detail = None
+        if isinstance(result, dict):
+            detail = result.get("report") or (json.dumps(result, ensure_ascii=False, indent=2) if status != "done" else None)
+
         payload = {
             "type": notif_type,
             "title": f"工具: {tool_name}",
             "message": summary,
             "source": f"nexus-tool:{task_id}",
+            "detail": detail,
         }
 
         with open(fpath, "w", encoding="utf-8") as f:

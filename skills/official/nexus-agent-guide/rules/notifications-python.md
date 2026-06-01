@@ -1,6 +1,12 @@
 # 通知通道 A：Python 文件桥接
 
-外部 Python 脚本 / Sidecar 工具完成通知的首选方式。
+外部 Python 脚本 / DCC 内工具通知的专用通道。
+
+> **注意**：通过 RunPanel 运行的工具（包括合规检查器）已改为前端自动通知，
+> **不需要**再通过文件桥接发送。此通道仅用于：
+> - DCC 内执行的工具（Blender/Maya/Max 等，无法直接访问 WebView）
+> - 外部 cron 脚本 / 系统脚本
+> - `scripts/artifex_notify.py` CLI
 
 ---
 

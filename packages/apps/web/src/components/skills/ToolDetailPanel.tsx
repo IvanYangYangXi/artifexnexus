@@ -1038,10 +1038,11 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
 
   const dccList = detail.software?.length ? detail.software : [{ dcc: "blender" }, { dcc: "unreal_engine" }, { dcc: "maya" }, { dcc: "3ds_max" }, { dcc: "houdini" }, { dcc: "comfyui" }];
 
-  // 判断是否有目标 DCC 已连接
+  // 判断是否有目标 DCC 已连接。filter out "general" — 通用工具无需 DCC 连接
   const hasConnectedDCC = React.useMemo(() => {
     return dccList.some((e) => {
       const dcc = typeof e === "string" ? e : e.dcc;
+      if (dcc === "general") return true;
       const status = dccStatus.find((s) => s.name.toLowerCase() === dcc.toLowerCase());
       return status?.connected ?? false;
     });

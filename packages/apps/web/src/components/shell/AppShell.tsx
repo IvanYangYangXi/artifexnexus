@@ -224,6 +224,7 @@ function NotificationBridge() {
           message: string;
           type: string;
           source?: string;
+          detail?: string;
         }>("notification-received", (event) => {
           const payload = event.payload;
           const validTypes = ["info", "success", "warning", "error"] as const;
@@ -235,6 +236,7 @@ function NotificationBridge() {
             title: payload.title,
             message: payload.message,
             source: payload.source,
+            detail: payload.detail,
           });
         });
         unlisten = fn;

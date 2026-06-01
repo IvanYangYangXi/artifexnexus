@@ -29,6 +29,8 @@ export interface AppNotification {
   timestamp: string; // ISO
   source?: string;
   read: boolean;
+  /** 详细内容（合规检查的问题列表等），在详情弹窗中以 pre 格式展示 */
+  detail?: string;
 }
 
 export interface AddNotificationParams {
@@ -36,6 +38,8 @@ export interface AddNotificationParams {
   title: string;
   message: string;
   source?: string;
+  /** 详细内容，点击详情弹窗时展示 */
+  detail?: string;
 }
 
 // ─── Actions ───────────────────────────────────────────────────────────────

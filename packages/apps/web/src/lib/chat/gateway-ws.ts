@@ -980,6 +980,7 @@ export class GatewayWebSocket {
         title: typeof payload.title === "string" ? payload.title : "通知",
         message: typeof payload.message === "string" ? payload.message : "",
         source: typeof payload.source === "string" ? payload.source : "gateway",
+        detail: typeof payload.detail === "string" ? payload.detail : undefined,
       });
     } catch (err) {
       console.warn("[gateway-ws] Failed to handle notify event:", err);

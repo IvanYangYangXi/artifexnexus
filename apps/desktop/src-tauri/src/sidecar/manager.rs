@@ -87,9 +87,26 @@ impl SidecarManager {
     /// 发送 JSON-RPC 请求。
     ///
     /// 2026-05-15：`start()` 内建自动清理旧 sidecar 僵尸进程（`kill_python_sidecars`），
-    /// 不再需要用户重启 EXE。但 `call()` 本身仍不做自动重启——超时/IO 失败时直接报错，
-    /// 由上层命令决定是否重试 `start()` → `call()`。
+    /// 不再需要用户重启 EXE。
+    ///
+    /// 2026-06-01：增加 pipe-broken 自动恢复。sidecar 崩溃后 `is_running()` 仍返回 true
+    /// （`client` 对象尚未 drop），实际往 stdin 写入会触发 Windows os error 232
+    /// （"管道正在被关闭"）。现在捕获此类 IO 错误后自动清理 + 重启 + 重试一次。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        match self._call_inner(method, &params) {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_pipe_broken(&e) => {
+                trace_log!("rpc", "pipe broken on {method}, restarting sidecar...");
+                self.client = None;
+                self.start()?;
+                self._call_inner(method, &params)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// call() 的内部实现：执行单次 RPC，不做自动恢复。
+    fn _call_inner(&mut self, method: &str, params: &Value) -> Result<Value, String> {
         let client = self
             .client
             .as_mut()
@@ -104,7 +121,7 @@ impl SidecarManager {
             trace_log!("rpc", "→ {method}");
         }
 
-        match client.call(method, params) {
+        match client.call(method, params.clone()) {
             Ok(result) => {
                 if !poll {
                     trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());
@@ -118,12 +135,38 @@ impl SidecarManager {
         }
     }
 
-    /// 同 ``call``，但允许调用方为本次 RPC 指定自定义超时（秒）。
+    /// 判断错误是否由 broken pipe（sidecar 已死）引起。
+    fn is_pipe_broken(err: &str) -> bool {
+        err.contains("写入 sidecar 失败")
+            || err.contains("flush sidecar 失败")
+            || err.contains("sidecar reader 线程已退出")
+            || err.contains("sidecar 进程意外退出")
+            || err.contains("sidecar 响应超时")
+    }
     /// 用于已知慢调用：CLI 下载/解压、全量 restore 等。
+    /// 具备 pipe-broken 自动恢复。
     pub fn call_with_timeout(
         &mut self,
         method: &str,
         params: Value,
+        timeout_secs: u64,
+    ) -> Result<Value, String> {
+        match self._call_with_timeout_inner(method, &params, timeout_secs) {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_pipe_broken(&e) => {
+                trace_log!("rpc", "pipe broken on {method} (timeout={timeout_secs}s), restarting sidecar...");
+                self.client = None;
+                self.start()?;
+                self._call_with_timeout_inner(method, &params, timeout_secs)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn _call_with_timeout_inner(
+        &mut self,
+        method: &str,
+        params: &Value,
         timeout_secs: u64,
     ) -> Result<Value, String> {
         let client = self
@@ -140,7 +183,7 @@ impl SidecarManager {
             trace_log!("rpc", "→ {method} timeout={}s", timeout_secs);
         }
 
-        match client.call_with_timeout(method, params, timeout_secs) {
+        match client.call_with_timeout(method, params.clone(), timeout_secs) {
             Ok(result) => {
                 if !poll {
                     trace_log!("rpc", "← {method} OK ({}ms)", t0.elapsed().as_millis());

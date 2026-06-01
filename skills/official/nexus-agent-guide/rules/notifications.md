@@ -22,9 +22,9 @@ Artifex Nexus 桌面应用的右下角 toast 气泡和右上角铃铛通知中�
 
 | 通道 | 适用场景 | 延迟 |
 |------|----------|:--:|
-| **Python 文件桥接** | 外部 Python 脚本、Sidecar 工具完成通知 | ~3s |
+| **Python 文件桥接** | 外部 Python 脚本、DCC 工具内部通知（DCC 进程无法直接访问 WebView） | ~3s |
 | **Gateway WebSocket** | Gateway 内 cron 任务、Gateway 插件 | 实时 |
-| **Tauri IPC** | 桌面应用 WebView 内前端代码 | 实时 |
+| **Tauri IPC / 前端通知** | 桌面应用 WebView 内前端代码、RunPanel 工具执行结果 | 实时 |
 
 ### 通道选择决策
 
@@ -33,17 +33,27 @@ Artifex Nexus 桌面应用的右下角 toast 气泡和右上角铃铛通知中�
 ├─ 外部 Python 脚本 → 通道 A（Python 文件桥接）
 ├─ Gateway cron 任务 → 通道 B（Gateway WS）
 ├─ Tauri WebView 前端代码 → 通道 C（Tauri IPC）
-└─ Sidecar 工具执行完成 → 自动通知（无需手动调用）
+├─ DCC 内 Python 工具（Blender/Maya/Max 等） → 通道 A（写文件到 pending_notifications/）
+└─ 通过 RunPanel 运行的工具 → 前端自动通知（工具无需自行发送）
 ```
 
 ---
 
 ## Nexus-Tool 自动通知
 
-通过 Artifex Nexus 面板触发的工具（包括定时触发器），执行完成后**自动**发送通知：
+通过 Artifex Nexus RunPanel 触发的工具，执行完成后 **前端自动发送通知**（无需工具代码自行发通知）：
 
-- 成功：标题 `工具: {名称}`，消息 `执行成功`
-- 失败：标题 `工具: {名称}`，消息 `执行失败: {错误}`
+| 工具类型 | 成功通知 | 失败通知 |
+|----------|----------|----------|
+| 合规检查类 | `"检查 N 个 Tool，X 个错误，Y 个警告"` (warning/error) | — |
+| 合规检查类（全通过） | `"检查 N 个 Tool，全部通过"` (success) | — |
+| 普通工具（有输出） | `"执行成功（输出 N 字符）"` (success) | `"执行失败: {错误}"` (error) |
+| 普通工具（无输出） | `"执行成功"` (success) | `"执行失败: {错误}"` (error) |
+
+- 通知标题格式：`工具: {工具名称}`
+- 合规检查类通知的 `detail` 字段附完整 report（可在铃铛详情查看）
+- 超时也会触发通知：`"执行失败: 执行超时（超过 120 秒）"`
+- 用户手动取消**不触发通知**
 
 ---
 

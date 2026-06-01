@@ -376,6 +376,7 @@ function DefaultAgentTab({ state, dispatch }: { state: SettingsState; dispatch: 
 
 function GeneralTab() {
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [resetMsg, setResetMsg] = React.useState<string | null>(null);
   const [saveMsg, setSaveMsg] = React.useState<string | null>(null);
@@ -385,6 +386,7 @@ function GeneralTab() {
 
   const loadSettings = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const r = await getAppSettings();
       setSettings(r.settings);
@@ -392,6 +394,7 @@ function GeneralTab() {
       setDirty(false);
     } catch (e: any) {
       console.error("[GeneralTab] load failed:", e);
+      setLoadError(e.message || String(e));
     }
     setLoading(false);
   }, []);
@@ -433,7 +436,17 @@ function GeneralTab() {
   };
 
   if (loading) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />加载常规设置...</div>;
-  if (!settings) return <div className="p-6 text-sm text-red-400">加载设置失败</div>;
+  if (!settings) return (
+    <div className="p-6 space-y-3">
+      <div className="text-sm text-red-400">加载设置失败</div>
+      {loadError && (
+        <p className="text-xs text-muted-foreground break-all font-mono">{loadError}</p>
+      )}
+      <Button variant="outline" size="sm" className="text-xs" onClick={loadSettings}>
+        <Loader2 className="mr-1 h-3 w-3" /> 重试
+      </Button>
+    </div>
+  );
 
   return (
     <div className="max-w-xl space-y-4">
