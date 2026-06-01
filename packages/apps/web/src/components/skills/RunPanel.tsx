@@ -135,6 +135,11 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const loadDetail = React.useCallback(async () => {
     setLoading(true);
     setError(null);
+    // 切换工具时清空上一个工具的运行结果
+    setRunResult(null);
+    setRunning(false);
+    setDepsMissing(null);
+    setDepsInstallResult(null);
     try {
       const d = await nexusToolDetail(toolId);
       setDetail(d);
