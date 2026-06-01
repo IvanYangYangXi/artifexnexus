@@ -2,7 +2,7 @@
 """
 ArtClaw Tool Compliance Checker v3.0
 
-扫描工具目录，对照 docs/specs/tool-manifest-spec.md 进行合规检查（29 条规则）。
+扫描工具目录，对照 docs/specs/tool-manifest-spec.md 进行合规检查（28 条规则）。
 
 路径来源：
   优先从自身 manifest.json 的 defaultFilters.path 读取（$variable 路径变量）
@@ -758,14 +758,6 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
 
         except SyntaxError:
             pass
-
-    # Rule 32: DCC 工具应有 defaultFilters.typeFilter
-    real_dccs = [d for d in _dcc_names if d and d != "general"]
-    if real_dccs:
-        type_filter = manifest.get("defaultFilters", {}).get("typeFilter", None)
-        if type_filter is None:
-            issues.append({"tool_id": tool_id, "severity": "warning",
-                          "message": "DCC 工具建议设置 defaultFilters.typeFilter（声明对象类型筛选条件）"})
 
     return issues
 
