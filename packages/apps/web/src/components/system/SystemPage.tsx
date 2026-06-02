@@ -231,6 +231,16 @@ function normalizeProjectPath(raw: string): string {
 
 const CHILDREN_STORAGE_PREFIX = "artifex_installer:v1:children:";
 
+/** 根据子项状态推导父级状态 */
+function deriveParentState(children: InstallChild[]): ItemState {
+  if (children.length === 0) return "not-installed";
+  if (children.some((c) => c.state === "installing")) return "installing";
+  if (children.some((c) => c.state === "installed")) return "installed";
+  if (children.some((c) => c.state === "update-available")) return "update-available";
+  if (children.some((c) => c.state === "failed")) return "failed";
+  return "not-installed";
+}
+
 function loadInitialItems(): InstallItem[] {
   return FIXTURE_ITEMS.map((item) => {
     if (!item.expandable) return item;
@@ -240,7 +250,7 @@ function loadInitialItems(): InstallItem[] {
       if (saved) {
         const children = JSON.parse(saved) as InstallChild[];
         if (children.length > 0) {
-          return { ...item, children };
+          return { ...item, children, state: deriveParentState(children) };
         }
       }
     } catch {
@@ -440,6 +450,14 @@ function InstallerTab() {
       const installedCount = children.filter((c: any) => c.state === "installed").length;
       addLog("max", "info", `检测到 ${result.versions.length} 个版本（已装插件: ${installedCount}）`);
     } catch (e) { addLog("max", "error", `3ds Max 检测失败: ${e instanceof Error ? e.message : String(e)}`); }
+
+    // 兜底：无自动检测的项（如 UE）根据已有子项推导父级状态
+    setItems((prev) => prev.map((it) => {
+      if (it.state === "pending" && it.expandable && it.children && it.children.length > 0) {
+        return { ...it, state: deriveParentState(it.children) };
+      }
+      return it;
+    }));
 
     // 全局检测完成后触发 StatusBar 刷新（Sidecar 此时已就绪）
     setStatusBarRefreshTrigger((n) => n + 1);
