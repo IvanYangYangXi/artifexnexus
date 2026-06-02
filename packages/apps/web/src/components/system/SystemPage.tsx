@@ -205,7 +205,6 @@ interface LogEntry { time: string; itemId: string; level: "info" | "warn" | "err
 const FIXTURE_ITEMS: InstallItem[] = [
   { id: "openclaw", name: "OpenClaw", iconKey: "openclaw", state: "not-installed", expandable: false },
   { id: "gateway-plugin", name: "Gateway Plugin", iconKey: "gateway-plugin", state: "not-installed", expandable: false },
-  { id: "web-ui", name: "Web UI", iconKey: "web-ui", state: "pending", expandable: false },
   { id: "blender", name: getDccDisplayName("blender"), iconKey: "blender", state: "pending", expandable: true, children: [] },
   { id: "unreal_engine", name: getDccDisplayName("unreal_engine"), iconKey: "unreal_engine", state: "pending", expandable: true, children: [] },
   { id: "3ds_max", name: getDccDisplayName("3ds_max"), iconKey: "3ds_max", state: "pending", expandable: true, children: [] },
