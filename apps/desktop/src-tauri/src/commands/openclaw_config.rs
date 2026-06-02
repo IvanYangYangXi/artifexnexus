@@ -251,3 +251,164 @@ pub async fn openclaw_models_fetch_remote(
         error: result["error"].as_str().map(|s| s.to_string()),
     })
 }
+
+// ---------------------------------------------------------------------------
+// v3.0.0：workspace 引导文件 RPC（Tauri 桥）
+// ---------------------------------------------------------------------------
+
+/// `openclaw.workspace.list_identity_files` 返回结构。
+#[derive(Debug, Serialize, Clone)]
+pub struct WorkspaceIdentityFile {
+    pub name: String,
+    pub exists: bool,
+    pub size: u64,
+    pub mtime: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WorkspaceFilesResponse {
+    pub workspace: String,
+    pub files: Vec<WorkspaceIdentityFile>,
+}
+
+/// 列出 agent workspace 中的引导文件元数据（AGENTS.md / IDENTITY.md / SOUL.md / USER.md 等）。
+#[tauri::command]
+pub async fn list_workspace_identity_files(
+    sidecar: State<'_, SidecarState>,
+    agent_id: Option<String>,
+) -> Result<WorkspaceFilesResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    let mut params = json!({});
+    if let Some(aid) = agent_id {
+        params["agentId"] = json!(aid);
+    }
+    let result = manager.call("openclaw.workspace.list_identity_files", params)?;
+
+    let files = result["files"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    Some(WorkspaceIdentityFile {
+                        name: f["name"].as_str()?.to_string(),
+                        exists: f["exists"].as_bool().unwrap_or(false),
+                        size: f["size"].as_u64().unwrap_or(0),
+                        mtime: f["mtime"].as_str().unwrap_or("").to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(WorkspaceFilesResponse {
+        workspace: result["workspace"].as_str().unwrap_or("").to_string(),
+        files,
+    })
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WorkspaceReadFileResponse {
+    pub content: String,
+    pub mtime: String,
+    pub exists: bool,
+}
+
+/// 读取 agent workspace 中的引导文件内容。
+#[tauri::command]
+pub async fn read_workspace_file(
+    sidecar: State<'_, SidecarState>,
+    filename: String,
+    agent_id: Option<String>,
+) -> Result<WorkspaceReadFileResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    let mut params = json!({ "filename": filename });
+    if let Some(aid) = agent_id {
+        params["agentId"] = json!(aid);
+    }
+    let result = manager.call("openclaw.workspace.read_file", params)?;
+
+    Ok(WorkspaceReadFileResponse {
+        content: result["content"].as_str().unwrap_or("").to_string(),
+        mtime: result["mtime"].as_str().unwrap_or("").to_string(),
+        exists: result["exists"].as_bool().unwrap_or(false),
+    })
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WorkspaceWriteFileResponse {
+    pub success: bool,
+    pub mtime: String,
+}
+
+/// 写入 agent workspace 中的引导文件内容。
+#[tauri::command]
+pub async fn write_workspace_file(
+    sidecar: State<'_, SidecarState>,
+    filename: String,
+    content: String,
+    agent_id: Option<String>,
+) -> Result<WorkspaceWriteFileResponse, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+    let mut params = json!({
+        "filename": filename,
+        "content": content,
+    });
+    if let Some(aid) = agent_id {
+        params["agentId"] = json!(aid);
+    }
+    let result = manager.call("openclaw.workspace.write_file", params)?;
+
+    Ok(WorkspaceWriteFileResponse {
+        success: result["success"].as_bool().unwrap_or(false),
+        mtime: result["mtime"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+/// 在系统文件管理器中打开指定的 workspace 目录。
+///
+/// 安全策略：仅允许打开存在的目录，路径必须是绝对路径。
+#[tauri::command]
+pub async fn open_workspace_folder(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err(format!("path 必须为绝对路径: {path}"));
+    }
+    if !p.exists() {
+        return Err(format!("目录不存在: {path}"));
+    }
+    if !p.is_dir() {
+        return Err(format!("不是目录: {path}"));
+    }
+    // 跨平台调用系统文件管理器
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    Ok(())
+}

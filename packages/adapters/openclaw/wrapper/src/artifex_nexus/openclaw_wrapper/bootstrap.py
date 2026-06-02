@@ -358,9 +358,19 @@ def _migrate_auth_profiles_files(openclaw_home: Path, config: dict) -> None:  # 
 # ---------------------------------------------------------------------------
 
 _AGENT_IDENTITY_FILES = [
-    "AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "TOOLS.md", "HEARTBEAT.md",
+    "AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md",
 ]
-"""Agent 独立 workspace 中需要备份的人格文件列表。"""
+"""Agent 独立 workspace 中需要备份的人格 / 引导文件列表。
+
+v3.0.0 起包含 4 个文件：
+- AGENTS.md（必需）：平台知识、Session Startup、Red Lines（OpenClaw postCompactionSections 默认重注入）
+- IDENTITY.md（可选）：Agent 名字、性格、emoji
+- SOUL.md（可选）：核心信条、行为准则、沟通风格、边界
+- USER.md（可选）：用户称呼、时区、备注
+
+注意：这里的 AGENTS.md 指 agent workspace 内的引导文件，与项目根目录的
+AGENTS.md（项目开发约定）是不同的文件。
+"""
 
 
 def _backup_for_reinstall(
@@ -375,7 +385,8 @@ def _backup_for_reinstall(
 
     5 个勾选项的 key：
     - preserveProvidersAndAuth：models.providers + auth + auth-profiles.json（双路径）
-    - preserveAgents：agents.list/defaults + 各 agent 独立 workspace 人格文件
+    - preserveAgents：agents.list/defaults + 各 agent 独立 workspace 引导文件
+      （AGENTS.md / IDENTITY.md / SOUL.md / USER.md，v3.0.0 起 4 个）
     - preservePluginsAndMemory：plugins.entries + state/memory/*.sqlite + workspace/memory/
     - preserveMCPServers：plugins.entries.mcp-bridge.config.servers
     - preserveSkills：workspace/skills/ 整个目录（扁平结构）
@@ -1352,33 +1363,67 @@ def _create_directory_layout(openclaw_home: Path) -> list[Path]:
 _WORKSPACE_ASSETS_DIR = Path(__file__).parent / "assets" / "agents" / "workspace"
 """workspace 预设文件资源目录。"""
 
-_WORKSPACE_IDENTITY_FILES = ["IDENTITY.md", "SOUL.md", "USER.md"]
-"""需要预置到 workspace 的人格文件列表。"""
+_WORKSPACE_IDENTITY_FILES = ["AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md"]
+"""需要预置到 workspace 的引导文件列表（v3.0.0 起包含 AGENTS.md）。"""
 
 
-def _install_workspace_identity_files(openclaw_home: Path) -> None:
-    """预置 workspace 的人格文件（IDENTITY.md / SOUL.md / USER.md）。
+def _install_workspace_identity_files(
+    openclaw_home: Path, config: Optional[dict] = None,
+) -> None:
+    """预置 workspace 的引导文件（AGENTS.md / IDENTITY.md / SOUL.md / USER.md）。
 
-    Install default identity files to the agent workspace directory.
+    Install default identity files to all agent workspaces.
     仅在目标文件不存在时写入（不覆盖用户修改）。
-    """
-    workspace_dir = openclaw_home / DEFAULT_WORKSPACE
-    workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    for filename in _WORKSPACE_IDENTITY_FILES:
-        target = workspace_dir / filename
-        if target.exists():
-            # 不覆盖用户已修改的文件
-            continue
-        source = _WORKSPACE_ASSETS_DIR / filename
-        if not source.exists():
-            logger.warning("workspace 预设文件缺失: %s", source)
-            continue
+    v3.0.0：AGENTS.md（OpenClaw 必需引导文件，含 Session Startup / Red Lines）
+    与其他 3 个可选引导文件一并预置。systemPromptOverride 已弃用，平台知识
+    通过 AGENTS.md 注入。
+
+    Args:
+        openclaw_home: OPENCLAW_HOME 路径
+        config: 可选的 openclaw.json 配置。若提供，会遍历 agents.list[] 给
+            每个 agent 的独立 workspace 也预置默认文件（多 agent 场景）。
+            若 None，仅预置主 workspace/。
+    """
+    # 收集所有要预置的 workspace 路径（去重）
+    workspaces_to_seed: set[Path] = set()
+    # 主 workspace
+    workspaces_to_seed.add(openclaw_home / DEFAULT_WORKSPACE)
+
+    # 多 agent：遍历 agents.list 收集每个 agent 的 workspace
+    if config:
+        for agent in (config.get("agents", {}) or {}).get("list", []) or []:
+            if not isinstance(agent, dict):
+                continue
+            ws_field = agent.get("workspace")
+            if not ws_field:
+                continue
+            ws_path = Path(ws_field)
+            if not ws_path.is_absolute():
+                ws_path = openclaw_home / ws_path
+            workspaces_to_seed.add(ws_path)
+
+    for workspace_dir in workspaces_to_seed:
         try:
-            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-            logger.info("预置 workspace 文件: %s", target)
+            workspace_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            logger.warning("写入 workspace 文件失败: %s: %s", target, exc)
+            logger.warning("创建 workspace 目录失败: %s: %s", workspace_dir, exc)
+            continue
+
+        for filename in _WORKSPACE_IDENTITY_FILES:
+            target = workspace_dir / filename
+            if target.exists():
+                # 不覆盖用户已修改的文件
+                continue
+            source = _WORKSPACE_ASSETS_DIR / filename
+            if not source.exists():
+                logger.warning("workspace 预设文件缺失: %s", source)
+                continue
+            try:
+                target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+                logger.info("预置 workspace 文件: %s", target)
+            except OSError as exc:
+                logger.warning("写入 workspace 文件失败: %s: %s", target, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -1683,7 +1728,7 @@ def bootstrap(
         # 1. 创建目录布局
         created_dirs = _create_directory_layout(openclaw_home)
 
-        # 2. 预置 workspace 人格文件（IDENTITY.md / SOUL.md / USER.md）
+        # 2. 预置 workspace 引导文件（AGENTS.md / IDENTITY.md / SOUL.md / USER.md）
         _install_workspace_identity_files(openclaw_home)
 
         # 3. 读取旧配置（用于 preserve 合并）
@@ -1705,6 +1750,10 @@ def bootstrap(
         # 6. 写入 openclaw.json
         config_path = openclaw_home / "openclaw.json"
         _write_config(config_path, config)
+
+        # 6b. 多 agent 场景：为 agents.list[] 中所有非主 workspace 也预置引导文件
+        #     （preserveAgents 时合并的旧 agents 可能包含独立 workspace）
+        _install_workspace_identity_files(openclaw_home, config)
 
         # 7. 注入 Artifex Nexus 默认 agent 预设（失败仅 warn，不阻塞 bootstrap）
         # EPIC-0001 第二批 #3 / STORY-0017

@@ -86,6 +86,11 @@ pub fn run() {
             commands::openclaw_config::openclaw_config_test_provider,
             commands::openclaw_config::openclaw_auth_set_token,
             commands::openclaw_config::openclaw_models_fetch_remote,
+            // v3.0.0：workspace 引导文件 RPC
+            commands::openclaw_config::list_workspace_identity_files,
+            commands::openclaw_config::read_workspace_file,
+            commands::openclaw_config::write_workspace_file,
+            commands::openclaw_config::open_workspace_folder,
             // STORY-0024 M2：Blender MCP 桥接
             commands::openclaw::openclaw_mcp_blender_run_python,
             // STORY-0026 M2：DCC 安装器

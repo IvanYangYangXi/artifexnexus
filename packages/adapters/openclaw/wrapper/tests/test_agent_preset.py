@@ -45,16 +45,18 @@ def fake_bin(tmp_path: Path) -> Path:
 
 class TestRender:
     def test_renders_valid_json_with_real_assets(self, fake_home: Path):
-        """读真实 assets 模板与 prompt，渲染后是合法 JSON 且包含关键字段。"""
+        """读真实 assets 模板，渲染后是合法 JSON 且包含关键字段。"""
         preset = agent_preset.render_v1_0_0(fake_home)
         assert preset["id"] == "artifex-nexus"
         assert preset["default"] is True
         assert "skills" not in preset  # 不限制，让 agent 可用所有已安装 skill
         assert preset["agentRuntime"]["id"] == "pi"
         assert preset["workspace"].endswith("workspace") or "workspace" in preset["workspace"]
-        # system prompt 含关键字
-        assert "Artifex Nexus" in preset["systemPromptOverride"]
-        assert "DCC" in preset["systemPromptOverride"]
+        # v3.0.0：systemPromptOverride 已删除，改用 OpenClaw 标准引导文件
+        assert "systemPromptOverride" not in preset
+        # v3.0.0：identity 结构化字段
+        assert preset["identity"]["name"] == "Nex"
+        assert preset["identity"]["emoji"] == "🔗"
         # 不含模型字段（spec §2.4）
         assert "model" not in preset
 
@@ -63,28 +65,13 @@ class TestRender:
         assert "{{OPENCLAW_WORKSPACE}}" not in preset["workspace"]
         assert str(fake_home / "workspace") in preset["workspace"]
 
-    def test_system_prompt_with_special_chars(self, fake_home: Path):
-        """system prompt 含双引号、反斜杠、换行也能正确转义。"""
-        weird = 'line1\n"quoted"\\backslash\n'
-        preset = agent_preset.render_v1_0_0(
-            fake_home,
-            template_text=(
-                '{"id":"artifex-nexus","systemPromptOverride":{{SYSTEM_PROMPT_JSON}},'
-                '"workspace":"{{OPENCLAW_WORKSPACE}}"}'
-            ),
-            system_prompt=weird,
-        )
-        assert preset["systemPromptOverride"] == weird
-
     def test_workspace_with_backslash_path(self, tmp_path: Path):
         """Windows 路径 (含 \\) 也要正确 JSON 转义。"""
         win_home = tmp_path / "winpath"
         win_home.mkdir()
         preset = agent_preset.render_v1_0_0(
             win_home,
-            template_text='{"id":"artifex-nexus","workspace":"{{OPENCLAW_WORKSPACE}}",'
-            '"systemPromptOverride":{{SYSTEM_PROMPT_JSON}}}',
-            system_prompt="x",
+            template_text='{"id":"artifex-nexus","workspace":"{{OPENCLAW_WORKSPACE}}"}',
         )
         # 不会因路径里有 \ 把 JSON 撑坏
         assert preset["id"] == "artifex-nexus"
@@ -92,8 +79,7 @@ class TestRender:
     def test_invalid_template_raises(self, fake_home: Path):
         with pytest.raises(ValueError):
             agent_preset.render_v1_0_0(
-                fake_home, template_text="not valid {{SYSTEM_PROMPT_JSON}} json",
-                system_prompt="x",
+                fake_home, template_text="not valid json {",
             )
 
 
@@ -224,7 +210,7 @@ class TestInstall:
         # lock 文件被写
         lock = agent_preset.read_lock(fake_home)
         assert lock is not None
-        assert lock["version"] == "1.0.0"
+        assert lock["version"] == agent_preset.PRESET_VERSION
 
     def test_repeat_unchanged_skips(self, fake_home: Path, fake_bin: Path):
         rec = _Recorder()
@@ -290,10 +276,10 @@ class TestInstall:
         assert result.action == "forced"
         # 应该再次 patch
         assert len(rec.patch_calls) >= 2
-        # 新 patch 里 artifex-nexus 的 name 回到模板默认（含 "DCC"）
+        # 新 patch 里 artifex-nexus 的 name 回到模板默认
         last = rec.patch_calls[-1]["agents"]["list"]
         found = next(a for a in last if a["id"] == "artifex-nexus")
-        assert "DCC" in found["name"]
+        assert found["name"] == "Artifex Nexus (Default Agent)"
 
     def test_patch_failure_returns_failed(self, fake_home: Path, fake_bin: Path):
         rec = _Recorder()
@@ -358,7 +344,7 @@ class TestStatus:
         )
         s = agent_preset.get_status(fake_bin, fake_home, config_get_fn=rec.get)
         assert s.installed is True
-        assert s.version == "1.0.0"
+        assert s.version == agent_preset.PRESET_VERSION
         assert s.modified_by_user is False
 
     def test_status_detects_user_modification(self, fake_home: Path, fake_bin: Path):

@@ -590,6 +590,234 @@ def _handle_openclaw_agent_preset_reset(req_id: Any, params: dict) -> dict:
         }
 
 
+# ---------------------------------------------------------------------------
+# v3.0.0：workspace 引导文件 RPC（替代 systemPromptOverride 编辑）
+# ---------------------------------------------------------------------------
+
+_WORKSPACE_FILE_WHITELIST = frozenset({
+    "AGENTS.md",
+    "IDENTITY.md",
+    "SOUL.md",
+    "USER.md",
+    "HEARTBEAT.md",
+    "BOOTSTRAP.md",
+    "TOOLS.md",
+})
+"""允许通过 RPC 读写的引导文件白名单（OpenClaw 标准 7 个 + 自定义不在内）。"""
+
+_WORKSPACE_FILE_MAX_BYTES = 100 * 1024
+"""单个引导文件最大大小限制（100 KB），防止恶意/误操作写入。"""
+
+
+def _resolve_agent_workspace(openclaw_home: Path, agent_id: Optional[str]) -> Path:
+    """根据 agent_id 解析 workspace 路径。
+
+    - agent_id 为空 / None → 默认走 "artifex-nexus"（兼容老前端）
+    - 始终查 openclaw.json agents.list[id=...].workspace（workspace 字段可能是
+      相对路径或绝对路径，需要规范化）
+    - 如果 CLI 不可用 / agents.list 不可用 / agent 不存在，回退到 openclaw_home/workspace
+      （保证 workspace 文件编辑器在 bootstrap 失败的边缘场景下也能工作）
+
+    多 agent 场景：每个 agent 可以有独立的 workspace 路径（如 workspace-twelve），
+    该函数确保每个 agent_id 都正确解析到自己的目录，互不干扰。
+    """
+    target_id = agent_id or "artifex-nexus"
+
+    # 始终先尝试从 agents.list 查询（多 agent 场景下每个 agent 可能有不同 workspace）
+    bin_path = _runtime._find_openclaw_bin(openclaw_home)
+    if bin_path is not None:
+        raw_list = _agent_preset._run_config_get(bin_path, openclaw_home, "agents.list")
+        if isinstance(raw_list, list):
+            for item in raw_list:
+                if isinstance(item, dict) and item.get("id") == target_id:
+                    ws_field = item.get("workspace")
+                    if ws_field:
+                        ws_path = Path(ws_field)
+                        if not ws_path.is_absolute():
+                            ws_path = openclaw_home / ws_path
+                        return ws_path.resolve()
+                    # agent 存在但未配 workspace：回退默认
+                    break
+
+    # 兜底：CLI 不可用 / agents.list 缺失 / agent 未配 workspace
+    # → 主 agent 走默认 workspace/；其他 agent 走 workspace-<id>/（OpenClaw 约定）
+    if target_id == "artifex-nexus":
+        return (openclaw_home / "workspace").resolve()
+    return (openclaw_home / f"workspace-{target_id}").resolve()
+
+
+def _validate_workspace_filename(filename: str) -> None:
+    """校验文件名是否在白名单内且不含路径穿越。
+
+    Raises:
+        ValueError: 非法文件名
+    """
+    if not filename or not isinstance(filename, str):
+        raise ValueError("filename 必须为非空字符串")
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise ValueError(f"filename 不允许包含路径分隔符或 ..: {filename!r}")
+    if filename not in _WORKSPACE_FILE_WHITELIST:
+        raise ValueError(
+            f"filename 不在白名单内: {filename!r}，"
+            f"允许: {sorted(_WORKSPACE_FILE_WHITELIST)}"
+        )
+
+
+def _handle_openclaw_workspace_list_identity_files(req_id: Any, params: dict) -> dict:
+    """openclaw.workspace.list_identity_files RPC：列出 agent workspace 的引导文件。
+
+    参数：
+        agentId (str, 可选)：默认 "artifex-nexus"
+        openclaw_home (str, 可选)
+
+    返回：
+        { workspace, files: [{ name, exists, size, mtime }] }
+    """
+    import datetime as _dt
+    openclaw_home = Path(params.get("openclaw_home", str(_get_openclaw_home())))
+    agent_id = params.get("agentId") or "artifex-nexus"
+
+    try:
+        ws = _resolve_agent_workspace(openclaw_home, agent_id)
+        files_out: list[dict] = []
+        for name in sorted(_WORKSPACE_FILE_WHITELIST):
+            p = ws / name
+            if p.exists() and p.is_file():
+                stat = p.stat()
+                files_out.append({
+                    "name": name,
+                    "exists": True,
+                    "size": stat.st_size,
+                    "mtime": _dt.datetime.fromtimestamp(
+                        stat.st_mtime, _dt.timezone.utc
+                    ).isoformat(),
+                })
+            else:
+                files_out.append({
+                    "name": name,
+                    "exists": False,
+                    "size": 0,
+                    "mtime": "",
+                })
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"workspace": str(ws), "files": files_out},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)},
+        }
+
+
+def _handle_openclaw_workspace_read_file(req_id: Any, params: dict) -> dict:
+    """openclaw.workspace.read_file RPC：读取引导文件内容。
+
+    参数：
+        filename (str, 必填)：白名单内的文件名
+        agentId (str, 可选)：默认 "artifex-nexus"
+        openclaw_home (str, 可选)
+
+    返回：
+        { content, mtime } 或 { content: "", mtime: "" }（文件不存在时）
+    """
+    import datetime as _dt
+    openclaw_home = Path(params.get("openclaw_home", str(_get_openclaw_home())))
+    agent_id = params.get("agentId") or "artifex-nexus"
+    filename = params.get("filename", "")
+
+    try:
+        _validate_workspace_filename(filename)
+        ws = _resolve_agent_workspace(openclaw_home, agent_id)
+        p = ws / filename
+        if not p.exists():
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"content": "", "mtime": "", "exists": False},
+            }
+        if p.stat().st_size > _WORKSPACE_FILE_MAX_BYTES:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32000,
+                    "message": f"文件超过 {_WORKSPACE_FILE_MAX_BYTES} 字节上限",
+                },
+            }
+        content = p.read_text(encoding="utf-8")
+        mtime = _dt.datetime.fromtimestamp(
+            p.stat().st_mtime, _dt.timezone.utc
+        ).isoformat()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"content": content, "mtime": mtime, "exists": True},
+        }
+    except ValueError as e:
+        return {"jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32602, "message": str(e)}}
+    except Exception as e:
+        return {"jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32000, "message": str(e)}}
+
+
+def _handle_openclaw_workspace_write_file(req_id: Any, params: dict) -> dict:
+    """openclaw.workspace.write_file RPC：写入引导文件内容。
+
+    参数：
+        filename (str, 必填)：白名单内的文件名
+        content (str, 必填)：文件内容
+        agentId (str, 可选)：默认 "artifex-nexus"
+        openclaw_home (str, 可选)
+
+    返回：
+        { success, mtime }
+    """
+    import datetime as _dt
+    openclaw_home = Path(params.get("openclaw_home", str(_get_openclaw_home())))
+    agent_id = params.get("agentId") or "artifex-nexus"
+    filename = params.get("filename", "")
+    content = params.get("content", "")
+
+    if not isinstance(content, str):
+        return {"jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32602, "message": "content 必须为字符串"}}
+
+    try:
+        _validate_workspace_filename(filename)
+        encoded = content.encode("utf-8")
+        if len(encoded) > _WORKSPACE_FILE_MAX_BYTES:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"content 超过 {_WORKSPACE_FILE_MAX_BYTES} 字节上限",
+                },
+            }
+        ws = _resolve_agent_workspace(openclaw_home, agent_id)
+        ws.mkdir(parents=True, exist_ok=True)
+        p = ws / filename
+        p.write_text(content, encoding="utf-8")
+        mtime = _dt.datetime.fromtimestamp(
+            p.stat().st_mtime, _dt.timezone.utc
+        ).isoformat()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"success": True, "mtime": mtime},
+        }
+    except ValueError as e:
+        return {"jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32602, "message": str(e)}}
+    except Exception as e:
+        return {"jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32000, "message": str(e)}}
+
+
 def _handle_openclaw_config_dump(req_id: Any, params: dict) -> dict:
     """openclaw.config.dump RPC：聚合配置 + 脱敏。
 
@@ -2455,6 +2683,10 @@ METHOD_TABLE: dict[str, Any] = {
     "openclaw.config.patch": _handle_openclaw_config_patch,
     "openclaw.config.test_provider": _handle_openclaw_config_test_provider,
     "openclaw.auth.set_token": _handle_openclaw_auth_set_token,
+    # v3.0.0：workspace 引导文件 RPC
+    "openclaw.workspace.list_identity_files": _handle_openclaw_workspace_list_identity_files,
+    "openclaw.workspace.read_file": _handle_openclaw_workspace_read_file,
+    "openclaw.workspace.write_file": _handle_openclaw_workspace_write_file,
     "openclaw.models.fetch_remote": _handle_openclaw_models_fetch_remote,
     # STORY-0024 M2：Blender MCP 桥接
     "openclaw.mcp.blender.run_python": _handle_openclaw_mcp_blender_run_python,

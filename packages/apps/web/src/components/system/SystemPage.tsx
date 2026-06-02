@@ -452,7 +452,7 @@ function InstallerTab() {
     if (item?.state === "installed" && id === "openclaw") {
       const formResult = await showForm("重新安装 OpenClaw", [
         { key: "preserveProvidersAndAuth", label: "供应商配置 + API 凭据（baseUrl / API Key / 模型列表）", defaultValue: "true", type: "checkbox" },
-        { key: "preserveAgents", label: "Agent 配置 + 工作空间（Agent 预设 / 独立 workspace 文件）", defaultValue: "true", type: "checkbox" },
+        { key: "preserveAgents", label: "Agent 配置 + 工作空间（Agent 预设 / identity 字段 / AGENTS.md + IDENTITY.md + SOUL.md + USER.md）", defaultValue: "true", type: "checkbox" },
         { key: "preservePluginsAndMemory", label: "插件配置 + Memory（全部启用插件 / AI 长期记忆 / 梦境数据）", defaultValue: "true", type: "checkbox" },
         { key: "preserveMCPServers", label: "MCP 服务器配置（mcp-bridge 下全部 MCP 连接）", defaultValue: "true", type: "checkbox" },
         { key: "preserveSkills", label: "Skill（workspace/skills/ 全部 Skill）", defaultValue: "true", type: "checkbox" },
@@ -1803,7 +1803,7 @@ function MCPStatusTab() {
 
 const PRESERVE_LABELS: Record<string, string> = {
   preserveProvidersAndAuth: "供应商配置 + API 凭据",
-  preserveAgents: "Agent 配置 + 工作空间",
+  preserveAgents: "Agent 配置 + 工作空间（含 identity / AGENTS.md+IDENTITY.md+SOUL.md+USER.md）",
   preservePluginsAndMemory: "插件配置 + Memory",
   preserveMCPServers: "MCP 服务器配置",
   preserveSkills: "Skill",

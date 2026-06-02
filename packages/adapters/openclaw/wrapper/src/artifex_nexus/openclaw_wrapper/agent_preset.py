@@ -11,7 +11,9 @@ maintains a lock file with checksum for the "user-modified" idempotency rule.
   ``config get agents.list`` → Python 端 upsert → 整个数组 patch 回去
 - **lock 文件**：``state/artifex-nexus-preset.lock`` 存 ``{version, installedAt, checksum}``，
   bootstrap 时按 checksum 三态决定写/跳/警告；reset_default(force=True) 才允许覆盖
-- **模板分离**：assets/agents/*.preset.json.tpl + system-prompt.txt，方便 v1.1 升级
+- **v3.0.0 改动**：删除 ``systemPromptOverride``，改用 OpenClaw 标准引导文件机制
+  （workspace/AGENTS.md + IDENTITY.md + SOUL.md + USER.md），保留 Skills 列表 /
+  memory 注入 / Heartbeat / Runtime 信息等自动组装能力
 - **失败不阻塞 bootstrap**：注入失败仅 log.warn，不中断主链
 """
 
@@ -38,8 +40,15 @@ logger = logging.getLogger(__name__)
 # 常量
 # ---------------------------------------------------------------------------
 
-PRESET_VERSION = "2.0.0"
-"""当前预设版本（写入 lock 文件）。v2.0.0: 人格描述从 DCC 桥接扩展为全平台通用助理。"""
+PRESET_VERSION = "3.0.0"
+"""当前预设版本（写入 lock 文件）。
+
+- v2.0.0: 人格描述从 DCC 桥接扩展为全平台通用助理。
+- v3.0.0: 删除 systemPromptOverride，改用 OpenClaw 标准引导文件机制
+  （AGENTS.md / IDENTITY.md / SOUL.md / USER.md）+ identity 结构化字段。
+  这样 OpenClaw 的 Skills 列表、memory 注入、Heartbeat、Runtime 信息等自动
+  组装能力不会被 systemPromptOverride 完全替换。
+"""
 
 PRESET_ID = "artifex-nexus"
 """agents.list[].id。"""
@@ -48,10 +57,9 @@ CONFIG_TIMEOUT = 8.0
 """``openclaw config`` 子命令超时（秒）。"""
 
 _ASSETS_DIR = Path(__file__).parent / "assets" / "agents"
-"""模板与 system prompt 资源目录。"""
+"""模板资源目录。"""
 
 _TEMPLATE_FILE = _ASSETS_DIR / "artifex-nexus.preset.json.tpl"
-_SYSTEM_PROMPT_FILE = _ASSETS_DIR / "artifex-nexus.system-prompt.txt"
 
 
 # ---------------------------------------------------------------------------
@@ -121,11 +129,6 @@ def workspace_for(openclaw_home: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _read_system_prompt() -> str:
-    """读取 system prompt 文本（assets 目录）。"""
-    return _SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
-
-
 def _read_template() -> str:
     """读取模板（assets 目录）。"""
     return _TEMPLATE_FILE.read_text(encoding="utf-8")
@@ -135,16 +138,18 @@ def render_v1_0_0(
     openclaw_home: Path,
     *,
     template_text: Optional[str] = None,
-    system_prompt: Optional[str] = None,
 ) -> dict:
-    """渲染 v1.0.0 预设为 dict。
+    """渲染 v3.0.0 预设为 dict。
 
-    Render the v1.0.0 preset template into a dict ready for ``agents.list[]``.
+    Render the v3.0.0 preset template into a dict ready for ``agents.list[]``.
+
+    v3.0.0 改动：不再注入 systemPromptOverride。人格/平台知识统一通过 OpenClaw
+    标准引导文件机制（AGENTS.md / IDENTITY.md / SOUL.md / USER.md）注入，
+    保留 OpenClaw 自动组装的 Skills 列表 / memory / Heartbeat / Runtime 等能力。
 
     Args:
         openclaw_home: 用于替换 ``{{OPENCLAW_WORKSPACE}}``。
         template_text: 测试可注入；为空读 assets 文件。
-        system_prompt: 测试可注入；为空读 assets 文件。
 
     Returns:
         预设 dict，可直接 upsert 到 ``agents.list[]``。
@@ -153,21 +158,11 @@ def render_v1_0_0(
         ValueError: 渲染后非合法 JSON。
     """
     tpl = template_text if template_text is not None else _read_template()
-    prompt = system_prompt if system_prompt is not None else _read_system_prompt()
 
     workspace = str(workspace_for(openclaw_home))
 
-    # JSON 转义 system prompt（含 \n、引号等），得到合法 JSON 字符串字面量
-    # 例如 "你是 ...\n..."，包含包裹的双引号
-    prompt_json = json.dumps(prompt, ensure_ascii=False)
-    workspace_json = json.dumps(workspace, ensure_ascii=False)
-    # workspace 替换：模板里 "{{OPENCLAW_WORKSPACE}}" 形如 "...{{OPENCLAW_WORKSPACE}}..."
-    # 因为模板对 workspace 已加双引号，所以这里只替换占位符内容（裸字符串），
-    # 而 SYSTEM_PROMPT_JSON 占位符**没有包裹引号**，由 prompt_json 自带
-
-    # 安全替换：workspace 占位符位于已加引号的位置，不需要带引号
+    # workspace 占位符位于已加引号的位置，用转义后的字符串体替换
     rendered = tpl.replace("{{OPENCLAW_WORKSPACE}}", _escape_for_json_string(workspace))
-    rendered = rendered.replace("{{SYSTEM_PROMPT_JSON}}", prompt_json)
 
     try:
         preset = json.loads(rendered)

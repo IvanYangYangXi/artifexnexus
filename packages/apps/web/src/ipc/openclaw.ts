@@ -63,6 +63,8 @@ export interface OpenClawConfigDump {
   authOrder: Record<string, string[]>;
   /** agents.defaults 节点（含 model / imageModel / thinkingDefault 等） */
   agentDefaults: Record<string, unknown>;
+  /** agents.list 节点（agent 预设数组，含 id / name / model / thinkingDefault 等） */
+  agentList: Record<string, unknown>[];
   /** wrapper extras：providerExtras / authExtras / modelExtras */
   extras: Record<string, unknown>;
 }
@@ -262,6 +264,77 @@ export async function setOpenClawAuthToken(args: {
     token: args.token,
     expiresIn: args.expiresIn ?? null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// v3.0.0：workspace 引导文件 API（替代 systemPromptOverride 编辑）
+// ---------------------------------------------------------------------------
+
+/** 单个 workspace 引导文件元数据 */
+export interface WorkspaceIdentityFile {
+  name: string;
+  exists: boolean;
+  size: number;
+  /** ISO 8601 UTC 时间字符串；文件不存在时为空 */
+  mtime: string;
+}
+
+/** openclaw.workspace.list_identity_files 返回 */
+export interface WorkspaceFilesResult {
+  /** workspace 目录的绝对路径 */
+  workspace: string;
+  files: WorkspaceIdentityFile[];
+}
+
+/** openclaw.workspace.read_file 返回 */
+export interface WorkspaceReadFileResult {
+  content: string;
+  mtime: string;
+  exists: boolean;
+}
+
+/** openclaw.workspace.write_file 返回 */
+export interface WorkspaceWriteFileResult {
+  success: boolean;
+  mtime: string;
+}
+
+/** 列出 agent workspace 中的引导文件（AGENTS.md / IDENTITY.md / SOUL.md / USER.md 等）。 */
+export async function listWorkspaceIdentityFiles(
+  agentId?: string,
+): Promise<WorkspaceFilesResult> {
+  return invoke<WorkspaceFilesResult>("list_workspace_identity_files", {
+    agentId: agentId ?? null,
+  });
+}
+
+/** 读取 agent workspace 中的引导文件内容。 */
+export async function readWorkspaceFile(
+  filename: string,
+  agentId?: string,
+): Promise<WorkspaceReadFileResult> {
+  return invoke<WorkspaceReadFileResult>("read_workspace_file", {
+    filename,
+    agentId: agentId ?? null,
+  });
+}
+
+/** 写入 agent workspace 中的引导文件内容（白名单 + 100KB 上限）。 */
+export async function writeWorkspaceFile(
+  filename: string,
+  content: string,
+  agentId?: string,
+): Promise<WorkspaceWriteFileResult> {
+  return invoke<WorkspaceWriteFileResult>("write_workspace_file", {
+    filename,
+    content,
+    agentId: agentId ?? null,
+  });
+}
+
+/** 在系统文件管理器中打开指定的 workspace 目录。 */
+export async function openWorkspaceFolder(path: string): Promise<void> {
+  return invoke<void>("open_workspace_folder", { path });
 }
 
 // ---------------------------------------------------------------------------

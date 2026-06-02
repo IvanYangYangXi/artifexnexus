@@ -260,8 +260,25 @@ export function dumpToState(dump: OpenClawConfigDump): {
   };
 
   // Bug #5：解析 agents.list 中的预设 agent
-  const agentPresets = asArray((dump as any).agentList ?? []).map((raw) => {
+  const agentPresets = asArray(dump.agentList ?? []).map((raw) => {
     const obj = asObject(raw);
+    // model 字段兼容两种格式：string "provider/model" 或 {primary, fallbacks}
+    const modelRaw = obj.model;
+    let modelStr = "";
+    if (typeof modelRaw === "string") {
+      modelStr = modelRaw;
+    } else if (modelRaw && typeof modelRaw === "object" && typeof (modelRaw as any).primary === "string") {
+      modelStr = (modelRaw as any).primary;
+    }
+    const imageModelRaw = obj.imageModel;
+    let imageModelStr = "";
+    if (typeof imageModelRaw === "string") {
+      imageModelStr = imageModelRaw;
+    } else if (imageModelRaw && typeof imageModelRaw === "object" && typeof (imageModelRaw as any).primary === "string") {
+      imageModelStr = (imageModelRaw as any).primary;
+    }
+    // v3.0.0：identity 结构化字段（驱动渠道功能：mention/响应前缀/头像）
+    const identityRaw = asObject(obj.identity);
     return {
       id: asString(obj.id),
       name: asString(obj.name),
@@ -272,7 +289,19 @@ export function dumpToState(dump: OpenClawConfigDump): {
       toolProgressDetail: asString(obj.toolProgressDetail),
       workspace: asString(obj.workspace),
       skills: asArray(obj.skills).map((s) => asString(s)),
-      systemPromptOverride: asString(obj.systemPromptOverride),
+      // v3.0.0：identity 字段（name/theme/emoji/avatar）
+      identityName: asString(identityRaw.name),
+      identityTheme: asString(identityRaw.theme),
+      identityEmoji: asString(identityRaw.emoji),
+      identityAvatar: asString(identityRaw.avatar),
+      // v3.0.0：systemPromptOverride 已弃用，但保留旧数据以便兼容性迁移
+      // UI 检测到非空时显示"已弃用"警告 + 一键迁移按钮
+      legacySystemPromptOverride: asString(obj.systemPromptOverride),
+      // model / imageModel：UI 使用字符串，原始值保留用于回写
+      model: modelStr,
+      imageModel: imageModelStr,
+      _modelRaw: modelRaw,
+      _imageModelRaw: imageModelRaw,
       // 不可编辑字段，保留用于回传
       agentRuntime: obj.agentRuntime,
     };
@@ -457,12 +486,29 @@ export function buildPatchFromState(state: SettingsState): BuiltPatch {
     };
     if (preset.isDefault) entry.default = true;
     if (preset.workspace) entry.workspace = preset.workspace;
+    // v3.0.0：identity 结构化字段（任一非空则写整个 identity 对象）
+    if (preset.identityName || preset.identityTheme || preset.identityEmoji || preset.identityAvatar) {
+      const id: Record<string, unknown> = {};
+      if (preset.identityName) id.name = preset.identityName;
+      if (preset.identityTheme) id.theme = preset.identityTheme;
+      if (preset.identityEmoji) id.emoji = preset.identityEmoji;
+      if (preset.identityAvatar) id.avatar = preset.identityAvatar;
+      entry.identity = id;
+    }
     if (preset.thinkingDefault) entry.thinkingDefault = preset.thinkingDefault;
     if (preset.reasoningDefault) entry.reasoningDefault = preset.reasoningDefault;
     if (preset.verboseDefault) entry.verboseDefault = preset.verboseDefault;
     if (preset.toolProgressDetail) entry.toolProgressDetail = preset.toolProgressDetail;
     if (preset.skills?.length) entry.skills = preset.skills;
-    if (preset.systemPromptOverride) entry.systemPromptOverride = preset.systemPromptOverride;
+    // v3.0.0：systemPromptOverride 已弃用，但用户未主动迁移前保留原值
+    // （UI 上会提示已弃用，用户点"清除并迁移"才会变空）
+    if (preset.legacySystemPromptOverride) {
+      entry.systemPromptOverride = preset.legacySystemPromptOverride;
+    }
+    // model / imageModel：兼容 string 和 {primary, fallbacks} 两种格式
+    // 用户未修改时原样回写（保留对象格式）；用户修改后写字符串
+    _writeModelField(entry, preset, "model");
+    _writeModelField(entry, preset, "imageModel");
     // 保留 agentRuntime（不可编辑但需要回传）
     if (preset.agentRuntime) entry.agentRuntime = preset.agentRuntime;
     return entry;
@@ -595,6 +641,52 @@ function uniqueId(base: string, taken: Set<string>): string {
 
 function markDirty(state: SettingsState): SettingsState {
   return { ...state, dirty: true };
+}
+
+/**
+ * 写出 agent preset 的 model / imageModel 字段。
+ *
+ * OpenClaw schema 同时接受 string ("provider/model") 和
+ * { primary, fallbacks[] } 两种格式。策略：
+ * - 用户未修改 (preset.model === extractPrimary(preset._modelRaw))
+ *   → 原样回写（保留对象格式，不破坏用户手动配置的 fallbacks）
+ * - 用户修改了 () → 写字符串格式（首版 UI 只暴露 string）
+ * - 用户清空了 (preset.model === "") → 不写该字段（继承 defaults）
+ */
+export function _writeModelField(
+  entry: Record<string, unknown>,
+  preset: Record<string, unknown>,
+  field: "model" | "imageModel",
+): void {
+  const rawKey = `_${field}Raw`;
+  const current: string = (preset[field] as string) ?? "";
+  const raw: unknown = preset[rawKey];
+
+  // 用户清空 → 不写字段，继承 defaults
+  if (!current && !raw) return;
+
+  // 用户没改（current 等于 raw 里提取的 primary）→ 原样回写
+  const rawPrimary = _extractPrimary(raw);
+  if (current === rawPrimary) {
+    if (raw === undefined || raw === null || raw === "") return; // 原本就没值
+    entry[field] = raw; // 原样回写（可能是 string 或对象）
+    return;
+  }
+
+  // 用户改了 → 写字符串
+  if (current) {
+    entry[field] = current;
+  }
+  // 用户清空了（current 为空但 raw 有值）→ 不写，继承 defaults
+}
+
+/** 从 model 原始值中提取 primary 字符串 */
+function _extractPrimary(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && typeof (raw as any).primary === "string") {
+    return (raw as any).primary as string;
+  }
+  return "";
 }
 
 export function settingsReducer(
