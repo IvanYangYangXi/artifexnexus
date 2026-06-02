@@ -14,9 +14,8 @@ def test_create_directory_layout(tmp_path):
 
     assert len(created) > 0
     assert (home / "state" / "lock").exists()
-    assert (home / "workspace" / "skills" / "official").exists()
-    assert (home / "workspace" / "skills" / "team").exists()
-    assert (home / "workspace" / "skills" / "user").exists()
+    # v3.0.0: skills 目录不再预建 official/team/user 子目录，
+    # Skill 实际安装使用扁平结构（workspace/skills/<name>/）
 
 
 def test_create_directory_layout_idempotent(tmp_path):
@@ -83,7 +82,8 @@ def test_bootstrap_full(tmp_path):
     assert result.success is True
     assert result.config_path.exists()
     assert (home / "state" / "lock").exists()
-    assert (home / "workspace" / "skills" / "official").exists()
+    # v3.0.0: skills 目录不再预建 official/team/user 子目录，
+    # Skill 实际安装使用扁平结构（workspace/skills/<name>/）
 
 
 def test_bootstrap_idempotent(tmp_path):

@@ -207,7 +207,7 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 │   ├── memory/                                # 梦境数据
 │   │   ├── .dreams/{events.jsonl,phase-signals.json,session-corpus/,short-term-recall.json}
 │   │   └── dreaming/{deep,light,rem}/         # 梦境整理 markdown
-│   └── skills/{official,team,user}/           # 所有 skill（用户安装 + 团队共享）
+│   └── skills/                               # 扁平结构，每个子目录 = 一个 Skill
 ├── workspace-<agent名>/                       # 每个额外 agent 的独立 workspace（路径从 agents.list[].workspace 推导）
 │   ├── .openclaw/workspace-state.json
 │   ├── AGENTS.md / IDENTITY.md / SOUL.md / USER.md / TOOLS.md / HEARTBEAT.md
@@ -225,7 +225,7 @@ Phase 1: BACKUP → Phase 2: CLEAN INSTALL → Phase 3: RESTORE
 | `plugins/installs.json` | ❌ 不备份 | OpenClaw 通过 `registry --refresh` 自动重建 |
 | `plugin-skills/` | ❌ 不备份 | 全是 symlink → bunded plugin skills，重装后重建 |
 | `cli/` | ❌ 不备份 | 安装/重装脚本负责，体积大（~200MB+） |
-| `workspace/skills/` | ✅ 全部备份 | 用户 skill 可能在任何子目录（official/team/user） |
+| `workspace/skills/` | ✅ 全部备份 | 扁平结构，每个子目录 = 一个 Skill |
 | `workspace-<agent>/` | ✅ 人格文件备份 | 每个 agent 独立 workspace，不可丢失 |
 | `.git/` | ❌ 不备份 | agent workspace 下可能有 .git，非必要数据 |
 | `state/` 下的重复内容 | 仅备份关键项 | `.openclaw/` 已包含大部分运行时状态的新版路径 |

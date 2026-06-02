@@ -42,7 +42,7 @@ Tauri 壳（UI + Rust 后端）
 │   │   │   └── tools/node-v22.22.0/  # standalone Node tarball
 │   │   └── current → v2026.5.4    # symlink，便于升级灰度切换（M2+）
 │   ├── workspace/                 # agents.defaults.workspace 指向此
-│   │   └── skills/{official,team,user}/
+│   │   └── skills/                 # 扁平结构，每个子目录 = 一个 Skill
 │   ├── state/                     # OPENCLAW_STATE_DIR 指向此（含 lock/、sessions/、.env）
 │   │   └── lock/                  # gateway 锁文件，per-config 自动隔离
 │   └── openclaw.json              # OPENCLAW_CONFIG_PATH 指向此（gateway.port=19789 等）

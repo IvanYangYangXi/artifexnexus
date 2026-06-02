@@ -1334,17 +1334,14 @@ def _create_directory_layout(openclaw_home: Path) -> list[Path]:
       ├── state/                  # OPENCLAW_STATE_DIR
       │   └── lock/               # gateway 锁文件
       ├── workspace/              # agents.defaults.workspace
-      │   └── skills/
-      │       ├── official/
-      │       ├── team/
-      │       └── user/
+      │   └── skills/             # Skill 目录（扁平结构，按需创建）
       └── openclaw.json           # OPENCLAW_CONFIG_PATH
     """
+    # 注：workspace/skills/ 不再预建 official/team/user 子目录，
+    # Skill 实际安装使用扁平结构（workspace/skills/<name>/），
+    # skills_root 在 _try_install_official_skills 中按需创建。
     dirs = [
         openclaw_home / "state" / "lock",
-        openclaw_home / "workspace" / "skills" / "official",
-        openclaw_home / "workspace" / "skills" / "team",
-        openclaw_home / "workspace" / "skills" / "user",
     ]
 
     created = []

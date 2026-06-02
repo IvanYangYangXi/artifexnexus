@@ -280,7 +280,7 @@ pnpm tauri build
 
 1. **Tauri EXE 启动** → `lib.rs:resolve_sidecar_path()` 从 EXE 所在目录向上查找 `packages/adapters/openclaw/wrapper/.../sidecar.py`
 2. **Python sidecar** 以 `packages/adapters/openclaw/wrapper/src/artifex_nexus/openclaw_wrapper/` 为 `__package__` 根，通过 `PYTHONPATH` 注入实现模块导入
-3. **Skill 安装**：`bootstrap.py` 从 `<install>/skills/official/` **物理拷贝**到 `~/.artifexnexus/.openclaw/workspace/skills/official/`（此后用户数据独立于安装包）
+3. **Skill 安装**：`bootstrap.py` 从 `<install>/skills/official/` **物理拷贝**到 `~/.artifexnexus/.openclaw/workspace/skills/<name>/`（扁平结构；此后用户数据独立于安装包）
 4. **DCC 插件安装**：从 `<install>/packages/dcc/` **物理拷贝**到对应 DCC 的 addons 目录或 UE 项目插件目录
 5. **MCP Bridge 部署**：从 `<install>/packages/adapters/openclaw/gateway-plugin/dist/` **物理拷贝**到 `~/.artifexnexus/.openclaw/cli/<ver>/.../extensions/mcp-bridge/`
 6. **升级时**：Tauri Updater 替换整个 `<install>/`，`~/.artifexnexus/` 完全不受影响
