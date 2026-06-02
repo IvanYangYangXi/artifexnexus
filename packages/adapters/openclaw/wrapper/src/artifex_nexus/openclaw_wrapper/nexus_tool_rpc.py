@@ -1126,9 +1126,12 @@ def _execute_dcc_tool(
     if not main_py.is_file():
         raise RuntimeError(f"入口文件不存在: {main_py}")
 
+    # 从 manifest 读 timeout，遵守 _resolve_timeout 的优先级和上限
+    tool_timeout = _resolve_timeout(impl)
+
     code = main_py.read_text(encoding="utf-8")
-    logger.info("[nt-exec:dcc] dcc=%s tool=%s func=%s code_len=%d",
-                dcc, ntd.id, func_name, len(code))
+    logger.info("[nt-exec:dcc] dcc=%s tool=%s func=%s code_len=%d timeout=%ds",
+                dcc, ntd.id, func_name, len(code), tool_timeout)
     sys.stderr.flush()
 
     # ── Blender 端 sys.path 准备 ─────────────────────────────────────────
@@ -1232,7 +1235,7 @@ def _execute_dcc_tool(
                 dcc, injected_preview, len(injected_code))
     sys.stderr.flush()
 
-    result = bridge.call_tool("run_python", {"code": injected_code}, timeout=120)
+    result = bridge.call_tool("run_python", {"code": injected_code}, timeout=tool_timeout)
     logger.info("[nt-exec:dcc] dcc=%s ← bridge.call_tool returned isError=%s success=%s output_len=%d",
                 dcc, result.get("isError"), result.get("success"),
                 len(result.get("output", "") or ""))
@@ -1981,9 +1984,25 @@ def _fetch_types_via_direct_ws(dcc: str, code: str) -> dict:
 
     不使用 MCPBridgeClient（其线程+事件循环模型可能导致死锁），
     而是创建隔离的 asyncio event loop 完成整个 MCP 握手 + 工具调用。
+
+    所有 DCC 都支持：Blender(18083) / UE(18080) / Maya(18081) / 3ds_max(18082) / Houdini(18086)
+    UE 端 run_python 通过 universal_proxy 返回 JSON 字符串 {success, output, ...}，
+    需要二次解析提取 output 字段；其他 DCC 的 run_python 直接返回 stdout 文本。
     """
     import asyncio as _asyncio
     import json as _json
+
+    _DCC_WS_PORT: dict[str, int] = {
+        "blender": 18083,
+        "unreal_engine": 18080,
+        "maya": 18081,
+        "3ds_max": 18082,
+        "houdini": 18086,
+    }
+
+    port = _DCC_WS_PORT.get(dcc)
+    if port is None:
+        return {"success": False, "error": f"未知 DCC: {dcc}"}
 
     async def _do_fetch() -> dict:
         try:
@@ -1991,17 +2010,13 @@ def _fetch_types_via_direct_ws(dcc: str, code: str) -> dict:
         except ImportError:
             return {"success": False, "error": "websockets 库未安装"}
 
-        # 根据 dcc 选择目标地址（目前仅支持 Blender）
-        if dcc != "blender":
-            return {"success": False, "error": f"直连仅支持 blender，不支持: {dcc}"}
-
-        uri = "ws://127.0.0.1:18083"
+        uri = f"ws://127.0.0.1:{port}"
         try:
             ws = await _asyncio.wait_for(websockets.connect(uri), timeout=3.0)
         except _asyncio.TimeoutError:
-            return {"success": False, "error": f"连接 {uri} 超时，请确认 Blender 已运行且 MCP 插件已启用"}
+            return {"success": False, "error": f"连接 {uri} 超时，请确认 {dcc} 已运行且 Artifex Nexus 插件已启用"}
         except Exception as e:
-            return {"success": False, "error": f"连接失败: {e}"}
+            return {"success": False, "error": f"连接 {uri} 失败: {e}"}
 
         try:
             # MCP initialize 握手
@@ -2046,6 +2061,21 @@ def _fetch_types_via_direct_ws(dcc: str, code: str) -> dict:
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
                     stdout += item.get("text", "")
+
+            # ── UE 特殊处理：universal_proxy 返回 JSON 字符串，需要二次解析 ──
+            # 格式：{"success": true, "output": "Type1\nType2\n...", "exec_id": 1, ...}
+            if dcc == "unreal_engine" and stdout.strip().startswith("{"):
+                try:
+                    parsed = _json.loads(stdout)
+                    if isinstance(parsed, dict):
+                        if parsed.get("success") is False:
+                            err = parsed.get("error") or "UE 执行失败"
+                            return {"success": False, "error": err}
+                        # output 字段才是 print() 输出的实际内容
+                        stdout = parsed.get("output", "") or ""
+                except (_json.JSONDecodeError, ValueError) as e:
+                    logger.warning("[fetch_types] UE response JSON parse failed: %s, raw=%r", e, stdout[:200])
+                    # 保留原始 stdout 作为 fallback
 
             return {"success": True, "stdout": stdout}
         finally:

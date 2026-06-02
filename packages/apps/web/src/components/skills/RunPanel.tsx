@@ -358,10 +358,13 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         }
       }, 1000);
 
-      // 3. 超时保护（125s > 120s 执行超时）
+      // 3. 超时保护：尊重 manifest.implementation.timeout（秒），默认 120s，clamp 到 [10s, 86400s]
+      const manifestTimeoutSec = Number((detail as any)?.implementation?.timeout) || 120;
+      const guardMs = Math.min(86400, Math.max(10, manifestTimeoutSec)) * 1000 + 5_000;
+      const guardLabel = `${Math.round(guardMs / 1000)} 秒`;
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();
-        const timeoutResult = { success: false, error: "执行超时（超过 120 秒）" };
+        const timeoutResult = { success: false, error: `执行超时（超过 ${guardLabel}）` };
         setRunResult(timeoutResult);
         setRunning(false);
         if (!notifiedRef.current) {
@@ -369,7 +372,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
           maybeNotify(timeoutResult);
         }
         if (taskId) nexusToolCancel(taskId).catch(() => {});
-      }, 125_000);
+      }, guardMs);
     } catch (e) {
       cleanup();
       const catchResult = { success: false, error: String(e) };
@@ -465,9 +468,12 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         } catch (_e) { /* 轮询失败不中断 */ }
       }, 1000);
 
+      const manifestTimeoutSec2 = Number((detail as any)?.implementation?.timeout) || 120;
+      const guardMs2 = Math.min(86400, Math.max(10, manifestTimeoutSec2)) * 1000 + 5_000;
+      const guardLabel2 = `${Math.round(guardMs2 / 1000)} 秒`;
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();
-        const timeoutResult = { success: false, error: "执行超时（超过 120 秒）" };
+        const timeoutResult = { success: false, error: `执行超时（超过 ${guardLabel2}）` };
         setRunResult(timeoutResult);
         setRunning(false);
         if (!notifiedRef.current) {
@@ -475,7 +481,7 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
           maybeNotify(timeoutResult);
         }
         if (taskId) nexusToolCancel(taskId).catch(() => {});
-      }, 125_000);
+      }, guardMs2);
     } catch (e) {
       cleanup();
       const catchResult = { success: false, error: String(e) };

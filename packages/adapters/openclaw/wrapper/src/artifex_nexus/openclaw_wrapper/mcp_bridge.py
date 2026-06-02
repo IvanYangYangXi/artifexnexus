@@ -250,9 +250,23 @@ class MCPBridgeClient:
                 return False
 
     async def _async_connect(self, timeout: float) -> Any:
-        """异步连接 + MCP initialize 握手 + 启动后台消息 reader"""
+        """异步连接 + MCP initialize 握手 + 启动后台消息 reader
+
+        ping_interval=None：禁用客户端 WS keep-alive ping。
+        原因：DCC MCP Server（如 UE universal_proxy）在 asyncio loop 中
+        同步执行 exec(code)，长任务（>40s 的扫描/批处理）期间整个 loop 被
+        阻塞，无法响应 ping/pong → 默认 ping_interval=20s + ping_timeout=20s
+        会让客户端误判"连接死亡"主动关闭连接，工具被中断报"连接已断开"。
+        禁用 ping 后只在工具实际超时（call_tool 自己的 timeout）才报错。
+        TCP 层的 keepalive 仍由 OS 提供，不影响真正断网检测。
+        """
         ws = await asyncio.wait_for(
-            websockets.connect(self.server_address),
+            websockets.connect(
+                self.server_address,
+                ping_interval=None,   # 关闭客户端 ping，避免长任务被误杀
+                close_timeout=10,     # 主动 close 等待 10s
+                max_size=None,        # 不限制消息体大小（扫描结果可能很大）
+            ),
             timeout=timeout,
         )
 
