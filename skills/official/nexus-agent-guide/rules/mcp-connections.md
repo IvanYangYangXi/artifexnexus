@@ -34,6 +34,11 @@
 
 ### 代码规范
 7. **中文沟通，英文代码**：与用户交流用中文；代码注释用中文；变量名和 API 调用用 DCC 原生英文名。
+8. **UE Python UENUM 命名**：UE 把 C++ PascalCase UENUM 暴露成 Python 时会转成
+   `UPPER_SNAKE_CASE`（大写字母之间插下划线）。例如 C++ `PerceptualHash` →
+   Python `unreal.PerceptualHashAlgorithm.PERCEPTUAL_HASH`；`SCS_BaseColor` →
+   `unreal.SceneCaptureSource.SCS_BASE_COLOR`。**不要直接套 PascalCase**，
+   不确定时先 `print(dir(unreal.MyEnum))` 列举可用值。
 
 ---
 
@@ -43,6 +48,24 @@
 - ❌ 删除/覆盖工程文件必须先口头确认
 - ❌ 不执行任意 shell 命令
 - ❌ API Key / token 绝不写入代码
+
+---
+
+## 长任务行为
+
+DCC MCP Server 多为单线程 asyncio（universal_proxy 在 loop 中同步 exec(code)），
+长 Python 任务会阻塞整个 loop。
+
+平台已做两项关键防护：
+1. **客户端 WebSocket 禁用 keep-alive ping**（`mcp_bridge._async_connect: ping_interval=None`）
+   —— DCC 长任务期间不会被误判为"连接断开"
+2. **超时由平台统一管理** —— 「设置 → 默认工具超时」（默认 300s），nexus-tool 不再
+   读 manifest.implementation.timeout
+
+因此 AI 可以放心调用预计运行较长的脚本（项目扫描、批量重命名、PCG 生成等），
+但仍应：
+- 估算时长 > 300s 的任务，提示用户去设置里调大「默认工具超时」
+- 避免在单次 run_python 中执行可拆分的"组合操作"（拆成多次原子调用便于失败重试）
 
 ---
 

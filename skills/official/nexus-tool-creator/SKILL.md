@@ -13,7 +13,7 @@ description: >
   installing skills (use nexus-skill-manage).
 metadata:
   artifex_nexus:
-    version: 1.3.0
+    version: 1.4.0
     author: Artifex Nexus
     software: all
     tags: ["tool-creator", "nexus-tool", "development", "notification"]
@@ -69,57 +69,56 @@ start → select_method → collect_info → generate → preview → confirm �
 
 使用 DCC 原生 Python API 或 `artifex_nexus_sdk` 创建自定义工具。
 
+> **重要：通知由平台自动生成，不要在工具脚本里手写 toast/铃铛通知**。
+> 前端 RunPanel `maybeNotify` 会根据工具返回的 dict 自动生成通知：
+> - 返回 `{success: false, error: "..."}` → 红色失败通知 + error 详情
+> - 返回 `{csv_path: "...", groups: [...], total_scanned: N}` → 绿色成功 + CSV 路径
+> - 返回 `{issues_found: N, report: "..."}` → 合规检查类报告
+> 自己在脚本里写 `_notify()` 文件桥接会导致**通知重复**（前端自动 + 工具自发）。
+
 **生成的脚本模板**：
 
 ```python
 """工具名称 — 一句话描述。"""
-# ── SDK 头（tool-creator 自动注入）──
-import os, json, time, random
-from pathlib import Path
+import os
+import json
+import traceback
 import artifex_nexus_sdk as sdk
+
+_log = sdk.logger.get_tool_logger("工具名称")
+
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def _notify(title: str, message: str, notif_type: str = "success"):
-    """发送平台通知（气泡弹窗 + 铃铛中心）。
-    工具执行完成后调用此函数，让用户无需切回 DCC 也能感知结果。
-    写入 ~/.artifexnexus/pending_notifications/ 文件桥接，
-    前端自动展示 toast 气泡 + 写入铃铛通知中心。"""
-    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
-    notif_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time() * 1000)
-    filepath = notif_dir / f"tool_{ts}_{random.randint(1000, 9999)}.json"
-    filepath.write_text(json.dumps({
-        "type": notif_type,
-        "title": title,
-        "message": message,
-        "source": "nexus-tool"
-    }, ensure_ascii=False), encoding="utf-8")
 
-def _toast(message: str):
-    """发送轻量气泡通知（不写入铃铛中心）。
-    用于进度更新、中间状态等不需要持久化的提示。"""
-    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
-    notif_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time() * 1000)
-    filepath = notif_dir / f"tool_toast_{ts}_{random.randint(1000, 9999)}.json"
-    filepath.write_text(json.dumps({
-        "type": "info",
-        "title": message,
-        "source": "nexus-tool"
-    }, ensure_ascii=False), encoding="utf-8")
-# ── SDK 头结束 ──
+def main_function(**kwargs) -> dict:
+    """入口函数。返回的 dict 会被前端解析并自动生成通知。
 
-
-def main_function(**kwargs):
-    """入口函数。kwargs 由 Tool Manager 传入。"""
+    返回值约定（推荐字段）：
+      - success: bool                  ← 失败时务必显式 false，前端会标红
+      - error: str                     ← 失败原因（短文本）
+      - error_type / traceback: str    ← 失败时建议附上，会显示在铃铛详情
+      - step: str                      ← 失败发生在哪一步（"resolve_args" / "api_call" 等）
+      - 其他业务字段                    ← 如 csv_path / groups / total_scanned 等
+    """
     manifest = _load_manifest()
+    _log.info("START args=%s", kwargs)
 
     # ── 1. 参数解析 ──
-    parsed = sdk.params.parse_params(manifest.get("inputs", []), kwargs)
+    try:
+        parsed = sdk.params.parse_params(manifest.get("inputs", []), kwargs)
+    except Exception as e:
+        _log.error("parse_params failed: %s", e)
+        return {
+            "success": False,
+            "step": "parse_params",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc(),
+        }
 
     # ── 2. 对象获取 + 筛选 ──
     type_cfg = manifest.get("defaultFilters", {}).get("typeFilter", {})
@@ -138,22 +137,28 @@ def main_function(**kwargs):
         if not objects:
             return sdk.result.fail("NO_INPUT", "未指定目标，且当前无选中对象。")
 
-    # ── 3. 业务逻辑 ──
-    # import bpy     # Blender
-    # import unreal  # UE
-    # ...
+    # ── 3. 业务逻辑（替换为实际代码）──
+    try:
+        # import bpy     # Blender
+        # import unreal  # UE
+        processed_count = len(objects)
+        # ... 实际业务代码 ...
+    except Exception as e:
+        _log.error("business logic failed: %s", e)
+        return {
+            "success": False,
+            "step": "business",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc(),
+        }
 
-    # ── 4. 业务执行（替换为实际逻辑）──
-    processed_count = len(objects)
-    # ... 实际业务代码 ...
-
-    # ── 5. 结果上报 ──
-    result_msg = f"完成，处理了 {processed_count} 个对象"
-
-    # ── 6. 通知用户（气泡 + 铃铛）──
-    _notify("工具执行完成", f"✅ {result_msg}", "success")
-
-    return sdk.result.success(data={"count": processed_count}, message=result_msg)
+    # ── 4. 结果上报 ──
+    _log.info("DONE processed=%d", processed_count)
+    return sdk.result.success(
+        data={"count": processed_count},
+        message=f"完成，处理了 {processed_count} 个对象",
+    )
 ```
 
 > **脚本配置分层原则**（见下方 manifest schema → 配置分层决策）：所有路径范围、类型列表等规则配置统一写入 manifest，脚本只负责读取。禁止将它们定义为模块级常量。
@@ -199,6 +204,10 @@ def main_function(**kwargs):
   "dependencies": []
 }
 ```
+
+> ⛔ **不要在 `implementation` 里写 `timeout`**。工具执行超时由平台统一管理
+> （「设置 → 常规 → 默认工具超时」，默认 300 秒），工具作者无需考虑。
+> 用户希望调整就在设置里改全局值；写在 manifest 里既不会生效也违反单一职责。
 
 ### 配置分层决策
 
@@ -306,11 +315,14 @@ GUID 确保改名/移动目录后信息不漂移。
 - [ ] manifest.json 包含所有必需字段（id、name、implementation.type）
 - [ ] 配置分层合规：路径范围 → `defaultFilters.path`，类型范围 → `defaultFilters.typeFilter`，业务常量 → `inputs[]`，⛔ 无模块级硬编码常量
 - [ ] software 已按推断规则正确设置
-- [ ] 脚本优先使用 `artifex_nexus_sdk`（params / filters / result）
+- [ ] 脚本优先使用 `artifex_nexus_sdk`（params / filters / result / logger）
 - [ ] 脚本 DCC 专有操作使用原生 API（UE: `unreal`，Maya: `maya.cmds`，Blender: `bpy`）
 - [ ] ⛔ 脚本不包含 `import subprocess` 或 `os.system`
+- [ ] ⛔ 脚本不写 `_notify` / `_toast` 文件桥接通知（前端 RunPanel 自动通知，写了会重复）
+- [ ] ⛔ `manifest.implementation` 不含 `timeout` 字段（平台统一管理）
 - [ ] 入口函数使用 `**kwargs` 签名
-- [ ] 入口函数返回 dict 或 sdk.result
+- [ ] 入口函数返回 dict 或 sdk.result（失败时务必设 `success: false` 让前端识别）
+- [ ] 关键步骤拆分独立 try/except，失败返回 `{success:false, step, error, error_type, traceback}` 便于排错
 - [ ] 触发规则合规：
   - [ ] event trigger 的 `dcc` 在 `software` 范围内
   - [ ] `software=[]` 的通用工具不使用 event trigger
@@ -328,6 +340,25 @@ GUID 确保改名/移动目录后信息不漂移。
 
 > 优先使用 `artifex_nexus_sdk` 覆盖的通用操作（选中对象、类型筛选、参数解析）。
 > DCC 专有操作使用上述原生 API。
+
+### UE Python 特殊约定
+
+**UENUM 命名**：UE 把 C++ PascalCase UENUM 暴露成 Python 时会转成 `UPPER_SNAKE_CASE`。
+大写字母之间会插下划线，跨过两个连续大写不再插：
+
+| C++ 标识符 | Python 访问 |
+|-----------|-------------|
+| `SobelAHash` | `unreal.PerceptualHashAlgorithm.SOBEL_A_HASH` |
+| `DiffHash` | `unreal.PerceptualHashAlgorithm.DIFF_HASH` |
+| `SCS_BaseColor` | `unreal.SceneCaptureSource.SCS_BASE_COLOR` |
+| `TMGS_FromTextureGroup` | `unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP` |
+
+写枚举值前先用 `dir(unreal.MyEnum)` 列出实际可用值，或在 `_resolve_algorithm`
+这类 helper 里加 `hasattr` 检查并把可用枚举值列到错误信息里，避免下次踩坑。
+
+**长任务安全**：sidecar 客户端已禁用 WebSocket keep-alive ping
+（`ping_interval=None`），DCC 主线程跑长任务（几分钟级的扫描/批处理）期间不会
+被误判为"连接断开"。工具作者可以放心写长流程，只受平台「默认工具超时」约束。
 
 ## 文件结构
 
@@ -367,37 +398,12 @@ else:
 
 ## 通知集成
 
-创建工具的过程中，**必须利用平台通知能力**让用户实时感知进度和结果。
+通知分两类：**创建流程通知**（AI 跟用户的对话）和 **工具运行结果通知**（前端 RunPanel 自动）。
 
-### 两级通知
+### 1. 创建流程通知（AI 主动发）
 
-| 级别 | 通道 | 场景 | 示例 |
-|------|------|------|------|
-| **轻量状态** | 气泡弹窗 | 步骤进度、中间状态 | "正在生成 manifest.json..."、"正在运行合规检查..." |
-| **重要结果** | 气泡 + 铃铛 | 创建完成、合规检查结果 | "✅ 工具创建完成"、"⚠️ 合规检查不通过" |
-
-### 创建流程中的通知时机
-
-```
-select_method → collect_info → generate [气泡] → preview → confirm
-                                                                    ↓
-  complete ← [气泡+铃铛] ← 合规检查 ← [气泡] ← save
-```
-
-- 生成文件阶段 → 轻量气泡（"正在生成 manifest.json..."、"正在生成 main.py..."）
-- 保存后 → 轻量气泡（"正在运行 tool-compliance-checker..."）
-- 合规检查结果 → **气泡 + 铃铛**
-  - 通过 → `"✅ {name} 创建完成，合规检查通过"`
-  - 不通过 → `"⚠️ 合规检查 {N} 错误 {M} 警告，需修复"`
-
-### 发送方式
-
-通过 Python 文件桥接写入 `~/.artifexnexus/pending_notifications/`。
-
-> **注意**：合规检查工具本身运行后，通知由前端 RunPanel 自动生成（含详细 issue 列表），
-> 无需在 checker 中调用此方法。此方法用于创建流程中的进度提示。
-
-**轻量气泡**（不写铃铛）：
+在 AI 引导用户走 select_method → generate → save → 合规检查 的过程中，
+可以用文件桥接发轻量进度气泡：
 
 ```python
 import json, time, random
@@ -406,132 +412,31 @@ from pathlib import Path
 def toast(message: str):
     notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
     notif_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time() * 1000)
-    f = notif_dir / f"toast_{ts}_{random.randint(1000,9999)}.json"
-    f.write_text(json.dumps({"type": "info", "title": message, "source": "tool-create"}, ensure_ascii=False), encoding="utf-8")
-
-# 例：生成 manifest 后
-toast("正在生成 manifest.json...")
-```
-
-**气泡 + 铃铛**（重要结果）：
-
-```python
-def notify(title: str, message: str, notif_type: str):
-    path = Path.home() / ".artifexnexus" / "pending_notifications" / f"notif_{int(time.time()*1000)}_{random.randint(1000,9999)}.json"
-    path.write_text(json.dumps({"type": notif_type, "title": title, "message": message, "source": "tool-create"}, ensure_ascii=False), encoding="utf-8")
-
-# 例：创建完成
-notify("工具创建完成", "✅ 快速 UV 重排 已创建，合规检查通过", "success")
-```
-
-> 详细通知系统文档见 `nexus-agent-guide/rules/notifications.md` 和 `rules/notifications-python.md`。
-
----
-
-## 被创建工具的通知集成
-
-AI 生成工具的 `main.py` 时，**必须为工具本身加入通知能力**。
-让用户在 DCC 外也能感知工具执行结果 —— 工具跑完、失败、跳过，用户都能收到提示。
-
-> **注意**：此规则适用于 **DCC 内执行的工具**（Blender/Maya/Max/UE 等）。
-> 这些工具运行在 DCC 进程中，无法直接访问 Artifex Nexus 前端，必须通过文件桥接发送通知。
-> **通用工具**（`software: ["general"]` 或 `software: []`）运行在 sidecar 中，
-> 通知由前端 RunPanel 自动生成，**不需要**在 `main.py` 中手动调用 `_notify()`。
-
-### 何时通知
-
-| 场景 | 通知方式 | 示例 |
-|------|----------|------|
-| 工具正常执行完成 | `_notify()` 气泡 + 铃铛 | "✅ 批量重命名完成，共处理 23 个模型" |
-| 工具执行失败 | `_notify()` 气泡 + 铃铛 | "❌ 批量重命名失败：未选中任何模型" |
-| 工具无操作/跳过 | `_toast()` 仅气泡 | "ℹ️ 未找到需要重命名的模型" |
-| 长时间任务进度 | `_toast()` 仅气泡 | "正在处理... (15/200)" |
-
-### Helper 函数
-
-脚本模板的 SDK 头已内置两个辅助函数（见上文 §脚本模板）：
-
-| 函数 | 通道 | 何时用 |
-|------|------|--------|
-| `_notify(title, msg, type)` | 气泡 + 铃铛 | 任务完成、失败等**需要回溯**的结果 |
-| `_toast(message)` | 仅气泡 | 进度更新、中间状态等轻量提示 |
-
-### AI 应遵循的规则
-
-1. **工具执行完成 → 必须调 `_notify()`**：让结果写入铃铛通知中心，用户可回溯
-2. **工具执行失败 → 必须调 `_notify()`**：`type="error"`，让用户知道出了问题
-3. **进度更新 → 可选 `_toast()`**：长任务（预计 >5s）建议加，短任务可省略
-4. **无操作/跳过 → 调 `_toast()`**：不需要写铃铛，气泡提醒即可
-
-### 完整示例：批量重命名工具
-
-以下展示一个创建"批量重命名模型"工具时，AI 应生成的 `main.py`：
-
-```python
-"""批量重命名模型 — 按规则重命名选中的模型对象。"""
-# ── SDK 头 ──
-import os, json, time, random
-from pathlib import Path
-import artifex_nexus_sdk as sdk
-
-def _load_manifest() -> dict:
-    manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def _notify(title, message, notif_type="success"):
-    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
-    notif_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time() * 1000)
-    p = notif_dir / f"tool_{ts}_{random.randint(1000,9999)}.json"
-    p.write_text(json.dumps({"type": notif_type, "title": title, "message": message, "source": "nexus-tool"}, ensure_ascii=False), encoding="utf-8")
-
-def _toast(message):
-    notif_dir = Path.home() / ".artifexnexus" / "pending_notifications"
-    notif_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time() * 1000)
-    p = notif_dir / f"tool_toast_{ts}_{random.randint(1000,9999)}.json"
-    p.write_text(json.dumps({"type": "info", "title": message, "source": "nexus-tool"}, ensure_ascii=False), encoding="utf-8")
-# ── SDK 头结束 ──
-
-
-def main_function(**kwargs):
-    manifest = _load_manifest()
-    parsed = sdk.params.parse_params(manifest.get("inputs", []), kwargs)
-
-    # 1. 获取选中对象
-    objects = sdk.context.get_selected_assets()
-    if not objects:
-        _notify("批量重命名失败", "❌ 未选中任何模型", "error")
-        return sdk.result.fail("NO_INPUT", "未选中任何对象。")
-
-    prefix = parsed.get("prefix", "Model_")
-    start_index = parsed.get("start_index", 1)
-    _toast(f"开始批量重命名，共 {len(objects)} 个对象")
-
-    # 2. 执行业务逻辑
-    renamed = 0
-    for i, obj in enumerate(objects):
-        new_name = f"{prefix}{start_index + i:03d}"
-        # obj.name = new_name  # DCC 原生重命名
-        renamed += 1
-
-    # 3. 通知用户完成
-    _notify(
-        "批量重命名完成",
-        f"✅ 共重命名 {renamed} 个模型，前缀 '{prefix}'，编号 {start_index}-{start_index + renamed - 1}",
-        "success"
+    fname = f"toast_{int(time.time()*1000)}_{random.randint(1000,9999)}.json"
+    (notif_dir / fname).write_text(
+        json.dumps({"type": "info", "title": message, "source": "tool-create"}, ensure_ascii=False),
+        encoding="utf-8",
     )
-    return sdk.result.success(data={"count": renamed}, message=f"重命名了 {renamed} 个模型")
+
+toast("正在生成 manifest.json...")
+toast("正在运行 tool-compliance-checker...")
 ```
 
-### 通知 vs 日志
+合规检查结果（成功/失败）—— **不需要**手动发通知，`tool-compliance-checker` 本身
+通过 RunPanel 自动生成（含 issue 列表）。
 
-| | 通知（_notify / _toast） | 日志（print / sdk.log） |
-|---|---|---|
-| 目标受众 | **用户**（在桌面看到） | 开发者 / AI（控制台查看） |
-| 可见位置 | 桌面右下角气泡 + 铃铛中心 | DCC 控制台 / 终端 |
-| 用途 | 让用户知道工具"做完了" | 调试、排查问题 |
+### 2. 工具运行结果通知（前端 RunPanel 自动）
 
-**规则**：通知和日志不互斥 —— 工具应同时输出日志（给 AI 排错）和通知（给用户反馈）。
+⛔ **被创建工具的 `main.py` 不要写 `_notify` / `_toast` 文件桥接代码**。
+平台已经在 RunPanel.maybeNotify 里根据工具返回值自动生成通知：
+
+| 工具返回值 | 自动通知 |
+|----------|----------|
+| `{success: false, error, step, traceback}` | 红色失败 + 完整 traceback 进铃铛 detail |
+| `{csv_path: "...", groups, total_scanned}` | 绿色成功 + CSV 路径 |
+| `{issues_found: N, report: "..."}` | 合规检查报告（按 issue 数量 warn/error） |
+| 其他 dict | 通用成功/失败 |
+
+工具脚本只需返回标准 dict（见上文脚本模板）。自己再写文件桥接通知会**重复弹两条**。
+
+详细通知系统文档见 `nexus-agent-guide/rules/notifications.md`。

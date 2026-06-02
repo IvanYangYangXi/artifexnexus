@@ -1,12 +1,17 @@
 # 通知通道 A：Python 文件桥接
 
-外部 Python 脚本 / DCC 内工具通知的专用通道。
+外部 Python 脚本通知的专用通道。
 
-> **注意**：通过 RunPanel 运行的工具（包括合规检查器）已改为前端自动通知，
-> **不需要**再通过文件桥接发送。此通道仅用于：
-> - DCC 内执行的工具（Blender/Maya/Max 等，无法直接访问 WebView）
-> - 外部 cron 脚本 / 系统脚本
+> **重要：通过 RunPanel 运行的所有 nexus-tool（包括 DCC 内执行的工具如
+> Blender/Maya/Max/UE）已改为前端自动通知，不要再走这条通道**。
+> 工具脚本只需返回标准 dict（含 `success: bool`、`error / step / traceback / csv_path` 等），
+> `RunPanel.maybeNotify` 会自动识别字段生成对应的成功/失败/扫描结果通知。
+> 自己写文件桥接会导致**通知重复**（前端自动 + 工具自发）。
+>
+> 此通道仅用于：
+> - 外部 cron / 系统脚本（不经过 RunPanel）
 > - `scripts/artifex_notify.py` CLI
+> - AI 在 chat 流程中（非 nexus-tool 执行）想发个进度气泡
 
 ---
 

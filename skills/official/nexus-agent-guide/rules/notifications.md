@@ -43,17 +43,22 @@ Artifex Nexus 桌面应用的右下角 toast 气泡和右上角铃铛通知中�
 
 通过 Artifex Nexus RunPanel 触发的工具，执行完成后 **前端自动发送通知**（无需工具代码自行发通知）：
 
-| 工具类型 | 成功通知 | 失败通知 |
-|----------|----------|----------|
-| 合规检查类 | `"检查 N 个 Tool，X 个错误，Y 个警告"` (warning/error) | — |
-| 合规检查类（全通过） | `"检查 N 个 Tool，全部通过"` (success) | — |
-| 普通工具（有输出） | `"执行成功（输出 N 字符）"` (success) | `"执行失败: {错误}"` (error) |
-| 普通工具（无输出） | `"执行成功"` (success) | `"执行失败: {错误}"` (error) |
+| 工具类型 | 识别条件 | 成功通知 | 失败通知 |
+|----------|---------|----------|----------|
+| 合规检查类 | `data.issues_found` 或 `data.report` 存在 | `"检查 N 个 Tool，全部通过"` (success) 或 `"检查 N 个 Tool，X 个错误，Y 个警告"` (warning/error) | — |
+| 资产扫描类 | `data.csv_path` 存在 或 `data.groups + data.total_scanned` | `"扫描 N 个资产，发现 K 个重复组（M 个资产）\nCSV: /path/to/file"` (success)，CSV 路径同时写到 detail | `"执行失败 [step]: {错误}"` (error)，traceback 进 detail |
+| 普通工具（有输出） | 其他 `data.stdout > 3 字符` | `"执行成功（输出 N 字符）"` (success) | `"执行失败 [step]: {错误}"` (error) |
+| 普通工具（无输出） | 其他 | `"执行成功"` (success) | `"执行失败 [step]: {错误}"` (error) |
 
 - 通知标题格式：`工具: {工具名称}`
-- 合规检查类通知的 `detail` 字段附完整 report（可在铃铛详情查看）
-- 超时也会触发通知：`"执行失败: 执行超时（超过 120 秒）"`
+- 合规检查类通知的 `detail` 字段附完整 report（铃铛点开可查看）
+- 失败通知的 `detail` 字段附 `error_type` + 完整 `traceback`
+- 超时也会触发通知：`"执行失败: 执行超时（超过 {N} 秒）"`（N 来自「设置 → 默认工具超时」，默认 300s）
 - 用户手动取消**不触发通知**
+
+**关键约定**：工具脚本只需返回标准 dict（含 `success: bool`、可选 `error / step / traceback / csv_path` 等）。
+前端 `RunPanel.maybeNotify` 会自动识别字段生成对应通知。**不要**在工具内手写
+`_notify` / `_toast` 文件桥接 —— 会导致重复通知（前端自动 + 工具自发）。
 
 ---
 

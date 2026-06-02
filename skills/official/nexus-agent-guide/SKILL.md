@@ -10,7 +10,7 @@ description: >
   NOT for: DCC 软件内部 API 细节（用对应 DCC Skill 如 blender-operation-rules）。
 metadata:
   artifex_nexus:
-    version: 2.0.0
+    version: 2.1.0
     author: Artifex Nexus
     software: all
     tags: ["agent", "api", "platform", "mcp", "dcc", "skill", "tool", "notification", "rules"]
