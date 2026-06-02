@@ -208,7 +208,7 @@ export function NexusToolList() {
                   title="查看详情">
                   <Info className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" className="h-7 text-xs"
+                <Button variant="outline" size="sm" className="h-7 text-xs"
                   onClick={() => {
                     setActiveTool(tool.id);
                     ensurePanelOpen();
