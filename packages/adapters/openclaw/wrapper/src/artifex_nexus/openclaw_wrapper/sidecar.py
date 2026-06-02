@@ -2933,6 +2933,25 @@ def _init_trigger_dispatcher() -> None:
     sys.stderr.flush()
 
 
+def _start_nt_watcher() -> None:
+    """启动 Nexus Tool 文件变更监听器。
+
+    轮询 ~/.artifexnexus/nexus-tools/ 下的 manifest.json 变化，
+    检测到变更时自动清除工具列表缓存并通知前端。
+    """
+    try:
+        from artifex_nexus.openclaw_wrapper.nexus_tool_watcher import (
+            start_nexus_tool_watcher,
+        )
+        start_nexus_tool_watcher()
+        sys.stderr.write("[sidecar.boot] NexusToolWatcher started\n")
+    except Exception as exc:
+        sys.stderr.write(
+            f"[sidecar.boot] NexusToolWatcher start failed: {exc!r}\n"
+        )
+    sys.stderr.flush()
+
+
 def main() -> None:
     """stdio JSON-RPC 主循环：逐行读取 stdin，逐行写回 stdout。
 
@@ -3087,6 +3106,9 @@ def main() -> None:
 
     # 初始化触发器调度引擎（注册到 MCPBridgeClient 的 trigger_event 回调）
     _init_trigger_dispatcher()
+
+    # 启动 Nexus Tool 文件监听（轮询 manifest.json 变化，自动刷新缓存 + 通知前端）
+    _start_nt_watcher()
 
     # 用 readline() 替代 `for line in sys.stdin:` —— 后者在 Windows 命名管道上
     # 走 BufferedReader iterator 协议，可能预读整个 buffer 后才返回，

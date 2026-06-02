@@ -586,9 +586,9 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
                   该工具无可用参数
                 </div>
               ) : (
-                inputs.map((param) => (
+                inputs.map((param, idx) => (
                   <ParamValueRow
-                    key={param.id}
+                    key={param.id || param.name || `param-${idx}`}
                     param={param}
                     value={paramValues[param.id]}
                     onChange={(v) => handleParamChange(param.id, v)}

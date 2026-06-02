@@ -522,7 +522,11 @@ export const CollapsiblePanel = React.forwardRef<
       // 从折叠过渡到展开 → 推送到目标尺寸（优先用户持久化高度）
       const targetSize = persistedSize !== defaultSize ? persistedSize : defaultSize;
       requestAnimationFrame(() => {
-        panelRef.current?.resize(targetSize);
+        try {
+          panelRef.current?.resize(targetSize);
+        } catch {
+          // PanelGroup 动态重建时面板可能尚未注册，静默忽略
+        }
       });
     }
     prevOpenRef.current = open;
@@ -582,22 +586,28 @@ export const CollapsiblePanel = React.forwardRef<
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [open, hidden, savePersistentState, id]);
 
-  // ── Mount 后强制恢复到持久化高度（绕过 react-resizable-panels defaultSize 规范化）──
+  // 注：mount 时不强制 resize 到持久化高度。
+  // react-resizable-panels 的 PanelGroup 在动态 key 重建时，面板注册时序不可控，
+  // 此时 resize() 会触发 "Previous layout not found for panel index -1" 崩溃。
+  // 持久化高度恢复依赖折叠→展开链路（prevOpenRef effect），该链路在用户交互后
+  // PanelGroup 已稳定注册时执行，安全可靠。
+  //
+  // ═══ 双列模式 mount-time 高度恢复 ═══
+  // 上述折叠→展开链路只覆盖面板以折叠态启动再展开的场景（defaultOpen=false）。
+  // 对于 defaultOpen=true 的面板（如"最近使用"），永远走不到该链路，
+  // 导致双列模式下关闭重开后高度丢失。这里用延迟 resize 补漏：
   React.useEffect(() => {
-    if (open && !hidden && hasPersistedSize && panelRef.current) {
-      console.debug(`[dpanel.${id}] mount restore persistedSize=${persistedSize}`);
-      // 双 rAF：确保 react-resizable-panels 完成初始布局后再覆盖
-      let raf1: number;
-      const raf2 = requestAnimationFrame(() => {
-        raf1 = requestAnimationFrame(() => {
-          panelRef.current?.resize(persistedSize);
-        });
-      });
-      return () => {
-        cancelAnimationFrame(raf2);
-        if (raf1!) cancelAnimationFrame(raf1);
-      };
-    }
+    if (!open || !panelStorageKey || !hasPersistedSize) return;
+    // 延迟到 PanelGroup 完全注册后再 resize，避开 index=-1 崩溃
+    const timer = setTimeout(() => {
+      try {
+        panelRef.current?.resize(persistedSize);
+        console.debug(`[dpanel.${id}] mount restore size=${persistedSize}`);
+      } catch {
+        // Panel 未注册或 PanelGroup 未就绪时静默忽略
+      }
+    }, 200);
+    return () => clearTimeout(timer);
   }, []); // 仅 mount 时执行一次
 
   // ── 折叠百分比（恒定值，不随 containerHeight 变化，防止触发 react-resizable-panels 约束重算）──
@@ -647,14 +657,30 @@ export const CollapsiblePanel = React.forwardRef<
   // 当前列归属
   const currentColumn = id && ctx.dualColumn ? (ctx.columnRegistry[id] || column) : column;
 
+  // ── 拖拽调整高度时防抖保存 ──
+  const resizeDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleResize = React.useCallback((size: number) => {
+    if (!open || hidden || size <= COLLAPSED_PCT) return;
+    if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+    resizeDebounceRef.current = setTimeout(() => {
+      savePersistentState(true, false, size);
+    }, 400);
+  }, [open, hidden, savePersistentState]);
+
+  // cleanup debounce on unmount
+  React.useEffect(() => {
+    return () => { if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current); };
+  }, []);
+
   return (
     <Panel
       ref={panelRef}
       collapsible
       collapsedSize={collapsedSize}
-      defaultSize={open ? (persistedSize !== defaultSize ? persistedSize : defaultSize) : COLLAPSED_PCT}
+      defaultSize={open ? defaultSize : COLLAPSED_PCT}
       minSize={effectiveMinSize}
       maxSize={effectiveMaxSize}
+      onResize={handleResize}
       order={order}
       className={cn(
         "flex flex-col overflow-hidden",
