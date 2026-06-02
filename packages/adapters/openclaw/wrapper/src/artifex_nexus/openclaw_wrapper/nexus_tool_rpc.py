@@ -1226,10 +1226,72 @@ def _execute_dcc_tool(
     logger.info("[nt-exec:dcc] dcc=%s preflight OK", dcc)
     sys.stderr.flush()
 
-    result = bridge.call_tool("run_python", {"code": injected_code}, timeout=120)
-    logger.info("[nt-exec:dcc] dcc=%s ← bridge.call_tool returned isError=%s", dcc, result.get("isError"))
+    # 截一个注入代码摘要供调试（避免日志被超长代码淹没）
+    injected_preview = injected_code[:200].replace("\n", "\\n")
+    logger.info("[nt-exec:dcc] dcc=%s injected_preview=%s ...(total %d chars)",
+                dcc, injected_preview, len(injected_code))
     sys.stderr.flush()
-    return {"success": not result.get("isError", False), "data": result, "dcc": dcc}
+
+    result = bridge.call_tool("run_python", {"code": injected_code}, timeout=120)
+    logger.info("[nt-exec:dcc] dcc=%s ← bridge.call_tool returned isError=%s success=%s output_len=%d",
+                dcc, result.get("isError"), result.get("success"),
+                len(result.get("output", "") or ""))
+    sys.stderr.flush()
+
+    # 输出原始 stdout 的最后 500 字符，方便诊断
+    raw_output = result.get("output") or ""
+    if isinstance(raw_output, str) and raw_output.strip():
+        tail = raw_output[-500:].replace("\n", "\\n")
+        logger.info("[nt-exec:dcc] dcc=%s raw_output_tail=%s", dcc, tail)
+        sys.stderr.flush()
+
+    # ── 从 MCP 响应中提取工具的实际 JSON 输出 ────────────────────────────
+    # 工具入口函数的返回值通过 json.dumps() + print() 输出到 stdout，
+    # MCP Bridge 响应使用 success 字段（不存在 isError），需同时检查两者
+    is_ok = result.get("success", True) and not result.get("isError", False)
+    tool_output = _extract_tool_output_from_mcp(result)
+
+    if tool_output is not None:
+        logger.info("[nt-exec:dcc] dcc=%s tool_output keys=%s",
+                    dcc, list(tool_output.keys())[:12])
+        sys.stderr.flush()
+
+        # ── 关键：工具自身可能在 try/except 中捕获异常并 print
+        #    {"success": false, "error": ..., "traceback": ...}。
+        #    此时 MCP 通道 is_ok=True 但工具实际失败，必须把内层失败提到顶层，
+        #    否则前端 RunPanel 会显示"运行成功"但右侧面板里满是 error。
+        # ────────────────────────────────────────────────────────────────
+        inner_success = tool_output.get("success")
+        if inner_success is False:
+            err_text = (tool_output.get("error")
+                        or tool_output.get("error_type")
+                        or "工具内部抛出异常但未提供 error 字段")
+            logger.warning("[nt-exec:dcc] dcc=%s tool reported failure: %s",
+                           dcc, str(err_text)[:200])
+            sys.stderr.flush()
+            return {
+                "success": False,
+                "error": str(err_text),
+                "data": tool_output,  # 保留完整 payload（含 traceback）
+                "dcc": dcc,
+            }
+
+        # 工具未显式声明 success → 默认沿用 MCP 通道状态
+        return {
+            "success": is_ok,
+            "data": tool_output,
+            "dcc": dcc,
+        }
+
+    # 解析失败 → fallback 到原始 MCP 响应
+    logger.warning("[nt-exec:dcc] dcc=%s _extract_tool_output_from_mcp returned None,"
+                   " falling back to raw MCP response", dcc)
+    sys.stderr.flush()
+    return {
+        "success": is_ok,
+        "data": result,
+        "dcc": dcc,
+    }
 
 
 def _execute_general_tool(
@@ -1437,6 +1499,76 @@ except Exception as e:
 
 _RESULT_BEGIN_MARKER = "===NEXUS_RESULT_BEGIN==="
 _RESULT_END_MARKER = "===NEXUS_RESULT_END==="
+
+
+def _extract_tool_output_from_mcp(mcp_response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """从 MCP tools/call 响应中提取工具的 JSON 输出。
+
+    DCC 工具通过 print(json.dumps(return_value)) 输出结果。
+    MCP Bridge 的响应结构分两种：
+      A) {output: "..."} — MCP Bridge v4 直接返回 output 字段（最常见的路径）
+      B) {content: [{type: "text", text: "..."}]} — 标准 MCP 协议格式
+
+    取最后一行非空内容解析为 JSON dict。
+
+    Returns:
+        解析后的 dict，或 None（解析失败时回退到原始 MCP 响应）。
+    """
+    import json as _json
+
+    # 路径 A：MCP Bridge 的 output 字段（v4 优先）
+    text = mcp_response.get("output")
+    if isinstance(text, str) and text.strip():
+        # 取最后一行（工具可能在之前有 print 日志，最终 JSON 在最后）
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if lines:
+            try:
+                parsed = _json.loads(lines[-1])
+                if isinstance(parsed, dict):
+                    logger.debug("[nt-exec:dcc] extracted tool output (via output field): keys=%s",
+                                 list(parsed.keys())[:10])
+                    return parsed
+            except (_json.JSONDecodeError, ValueError):
+                pass
+            # 回退：整个 output 是纯 JSON（无日志输出时）
+            try:
+                parsed = _json.loads(text.strip())
+                if isinstance(parsed, dict):
+                    logger.debug("[nt-exec:dcc] extracted tool output (via output field, whole): keys=%s",
+                                 list(parsed.keys())[:10])
+                    return parsed
+            except (_json.JSONDecodeError, ValueError):
+                pass
+        # output 存在但不可解析 → 不是 JSON 输出，不视为工具输出
+        return None
+
+    # 路径 B：标准 MCP 协议的 content[].text
+    content = mcp_response.get("content")
+    if isinstance(content, list) and len(content) > 0:
+        text_b = None
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text_b = item.get("text", "")
+                break
+        if isinstance(text_b, str) and text_b.strip():
+            lines = [ln.strip() for ln in text_b.splitlines() if ln.strip()]
+            if lines:
+                try:
+                    parsed = _json.loads(lines[-1])
+                    if isinstance(parsed, dict):
+                        logger.debug("[nt-exec:dcc] extracted tool output (via content): keys=%s",
+                                     list(parsed.keys())[:10])
+                        return parsed
+                except (_json.JSONDecodeError, ValueError):
+                    pass
+                try:
+                    parsed = _json.loads(text_b.strip())
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (_json.JSONDecodeError, ValueError):
+                    pass
+
+    return None
 
 
 def _parse_tool_stdout(stdout: str) -> Optional[Dict[str, Any]]:

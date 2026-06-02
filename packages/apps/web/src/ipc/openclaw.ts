@@ -1133,6 +1133,8 @@ export interface AppSettings {
   nexusToolKillProcessTree: boolean;
   /** sidecar 日志等级 */
   logLevel: string;
+  /** nexus-tool 文件监听器轮询周期（秒），范围 1~300 */
+  nexusToolWatcherPollIntervalSec?: number;
   // ── UI 偏好（跨启动持久化） ────────────────────────────────────────
   skillViewMode?: "card" | "list";
   toolViewMode?: "card" | "list";

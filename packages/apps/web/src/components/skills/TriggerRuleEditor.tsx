@@ -32,6 +32,8 @@ export interface TriggerFormData {
   conditions: FilterConfig;
   isEnabled: boolean;
   scheduleConfig: ScheduleConfig;
+  /** 文件监听轮询周期（秒），仅 triggerType=watch 时使用；undefined = 跟随全局默认 */
+  pollIntervalSec?: number;
 }
 
 interface TriggerRuleEditorProps {
@@ -72,6 +74,7 @@ const DEFAULT_FORM: TriggerFormData = {
   conditions: {},
   isEnabled: true,
   scheduleConfig: { type: "interval", interval: "30m" },
+  pollIntervalSec: undefined,
 };
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -270,11 +273,42 @@ export default function TriggerRuleEditor({
           </>
         )}
 
-        {/* ── 监听提示 ── */}
+        {/* ── 监听提示 + 轮询周期 ── */}
         {form.triggerType === "watch" && (
-          <div className="text-[11px] text-muted-foreground px-2 py-1.5 bg-muted/10 rounded border border-border/40">
-            💡 监听路径请在下方「筛选条件」中设置，支持路径变量
-          </div>
+          <>
+            <div className="text-[11px] text-muted-foreground px-2 py-1.5 bg-muted/10 rounded border border-border/40">
+              💡 监听路径请在下方「筛选条件」中设置，支持路径变量
+            </div>
+            <FieldRow label="轮询周期（秒）">
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 w-24 text-xs font-mono"
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={form.pollIntervalSec ?? ""}
+                  placeholder="跟随默认"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      updateField("pollIntervalSec", undefined);
+                    } else {
+                      const v = parseInt(raw, 10);
+                      if (Number.isFinite(v)) {
+                        updateField("pollIntervalSec", Math.max(1, Math.min(300, v)));
+                      }
+                    }
+                  }}
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  范围 1~300；留空使用全局默认（设置 → 常规）
+                </span>
+              </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                此触发器多久检查一次文件变化。频繁监听的工具调小（如 1~3s），低频检查的工具调大（如 30~60s）以降低 CPU 占用。
+              </p>
+            </FieldRow>
+          </>
         )}
 
         {/* ── 执行模式 ── */}

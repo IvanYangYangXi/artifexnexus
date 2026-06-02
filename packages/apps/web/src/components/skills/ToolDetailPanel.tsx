@@ -1063,6 +1063,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
       useDefaultFilters: data.useDefaultFilters,
       conditions: data.conditions,
       scheduleConfig: data.triggerType === "schedule" ? data.scheduleConfig : undefined,
+      pollIntervalSec: data.triggerType === "watch" ? data.pollIntervalSec : undefined,
     };
     const updated = [...localTriggers, newTrigger];
     setLocalTriggers(updated);
@@ -1085,6 +1086,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
             useDefaultFilters: data.useDefaultFilters,
             conditions: data.conditions,
             scheduleConfig: data.triggerType === "schedule" ? data.scheduleConfig : undefined,
+            pollIntervalSec: data.triggerType === "watch" ? data.pollIntervalSec : undefined,
           }
         : t,
     );
@@ -1126,6 +1128,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
       t.triggerType === "schedule"
         ? t.scheduleConfig || { type: "interval", interval: "30m" }
         : undefined,
+    pollIntervalSec: t.triggerType === "watch" ? t.pollIntervalSec : undefined,
   });
 
   const hasInlineFilter = (t: NexusToolTrigger) => {
@@ -1211,13 +1214,16 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
                       {eventLabel && <span>{eventLabel}</span>}
                       <span className={cn(toolEnabled && t.enabled && "text-amber-400/80")}>{modeLabel}</span>
                     </div>
-                    {(hasInlineFilter(t) || t.scheduleConfig) && (
+                    {(hasInlineFilter(t) || t.scheduleConfig || (t.triggerType === "watch" && t.pollIntervalSec)) && (
                       <div className="text-[10px] text-muted-foreground mt-0.5">
                         {hasInlineFilter(t) && <span>🔍 内联筛选</span>}
                         {t.scheduleConfig && (
                           <span className="ml-2">
                             ⏱ {scheduleLabel(t.scheduleConfig)}
                           </span>
+                        )}
+                        {t.triggerType === "watch" && t.pollIntervalSec && (
+                          <span className="ml-2">⏱ 每 {t.pollIntervalSec}s</span>
                         )}
                       </div>
                     )}

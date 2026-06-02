@@ -734,6 +734,30 @@ function GeneralTab() {
         </div>
       </div>
 
+      {/* 文件监听轮询周期 */}
+      <div className={`${GLASS} p-4 space-y-2`}>
+        <label className="text-sm font-medium text-foreground">文件监听默认轮询周期（秒）</label>
+        <p className="text-xs text-muted-foreground/70">
+          watch 触发器未单独配置时使用的默认间隔。每个触发器可在其编辑面板中覆盖此值（推荐做法），范围 1~300。修改后立即生效（无需重启）。
+        </p>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            className="h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+            type="number" min={1} max={300}
+            value={settings.nexusToolWatcherPollIntervalSec ?? 2}
+            onChange={e => {
+              const v = parseInt(e.target.value) || 2;
+              patch({ nexusToolWatcherPollIntervalSec: Math.max(1, Math.min(300, v)) });
+            }}
+          />
+          {defaults && (
+            <span className="text-[11px] text-muted-foreground/50">
+              默认: {defaults.nexusToolWatcherPollIntervalSec ?? 2}s
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* 操作按钮 */}
       <div className="flex items-center gap-2">
         <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleSave} disabled={!dirty || saving}>

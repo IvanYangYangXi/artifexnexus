@@ -65,6 +65,13 @@ export interface NexusToolTrigger {
   conditions?: FilterConfig;
   /** 定时调度配置（仅 triggerType=schedule 时生效） */
   scheduleConfig?: ScheduleConfig;
+  /** 文件监听轮询周期（秒），范围 1~300。仅 triggerType=watch 时生效。
+   *  缺省时 fallback 到 app.settings.nexusToolWatcherPollIntervalSec。 */
+  pollIntervalSec?: number;
+  /** 监听事件类型列表，仅 triggerType=watch 时生效，默认 ["created","modified"] */
+  watchEvents?: string[];
+  /** 触发器命中后的防抖间隔（毫秒），仅 triggerType=watch 时生效 */
+  debounceMs?: number;
 }
 
 export interface NexusToolImplementation {

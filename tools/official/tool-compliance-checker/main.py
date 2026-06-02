@@ -331,33 +331,17 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                         "message": "缺少必填字段: implementation（必须为对象）"})
         impl = {}
     else:
-        # ── Rule 6: implementation.type 有效值 ──────────────────────────────
-        valid_impl_types = {"script", "skill_wrapper", "composite"}
-        impl_type = impl.get("type", "")
-        if not impl_type:
+        # ── Rule 6: entry 必填且文件存在 ────────────────────────────────────
+        entry = impl.get("entry", "")
+        if not entry:
             issues.append({"tool_id": tool_id, "severity": "error",
-                            "message": "implementation 缺少 type 字段"})
-        elif impl_type not in valid_impl_types:
+                            "message": "implementation 缺少 entry（入口文件名）"})
+        elif not (tool_dir / entry).exists():
             issues.append({"tool_id": tool_id, "severity": "error",
-                            "message": f"implementation.type 无效: {impl_type!r}，有效值: {sorted(valid_impl_types)}"})
-
-        # ── Rule 7: type=script 时 entry 必填且文件存在 ──────────────────────
-        if impl_type == "script":
-            entry = impl.get("entry", "")
-            if not entry:
-                issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": "implementation.type=script 时必须填写 entry（入口文件名）"})
-            elif not (tool_dir / entry).exists():
-                issues.append({"tool_id": tool_id, "severity": "error",
-                                "message": f"入口文件不存在: {entry}"})
-            if not impl.get("function"):
-                issues.append({"tool_id": tool_id, "severity": "warning",
-                                "message": "implementation.function 未填写，AI 执行时无法定位入口函数"})
-
-        # ── Rule 8: type=skill_wrapper 时 skill 必填 ─────────────────────────
-        if impl_type == "skill_wrapper" and not impl.get("skill"):
-            issues.append({"tool_id": tool_id, "severity": "error",
-                            "message": "implementation.type=skill_wrapper 时必须填写 skill（被包装的 Skill ID）"})
+                            "message": f"入口文件不存在: {entry}"})
+        if not impl.get("function"):
+            issues.append({"tool_id": tool_id, "severity": "warning",
+                            "message": "implementation.function 未填写，AI 执行时无法定位入口函数"})
 
     # ── Rule 9: description 必填非空 ─────────────────────────────────────────
     if not manifest.get("description"):
@@ -612,7 +596,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
     # ── Rule 30-36: artifex_nexus_sdk 合规检查（AST 静态分析）────────────────────
     entry_file = impl.get("entry", "main.py") if impl else "main.py"
     entry_path_file = tool_dir / entry_file
-    if entry_path_file.exists() and impl.get("type") == "script":
+    if entry_path_file.exists():
         try:
             script_source = entry_path_file.read_text(encoding="utf-8")
             import ast

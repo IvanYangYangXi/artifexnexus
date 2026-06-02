@@ -164,12 +164,64 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const maybeNotify = React.useCallback(
     (result: NexusToolRunResult) => {
       try {
-        const data = (result as any).data;
-        let type: "success" | "warning" | "error" = result.success ? "success" : "error";
+        // 兼容性兜底：当 sidecar 旧版不识别 MCP Bridge v4 的 `output` 字段时，
+        // result.data 会是原始 MCP 响应 {success, output, exec_id, execution_time, result}。
+        // 我们在这里再做一次 parse，把工具的真实返回值挖出来。这样即便 sidecar
+        // 还没重启、还在跑老代码，前端依然能正确展示成功/失败状态和 CSV 路径。
+        let data: any = (result as any).data;
+        let success = result.success;
+        let extraError: string | undefined;
+        if (
+          data &&
+          typeof data === "object" &&
+          typeof data.output === "string" &&
+          ("exec_id" in data || "execution_time" in data)
+        ) {
+          // 这是 UE universal_proxy 的原始响应——尝试解析最后一行 output
+          try {
+            const lines = data.output.split("\n").map((l: string) => l.trim()).filter(Boolean);
+            if (lines.length > 0) {
+              const parsed = JSON.parse(lines[lines.length - 1]);
+              if (parsed && typeof parsed === "object") {
+                // 内层 success === false 时把外层也标记为失败
+                if (parsed.success === false) {
+                  success = false;
+                  extraError = parsed.error || parsed.error_type || undefined;
+                }
+                data = parsed;
+              }
+            }
+          } catch {
+            // 解析失败：保留原始 data
+          }
+        }
+
+        let type: "success" | "warning" | "error" = success ? "success" : "error";
         let message: string;
         let notifDetail: string | undefined;
 
-        if (data && (data.issues_found !== undefined || data.report)) {
+        // 资产扫描类工具识别：data.csv_path 或 data.groups (含 total_scanned)
+        const isScanResult = data && (
+          data.csv_path !== undefined ||
+          (Array.isArray(data.groups) && data.total_scanned !== undefined)
+        );
+
+        if (!success) {
+          // ── 失败分支：把工具内层 error/traceback 放到 detail，便于排查 ──
+          const errMsg = result.error || extraError || (data && (data as any).error) || "执行失败";
+          const step = data && (data as any).step;
+          const errorType = data && (data as any).error_type;
+          const traceback = data && (data as any).traceback;
+          message = step
+            ? `执行失败 [${step}]: ${String(errMsg).slice(0, 80)}`
+            : `执行失败: ${String(errMsg).slice(0, 80)}`;
+          // detail 拼接：错误类型 + traceback（如果有）
+          const parts: string[] = [];
+          if (errorType) parts.push(`类型: ${errorType}`);
+          parts.push(`错误: ${errMsg}`);
+          if (traceback) parts.push(`---\n${traceback}`);
+          notifDetail = parts.join("\n");
+        } else if (data && (data.issues_found !== undefined || data.report)) {
           // 合规检查类工具
           const issuesFound: number = data.issues_found ?? 0;
           const total: number = data.total_checked ?? issuesFound;
@@ -186,8 +238,26 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
             message = `检查 ${total} 个 Tool，全部通过`;
           }
           notifDetail = report;
-        } else if (!result.success) {
-          message = result.error ? `执行失败: ${result.error.slice(0, 80)}` : "执行失败";
+        } else if (isScanResult) {
+          // 资产扫描类工具（重复模型/贴图/相似贴图）→ 显示 CSV 路径
+          const csvPath: string = data.csv_path ?? "";
+          const groupCount: number = data.group_count ?? data.groups?.length ?? 0;
+          const totalDupes: number = data.total_duplicate_assets ?? 0;
+          const totalScanned: number = data.total_scanned ?? 0;
+
+          const lines: string[] = [];
+          if (groupCount > 0) {
+            lines.push(`扫描 ${totalScanned} 个资产，发现 ${groupCount} 个重复组（${totalDupes} 个资产）`);
+          } else {
+            lines.push(`扫描 ${totalScanned} 个资产，未发现重复资产`);
+          }
+          if (csvPath) {
+            lines.push(`CSV: ${csvPath}`);
+          }
+          message = lines.join("\n");
+          // detail 始终带 CSV 路径，即使 message 已经包含——便于点击查看
+          notifDetail = csvPath || undefined;
+          type = "success";
         } else if (data?.stdout && typeof data.stdout === "string" && data.stdout.length > 3) {
           message = `执行成功（输出 ${data.stdout.length} 字符）`;
         } else {

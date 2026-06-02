@@ -15,9 +15,9 @@
     ]
   },
   "implementation": {
-    "type": "script",
     "entry": "main.py",
-    "function": "check_skill_compliance"
+    "function": "check_skill_compliance",
+    "type": "script"
   },
   "inputs": [],
   "outputs": [
@@ -84,10 +84,7 @@
       "executionMode": "notify",
       "id": "on-skill-change",
       "name": "Skill文件变化时检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
+      "pollIntervalSec": 30,
       "triggerType": "watch",
       "useDefaultFilters": false,
       "watchEvents": [
@@ -98,10 +95,11 @@
     }
   ],
   "author": "Ivan(杨己力)",
-  "updatedAt": "2026-05-29 12:03:43",
+  "updatedAt": "2026-06-02 10:10:36",
   "software": [
     {
       "dcc": "general"
     }
-  ]
+  ],
+  "tags": []
 }

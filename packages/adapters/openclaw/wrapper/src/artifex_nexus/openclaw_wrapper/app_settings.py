@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 #   nexusToolKillProcessTree:   cancel 时是否递归杀子进程（Windows 下尤其重要）。
 #   logLevel:                   sidecar 日志等级（"DEBUG"/"INFO"/"WARN"/"ERROR"）。仅展示，
 #                                实际生效需 sidecar 重启或单独 RPC 热更新——后续迭代再做。
+#   nexusToolWatcherPollIntervalSec: nexus-tool 文件监听器**默认**轮询周期（秒）。
+#                                每个 watch 触发器可在 manifest.triggers[].pollIntervalSec
+#                                独立覆盖此值；本字段是未显式配置时的兜底默认 +
+#                                主循环 tick 的初始值。生效路径：写入设置后立即热更新
+#                                NexusToolWatcher 的轮询周期，下次 _load_watch_triggers
+#                                时未自定义的触发器即采用新默认。
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "nexusToolDefaultTimeoutSec": 120,
     "nexusToolMaxConcurrent": 3,
@@ -48,6 +54,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # ── 依赖管理 ────────────────────────────────────────────────────────
     "nexusToolAutoInstallDeps": False,  # 运行前自动安装依赖（默认需用户确认）
     "nexusToolPipMirror": "",            # pip 镜像源（空 = 默认 PyPI）
+    # ── 文件监听 ────────────────────────────────────────────────────────
+    "nexusToolWatcherPollIntervalSec": 2,  # watch 触发器轮询周期（秒），范围 1~300
     # ── UI 偏好（跨启动持久化） ──────────────────────────────────────────
     #   skillViewMode / toolViewMode: "card" | "list"
     #   skillFavoritesOnly / toolFavoritesOnly: boolean
@@ -61,6 +69,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 _INT_RANGES: Dict[str, tuple[int, int]] = {
     "nexusToolDefaultTimeoutSec": (1, 24 * 60 * 60),  # 1s ~ 24h
     "nexusToolMaxConcurrent": (1, 64),
+    "nexusToolWatcherPollIntervalSec": (1, 300),       # 1s ~ 5min
 }
 _LOG_LEVELS = {"DEBUG", "INFO", "WARN", "WARNING", "ERROR"}
 
@@ -230,6 +239,16 @@ def handle_app_settings_set(req_id: Any, params: dict) -> dict:
             _cached = None
             _cached_at = 0.0
         logger.info("[app-settings] updated keys=%s", list(patch.keys()))
+
+        # ── 热更新钩子：写入后让相关后台模块即时重读 ──
+        # 失败不阻塞设置写入；下次 sidecar 启动时仍会按新值生效。
+        if "nexusToolWatcherPollIntervalSec" in patch:
+            try:
+                from artifex_nexus.openclaw_wrapper import nexus_tool_watcher as _ntw
+                _ntw.apply_settings()
+            except Exception as exc:
+                logger.warning("[app-settings] watcher hot-reload failed: %s", exc)
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
