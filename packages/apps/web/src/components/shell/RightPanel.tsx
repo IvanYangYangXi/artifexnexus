@@ -73,25 +73,6 @@ export function RightPanel() {
     try { localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(assignments)); } catch {}
   }, []);
 
-  // ─── 清理 react-resizable-panels 脏布局数据（双列模式结构动态变化，持久化有害）──
-  React.useEffect(() => {
-    try {
-      // getPanelGroupKey(autoSaveId) → `react-resizable-panels:${autoSaveId}`
-      // 核弹式清理：删除所有 react-resizable-panels 相关数据
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith("react-resizable-panels")) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-      if (keysToRemove.length > 0) {
-        console.log("[RightPanel] 清理了 react-resizable-panels 脏数据:", keysToRemove);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
   // ─── 真实 API：Skill 列表 ───────────────────────────────────────
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = React.useState(true);

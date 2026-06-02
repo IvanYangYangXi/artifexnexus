@@ -171,6 +171,7 @@ export function CollapsiblePanelGroup({
         <PanelGroup
           key={visiblePanels.map(p => (p as React.ReactElement)?.props?.id).filter(Boolean).join(",")}
           direction={direction}
+          autoSaveId={autoSaveId}
           className="flex-1"
         >
           {visiblePanels.map((p, i) => {
@@ -226,7 +227,7 @@ export function CollapsiblePanelGroup({
       return (
         <GroupContext.Provider value={ctxValue}>
           <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
-            <PanelGroup key={rightVisible.map(p => (p.props as any)?.id).filter(Boolean).join(",")} direction="vertical" className="flex-1">
+            <PanelGroup key={rightVisible.map(p => (p.props as any)?.id).filter(Boolean).join(",")} direction="vertical" autoSaveId={autoSaveId ? `${autoSaveId}:right` : undefined} className="flex-1">
               {rightVisible.map((p, i) => {
                 const panelId = (p.props as any)?.id;
                 return (
@@ -247,10 +248,10 @@ export function CollapsiblePanelGroup({
     return (
       <GroupContext.Provider value={ctxValue}>
         <div ref={containerRef} className={cn("flex h-full w-full flex-col", className)}>
-          <PanelGroup key={`dual-${leftKey}-${rightKey}`} direction="horizontal" className="flex-1">
+          <PanelGroup key={`dual-${leftKey}-${rightKey}`} direction="horizontal" autoSaveId={autoSaveId ? `${autoSaveId}:dual` : undefined} className="flex-1">
             {hasLeft && (
               <Panel key={`left-${leftKey}`} defaultSize={defaultColumnRatio} minSize={15}>
-                <PanelGroup direction="vertical" className="h-full">
+                <PanelGroup direction="vertical" autoSaveId={autoSaveId ? `${autoSaveId}:left` : undefined} className="h-full">
                   {leftVisible.map((p, i) => {
                     const panelId = (p.props as any)?.id;
                     return (
@@ -274,7 +275,7 @@ export function CollapsiblePanelGroup({
             )}
             {hasRight && (
               <Panel key={`right-${rightKey}`} defaultSize={hasLeft ? 100 - defaultColumnRatio : 100} minSize={15}>
-                <PanelGroup direction="vertical" className="h-full">
+                <PanelGroup direction="vertical" autoSaveId={autoSaveId ? `${autoSaveId}:right` : undefined} className="h-full">
                   {rightVisible.map((p, i) => {
                     const panelId = (p.props as any)?.id;
                     return (
@@ -464,14 +465,36 @@ export const CollapsiblePanel = React.forwardRef<
       return raw ? (JSON.parse(raw)[field] ?? fallback) : fallback;
     } catch { return fallback; }
   }, []);
-  const savePersistentState = React.useCallback((openVal: boolean, hiddenVal: boolean) => {
+  const savePersistentState = React.useCallback((openVal: boolean, hiddenVal: boolean, sizeVal?: number) => {
     if (!panelStorageKey) return;
-    try { localStorage.setItem(panelStorageKey, JSON.stringify({ open: openVal, hidden: hiddenVal })); } catch {}
+    try {
+      // 合并已有数据，保留上次保存的 size（当 sizeVal 未传入时）
+      const existing = (() => {
+        try {
+          const raw = localStorage.getItem(panelStorageKey);
+          return raw ? JSON.parse(raw) : {};
+        } catch { return {}; }
+      })();
+      const payload = { ...existing, open: openVal, hidden: hiddenVal };
+      if (sizeVal !== undefined) payload.size = sizeVal;
+      localStorage.setItem(panelStorageKey, JSON.stringify(payload));
+      if (sizeVal !== undefined) {
+        console.debug(`[dpanel.${id}] save open=${openVal} hidden=${hiddenVal} size=${sizeVal}`);
+      }
+    } catch {}
   }, [panelStorageKey]);
 
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(() =>
     panelStorageKey ? loadPersistentState<boolean>(panelStorageKey, "open", defaultOpen) : defaultOpen
   );
+  // 持久化拖拽高度（用户手动调整后的面板尺寸百分比）
+  const persistedSize = React.useMemo(() =>
+    panelStorageKey ? loadPersistentState<number>(panelStorageKey, "size", defaultSize) : defaultSize,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelStorageKey],
+  );
+  // 是否从持久化加载了不同于默认值的高度
+  const hasPersistedSize = panelStorageKey ? persistedSize !== defaultSize : false;
   const open = controlledOpen ?? uncontrolledOpen;
 
   // defaultOpen 变化（如预览从无到有）→ 自动展开面板
@@ -492,17 +515,18 @@ export const CollapsiblePanel = React.forwardRef<
     }
   };
 
-  // 折叠 → 展开：显式 resize 到 defaultSize（react-resizable-panels 的 defaultSize 仅在挂载时生效）
+  // 折叠 → 展开：恢复到用户上次调整的高度，fallback 到 defaultSize
   const prevOpenRef = React.useRef(open);
   React.useEffect(() => {
     if (open && !prevOpenRef.current) {
-      // 从折叠过渡到展开 → 推送到目标尺寸
+      // 从折叠过渡到展开 → 推送到目标尺寸（优先用户持久化高度）
+      const targetSize = persistedSize !== defaultSize ? persistedSize : defaultSize;
       requestAnimationFrame(() => {
-        panelRef.current?.resize(defaultSize);
+        panelRef.current?.resize(targetSize);
       });
     }
     prevOpenRef.current = open;
-  }, [open, defaultSize]);
+  }, [open, defaultSize, persistedSize]);
 
   // ── 隐藏态持久化 ──
   // 源：localStorage → fallback: ctx.hiddenRegistry（HiddenTabBar 通过 ctx 恢复）
@@ -523,6 +547,16 @@ export const CollapsiblePanel = React.forwardRef<
   const setHidden = (next: boolean) => {
     onHiddenChange?.(next);
     if (controlledHidden === undefined) {
+      // 隐藏前保存当前展开高度
+      if (next && open && panelRef.current) {
+        const currentSize = panelRef.current.getSize();
+        if (currentSize !== undefined && currentSize > COLLAPSED_PCT) {
+          savePersistentState(open, next, currentSize);
+          setLocalHidden(next);
+          if (id && next) ctx.setHidden(id, true);
+          return;
+        }
+      }
       setLocalHidden(next);
       savePersistentState(open, next);
       if (id && !next) ctx.setHidden(id, false); // 从隐藏恢复时同步 ctx
@@ -532,6 +566,39 @@ export const CollapsiblePanel = React.forwardRef<
 
   const panelRef = React.useRef<ImperativePanelHandle>(null);
   React.useImperativeHandle(ref, () => panelRef.current!, []);
+
+  // ── 关闭/刷新时保存当前展开高度 ──
+  React.useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (open && !hidden && panelRef.current) {
+        const currentSize = panelRef.current.getSize();
+        if (currentSize !== undefined && currentSize > COLLAPSED_PCT) {
+          console.debug(`[dpanel.${id}] beforeunload save size=${currentSize}`);
+          savePersistentState(true, false, currentSize);
+        }
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [open, hidden, savePersistentState, id]);
+
+  // ── Mount 后强制恢复到持久化高度（绕过 react-resizable-panels defaultSize 规范化）──
+  React.useEffect(() => {
+    if (open && !hidden && hasPersistedSize && panelRef.current) {
+      console.debug(`[dpanel.${id}] mount restore persistedSize=${persistedSize}`);
+      // 双 rAF：确保 react-resizable-panels 完成初始布局后再覆盖
+      let raf1: number;
+      const raf2 = requestAnimationFrame(() => {
+        raf1 = requestAnimationFrame(() => {
+          panelRef.current?.resize(persistedSize);
+        });
+      });
+      return () => {
+        cancelAnimationFrame(raf2);
+        if (raf1!) cancelAnimationFrame(raf1);
+      };
+    }
+  }, []); // 仅 mount 时执行一次
 
   // ── 折叠百分比（恒定值，不随 containerHeight 变化，防止触发 react-resizable-panels 约束重算）──
   const COLLAPSED_PCT = 4;
@@ -549,6 +616,14 @@ export const CollapsiblePanel = React.forwardRef<
       setHidden(false);
       setOpen(false);
     } else {
+      // 折叠前先保存当前展开高度
+      if (open && panelRef.current) {
+        const currentSize = panelRef.current.getSize();
+        if (currentSize !== undefined && currentSize > COLLAPSED_PCT) {
+          console.debug(`[dpanel.${id}] toggle save before collapse size=${currentSize}`);
+          savePersistentState(true, false, currentSize);
+        }
+      }
       setOpen(!open);
     }
   };
@@ -556,6 +631,14 @@ export const CollapsiblePanel = React.forwardRef<
   const handleHide = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    // 隐藏前保存当前展开高度
+    if (open && panelRef.current) {
+      const currentSize = panelRef.current.getSize();
+      if (currentSize !== undefined && currentSize > COLLAPSED_PCT) {
+        console.debug(`[dpanel.${id}] handleHide save size=${currentSize}`);
+        savePersistentState(true, false, currentSize);
+      }
+    }
     // 先折叠再隐藏，恢复时回到折叠态
     setOpen(false);
     setHidden(true);
@@ -569,7 +652,7 @@ export const CollapsiblePanel = React.forwardRef<
       ref={panelRef}
       collapsible
       collapsedSize={collapsedSize}
-      defaultSize={open ? defaultSize : COLLAPSED_PCT}
+      defaultSize={open ? (persistedSize !== defaultSize ? persistedSize : defaultSize) : COLLAPSED_PCT}
       minSize={effectiveMinSize}
       maxSize={effectiveMaxSize}
       order={order}
