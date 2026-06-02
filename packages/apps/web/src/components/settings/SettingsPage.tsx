@@ -707,13 +707,13 @@ function GeneralTab() {
       {/* 工具超时 */}
       <div className={`${GLASS} p-4 space-y-2`}>
         <label className="text-sm font-medium text-foreground">默认工具超时（秒）</label>
-        <p className="text-xs text-muted-foreground/70">通用 nexus-tool 执行超时上限（manifest 可单工具覆盖），范围 1~86400</p>
+        <p className="text-xs text-muted-foreground/70">所有 nexus-tool 执行的统一超时上限（工具 manifest 不再单独配置），范围 1~86400，默认 300</p>
         <div className="flex items-center gap-2 mt-1">
           <input
             className="h-8 w-32 rounded border border-white/[0.08] bg-white/[0.03] px-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
             type="number" min={1} max={86400}
             value={settings.nexusToolDefaultTimeoutSec}
-            onChange={e => { const v = parseInt(e.target.value) || 120; patch({ nexusToolDefaultTimeoutSec: Math.max(1, Math.min(86400, v)) }); }}
+            onChange={e => { const v = parseInt(e.target.value) || 300; patch({ nexusToolDefaultTimeoutSec: Math.max(1, Math.min(86400, v)) }); }}
           />
           {defaults && <span className="text-[11px] text-muted-foreground/50">默认: {defaults.nexusToolDefaultTimeoutSec}s</span>}
         </div>

@@ -53,6 +53,7 @@ import {
 } from "../../lib/nexus-tool/nexus-tool-api";
 import { DCC_LABELS, SOURCE_LABELS } from "../../lib/skillsMock";
 import { addRecentTool } from "../../lib/useRecentStore";
+import { getAppSettings } from "../../ipc/openclaw";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,9 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   const timeoutTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 防重入：确保 maybeNotify 每次运行只触发一次（setInterval 竞态） */
   const notifiedRef = React.useRef(false);
+  /** 平台统一的工具超时（秒），来自「设置 → 常规 → 默认工具超时」。
+   *  挂载时拉一次，运行时用 ref 取最新值（settings 改了下次运行就生效）。 */
+  const defaultTimeoutSecRef = React.useRef<number>(300);
 
   const { navigateWithPrompt } = React.useContext(ChatPromptContext);
   const { dccStatus } = React.useContext(DCCStatusContext);
@@ -159,6 +163,24 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
   }, [toolId]);
 
   React.useEffect(() => { loadDetail(); }, [loadDetail]);
+
+  // 拉取平台默认超时（设置改动后下次运行才生效，无需热更新）
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await getAppSettings();
+        if (cancelled) return;
+        const v = Number(resp?.settings?.nexusToolDefaultTimeoutSec);
+        if (Number.isFinite(v) && v > 0) {
+          defaultTimeoutSecRef.current = v;
+        }
+      } catch {
+        // 读取失败保留默认 300s
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── 通知生成：工具执行完成时，由前端直接发通知（取代 sidecar 文件桥接）─
   const maybeNotify = React.useCallback(
@@ -358,9 +380,9 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         }
       }, 1000);
 
-      // 3. 超时保护：尊重 manifest.implementation.timeout（秒），默认 120s，clamp 到 [10s, 86400s]
-      const manifestTimeoutSec = Number((detail as any)?.implementation?.timeout) || 120;
-      const guardMs = Math.min(86400, Math.max(10, manifestTimeoutSec)) * 1000 + 5_000;
+      // 3. 超时保护：使用「设置 → 常规 → 默认工具超时」（秒），clamp 到 [10s, 86400s]，加 5s 缓冲
+      const platformTimeoutSec = defaultTimeoutSecRef.current;
+      const guardMs = Math.min(86400, Math.max(10, platformTimeoutSec)) * 1000 + 5_000;
       const guardLabel = `${Math.round(guardMs / 1000)} 秒`;
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();
@@ -468,8 +490,8 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         } catch (_e) { /* 轮询失败不中断 */ }
       }, 1000);
 
-      const manifestTimeoutSec2 = Number((detail as any)?.implementation?.timeout) || 120;
-      const guardMs2 = Math.min(86400, Math.max(10, manifestTimeoutSec2)) * 1000 + 5_000;
+      const platformTimeoutSec2 = defaultTimeoutSecRef.current;
+      const guardMs2 = Math.min(86400, Math.max(10, platformTimeoutSec2)) * 1000 + 5_000;
       const guardLabel2 = `${Math.round(guardMs2 / 1000)} 秒`;
       timeoutTimerRef.current = setTimeout(() => {
         cleanup();

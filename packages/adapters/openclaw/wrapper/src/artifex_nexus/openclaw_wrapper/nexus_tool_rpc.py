@@ -1619,15 +1619,12 @@ def _parse_tool_stdout(stdout: str) -> Optional[Dict[str, Any]]:
 def _resolve_timeout(impl: Dict[str, Any]) -> int:
     """决定本次执行的超时（秒）。
 
-    优先级：manifest.implementation.timeout > app.settings.nexusToolDefaultTimeoutSec > 120
+    统一由 ``app.settings.nexusToolDefaultTimeoutSec`` 控制（默认 300s）。
+    不再读 manifest.implementation.timeout —— 工具作者无需考虑超时，
+    平台统一在「设置 → 常规」配置。
+    impl 参数保留以维持调用兼容性，但不再使用。
     """
-    # manifest 级
-    raw = impl.get("timeout") if isinstance(impl, dict) else None
-    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        v = int(raw)
-        if 1 <= v <= 24 * 60 * 60:
-            return v
-    # app settings 级
+    _ = impl  # 保留入参签名兼容
     try:
         try:
             from . import app_settings as _as_mod
@@ -1639,7 +1636,7 @@ def _resolve_timeout(impl: Dict[str, Any]) -> int:
             return v
     except Exception as e:
         logger.debug("[nt-exec:general] 读取 app settings 失败，回 fallback: %s", e)
-    return 120
+    return 300
 
 
 def _resolve_max_concurrent() -> int:

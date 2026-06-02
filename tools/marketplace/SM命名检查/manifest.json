@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "Ivan(杨己力)",
   "createdAt": "2026-04-26 00:23:00",
-  "updatedAt": "2026-05-25 03:53:51",
+  "updatedAt": "2026-06-02 15:01:26",
   "defaultFilters": {
     "path": [
       {
@@ -64,12 +64,8 @@
       "executionMode": "notify",
       "id": "f25ace5e-7d8e-4b6b-8cda-0849ee6efe28",
       "name": "静态网格体放置时检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
       "triggerType": "event",
-      "useDefaultFilters": false
+      "useDefaultFilters": true
     },
     {
       "conditions": {},
@@ -79,12 +75,8 @@
       "executionMode": "notify",
       "id": "4e8fadcd-b2b6-4f75-b1d6-f10d23b98791",
       "name": "静态模型导入检查",
-      "scheduleConfig": {
-        "interval": "30m",
-        "type": "interval"
-      },
       "triggerType": "event",
-      "useDefaultFilters": false
+      "useDefaultFilters": true
     }
   ],
   "presets": [],

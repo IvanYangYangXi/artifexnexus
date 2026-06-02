@@ -34,8 +34,9 @@ logger = logging.getLogger(__name__)
 
 # ── 默认值 ────────────────────────────────────────────────────────────────────
 # 字段说明（前端展示文案在 settings.i18n.ts，本表只放结构 + 默认值）：
-#   nexusToolDefaultTimeoutSec: 通用 nexus-tool 默认超时（秒）。manifest.implementation.timeout
-#                                可单工具覆盖；本字段是兜底默认。
+#   nexusToolDefaultTimeoutSec: 所有 nexus-tool 执行的统一超时（秒）。本字段是
+#                                唯一权威：不再读 manifest.implementation.timeout，
+#                                工具作者无需考虑超时，由平台统一管理。
 #   nexusToolMaxConcurrent:     同时允许运行的通用 nexus-tool 数；超出会拒绝 run 请求。
 #   nexusToolKillProcessTree:   cancel 时是否递归杀子进程（Windows 下尤其重要）。
 #   logLevel:                   sidecar 日志等级（"DEBUG"/"INFO"/"WARN"/"ERROR"）。仅展示，
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 #                                NexusToolWatcher 的轮询周期，下次 _load_watch_triggers
 #                                时未自定义的触发器即采用新默认。
 DEFAULT_SETTINGS: Dict[str, Any] = {
-    "nexusToolDefaultTimeoutSec": 120,
+    "nexusToolDefaultTimeoutSec": 300,
     "nexusToolMaxConcurrent": 3,
     "nexusToolKillProcessTree": True,
     "logLevel": "INFO",
