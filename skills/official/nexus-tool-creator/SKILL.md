@@ -13,7 +13,7 @@ description: >
   installing skills (use nexus-skill-manage).
 metadata:
   artifex_nexus:
-    version: 1.4.0
+    version: 1.5.0
     author: Artifex Nexus
     software: all
     tags: ["tool-creator", "nexus-tool", "development", "notification"]
@@ -94,8 +94,15 @@ def _load_manifest() -> dict:
         return json.load(f)
 
 
-def main_function(**kwargs) -> dict:
+def main_function(event_data=None, **kwargs) -> dict:
     """入口函数。返回的 dict 会被前端解析并自动生成通知。
+
+    入参约定：
+      - event_data: dict | None
+          触发器调用时由平台传入，含 trigger_type / trigger_id / tool_id /
+          event_type / file_path / file_event / asset_path / asset_name / data 等。
+          手动运行（RunPanel）调用时为 None。
+      - **kwargs: 用户参数（manifest.inputs 定义）+ 兼容未来扩展字段
 
     返回值约定（推荐字段）：
       - success: bool                  ← 失败时务必显式 false，前端会标红
@@ -105,7 +112,7 @@ def main_function(**kwargs) -> dict:
       - 其他业务字段                    ← 如 csv_path / groups / total_scanned 等
     """
     manifest = _load_manifest()
-    _log.info("START args=%s", kwargs)
+    _log.info("START event_data=%s args=%s", event_data, kwargs)
 
     # ── 1. 参数解析 ──
     try:
@@ -308,6 +315,80 @@ GUID 确保改名/移动目录后信息不漂移。
 
 ---
 
+## 入口函数签名与 event_data 约定
+
+### 标准签名
+
+```python
+def main_function(event_data=None, **kwargs) -> dict:
+    ...
+```
+
+| 入参 | 来源 | 说明 |
+|------|------|------|
+| `event_data` | 平台触发器 | dict，含触发上下文；手动运行时为 None |
+| `**kwargs` | manifest.inputs | 用户参数；触发器调用时也兜底接收未知字段 |
+
+> ⚠️ **启用了任何触发器的工具必须接 `event_data`（或至少 `**kwargs`）**，
+> 否则合规检查器会报 warning，且触发器调度时会因 TypeError 报错。
+
+### event_data Schema（平台统一）
+
+```jsonc
+{
+  // ── 通用字段 ──
+  "trigger_type": "event" | "watch",   // 触发器类型
+  "trigger_id": "uuid",                // manifest.triggers[].id
+  "tool_id": "uuid",                   // manifest.id
+  "event_type": "asset.import.post" | "watch",
+
+  // ── event 触发器专属（DCC 事件）──
+  "dcc_type": "unreal_engine",
+  "timing": "pre" | "post",
+  "asset_path": "/Game/Foo.Foo",       // 便利字段
+  "asset_name": "Foo",
+  "asset_class": "StaticMesh",
+  "data": { ... },                     // 完整原始 DCC payload
+
+  // ── watch 触发器专属（文件监听）──
+  "file_path": "C:/.../manifest.json", // 触发本次执行的文件
+  "file_event": "created" | "modified" | "deleted",
+}
+```
+
+### 工具实现增量逻辑示例
+
+watch 触发器 + `event_data["file_path"]` 让工具可以做"只检查变动那一个"的增量模式：
+
+```python
+def check_compliance(event_data=None, **kwargs) -> dict:
+    # 增量：来自 watch 触发器时只检查变动文件所属工具
+    if event_data and event_data.get("file_path"):
+        tool_dir = _find_owning_tool_dir(event_data["file_path"])
+        if tool_dir:
+            return _check_single_tool(tool_dir)
+
+    # 全量：手动运行 / 找不到所属工具时回退
+    return _check_all_tools()
+```
+
+### 可选：用 sdk.event.parse 包装
+
+如果觉得 dict 访问繁琐，可以用 `sdk.event.parse(event_data)` 转成对象：
+
+```python
+import artifex_nexus_sdk as sdk
+
+def my_tool(event_data=None, **kwargs):
+    if event_data:
+        evt = sdk.event.parse(event_data)
+        print(evt.asset_path, evt.trigger_type)
+```
+
+但这只是糖，不是必须。dict 直接 `event_data["asset_path"]` 也完全合规。
+
+---
+
 ## 验证清单
 
 保存前验证：
@@ -315,14 +396,16 @@ GUID 确保改名/移动目录后信息不漂移。
 - [ ] manifest.json 包含所有必需字段（id、name、implementation.type）
 - [ ] 配置分层合规：路径范围 → `defaultFilters.path`，类型范围 → `defaultFilters.typeFilter`，业务常量 → `inputs[]`，⛔ 无模块级硬编码常量
 - [ ] software 已按推断规则正确设置
-- [ ] 脚本优先使用 `artifex_nexus_sdk`（params / filters / result / logger）
+- [ ] **入口函数签名** 是 `def fn(event_data=None, **kwargs)` 或至少有 `**kwargs`
+  （启用触发器的工具必须；纯手动运行也建议加 `**kwargs` 接住未来扩展字段）
+- [ ] 入口函数返回 dict 且含 `success: bool` 字段（前端 RunPanel 用它判定通知颜色）
+  或返回 `sdk.result.success/fail/allow/reject`
+- [ ] 关键步骤拆分独立 try/except，失败返回 `{success:false, step, error, error_type, traceback}` 便于排错
 - [ ] 脚本 DCC 专有操作使用原生 API（UE: `unreal`，Maya: `maya.cmds`，Blender: `bpy`）
+- [ ] sdk import 推荐但非强制：如使用 sdk，优先 `params / context / event / result`
 - [ ] ⛔ 脚本不包含 `import subprocess` 或 `os.system`
 - [ ] ⛔ 脚本不写 `_notify` / `_toast` 文件桥接通知（前端 RunPanel 自动通知，写了会重复）
 - [ ] ⛔ `manifest.implementation` 不含 `timeout` 字段（平台统一管理）
-- [ ] 入口函数使用 `**kwargs` 签名
-- [ ] 入口函数返回 dict 或 sdk.result（失败时务必设 `success: false` 让前端识别）
-- [ ] 关键步骤拆分独立 try/except，失败返回 `{success:false, step, error, error_type, traceback}` 便于排错
 - [ ] 触发规则合规：
   - [ ] event trigger 的 `dcc` 在 `software` 范围内
   - [ ] `software=[]` 的通用工具不使用 event trigger

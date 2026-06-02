@@ -10,7 +10,10 @@ ArtClaw Tool Compliance Checker v3.0
 """
 # ── SDK 头 ──
 import os, json
+import logging
 import artifex_nexus_sdk as sdk
+
+logger = logging.getLogger("artifex.tool.tool-compliance-checker")
 
 def _load_manifest() -> dict:
     manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
@@ -140,35 +143,96 @@ def _get_source_tool_names(project_root: str) -> set:
     return names
 
 
+def _find_owning_tool_dir(file_path: str) -> Optional[Path]:
+    """从变更的文件路径反向定位所属工具目录（含 manifest.json 的最近祖先目录）。
+
+    用于 watch 触发器的增量检查模式：file_path 通常是工具内某个 .py 或 manifest 文件，
+    回溯到包含 manifest.json 的目录即工具根目录。如果文件不在任何工具目录内（例如
+    用户的临时文件、scratch），返回 None，调用方应回退到全量扫描。
+    """
+    try:
+        p = Path(file_path).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    if not p.exists() and not p.is_absolute():
+        return None
+    # 从文件所在目录开始向上找 manifest.json
+    current = p if p.is_dir() else p.parent
+    # 限制最多向上找 8 层，避免误匹配上层无关 manifest
+    for _ in range(8):
+        if (current / "manifest.json").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 # ============================================================================
 # 通知发送
 # ============================================================================
 
-def check_compliance(**kwargs) -> Dict[str, Any]:
+def check_compliance(event_data=None, **kwargs) -> Dict[str, Any]:
     """
     检查工具合规性。
-    
+
+    支持三种调用方式：
+      1. 手动运行 / RunPanel：`check_compliance(tools_dir="...", source_only=True)` →
+         全量扫描配置目录
+      2. watch 触发器（增量模式）：`check_compliance(event_data={"file_path": "...", ...})` →
+         只检查变更文件所属的工具目录，跳过全量扫描，速度快
+      3. event 触发器：同上，event_data 由触发引擎传入
+
     路径来源优先级：
-      1. 调用参数 tools_dir（非空时使用）
-      2. 自身 manifest.json 的 triggers[].filters.path（$variable 解析）
-      3. 默认值 ~/.artifexnexus/nexus-tools
-    
+      1. event_data.file_path 推断的所属工具目录（增量模式）
+      2. 调用参数 tools_dir（非空时使用）
+      3. 自身 manifest.json 的 defaultFilters.path（$variable 解析）
+      4. 默认值 ~/.artifexnexus/nexus-tools
+
     Args:
+        event_data: 触发器上下文，含 file_path/file_event/trigger_type 等
         tools_dir: 工具目录路径（为空时从 manifest filters 读取）
         fix_simple: 是否自动修复简单问题（如空版本号）
-        source_only: 只检查在项目源码目录里有源码的工具（默认True）
-        
+        source_only: 只检查在项目源码目录里有源码的工具（默认 False）
+
     Returns:
-        检查结果字典: {total_checked, issues_found, issues: [...], report}
+        检查结果字典: {total_checked, issues_found, issues: [...], report,
+                      mode: "full" | "incremental", trigger_file: str?}
     """
     manifest = _load_manifest()
     parsed = sdk.params.parse_params(manifest.get("inputs", []), kwargs)
-    
+
     tools_dir = parsed.get("tools_dir", "")
     fix_simple = parsed.get("fix_simple", False)
     source_only = parsed.get("source_only", False)  # 默认 False，与 manifest inputs default 一致
-    # 路径解析：manifest filters 优先
-    if tools_dir:
+
+    # ── 增量模式判定 ──
+    # 由触发器调用且带 file_path 时进入增量模式：从文件路径反向定位所属工具目录，
+    # 跳过全量扫描，只检查那一个工具。比全量快得多（O(1) vs O(N)）。
+    incremental_mode = False
+    trigger_file = ""
+    incremental_tool_dir: Optional[Path] = None
+    if isinstance(event_data, dict):
+        trigger_file = event_data.get("file_path", "") or ""
+        if trigger_file:
+            incremental_tool_dir = _find_owning_tool_dir(trigger_file)
+            if incremental_tool_dir is not None:
+                incremental_mode = True
+                logger.info(
+                    "[compliance-checker] INCREMENTAL mode triggered by %s → %s",
+                    trigger_file, incremental_tool_dir,
+                )
+            else:
+                logger.info(
+                    "[compliance-checker] file %s 不属于任何工具目录，回退到全量扫描",
+                    trigger_file,
+                )
+
+    # 路径解析：增量模式优先 → 入参 tools_dir → manifest filters → 默认
+    if incremental_mode and incremental_tool_dir is not None:
+        scan_dirs = [str(incremental_tool_dir)]
+    elif tools_dir:
         scan_dirs = [str(Path(tools_dir).expanduser())]
     else:
         scan_dirs = _get_scan_dirs_from_manifest()
@@ -209,44 +273,54 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
 
     issues = []
     total_checked = 0
-    
-    # 扫描所有目录
-    for tools_path in valid_dirs:
-        tools_path = Path(tools_path)
-        
-        # 扫描 {layer}/{dcc_or_tool}/{tool-name?}/
-        # 支持两种布局:
-        #   Flat:   {layer}/{tool-name}/manifest.json
-        #   Nested: {layer}/{dcc}/{tool-name}/manifest.json
-        for layer_dir in tools_path.iterdir():
-            if not layer_dir.is_dir():
-                continue
-                
-            for child in layer_dir.iterdir():
-                if not child.is_dir():
+
+    if incremental_mode and incremental_tool_dir is not None:
+        # ── 增量：直接检查单个工具，不走 layer/tool 嵌套扫描 ──
+        # tool_id 用「目录名」即可（无 layer 前缀，反正是单工具报告）
+        tool_id = f"incremental/{incremental_tool_dir.name}"
+        total_checked = 1
+        tool_issues = _check_tool_compliance(
+            incremental_tool_dir, tool_id, fix_simple, categories_enum,
+        )
+        issues.extend(tool_issues)
+    else:
+        # ── 全量：扫描所有目录 ──
+        for tools_path in valid_dirs:
+            tools_path = Path(tools_path)
+
+            # 扫描 {layer}/{dcc_or_tool}/{tool-name?}/
+            # 支持两种布局:
+            #   Flat:   {layer}/{tool-name}/manifest.json
+            #   Nested: {layer}/{dcc}/{tool-name}/manifest.json
+            for layer_dir in tools_path.iterdir():
+                if not layer_dir.is_dir():
                     continue
-                
-                if (child / "manifest.json").exists():
-                    # Flat layout: child is tool dir
-                    tool_id = f"{layer_dir.name}/{child.name}"
-                    if source_names is not None and tool_id not in source_names:
+
+                for child in layer_dir.iterdir():
+                    if not child.is_dir():
                         continue
-                    total_checked += 1
-                    tool_issues = _check_tool_compliance(child, tool_id, fix_simple, categories_enum)
-                    issues.extend(tool_issues)
-                else:
-                    # Nested layout: child is dcc dir
-                    for tool_dir in child.iterdir():
-                        if not tool_dir.is_dir():
-                            continue
-                        if not (tool_dir / "manifest.json").exists():
-                            continue
-                        tool_id = f"{layer_dir.name}/{tool_dir.name}"
+
+                    if (child / "manifest.json").exists():
+                        # Flat layout: child is tool dir
+                        tool_id = f"{layer_dir.name}/{child.name}"
                         if source_names is not None and tool_id not in source_names:
                             continue
                         total_checked += 1
-                        tool_issues = _check_tool_compliance(tool_dir, tool_id, fix_simple)
+                        tool_issues = _check_tool_compliance(child, tool_id, fix_simple, categories_enum)
                         issues.extend(tool_issues)
+                    else:
+                        # Nested layout: child is dcc dir
+                        for tool_dir in child.iterdir():
+                            if not tool_dir.is_dir():
+                                continue
+                            if not (tool_dir / "manifest.json").exists():
+                                continue
+                            tool_id = f"{layer_dir.name}/{tool_dir.name}"
+                            if source_names is not None and tool_id not in source_names:
+                                continue
+                            total_checked += 1
+                            tool_issues = _check_tool_compliance(tool_dir, tool_id, fix_simple, categories_enum)
+                            issues.extend(tool_issues)
     
     # 生成报告
     report = _generate_report(total_checked, issues)
@@ -261,7 +335,9 @@ def check_compliance(**kwargs) -> Dict[str, Any]:
         "issues_found": len(issues),
         "issues": issues,
         "report": report,
-        "success": True  # 工具本身执行成功（issues_found 反映合规问题，不影响执行状态）
+        "success": True,  # 工具本身执行成功（issues_found 反映合规问题，不影响执行状态）
+        "mode": "incremental" if incremental_mode else "full",
+        "trigger_file": trigger_file if incremental_mode else "",
     }
     
     # 始终用 success 返回：工具本身执行成功；issues_found/report 反映合规问题
@@ -611,7 +687,10 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                 for tr in triggers
             ) if isinstance(triggers, list) else False
 
-            # Rule 30: main.py 必须 import artifex_nexus_sdk ──────────────────
+            # Rule 30: 推荐 import artifex_nexus_sdk（warning，非强制）─────
+            # 触发器 / 选中查询 / 结果封装 都可以走原生 dict + DCC 原生 API，
+            # sdk 是便利包装而非前置条件。DCC 工具直接用 unreal/bpy/maya 完全合规，
+            # 仅在脚本明显能从 sdk 受益（手动参数解析、跨 DCC 选中查询）时提示。
             has_sdk_import = False
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -622,13 +701,17 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                     if node.module and ("artifex_nexus_sdk" in node.module or "artclaw_sdk" in node.module):
                         has_sdk_import = True
             if not has_sdk_import:
-                issues.append({"tool_id": tool_id, "severity": "error",
-                              "message": "main.py 未 import artifex_nexus_sdk（所有工具必须使用 SDK）"})
+                issues.append({"tool_id": tool_id, "severity": "warning",
+                              "message": (
+                                  "main.py 未 import artifex_nexus_sdk（推荐使用）。"
+                                  "DCC 工具直接用 unreal/bpy/maya 原生 API 也合规，"
+                                  "sdk 仅提供便利封装（参数解析/事件解析/结果封装）。"
+                              )})
 
             func_name = impl.get("function", "") if impl else ""
 
-            # Rule 31: selection 工具入口函数应调用 parse_params ─────────────
-            # event trigger 工具使用 sdk.event.parse()，不需要 parse_params
+            # Rule 31: 若 import 了 sdk 但未使用 parse_params，提示一下 ──────
+            # （仅当工具确实 import sdk 且非 event 触发时检查，避免对纯 DCC 工具误报）
             if func_name and has_sdk_import and not has_event_trigger:
                 has_parse_params = any(
                     isinstance(node, ast.Attribute) and node.attr == "parse_params"
@@ -636,7 +719,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                 )
                 if not has_parse_params:
                     issues.append({"tool_id": tool_id, "severity": "warning",
-                                  "message": "入口函数未调用 sdk.params.parse_params（建议使用 SDK 参数解析）"})
+                                  "message": "已 import sdk 但入口函数未调用 sdk.params.parse_params（建议使用）"})
 
             # Rule 33: 不应包含与 SDK 功能重复的 DCC 原生选中查询调用 ─────────
             # 规范：sdk.context.get_selected_assets/objects 已覆盖这些调用
@@ -659,7 +742,7 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                                                        f"建议改用 sdk.context.get_selected_assets() 或 get_selected_objects()")})
                             break
 
-            # Rule 34: 入口函数返回值应通过 sdk.result.success/fail ───────────
+            # Rule 34: 入口函数返回值应是 sdk.result.* 或含 success 字段的 dict
             if func_name:
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef) and node.name == func_name:
@@ -676,7 +759,11 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                                         break
                         if not has_success_return:
                             issues.append({"tool_id": tool_id, "severity": "warning",
-                                          "message": "入口函数返回值建议使用 sdk.result.success/fail/allow/reject"})
+                                          "message": (
+                                              "入口函数返回值应是 dict 且包含 success 字段（true/false），"
+                                              "或使用 sdk.result.success/fail/allow/reject。"
+                                              "前端 RunPanel 通过 success 字段判定通知颜色。"
+                                          )})
                         break
 
             # Rule 35: 事件触发工具禁止在模块顶层 import DCC 原生模块 ─────────
@@ -709,15 +796,15 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                                       f"DCC 原生模块改为在函数体内 lazy import。"
                                   )})
 
-            # Rule 36: 配置分层——脚本必须从 manifest 读取配置 ─────────────────
-            # 正向验证：检查脚本是否实际调用了 manifest 的 defaultFilters / inputs 读取。
-            # 若脚本声明了 inputs 但从不从 manifest 里读，说明配置可能被硬编码在脚本里。
-            manifest_inputs = manifest.get("inputs", [])
+            # Rule 36: 配置分层——脚本必须从 manifest 读取 defaultFilters ─────
+            # 仅在 defaultFilters 非空（含路径或类型过滤规则）时强制要求脚本读 manifest。
+            # 纯 inputs 的工具可以通过入口函数签名 default 表达参数值，
+            # 无需 _load_manifest()——避免对 DCC 工具误报。
             manifest_has_default_filters = bool(
                 manifest.get("defaultFilters", {}).get("path") or
                 manifest.get("defaultFilters", {}).get("typeFilter")
             )
-            if manifest_inputs or manifest_has_default_filters:
+            if manifest_has_default_filters:
                 # 检查脚本是否有 manifest 读取调用（_load_manifest 或等价写法）
                 reads_manifest = False
                 for node in ast.walk(tree):
@@ -736,9 +823,35 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                 if not reads_manifest:
                     issues.append({"tool_id": tool_id, "severity": "warning",
                                   "message": (
-                                      "manifest 定义了 inputs/defaultFilters 但脚本未读取 manifest.json。"
-                                      "路径范围、类型列表、可配置参数等应从 manifest 读取，不应在脚本中硬编码。"
+                                      "manifest 定义了 defaultFilters 但脚本未读取 manifest.json。"
+                                      "路径范围、类型筛选规则必须从 manifest 读取，不应在脚本中硬编码。"
                                   )})
+
+            # Rule 37: 触发器工具的入口函数必须能接收 event_data 参数 ───────────
+            # watch / event 触发器调用 fn(event_data=...) 传递触发上下文。
+            # 入口函数签名应是 fn(event_data=None, **kwargs) 或 fn(**kwargs)。
+            # 仅在 manifest.triggers 中有 enabled 触发器时检查。
+            has_enabled_trigger = any(
+                isinstance(tr, dict) and tr.get("enabled", True)
+                and tr.get("triggerType") in ("event", "watch")
+                for tr in triggers
+            ) if isinstance(triggers, list) else False
+            if has_enabled_trigger and func_name:
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FunctionDef) and node.name == func_name:
+                        # 检查参数名包含 event_data 或者有 **kwargs
+                        arg_names = [a.arg for a in node.args.args]
+                        kw_arg = node.args.kwarg
+                        has_event_data_arg = "event_data" in arg_names
+                        has_kwargs = kw_arg is not None
+                        if not has_event_data_arg and not has_kwargs:
+                            issues.append({"tool_id": tool_id, "severity": "warning",
+                                          "message": (
+                                              f"入口函数 {func_name} 启用了触发器但签名不接收 event_data。"
+                                              "建议改为 `def {0}(event_data=None, **kwargs)` 或 `def {0}(**kwargs)` "
+                                              "以接收触发上下文（trigger_type/trigger_id/file_path/file_event/asset_path 等）。"
+                                          ).format(func_name)})
+                        break
 
         except SyntaxError:
             pass

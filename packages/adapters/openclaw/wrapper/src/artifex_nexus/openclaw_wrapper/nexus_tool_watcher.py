@@ -647,20 +647,24 @@ class NexusToolWatcher:
                 continue
             _DEBOUNCE_MAP[key] = now
 
-            self._execute_trigger(ft, fpath)
+            self._execute_trigger(ft, fpath, event)
 
         # 定期清理过期防抖条目（>60s 未触发的 key）
         _DEBOUNCE_MAP = {k: v for k, v in _DEBOUNCE_MAP.items() if now - v < 60}
 
-    def _execute_trigger(self, trigger: WatchTrigger, trigger_file: str) -> None:
+    def _execute_trigger(self, trigger: WatchTrigger, trigger_file: str, trigger_event: str = "modified") -> None:
         """执行单个 watch 触发器对应的工具。
 
         使用 importlib.util.spec_from_file_location 按文件路径精确加载，
         避免模块名冲突和 sys.modules 污染。
+
+        通过 event_data dict 把触发上下文（变更文件/事件类型/触发器 ID 等）
+        传给工具入口函数。工具入口签名应是 ``fn(event_data=None, **kwargs)``。
+        旧工具签名 ``fn()`` 无参时会 fallback 到无参调用，保持向后兼容。
         """
         logger.info(
-            "[nt-watcher] EXECUTING tool=%s trigger=%s file=%s",
-            trigger.tool_id, trigger.trigger_id, trigger_file,
+            "[nt-watcher] EXECUTING tool=%s trigger=%s file=%s event=%s",
+            trigger.tool_id, trigger.trigger_id, trigger_file, trigger_event,
         )
 
         entry_path = Path(trigger.tool_dir) / trigger.entry
@@ -698,7 +702,35 @@ class NexusToolWatcher:
                 )
                 return
 
-            result = fn()
+            # ── 构建 event_data ──
+            # 与 trigger_dispatcher (event 触发器) 字段对齐，方便工具统一处理：
+            #   trigger_type / trigger_id / tool_id / event_type / file_path / file_event
+            event_data = {
+                "trigger_type": "watch",
+                "trigger_id": trigger.trigger_id,
+                "tool_id": trigger.tool_id,
+                "event_type": "watch",
+                "file_path": trigger_file,
+                "file_event": trigger_event,
+                # data 兜底：让 sdk.event.parse() 这类工具一律有 .data 可读
+                "data": {
+                    "file_path": trigger_file,
+                    "file_event": trigger_event,
+                },
+            }
+
+            # 优先用 event_data 关键字传入；旧工具签名 fn() 无参时 fallback
+            try:
+                result = fn(event_data=event_data)
+            except TypeError as te:
+                # TypeError 可能是"unexpected keyword 'event_data'"，回到无参
+                # 也可能是 fn 内部别的 TypeError —— 这里只兜签名不匹配，
+                # 内部错误会在 fn() 再次调用时再抛
+                logger.debug(
+                    "[nt-watcher] fn signature does not accept event_data (%s), "
+                    "falling back to fn()", te,
+                )
+                result = fn()
 
             if isinstance(result, dict):
                 success = result.get("success", True)

@@ -348,9 +348,39 @@ class TriggerDispatcher:
                         "reason": f"函数 '{function}' 未找到"}
 
             # 构建 event_data 参数
+            # ────────────────────────────────────────────────────────────
+            # 字段约定（与 nexus_tool_watcher 的 watch 触发器对齐）：
+            #   trigger_type:  "event" | "watch"
+            #   trigger_id:    触发器在 manifest.triggers[] 中的 id
+            #   tool_id:       工具 manifest.id
+            #   event_type:    事件名（如 "asset.import.post" 或 "watch"）
+            #   dcc_type:      DCC 名（仅 event 触发器有意义）
+            #   timing:        "pre" | "post"
+            #   asset_path/asset_name/asset_class: event 触发器便利字段
+            #   data:          原始 payload.data 完整透传
+            # ────────────────────────────────────────────────────────────
+            event_type_payload = payload.get("event", "")
+            # 查找该工具在本事件下匹配的第一个 event 触发器，拿 trigger_id
+            matched_trigger_id = ""
+            try:
+                tool_entry = self._tool_registry.get(tool_id, {})
+                for tr in tool_entry.get("triggers", []):
+                    if not isinstance(tr, dict):
+                        continue
+                    tr_kind = tr.get("triggerType") or (tr.get("trigger") or {}).get("type")
+                    tr_event = tr.get("eventType") or (tr.get("trigger") or {}).get("eventType", "")
+                    if tr_kind == "event" and tr_event == event_type_payload:
+                        matched_trigger_id = tr.get("id", "")
+                        break
+            except Exception:
+                pass
+
             event_data = {
+                "trigger_type": "event",
+                "trigger_id": matched_trigger_id,
+                "tool_id": tool_id,
                 "dcc_type": payload.get("dcc", "blender"),
-                "event_type": payload.get("event", ""),
+                "event_type": event_type_payload,
                 "timing": payload.get("timing", "post"),
                 "data": payload.get("data", {}),
             }
