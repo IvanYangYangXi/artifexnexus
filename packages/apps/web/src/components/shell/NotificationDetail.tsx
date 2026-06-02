@@ -95,8 +95,8 @@ export function NotificationDetail({
 
         {/* 消息内容 */}
         <div className="my-3 space-y-3">
-          <div className="rounded-lg border border-white/[0.06] bg-muted/30 p-3">
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-foreground/85">
+          <div className="rounded-lg border border-white/[0.06] bg-muted/30 p-3 max-h-[60vh] overflow-y-auto">
+            <pre className="whitespace-pre-wrap break-all font-sans text-sm leading-relaxed text-foreground/85">
               {notification.detail || notification.message}
             </pre>
           </div>

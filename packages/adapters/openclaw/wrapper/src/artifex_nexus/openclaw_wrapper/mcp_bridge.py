@@ -136,6 +136,14 @@ class MCPBridgeClient:
         # 连接失败日志抑制：避免 Blender 未启动时刷屏
         self._connect_fail_count = 0
         self._connect_fail_log_threshold = 3
+        # DCC 名称（由 get_instance_for_dcc 设置）。错误信息使用，区分
+        # 不同 DCC 的连接断开提示。fallback 到 "DCC" 通用名。
+        self._dcc_name: str = "DCC"
+
+    @property
+    def dcc_label(self) -> str:
+        """对外可读的 DCC 名称（用于错误消息）。"""
+        return self._dcc_name or "DCC"
 
     def _ensure_loop(self):
         """确保持久化 event loop 在后台运行"""
@@ -185,7 +193,11 @@ class MCPBridgeClient:
             "houdini": 18086,
         }
         port = _DCC_PORT.get(dcc, DEFAULT_BLENDER_MCP_PORT)
-        return cls.get_instance(host="127.0.0.1", port=port)
+        inst = cls.get_instance(host="127.0.0.1", port=port)
+        # 记录 dcc 名称，用于错误信息中区分不同 DCC（避免"Blender MCP Server"
+        # 出现在 UE 工具的报错里）
+        inst._dcc_name = dcc
+        return inst
 
     @property
     def is_connected(self) -> bool:
@@ -477,11 +489,18 @@ class MCPBridgeClient:
                 )
                 return future.result(timeout=timeout + 5)
             except asyncio.TimeoutError:
-                # 超时不重试：很可能 Blender 主线程在跑长任务
+                # 超时不重试：很可能 DCC 主线程在跑长任务
                 self._connected = False
                 self._ws = None
                 return {
-                    "content": [{"type": "text", "text": f"调用超时 ({timeout}s)"}],
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            f"调用超时 ({timeout}s) — {self.dcc_label} 主线程长时间无响应。"
+                            "可能原因：脚本运行时间较长、DCC 进入模态对话框、"
+                            f"或 {self.dcc_label} 假死。可在 DCC 界面查看进度。"
+                        ),
+                    }],
                     "isError": True,
                     "_error_kind": "timeout",
                 }
@@ -489,7 +508,8 @@ class MCPBridgeClient:
                 # _async_call_tool 主动抛出的"连接已断开"（sentinel 路径）
                 self._connected = False
                 self._ws = None
-                logger.warning("call_tool: connection lost tool=%s: %s", tool_name, e)
+                logger.warning("call_tool: connection lost tool=%s dcc=%s: %s",
+                               tool_name, self._dcc_name, e)
                 return {
                     "content": [{"type": "text", "text": f"连接已断开: {e}"}],
                     "isError": True,
@@ -501,10 +521,10 @@ class MCPBridgeClient:
                 # websockets.ConnectionClosed* 在不同版本下继承关系不一定一致，
                 # 用字符串/类型名兜底识别
                 kind = _classify_exception(e)
-                logger.warning("call_tool: failed tool=%s kind=%s: %s",
-                               tool_name, kind, e)
+                logger.warning("call_tool: failed tool=%s dcc=%s kind=%s: %s",
+                               tool_name, self._dcc_name, kind, e)
                 return {
-                    "content": [{"type": "text", "text": f"调用失败: {str(e)}"}],
+                    "content": [{"type": "text", "text": f"{self.dcc_label} 调用失败: {str(e)}"}],
                     "isError": True,
                     "_error_kind": kind,
                 }
@@ -544,8 +564,8 @@ class MCPBridgeClient:
 
             # sentinel：_message_reader 推送 None 表示连接已断开
             if msg is None:
-                logger.warning("[mcp:call] ← id=%s sentinel (连接断开)", request_id)
-                raise ConnectionError("Blender MCP Server 连接已断开")
+                logger.warning("[mcp:call] ← id=%s sentinel (连接断开) dcc=%s", request_id, self._dcc_name)
+                raise ConnectionError(f"{self.dcc_label} MCP Server 连接已断开")
 
             logger.debug("[mcp:call] dequeue id=%s expect=%s", msg.get("id"), request_id)
             # 只处理匹配的响应，其他消息已被 _message_reader 分发

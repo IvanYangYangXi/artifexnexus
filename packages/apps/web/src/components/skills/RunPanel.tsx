@@ -598,7 +598,9 @@ export function RunPanel({ toolId, compact }: RunPanelProps) {
         </div>
 
         {/* ── MCP 连接状态警告 ── */}
-        {!hasConnectedDCC && targetDccs.length > 0 && (
+        {/* 运行中（running）时隐藏此警告：工具调用占用 UE MCP Server 主线程时，
+            状态轮询的 initialize 握手会超时被误判为"未连接"，警告会闪烁误导用户。 */}
+        {!hasConnectedDCC && targetDccs.length > 0 && !running && (
           <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
             <div className="flex items-start gap-2">
               <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />

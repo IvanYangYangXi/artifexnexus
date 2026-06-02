@@ -100,7 +100,7 @@ function NotificationItem({
           </span>
           <span className="shrink-0 text-[11px] text-muted-foreground">{timeStr}</span>
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+        <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 leading-relaxed break-all">
           {notification.message}
         </p>
       </div>
