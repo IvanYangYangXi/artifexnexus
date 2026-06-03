@@ -1259,6 +1259,32 @@ def _execute_dcc_tool(
                     dcc, list(tool_output.keys())[:12])
         sys.stderr.flush()
 
+        # ── sdk.result.* 格式归一化（与 _handle_nexus_tool_result 对齐）──
+        #    sdk.result.success/fail/allow/reject 返回 {action, data, message/code/reason}。
+        #    把它展开成扁平 {success, data, error} 让前端 RunPanel 直接识别。
+        #    工具作者无论用 sdk.result 还是直接 return dict 都能正常工作。
+        if isinstance(tool_output, dict) and "action" in tool_output:
+            action = tool_output.get("action", "")
+            inner = tool_output.get("data")
+            if action in ("allow",):
+                logger.info("[nt-exec:dcc] dcc=%s sdk.result format detected: action=%s", dcc, action)
+                return {
+                    "success": True,
+                    "data": inner if isinstance(inner, dict) else tool_output,
+                    "message": tool_output.get("message", "") or tool_output.get("reason", ""),
+                    "dcc": dcc,
+                }
+            if action in ("error", "reject"):
+                err = tool_output.get("reason") or tool_output.get("message") or "工具返回失败"
+                logger.warning("[nt-exec:dcc] dcc=%s sdk.result format detected: action=%s reason=%s",
+                               dcc, action, str(err)[:200])
+                return {
+                    "success": False,
+                    "error": str(err),
+                    "data": inner if isinstance(inner, dict) else tool_output,
+                    "dcc": dcc,
+                }
+
         # ── 关键：工具自身可能在 try/except 中捕获异常并 print
         #    {"success": false, "error": ..., "traceback": ...}。
         #    此时 MCP 通道 is_ok=True 但工具实际失败，必须把内层失败提到顶层，

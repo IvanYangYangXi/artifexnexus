@@ -687,6 +687,13 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                 for tr in triggers
             ) if isinstance(triggers, list) else False
 
+            # has_enabled_trigger: 任意 enabled=True 的 event/watch 触发器
+            has_enabled_trigger = any(
+                isinstance(tr, dict) and tr.get("enabled", True)
+                and tr.get("triggerType") in ("event", "watch")
+                for tr in triggers
+            ) if isinstance(triggers, list) else False
+
             # Rule 30: 推荐 import artifex_nexus_sdk（warning，非强制）─────
             # 触发器 / 选中查询 / 结果封装 都可以走原生 dict + DCC 原生 API，
             # sdk 是便利包装而非前置条件。DCC 工具直接用 unreal/bpy/maya 完全合规，
@@ -710,16 +717,25 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
 
             func_name = impl.get("function", "") if impl else ""
 
-            # Rule 31: 若 import 了 sdk 但未使用 parse_params，提示一下 ──────
-            # （仅当工具确实 import sdk 且非 event 触发时检查，避免对纯 DCC 工具误报）
-            if func_name and has_sdk_import and not has_event_trigger:
+            # Rule 31: parse_params 仅对"触发器 + 非空 inputs"工具检查（按需建议）─
+            # 手动运行的工具通过函数签名 default 表达 inputs 完全合规：
+            #   def fn(name="x", count=1) → manifest.inputs 的 default 由 Python 默认值表达
+            # 触发器工具的 kwargs 由平台传入（来自 manifest.inputs 的 default），
+            # 当 inputs 非空时建议用 sdk.params.parse_params 做类型解析与边界校验。
+            # inputs 为空（如纯事件触发的命名检查工具）则完全不需要 parse_params。
+            manifest_inputs_count = len(manifest.get("inputs", []))
+            if (func_name and has_sdk_import and has_enabled_trigger
+                    and manifest_inputs_count > 0):
                 has_parse_params = any(
                     isinstance(node, ast.Attribute) and node.attr == "parse_params"
                     for node in ast.walk(tree)
                 )
                 if not has_parse_params:
                     issues.append({"tool_id": tool_id, "severity": "warning",
-                                  "message": "已 import sdk 但入口函数未调用 sdk.params.parse_params（建议使用）"})
+                                  "message": (
+                                      f"已 import sdk 且启用触发器（inputs {manifest_inputs_count} 个），"
+                                      "但未调用 sdk.params.parse_params。建议用它做参数解析与边界校验。"
+                                  )})
 
             # Rule 33: 不应包含与 SDK 功能重复的 DCC 原生选中查询调用 ─────────
             # 规范：sdk.context.get_selected_assets/objects 已覆盖这些调用
@@ -837,11 +853,6 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
             #
             # 注意：运行时的 trigger_dispatcher / nexus_tool_watcher 已有 TypeError fallback，
             # 旧签名 fn() 不会真的崩，但拿不到 event_data。这里是"最佳实践提示"。
-            has_enabled_trigger = any(
-                isinstance(tr, dict) and tr.get("enabled", True)
-                and tr.get("triggerType") in ("event", "watch")
-                for tr in triggers
-            ) if isinstance(triggers, list) else False
             if has_enabled_trigger and func_name:
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef) and node.name == func_name:
