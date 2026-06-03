@@ -1,15 +1,19 @@
 ---
 tags: [inbox, epic, data, visualization, chart]
 created: 2026-05-28
-updated: 2026-05-28
-status: draft
+updated: 2026-06-03
+status: triaged
 priority: P0
 ---
 
 # 目标2：数据图形视图 — 可视化展示与反向编辑
 
+> **已 triage 为 [[../tasks/backlog/EPIC-0010-m10-data-view]]**（2026-06-03）。
+> UI 结构 spec：[[../specs/ui/data-view-structure]]。
+> 视图数量在规划阶段从 8 扩展到 10（新增 Spatial Plot / Scene Heatmap 两种空间型视图）。
+
 > 定义统一数据格式，支持多种图形展示，并可通过图形视图反向编辑数据。
-> **首期数据源：CSV 文件导入。**
+> **首期数据源：CSV 文件 + JSON 数组导入。**
 
 ## 核心设计原则
 

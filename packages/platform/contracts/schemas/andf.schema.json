@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/andf.schema.json",
+  "title": "ArtifexNexusDataFormat",
+  "description": "ANDF — M10 数据图形视图的内存数据模型。含 meta / columns / rows / view，首版覆盖 CSV + JSON 数组导入。",
+  "type": "object",
+  "required": ["meta", "columns", "rows"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema 引用 URL"
+    },
+    "meta": {
+      "$ref": "#/$defs/Meta"
+    },
+    "columns": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Column" }
+    },
+    "rows": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "view": {
+      "$ref": "#/$defs/View"
+    }
+  },
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "description": "ANDF 元数据",
+      "required": ["importedAt", "rowCount", "columnCount"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "原始文件名或来源标识（可选）"
+        },
+        "importedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "导入时间 (ISO 8601)"
+        },
+        "rowCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "数据行数"
+        },
+        "columnCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "列数"
+        }
+      }
+    },
+    "Column": {
+      "type": "object",
+      "description": "列定义",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "列名，在同一 ANDF 实例内唯一"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "datetime", "url"],
+          "description": "列数据类型"
+        },
+        "nullable": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许空值"
+        },
+        "visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否在视图中默认显示"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "列在原始数据源中的序号"
+        }
+      }
+    },
+    "View": {
+      "type": "object",
+      "description": "视图配置（首版可选，含当前视图类型与基础 encoding）",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "table", "card", "list", "tree",
+            "bar", "pie", "line", "scatter",
+            "spatial-plot", "heatmap"
+          ],
+          "description": "视图类型标识"
+        },
+        "encoding": {
+          "type": "object",
+          "description": "视图字段映射（free-form object，参见 data-view-structure.md）"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "meta": {
+        "source": "scene_positions.csv",
+        "importedAt": "2026-06-03T19:00:00+08:00",
+        "rowCount": 3,
+        "columnCount": 4
+      },
+      "columns": [
+        { "name": "label", "type": "string", "nullable": false, "visible": true, "index": 0 },
+        { "name": "pos_x", "type": "number", "nullable": false, "visible": true, "index": 1 },
+        { "name": "pos_y", "type": "number", "nullable": false, "visible": true, "index": 2 },
+        { "name": "active", "type": "boolean", "nullable": true, "visible": false, "index": 3 }
+      ],
+      "rows": [
+        { "label": "Rock_01", "pos_x": 12.3, "pos_y": 45.6, "active": true },
+        { "label": "Tree_02", "pos_x": 78.9, "pos_y": 12.3, "active": false },
+        { "label": "", "pos_x": 50.0, "pos_y": null, "active": null }
+      ],
+      "view": {
+        "type": "spatial-plot",
+        "encoding": { "x": { "field": "pos_x" }, "y": { "field": "pos_y" } }
+      }
+    }
+  ]
+}

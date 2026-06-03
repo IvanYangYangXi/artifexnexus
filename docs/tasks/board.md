@@ -9,6 +9,13 @@ tags:
 
 ## Backlog
 
+- [ ] [[EPIC-0010-m10-data-view]]
+- [ ] [[STORY-0069-data-module-shell]]
+- [ ] [[STORY-0070-direct-views-and-edit]]
+- [ ] [[STORY-0071-aggregate-views-recharts]]
+- [ ] [[STORY-0072-spatial-plot-base]]
+- [ ] [[STORY-0073-scene-heatmap]]
+- [ ] [[STORY-0074-summary-and-e2e]]
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
 - [ ] [[STORY-0059-shared-module-extraction]]
@@ -56,6 +63,8 @@ tags:
 - [ ] [[STORY-0042-m4-sdk-decorator-manifest]]
 
 ## Done
+- [x] [[STORY-0067-data-view-ui-structure]] *(M10 UI 结构 spec → 2026-06-03)*
+- [x] [[STORY-0068-andf-contract-and-import]] *(ANDF 契约 + CSV/JSON 解析器 → 2026-06-03)*
 - [x] [[EPIC-0003-m3-web-ui-chat]]
 - [x] [[EPIC-0004-m4-skill-system]]
 - [x] [[EPIC-0005-m5-nexus-tool-system]]

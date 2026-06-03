@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "files": ["dist", "schemas"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/generated','dist/generated',{recursive:true})\"",
     "dev": "tsc -w -p tsconfig.json",
     "codegen": "json2ts -i ../schemas -o src/generated",
     "typecheck": "tsc --noEmit",
