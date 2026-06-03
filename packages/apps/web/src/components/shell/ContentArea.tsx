@@ -10,6 +10,7 @@ import type { ModuleId } from "./Sidebar";
 import { ChatView } from "../chat/ChatView";
 import { SkillsPage } from "../skills/SkillsPage";
 import { CalendarPage } from "../calendar/CalendarPage";
+import { DataPage } from "../data/DataPage";
 import { SystemPage } from "../system/SystemPage";
 import { SettingsPage } from "../settings/SettingsPage";
 
@@ -28,6 +29,9 @@ export function ContentArea({ module }: ContentAreaProps) {
       </div>
       <div className={module === "calendar" ? "contents" : "hidden"}>
         <CalendarPage />
+      </div>
+      <div className={module === "data" ? "contents" : "hidden"}>
+        <DataPage />
       </div>
       <div className={module === "system" ? "contents" : "hidden"}>
         <SystemPage />

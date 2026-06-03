@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Database,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -59,7 +60,7 @@ import {
   createQuickLink,
 } from "../../lib/quickLinks";
 
-export type ModuleId = "chat" | "skills" | "calendar" | "system" | "settings";
+export type ModuleId = "chat" | "skills" | "calendar" | "data" | "system" | "settings";
 
 interface ModuleEntry {
   id: ModuleId;
@@ -72,6 +73,7 @@ const MODULES: ModuleEntry[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "skills", label: "技能", icon: Puzzle, badge: 12 },
   { id: "calendar", label: "日历", icon: CalendarDays },
+  { id: "data", label: "数据", icon: Database },
   { id: "system", label: "系统", icon: Terminal },
   { id: "settings", label: "设置", icon: Settings },
 ];

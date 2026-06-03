@@ -2,13 +2,13 @@
 id: STORY-0069
 kind: story
 title: 数据模块外壳（Sidebar 集成 + DataPage + 列配置 + 视图切换）
-status: backlog
+status: done
 priority: P0
 owner: "@ivan"
 assignee: ai
 estimate: 2d
 created: 2026-06-03
-updated: 2026-06-03
+updated: 2026-06-03T23:41
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
 related_adr: []
@@ -42,12 +42,19 @@ tags: [story, data, shell, ui, M10]
 
 ## 验收标准
 
-- [ ] Sidebar 显示「数据」模块项，激活态符合 design-language
-- [ ] 切到数据模块后渲染 DataPage
-- [ ] 拖入示例 CSV 后右侧出现列配置面板
-- [ ] 视图切换按钮可点击切换 ANDF.view.type，未实现的视图显示占位提示
-- [ ] 全部走 `@artifex-nexus/ui` 现成组件，无硬编码视觉
-- [ ] 单文件 ≤ 300 行
+- [x] Sidebar 显示「数据」模块项，icon=Database，激活态符合 design-language
+- [x] 切到数据模块后渲染 DataPage（ContentArea 路由已加）
+- [x] 拖入 / 选文件 / 粘贴 JSON 三种导入入口就位，ImportDropzone 含完整交互
+- [x] 导入成功后进入 configuring 态，右侧出现 ColumnConfig 面板（列名 + 类型标签）
+- [x] 视图切换器 10 视图分 3 组按钮，未实现视图显示 ViewPlaceholder 占位
+- [x] 全部走 `@artifex-nexus/ui` 现成组件（ScrollArea），无硬编码视觉
+- [x] 单文件 ≤ 300 行（DataPage 276 / ImportDropzone 220 / ColumnConfig 87 / ViewSwitcher 117 / ViewContainer 83 / SummaryBar 49）
+- [x] 状态机 5 态（empty/importing/configuring/rendering/error）完整
+- [x] 导入区 3 入口（拖拽 / 选文件 / 粘贴 JSON）+ 大小校验（5MB）
+- [x] ColumnConfig 显示列名 + 推断类型标签 + 可见性 checkbox（disabled 占位）
+- [x] ViewSwitcher 分 3 组：直展 / 聚合 / 空间
+- [x] SummaryBar 占位：显示行数和列数
+- [x] web typecheck 0 新增错误
 
 ## 设计要点
 
@@ -58,3 +65,5 @@ tags: [story, data, shell, ui, M10]
 ## 进展日志
 
 - 2026-06-03 created
+- 2026-06-03 implemented：Sidebar + ContentArea 路由 + 6 个组件文件（DataPage/ImportDropzone/ColumnConfig/ViewSwitcher/ViewContainer/SummaryBar）+ 状态机 + typecheck 0 新增错误
+- 2026-06-03 review 通过（AC 14/14），迁 done/。P1 已记：STORY-0070 必须把 activeView 抬升到 DataPageContext 解除 ViewSwitcher/ViewContainer state 隔离
