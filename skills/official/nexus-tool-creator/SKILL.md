@@ -329,8 +329,34 @@ def main_function(event_data=None, **kwargs) -> dict:
 | `event_data` | 平台触发器 | dict，含触发上下文；手动运行时为 None |
 | `**kwargs` | manifest.inputs | 用户参数；触发器调用时也兜底接收未知字段 |
 
-> ⚠️ **启用了任何触发器的工具必须接 `event_data`（或至少 `**kwargs`）**，
-> 否则合规检查器会报 warning，且触发器调度时会因 TypeError 报错。
+### 三种合规写法（按需选用）
+
+合规检查器只要求"签名能接住 event_data"，不要求显式声明。三种都合规：
+
+**方式 1：显式声明（推荐用于触发器工具）**
+```python
+def main_function(event_data=None, **kwargs) -> dict:
+    if event_data:
+        print(event_data["file_path"])
+```
+
+**方式 2：仅 `**kwargs`，按需读取（最轻量）**
+```python
+def main_function(**kwargs) -> dict:
+    event_data = kwargs.get("event_data")  # None 或 dict
+    if event_data:
+        print(event_data["file_path"])
+```
+
+**方式 3：纯参数签名（适合不打算用触发器的工具）**
+```python
+def main_function(name: str = "", count: int = 1) -> dict:
+    # 没有 **kwargs，启用触发器后会被 Rule 37 提示加 **kwargs
+    ...
+```
+
+> **Rule 37 仅对启用了触发器的工具检查**。没启用触发器的工具用任意签名都合规，
+> 不会有"签名缺失 event_data"的报错。
 
 ### event_data Schema（平台统一）
 

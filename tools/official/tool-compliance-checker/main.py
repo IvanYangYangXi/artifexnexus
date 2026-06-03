@@ -827,10 +827,16 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                                       "路径范围、类型筛选规则必须从 manifest 读取，不应在脚本中硬编码。"
                                   )})
 
-            # Rule 37: 触发器工具的入口函数必须能接收 event_data 参数 ───────────
+            # Rule 37: 触发器工具的入口函数应能接收 event_data 参数（warning，按需）─
             # watch / event 触发器调用 fn(event_data=...) 传递触发上下文。
-            # 入口函数签名应是 fn(event_data=None, **kwargs) 或 fn(**kwargs)。
-            # 仅在 manifest.triggers 中有 enabled 触发器时检查。
+            # 入口函数签名建议 `fn(event_data=None, **kwargs)` 或至少 `fn(**kwargs)`，
+            # 以便能读到 trigger_type/trigger_id/file_path/file_event/asset_path 等字段。
+            #
+            # 触发条件：仅当 manifest.triggers 含 enabled=true 的 event/watch 触发器时检查。
+            # 没启用触发器的工具完全不检查，按需使用。
+            #
+            # 注意：运行时的 trigger_dispatcher / nexus_tool_watcher 已有 TypeError fallback，
+            # 旧签名 fn() 不会真的崩，但拿不到 event_data。这里是"最佳实践提示"。
             has_enabled_trigger = any(
                 isinstance(tr, dict) and tr.get("enabled", True)
                 and tr.get("triggerType") in ("event", "watch")
@@ -847,10 +853,11 @@ def _check_tool_compliance(tool_dir: Path, tool_id: str, fix_simple: bool, categ
                         if not has_event_data_arg and not has_kwargs:
                             issues.append({"tool_id": tool_id, "severity": "warning",
                                           "message": (
-                                              f"入口函数 {func_name} 启用了触发器但签名不接收 event_data。"
-                                              "建议改为 `def {0}(event_data=None, **kwargs)` 或 `def {0}(**kwargs)` "
-                                              "以接收触发上下文（trigger_type/trigger_id/file_path/file_event/asset_path 等）。"
-                                          ).format(func_name)})
+                                              f"入口函数 `{func_name}` 启用了触发器但签名不接收 event_data。"
+                                              f"建议改为 `def {func_name}(event_data=None, **kwargs)` "
+                                              f"以读取触发上下文（trigger_type/file_path/asset_path 等）。"
+                                              "运行时有 fallback 兼容旧签名，但拿不到 event_data。"
+                                          )})
                         break
 
         except SyntaxError:

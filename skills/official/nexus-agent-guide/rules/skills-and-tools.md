@@ -62,8 +62,19 @@ def main_function(event_data=None, **kwargs) -> dict:
     return {"success": True, ...}
 ```
 
-启用了触发器的工具**必须**接 `event_data`（或至少 `**kwargs`），否则触发器调度时
-会因 TypeError 报错。
+**按需使用**：合规检查器只对**启用了触发器**的工具检查这条规则（Rule 37）。
+没启用触发器的工具可以用任意签名，不会被警告。
+
+三种合规写法（任选）：
+
+| 方式 | 签名 | 适用 |
+|------|------|------|
+| 显式 | `def fn(event_data=None, **kwargs)` | 推荐用于触发器工具 |
+| 兜底 | `def fn(**kwargs)` + `kwargs.get("event_data")` | 最轻量，灵活 |
+| 纯参数 | `def fn(a, b=1)` | 没启用触发器的工具完全合规 |
+
+启用了触发器但缺 `event_data`/`**kwargs` 的工具 — 运行时有 TypeError fallback
+不会崩，但拿不到触发上下文，合规检查器报 warning 提示。
 
 ### event_data Schema
 
