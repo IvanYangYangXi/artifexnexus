@@ -18,6 +18,7 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "d3-scale": "^4.0.2",
     "lucide-react": "^0.453.0",
     "next": "^15.0.0",
     "react": "^18.3.0",
@@ -25,10 +26,12 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^2.1.6",
     "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
+    "@types/d3-scale": "^4.0.9",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "eslint": "^9.10.0",

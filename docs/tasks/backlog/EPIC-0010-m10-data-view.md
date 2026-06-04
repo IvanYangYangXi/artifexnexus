@@ -8,7 +8,7 @@ owner: "@ivan"
 assignee: pair
 estimate: 4w
 created: 2026-06-03
-updated: 2026-06-03
+updated: 2026-06-04
 parent: "[[../../vision/roadmap]]"
 milestone: M10
 related_adr: []
@@ -84,9 +84,9 @@ tags: [epic, data, visualization, M10, planned]
 - [x] [[../done/STORY-0068-andf-contract-and-import]] — ANDF 契约 + CSV/JSON 导入 ✅ 2026-06-03
 - [x] [[../done/STORY-0069-data-module-shell]] — Sidebar 集成 + DataPage 主壳 + 列配置 + 视图切换 ✅ 2026-06-03
 - [x] [[../done/STORY-0070-direct-views-and-edit]] — Table / Card / List / Tree + 反向编辑 + ANDF Diff ✅ 2026-06-04
-- [ ] [[STORY-0071-aggregate-views-recharts]] — Bar / Pie / Line / Scatter（Recharts）
-- [ ] [[STORY-0072-spatial-plot-base]] — Spatial Plot（底图 + 坐标点 + 拖动 + 形状/大小/颜色映射 + 缩略图）
-- [ ] [[STORY-0073-scene-heatmap]] — Scene Heatmap（KDE 密度上色，复用 Spatial Plot 底座）
+- [x] [[../done/STORY-0071-aggregate-views-recharts]] — Bar / Pie / Line / Scatter（Recharts）✅ 2026-06-04
+- [x] [[../done/STORY-0072-spatial-plot-base]] — Spatial Plot（底图 + 坐标点 + 拖动 + 形状/大小/颜色映射 + 缩略图）✅ 2026-06-04
+- [x] [[../done/STORY-0073-scene-heatmap]] — Scene Heatmap（KDE 密度上色，复用 Spatial Plot 底座）✅ 2026-06-04
 - [ ] [[STORY-0074-summary-and-e2e]] — Summary Bar 统计 + 导出 + E2E 烟雾 + tauri 出包
 
 ## 进展日志
@@ -95,3 +95,5 @@ tags: [epic, data, visualization, M10, planned]
 - 2026-06-03 STORY-0067 / STORY-0068 done（review 通过，迁 done/）
 - 2026-06-03 STORY-0069 done（数据模块外壳 + 状态机 + 6 组件就位，P1 已记由 STORY-0070 修）
 - 2026-06-04 STORY-0070 done（直展型 4 视图 + 反向编辑 + Diff 队列 + CSV 导出，review 修 P0×2 + P1×4 后通过）
+- 2026-06-04 STORY-0071/0072/0073 进 review（Recharts 4 视图 + Spatial Plot 基座 + Scene Heatmap），同日 review fix（P0×2 hooks 顺序+KDE 依赖；P1×3 KDE 复用 dataToPixel + 选中态/SelectionPanel + tooltipFields UI），等待 ivan 复核切 done。
+- 2026-06-04T21:22 STORY-0071/0072/0073 done — 复核通过，三个 story 同时迁 done/。EPIC-0010 7/8 done，仅余 STORY-0074（Summary Bar + E2E + tauri 出包）。

@@ -102,6 +102,59 @@ function appendExtras(slots: Slot[], cols: Column[], maxExtras: number): Slot[] 
   return slots;
 }
 
+// ─── 聚合型槽位 ──────────────────────────────────────────────────────────
+
+/** Bar：必填 xAxis (string|number) + yAxis (number) */
+function barSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "xAxis", label: "X 轴", required: true, field: findField(cols, ["name", "label", "title", "x"]), acceptTypes: ["string", "number"] },
+    { name: "yAxis", label: "Y 轴(数值)", required: true, field: findField(cols, ["value", "count", "y", "weight", "amount"]), acceptTypes: ["number"] },
+    { name: "color", label: "分组颜色", required: false, field: findField(cols, ["category", "type", "group"]), acceptTypes: ["string"] },
+  ];
+}
+
+/** Pie：必填 label (string) + value (number)；自动按 label 分组 sum(value) */
+function pieSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "label", label: "标签", required: true, field: findField(cols, ["name", "label", "title", "category", "type"]), acceptTypes: ["string"] },
+    { name: "value", label: "数值", required: true, field: findField(cols, ["value", "count", "weight", "amount", "y"]), acceptTypes: ["number"] },
+  ];
+}
+
+/** Line：必填 xAxis + yAxis（支持多选数值列 = 多线） */
+function lineSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "xAxis", label: "X 轴", required: true, field: findField(cols, ["name", "label", "title", "x", "date", "time"]), acceptTypes: ["string", "number", "datetime"] },
+    { name: "yAxis", label: "Y 轴(数值)", required: true, field: findField(cols, ["value", "count", "y", "weight", "amount"]), acceptTypes: ["number"] },
+  ];
+}
+
+/** Scatter：必填 x (number) + y (number)；可选 size / color */
+function scatterSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "x", label: "X 轴", required: true, field: findField(cols, ["x", "pos_x", "longitude"]), acceptTypes: ["number"] },
+    { name: "y", label: "Y 轴", required: true, field: findField(cols, ["y", "pos_y", "latitude"]), acceptTypes: ["number"] },
+    { name: "size", label: "气泡大小", required: false, field: findField(cols, ["size", "weight", "radius"]), acceptTypes: ["number"] },
+    { name: "color", label: "颜色分组", required: false, field: findField(cols, ["color", "category", "type", "group"]), acceptTypes: ["string"] },
+  ];
+}
+
+// ─── Spatial Plot 槽位（STORY-0072）─────────────────────────────────────
+
+function spatialPlotSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "x", label: "X 坐标", required: true, field: findField(cols, ["x", "pos_x", "longitude"]), acceptTypes: ["number"] },
+    { name: "y", label: "Y 坐标", required: true, field: findField(cols, ["y", "pos_y", "latitude"]), acceptTypes: ["number"] },
+    { name: "color", label: "颜色", required: false, field: findField(cols, ["color", "category", "type", "group"]), acceptTypes: ["string", "number"] },
+    { name: "shape", label: "形状", required: false, field: findField(cols, ["shape", "type", "category"]), acceptTypes: ["string"] },
+    { name: "size", label: "尺寸", required: false, field: findField(cols, ["size", "weight", "radius"]), acceptTypes: ["number"] },
+    { name: "thumbnail", label: "缩略图", required: false, field: findField(cols, ["thumbnail", "thumb", "thumb_url", "image", "img", "url"]), acceptTypes: ["url"] },
+    { name: "tooltip", label: "扩展字段", required: false, field: null, acceptTypes: ["string", "number"] },
+  ];
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+
 /** 主入口：根据视图类型 + 列生成槽位列表 */
 export function mapColumnsToSlots(view: string, cols: Column[]): Slot[] {
   switch (view) {
@@ -113,7 +166,31 @@ export function mapColumnsToSlots(view: string, cols: Column[]): Slot[] {
       return listSlots(cols);
     case "tree":
       return treeSlots(cols);
+    case "bar":
+      return barSlots(cols);
+    case "pie":
+      return pieSlots(cols);
+    case "line":
+      return lineSlots(cols);
+    case "scatter":
+      return scatterSlots(cols);
+    case "spatial-plot":
+      return spatialPlotSlots(cols);
+    case "scene-heatmap":
+      return heatmapSlots(cols);
     default:
       return [];
   }
+}
+
+// ─── Scene Heatmap 槽位（STORY-0073）───────────────────────────────────
+
+function heatmapSlots(cols: Column[]): Slot[] {
+  return [
+    { name: "x", label: "X 坐标", required: true, field: findField(cols, ["x", "pos_x", "longitude"]), acceptTypes: ["number"] },
+    { name: "y", label: "Y 坐标", required: true, field: findField(cols, ["y", "pos_y", "latitude"]), acceptTypes: ["number"] },
+    { name: "bandwidth", label: "带宽", required: false, field: null, acceptTypes: ["number"] },
+    { name: "opacity", label: "透明度", required: false, field: null, acceptTypes: ["number"] },
+    { name: "colorScale", label: "色阶", required: false, field: null, acceptTypes: ["string"] },
+  ];
 }

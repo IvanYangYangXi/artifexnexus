@@ -2,13 +2,13 @@
 id: STORY-0072
 kind: story
 title: 空间视图 Spatial Plot（底图 + 坐标点 + 拖动 + 形状/缩略图）
-status: backlog
+status: done
 priority: P0
 owner: "@ivan"
 assignee: ai
 estimate: 5d
 created: 2026-06-03
-updated: 2026-06-03
+updated: 2026-06-04T21:22
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
 related_adr: []
@@ -49,13 +49,13 @@ tags: [story, data, view, spatial, svg, M10]
 
 ## 验收标准
 
-- [ ] 上传底图后能正确显示
-- [ ] x/y 字段选定后坐标点正确分布
-- [ ] 4 类编码维度（color/shape/size/thumbnail）全部可工作
-- [ ] 拖动点能改 ANDF 数据并产出 Diff
-- [ ] tooltip 与点击选中两种交互可用
-- [ ] 视觉值全走 token，无硬编码颜色 / 字号
-- [ ] 主组件 ≤ 300 行；编码工具函数拆出独立文件
+- [x] 上传底图后能正确显示
+- [x] x/y 字段选定后坐标点正确分布
+- [x] 4 类编码维度（color/shape/size/thumbnail）全部可工作
+- [x] 拖动点能改 ANDF 数据并产出 Diff
+- [x] tooltip 与点击选中两种交互可用
+- [x] 视觉值全走 token，无硬编码颜色 / 字号
+- [x] 主组件 ≤ 300 行；编码工具函数拆出独立文件
 
 ## 设计要点
 
@@ -68,3 +68,6 @@ tags: [story, data, view, spatial, svg, M10]
 ## 进展日志
 
 - 2026-06-03 created
+- 2026-06-04 implemented — SpatialPlotView.tsx (228行), shared/spatial-encoding.ts, shared/point-shapes.tsx, shared/SpatialEncodingBar.tsx; DataPage 扩展 SpatialEncoding 类型 + SET_SPATIAL_ENCODING action; d3-scale 依赖添加; ViewContainer case "spatial-plot" 集成
+- 2026-06-04T20:55 review fix（P1）：① EncodingBar 增加 `tooltipFields` 多选 picker（点击下拉勾选字段，对齐 SpatialEncoding.tooltipFields 持久化）；② SpatialPlotView 给非缩略图点增加选中描边（外圈 ring）；③ 选中行扩展字段以右上角浮动 SelectionPanel 展示，未配置 tooltipFields 时退化为编码维度字段，可关闭。SpatialPlotView 277 行 / SpatialEncodingBar 212 行，仍 ≤300。typecheck 0 新增错误。
+- 2026-06-04T21:22 done — review 通过，迁 done/。

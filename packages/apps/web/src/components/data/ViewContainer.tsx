@@ -5,7 +5,8 @@
  *
  * 根据 Context 中的 activeView 派发对应视图组件。
  *   - STORY-0070：table / card / list / tree（直展型 4 视图）
- *   - STORY-0071~0073：bar / pie / line / scatter / spatial-plot / scene-heatmap（占位）
+ *   - STORY-0071：bar / pie / line / scatter（聚合型 4 视图，Recharts）
+ *   - STORY-0072~0073：spatial-plot / scene-heatmap（占位）
  */
 
 import * as React from "react";
@@ -16,6 +17,12 @@ import { TableView } from "./TableView";
 import { CardView } from "./CardView";
 import { ListView } from "./ListView";
 import { TreeView } from "./TreeView";
+import { BarView } from "./BarView";
+import { PieView } from "./PieView";
+import { LineView } from "./LineView";
+import { ScatterView } from "./ScatterView";
+import { SpatialPlotView } from "./SpatialPlotView";
+import { SceneHeatmapView } from "./SceneHeatmapView";
 
 export function ViewContainer() {
   const { state, andf, activeView } = React.useContext(DataPageContext);
@@ -41,6 +48,18 @@ function renderView(view: ViewType) {
       return <ListView />;
     case "tree":
       return <TreeView />;
+    case "bar":
+      return <BarView />;
+    case "pie":
+      return <PieView />;
+    case "line":
+      return <LineView />;
+    case "scatter":
+      return <ScatterView />;
+    case "spatial-plot":
+      return <SpatialPlotView />;
+    case "scene-heatmap":
+      return <SceneHeatmapView />;
     default:
       return <ViewPlaceholder view={view} />;
   }
@@ -49,19 +68,11 @@ function renderView(view: ViewType) {
 // ─── 占位组件 ──────────────────────────────────────────────────────────────
 
 const VIEW_LABELS: Record<string, string> = {
-  "bar": "Bar 柱状图",
-  "pie": "Pie 饼图",
-  "line": "Line 折线图",
-  "scatter": "Scatter 散点图",
   "spatial-plot": "Spatial Plot 空间散点",
   "scene-heatmap": "Scene Heatmap 热力图",
 };
 
 const VIEW_ICONS: Record<string, string> = {
-  "bar": "▊",
-  "pie": "◔",
-  "line": "╱",
-  "scatter": "·",
   "spatial-plot": "✚",
   "scene-heatmap": "▨",
 };

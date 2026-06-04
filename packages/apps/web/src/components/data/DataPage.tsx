@@ -45,14 +45,58 @@ export interface ANDFDiff {
   changes: DiffChange[];
 }
 
+/** 视图字段编码：slotName → columnName */
+export type ViewEncoding = Record<string, string>;
+
+/** 空间视图编码类型（STORY-0072） */
+export interface SpatialEncoding {
+  /** 底图（dataURL + 坐标系参数） */
+  background?: { src: string; origin: "top-left" | "center"; unitPerPx?: number };
+  /** X 坐标字段 */
+  x: { field: string };
+  /** Y 坐标字段 */
+  y: { field: string };
+  /** 颜色编码 */
+  color?: { field?: string; scale: "ordinal" | "sequential"; palette?: string[] };
+  /** 形状编码 */
+  shape?: { field?: string; mapping?: Record<string, "circle" | "square" | "triangle" | "diamond"> };
+  /** 尺寸编码（minPx, maxPx） */
+  size?: { field?: string; range: [number, number] };
+  /** 缩略图编码 */
+  thumbnail?: { field?: string };
+  /** 悬停时显示的额外字段 */
+  tooltipFields?: string[];
+}
+
+/** 热力图编码类型（STORY-0073），复用 SpatialEncoding 的底图+坐标系 */
+export interface HeatmapEncoding {
+  /** 底图（复用 SpatialEncoding.background 结构） */
+  background?: { src: string; origin: "top-left" | "center"; unitPerPx?: number };
+  /** X 坐标字段 */
+  x: { field: string };
+  /** Y 坐标字段 */
+  y: { field: string };
+  /** 高斯核带宽（像素） */
+  bandwidth: number;
+  /** 色块透明度 */
+  opacity: number;
+  /** 色阶方案 */
+  colorScale: "viridis" | "inferno" | "blues";
+  /** 是否叠加显示坐标点 */
+  showPoints: boolean;
+}
+
 /** Action 类型 */
-type DataAction =
+export type DataAction =
   | { type: "START_IMPORT" }
   | { type: "IMPORT_OK"; andf: ANDF }
   | { type: "IMPORT_ERROR"; message: string }
   | { type: "CONFIGURE_DONE" }
   | { type: "BACK_TO_CONFIG" }
   | { type: "SET_VIEW"; view: ViewType }
+  | { type: "SET_VIEW_ENCODING"; view: ViewType; encoding: ViewEncoding }
+  | { type: "SET_SPATIAL_ENCODING"; encoding: SpatialEncoding }
+  | { type: "SET_HEATMAP_ENCODING"; encoding: HeatmapEncoding }
   | { type: "START_EDIT" }
   | { type: "CANCEL_EDIT" }
   | { type: "ADD_DIFF"; change: DiffChange }
@@ -67,6 +111,12 @@ export interface DataPageContextValue {
   errorMessage: string;
   activeView: ViewType;
   diffs: DiffChange[];
+  /** 每个视图独立的字段编码映射（STORY-0071 聚合视图字段映射） */
+  encodings: Record<string, ViewEncoding>;
+  /** 空间视图编码（STORY-0072），与简单视图编码分离以保持类型安全 */
+  spatialEncoding: SpatialEncoding | null;
+  /** 热力图编码（STORY-0073） */
+  heatmapEncoding: HeatmapEncoding | null;
   dispatch: React.Dispatch<DataAction>;
 }
 
@@ -78,6 +128,9 @@ export const DataPageContext = React.createContext<DataPageContextValue>({
   errorMessage: "",
   activeView: "table",
   diffs: [],
+  encodings: {},
+  spatialEncoding: null,
+  heatmapEncoding: null,
   dispatch: () => {},
 });
 
@@ -89,6 +142,9 @@ interface DataReducerState {
   errorMessage: string;
   activeView: ViewType;
   diffs: DiffChange[];
+  encodings: Record<string, ViewEncoding>;
+  spatialEncoding: SpatialEncoding | null;
+  heatmapEncoding: HeatmapEncoding | null;
 }
 
 function dataReducer(state: DataReducerState, action: DataAction): DataReducerState {
@@ -100,7 +156,7 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
         rows: action.andf.meta.rowCount,
         cols: action.andf.meta.columnCount,
       });
-      return { ...state, state: "configuring", andf: action.andf, errorMessage: "", activeView: "table", diffs: [] };
+      return { ...state, state: "configuring", andf: action.andf, errorMessage: "", activeView: "table", diffs: [], encodings: {}, spatialEncoding: null, heatmapEncoding: null };
     case "IMPORT_ERROR":
       uiLog.error("DataPage", "importError", { message: action.message });
       return { ...state, state: "error", errorMessage: action.message };
@@ -110,6 +166,12 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
       return { ...state, state: "configuring" };
     case "SET_VIEW":
       return { ...state, activeView: action.view };
+    case "SET_VIEW_ENCODING":
+      return { ...state, encodings: { ...state.encodings, [action.view]: action.encoding } };
+    case "SET_SPATIAL_ENCODING":
+      return { ...state, spatialEncoding: action.encoding };
+    case "SET_HEATMAP_ENCODING":
+      return { ...state, heatmapEncoding: action.encoding };
     case "START_EDIT":
       return { ...state, state: "editing" };
     case "CANCEL_EDIT":
@@ -131,7 +193,7 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
       };
     }
     case "RESET":
-      return { andf: null, state: "empty", errorMessage: "", activeView: "table", diffs: [] };
+      return { andf: null, state: "empty", errorMessage: "", activeView: "table", diffs: [], encodings: {}, spatialEncoding: null, heatmapEncoding: null };
     default:
       return state;
   }
@@ -146,6 +208,9 @@ export function DataPage() {
     errorMessage: "",
     activeView: "table",
     diffs: [],
+    encodings: {},
+    spatialEncoding: null,
+    heatmapEncoding: null,
   });
 
   const contextValue: DataPageContextValue = React.useMemo(

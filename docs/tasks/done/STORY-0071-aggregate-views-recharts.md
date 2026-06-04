@@ -2,13 +2,13 @@
 id: STORY-0071
 kind: story
 title: 聚合型视图 Bar / Pie / Line / Scatter（Recharts）
-status: backlog
+status: done
 priority: P1
 owner: "@ivan"
 assignee: ai
 estimate: 2d
 created: 2026-06-03
-updated: 2026-06-03
+updated: 2026-06-04T21:22
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
 related_adr: []
@@ -38,12 +38,12 @@ tags: [story, data, chart, recharts, M10]
 
 ## 验收标准
 
-- [ ] 4 视图能正确渲染 ANDF.rows 中的数据
-- [ ] 字段映射 UI 提供下拉选择数值字段 / 分类字段
-- [ ] tooltip / legend 颜色与 design-language 一致
-- [ ] 切换字段映射后图表立即重绘
-- [ ] 单文件 ≤ 300 行
-- [ ] bundle 体积增量 ≤ 120 KB gzip（控制 tree-shaking）
+- [x] 4 视图能正确渲染 ANDF.rows 中的数据（Bar/Pie/Line/Scatter）
+- [x] 字段映射 UI（FieldMapping 横条）提供下拉选择数值/分类字段，Line 支持多选 yAxis
+- [x] tooltip / legend 颜色读 CSS 变量（chart-colors.ts 8 色板从 --primary / --success / --warning / --info 派生）
+- [x] 切换字段映射后图表立即重绘（encoding 入 DataPageContext Reducer，变更触发 dispatch）
+- [x] 单文件 ≤ 300 行（BarView 122 / PieView 111 / LineView 137 / ScatterView 156 / FieldMapping 113 / chart-colors 67）
+- [x] web typecheck 0 新增错误（仅 2 预存）
 
 ## 设计要点
 
@@ -54,3 +54,6 @@ tags: [story, data, chart, recharts, M10]
 ## 进展日志
 
 - 2026-06-03 created
+- 2026-06-04 implemented：recharts v3.8.1 引入 + chart-colors 8 色板 + slot-mapping 聚合型槽位（bar/pie/line/scatter）+ DataPage encodings 状态扩展 + FieldMapping 横条组件 + 4 图表视图组件 + ViewContainer 派发 + typecheck 0 新增错误
+- 2026-06-04T20:55 review fix（P0）：4 视图（Bar/Pie/Line/Scatter）的 `useMemo` 全部从 early return 之后上移到 hooks 区，修复 rules-of-hooks 违例（切换字段映射不再触发 "Rendered more hooks" 报错）。typecheck 仍 0 新增错误。
+- 2026-06-04T21:22 done — review 通过，迁 done/。

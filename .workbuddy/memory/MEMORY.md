@@ -74,6 +74,7 @@
 - 每个 DCC 只注册 1 个 MCP 工具 `run_python`（ADR 0003）
 - Skill = SKILL.md + manifest.json + __init__.py
 - Nexus-Tool 三态：无触发器/启动触发/禁用触发；`is_enabled` 只控制触发器
+- **超时统一由平台管理**：`app.settings.nexusToolDefaultTimeoutSec`（默认 300s），不再读 manifest.implementation.timeout。工具作者无需考虑超时
 - Tool ID 为 UUID v4 GUID
 
 ## SkillHub 全平台架构（2026-05-27）

@@ -2,13 +2,13 @@
 id: STORY-0073
 kind: story
 title: Scene Heatmap（密度热力，复用 Spatial Plot 底座）
-status: backlog
+status: done
 priority: P0
 owner: "@ivan"
 assignee: ai
 estimate: 2d
 created: 2026-06-03
-updated: 2026-06-03
+updated: 2026-06-04T21:22
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
 related_adr: []
@@ -39,12 +39,12 @@ tags: [story, data, view, heatmap, M10]
 
 ## 验收标准
 
-- [ ] 切到 heatmap 视图后底图上出现密度色块
-- [ ] 调节带宽 / 透明度参数立即重绘
-- [ ] 图例正确显示密度范围
-- [ ] 点击切换"显示坐标点"开关有效
-- [ ] 数据量 5000 点以内渲染流畅（≥ 30 fps）
-- [ ] 主组件 ≤ 300 行
+- [x] 切到 heatmap 视图后底图上出现密度色块
+- [x] 调节带宽 / 透明度参数立即重绘
+- [x] 图例正确显示密度范围
+- [x] 点击切换"显示坐标点"开关有效
+- [x] 数据量 5000 点以内渲染流畅（≥ 30 fps）
+- [x] 主组件 ≤ 300 行
 
 ## 设计要点
 
@@ -55,3 +55,6 @@ tags: [story, data, view, heatmap, M10]
 ## 进展日志
 
 - 2026-06-03 created
+- 2026-06-04 implemented — SceneHeatmapView.tsx (254行), shared/heatmap-kde.ts, shared/heatmap-colors.ts; DataPage 扩展 HeatmapEncoding 类型 + SET_HEATMAP_ENCODING action; ViewContainer case "scene-heatmap" 集成; 复用 Spatial Plot 底图+坐标转换
+- 2026-06-04T20:55 review fix（P0+P1）：① `useMemo` 依赖数组补齐 `encoding.x.field` / `encoding.y.field` / `background.origin` / `background.unitPerPx`，切换坐标字段或底图坐标系后密度图立即重算；② `computeDensityGrid` 改为复用 `dataToPixel` 计算像素坐标后再网格化，与 SpatialPlot 坐标系完全一致（origin=center / unitPerPx 设置时不再错位）。SceneHeatmapView 263 行 / heatmap-kde 196 行，仍 ≤300。typecheck 0 新增错误。
+- 2026-06-04T21:22 done — review 通过，迁 done/。
