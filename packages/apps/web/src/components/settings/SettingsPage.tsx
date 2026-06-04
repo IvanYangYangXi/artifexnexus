@@ -78,7 +78,7 @@ export function SettingsPage() {
         </Tabs>
         <div className="flex-1" />
         {saveMsg && <span className={`text-[11px] ${saveMsg==="已保存"?"text-emerald-400":"text-red-400"}`}>{saveMsg}</span>}
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs rounded-full" onClick={loadConfig} disabled={saving||state.load.kind==="loading"} title="重新从 OpenClaw 加载最新配置"><RefreshCw className="h-3 w-3" />刷新</Button>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs rounded-full" onClick={loadConfig} disabled={saving} title="重新从 OpenClaw 加载最新配置"><RefreshCw className="h-3 w-3" />刷新</Button>
         <Button size="sm" className="h-7 gap-1 text-xs rounded-full" onClick={handleSave} disabled={!state.dirty || saving}><Save className="h-3 w-3" />{saving?"保存中…":"保存"}</Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">

@@ -279,6 +279,20 @@ function TopBar() {
     uiLog.custom("TopBar", "exportCSV", { rows: andf.rows.length, cols: cols.length });
   }, [andf]);
 
+  /** ANDF JSON 导出（STORY-0074） */
+  const handleExportANDF = React.useCallback(() => {
+    if (!andf) return;
+    const payload = { columns: andf.columns, rows: andf.rows, meta: andf.meta };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "data.andf.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    uiLog.custom("TopBar", "exportANDF", { rows: andf.rows.length, cols: andf.columns.length });
+  }, [andf]);
+
   /** Diff 导出 */
   const handleExportDiff = React.useCallback(() => {
     if (diffs.length === 0) return;
@@ -327,6 +341,13 @@ function TopBar() {
       {/* 导出按钮（仅 rendering / editing 态可见） */}
       {(state === "rendering" || state === "editing") && andf && (
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+            onClick={handleExportANDF}
+          >
+            导出 ANDF
+          </button>
           <button
             type="button"
             className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"

@@ -2,12 +2,13 @@
 id: STORY-0074
 kind: story
 title: Summary Bar 统计 + 导出 + E2E 烟雾 + tauri 出包
-status: backlog
+status: review
 priority: P0
 owner: "@ivan"
 assignee: ai
 estimate: 2d
 created: 2026-06-03
+updated: 2026-06-04
 updated: 2026-06-03
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
@@ -56,3 +57,4 @@ tags: [story, data, summary, export, e2e, M10]
 ## 进展日志
 
 - 2026-06-03 created
+- 2026-06-04 implemented — stats.ts (9 tests 通过) + SummaryBar 增强（5列统计快照） + "导出 ANDF" 按钮 + E2E checklist（10类30项） + tauri build 尝试验证

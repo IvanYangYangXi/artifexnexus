@@ -10,7 +10,7 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0010-m10-data-view]]
-- [ ] [[STORY-0074-summary-and-e2e]]
+
 - [ ] [[EPIC-0008-m8-comfyui-workflow]]
 - [ ] [[EPIC-0009-m9-extra-dcc]]
 - [ ] [[STORY-0059-shared-module-extraction]]
@@ -52,6 +52,7 @@ tags:
 - [ ] [[STORY-0071-aggregate-views-recharts]]
 - [ ] [[STORY-0072-spatial-plot-base]]
 - [ ] [[STORY-0073-scene-heatmap]]
+
 
 - [ ] [[STORY-0048-m4-migration-skill-nexus-tool]]
 - [ ] [[STORY-0047-m4-ui-skill-nexus-tool-wiring]]

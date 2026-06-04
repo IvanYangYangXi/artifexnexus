@@ -1127,7 +1127,7 @@ function TriggersTab({ detail, triggers, onSave, saving, toolEnabled = true }: {
     scheduleConfig:
       t.triggerType === "schedule"
         ? t.scheduleConfig || { type: "interval", interval: "30m" }
-        : undefined,
+        : { type: "interval", interval: "30m" },
     pollIntervalSec: t.triggerType === "watch" ? t.pollIntervalSec : undefined,
   });
 
