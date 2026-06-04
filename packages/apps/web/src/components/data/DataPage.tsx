@@ -9,8 +9,8 @@
  *   C3 视图区 = 视图切换器 + 渲染容器
  *   C4 Summary Bar
  *
- * 状态机：empty → importing → configuring → rendering → error
- * 视图共 10 种槽位，STORY-0069 阶段均为占位。
+ * 状态机：empty → importing → configuring → rendering ⇄ editing → error
+ * 视图共 10 种槽位，直展型 4 视图（STORY-0070）+ 聚合型/空间型占位。
  */
 
 import * as React from "react";
@@ -18,7 +18,7 @@ import type { ANDF } from "@artifex-nexus/contracts";
 
 import { ImportDropzone } from "./ImportDropzone";
 import { ColumnConfig } from "./ColumnConfig";
-import { ViewSwitcherStandalone } from "./ViewSwitcher";
+import { ViewSwitcher, type ViewType } from "./ViewSwitcher";
 import { ViewContainer } from "./ViewContainer";
 import { SummaryBar } from "./SummaryBar";
 import { uiLog } from "../../lib/ui-log";
@@ -26,7 +26,24 @@ import { uiLog } from "../../lib/ui-log";
 // ─── 类型定义 ──────────────────────────────────────────────────────────────
 
 /** 数据模块页面状态 */
-export type DataState = "empty" | "importing" | "configuring" | "rendering" | "error";
+export type DataState = "empty" | "importing" | "configuring" | "rendering" | "editing" | "error";
+
+/** ANDF Diff 变更记录 */
+export interface DiffChange {
+  op: "update" | "move" | "delete";
+  row: number;
+  column?: string;
+  value?: unknown;
+  rowId?: string;
+  toParent?: string;
+  toIndex?: number;
+}
+
+/** ANDF Diff 容器 */
+export interface ANDFDiff {
+  type: "andf-diff/v1";
+  changes: DiffChange[];
+}
 
 /** Action 类型 */
 type DataAction =
@@ -35,6 +52,12 @@ type DataAction =
   | { type: "IMPORT_ERROR"; message: string }
   | { type: "CONFIGURE_DONE" }
   | { type: "BACK_TO_CONFIG" }
+  | { type: "SET_VIEW"; view: ViewType }
+  | { type: "START_EDIT" }
+  | { type: "CANCEL_EDIT" }
+  | { type: "ADD_DIFF"; change: DiffChange }
+  | { type: "CLEAR_DIFFS" }
+  | { type: "APPLY_UPDATE"; rowIndex: number; column: string; value: unknown }
   | { type: "RESET" };
 
 /** Context 值 */
@@ -42,6 +65,8 @@ export interface DataPageContextValue {
   andf: ANDF | null;
   state: DataState;
   errorMessage: string;
+  activeView: ViewType;
+  diffs: DiffChange[];
   dispatch: React.Dispatch<DataAction>;
 }
 
@@ -51,6 +76,8 @@ export const DataPageContext = React.createContext<DataPageContextValue>({
   andf: null,
   state: "empty",
   errorMessage: "",
+  activeView: "table",
+  diffs: [],
   dispatch: () => {},
 });
 
@@ -60,6 +87,8 @@ interface DataReducerState {
   andf: ANDF | null;
   state: DataState;
   errorMessage: string;
+  activeView: ViewType;
+  diffs: DiffChange[];
 }
 
 function dataReducer(state: DataReducerState, action: DataAction): DataReducerState {
@@ -71,7 +100,7 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
         rows: action.andf.meta.rowCount,
         cols: action.andf.meta.columnCount,
       });
-      return { ...state, state: "configuring", andf: action.andf, errorMessage: "" };
+      return { ...state, state: "configuring", andf: action.andf, errorMessage: "", activeView: "table", diffs: [] };
     case "IMPORT_ERROR":
       uiLog.error("DataPage", "importError", { message: action.message });
       return { ...state, state: "error", errorMessage: action.message };
@@ -79,8 +108,30 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
       return { ...state, state: "rendering" };
     case "BACK_TO_CONFIG":
       return { ...state, state: "configuring" };
+    case "SET_VIEW":
+      return { ...state, activeView: action.view };
+    case "START_EDIT":
+      return { ...state, state: "editing" };
+    case "CANCEL_EDIT":
+      return { ...state, state: "rendering" };
+    case "ADD_DIFF":
+      return { ...state, diffs: [...state.diffs, action.change], state: "rendering" };
+    case "CLEAR_DIFFS":
+      return { ...state, diffs: [] };
+    case "APPLY_UPDATE": {
+      if (!state.andf) return state;
+      const newRows = [...state.andf.rows];
+      newRows[action.rowIndex] = {
+        ...newRows[action.rowIndex],
+        [action.column]: action.value,
+      };
+      return {
+        ...state,
+        andf: { ...state.andf, rows: newRows },
+      };
+    }
     case "RESET":
-      return { andf: null, state: "empty", errorMessage: "" };
+      return { andf: null, state: "empty", errorMessage: "", activeView: "table", diffs: [] };
     default:
       return state;
   }
@@ -93,6 +144,8 @@ export function DataPage() {
     andf: null,
     state: "empty",
     errorMessage: "",
+    activeView: "table",
+    diffs: [],
   });
 
   const contextValue: DataPageContextValue = React.useMemo(
@@ -108,8 +161,8 @@ export function DataPage() {
 
         {/* 主内容区：C2 列配置 + C3 视图区 + C4 SummaryBar */}
         <div className="flex flex-1 overflow-hidden">
-          {/* C2 列配置面板（仅 configuring / rendering 态可见） */}
-          {(ctx.state === "configuring" || ctx.state === "rendering") && (
+          {/* C2 列配置面板（configuring / rendering / editing 态可见） */}
+          {(ctx.state === "configuring" || ctx.state === "rendering" || ctx.state === "editing") && (
             <ColumnConfig />
           )}
 
@@ -120,8 +173,8 @@ export function DataPage() {
               <MainContent />
             </div>
 
-            {/* C4 Summary Bar */}
-            {ctx.state === "rendering" && <SummaryBar />}
+            {/* C4 Summary Bar（rendering / editing 态可见，数据范围未变） */}
+            {(ctx.state === "rendering" || ctx.state === "editing") && <SummaryBar />}
           </div>
         </div>
       </div>
@@ -133,15 +186,54 @@ export function DataPage() {
 
 /** C1 顶栏：状态标签 + 导入/导出按钮 */
 function TopBar() {
-  const { state, dispatch, andf, errorMessage } = React.useContext(DataPageContext);
+  const { state, dispatch, andf, errorMessage, diffs } = React.useContext(DataPageContext);
 
   const handleReset = () => dispatch({ type: "RESET" });
+
+  /** CSV 导出 */
+  const handleExportCSV = React.useCallback(() => {
+    if (!andf) return;
+    const cols = andf.columns.map((c) => c.name);
+    const header = cols.map((c) => `"${c}"`).join(",");
+    const body = andf.rows.map((row) =>
+      cols.map((c) => {
+        const v = row[c];
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        return s.includes(",") || s.includes("\n") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(",")
+    ).join("\n");
+    const csv = header + "\n" + body;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    uiLog.custom("TopBar", "exportCSV", { rows: andf.rows.length, cols: cols.length });
+  }, [andf]);
+
+  /** Diff 导出 */
+  const handleExportDiff = React.useCallback(() => {
+    if (diffs.length === 0) return;
+    const payload: ANDFDiff = { type: "andf-diff/v1", changes: diffs };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "andf-diff.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    uiLog.custom("TopBar", "exportDiff", { count: diffs.length });
+  }, [diffs]);
 
   const stateLabel: Record<DataState, string> = {
     empty: "未加载数据",
     importing: "导入中...",
     configuring: "配置中",
     rendering: "渲染中",
+    editing: "编辑中",
     error: "错误",
   };
 
@@ -150,6 +242,7 @@ function TopBar() {
     importing: "text-amber-400",
     configuring: "text-blue-400",
     rendering: "text-emerald-400",
+    editing: "text-yellow-400",
     error: "text-red-400",
   };
 
@@ -166,27 +259,25 @@ function TopBar() {
       {/* 导入按钮 */}
       <ImportDropzone />
 
-      {/* 导出按钮（仅 rendering 态可见） */}
-      {state === "rendering" && andf && (
+      {/* 导出按钮（仅 rendering / editing 态可见） */}
+      {(state === "rendering" || state === "editing") && andf && (
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
-            onClick={() => {
-              /* STORY-0074 实现 */
-            }}
+            onClick={handleExportCSV}
           >
             导出 CSV
           </button>
-          <button
-            type="button"
-            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
-            onClick={() => {
-              /* STORY-0074 实现 */
-            }}
-          >
-            导出 ANDF
-          </button>
+          {diffs.length > 0 && (
+            <button
+              type="button"
+              className="rounded-md border border-yellow-400/20 bg-yellow-400/[0.06] px-2.5 py-1 text-xs text-yellow-400 transition-colors hover:bg-yellow-400/[0.12]"
+              onClick={handleExportDiff}
+            >
+              导出 Diff ({diffs.length})
+            </button>
+          )}
         </div>
       )}
 
@@ -211,7 +302,7 @@ function TopBar() {
 
 /** C3 主内容：视图切换器 + 渲染容器 */
 function MainContent() {
-  const { state } = React.useContext(DataPageContext);
+  const { state, activeView, dispatch } = React.useContext(DataPageContext);
 
   if (state === "empty") {
     return (
@@ -245,10 +336,14 @@ function MainContent() {
     );
   }
 
+  // configuring / rendering / editing → 显示视图切换器 + 渲染容器
   return (
     <div className="flex h-full flex-col">
       {/* 视图切换器 */}
-      <ViewSwitcherStandalone />
+      <ViewSwitcher
+        activeView={activeView}
+        onViewChange={(v) => dispatch({ type: "SET_VIEW", view: v })}
+      />
 
       {/* 渲染容器 */}
       <div className="flex-1 overflow-auto">

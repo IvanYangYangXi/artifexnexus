@@ -100,23 +100,6 @@ export function ViewSwitcher({ activeView, onViewChange }: ViewSwitcherProps) {
   );
 }
 
-// ─── 独立组件导出（含内部状态封装） ────────────────────────────────────────
-
-/** 带内部 activeView 状态的 ViewSwitcher（嵌入 DataPage 用） */
-export function ViewSwitcherStandalone() {
-  // STORY-0069 阶段默认选中 table
-  const [activeView, setActiveView] = React.useState<ViewType>("table");
-
-  return (
-    <ViewSwitcher
-      activeView={activeView}
-      onViewChange={(v) => {
-        setActiveView(v);
-      }}
-    />
-  );
-}
-
 // ─── 导出辅助 ──────────────────────────────────────────────────────────────
 
 /**

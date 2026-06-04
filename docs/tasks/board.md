@@ -10,7 +10,6 @@ tags:
 ## Backlog
 
 - [ ] [[EPIC-0010-m10-data-view]]
-- [ ] [[STORY-0070-direct-views-and-edit]]
 - [ ] [[STORY-0071-aggregate-views-recharts]]
 - [ ] [[STORY-0072-spatial-plot-base]]
 - [ ] [[STORY-0073-scene-heatmap]]
@@ -62,6 +61,7 @@ tags:
 - [ ] [[STORY-0042-m4-sdk-decorator-manifest]]
 
 ## Done
+- [x] [[STORY-0070-direct-views-and-edit]] *(M10 直展型 4 视图 + 反向编辑 + Diff → 2026-06-04)*
 - [x] [[STORY-0069-data-module-shell]] *(M10 数据模块外壳 → 2026-06-03)*
 - [x] [[STORY-0067-data-view-ui-structure]] *(M10 UI 结构 spec → 2026-06-03)*
 - [x] [[STORY-0068-andf-contract-and-import]] *(ANDF 契约 + CSV/JSON 解析器 → 2026-06-03)*

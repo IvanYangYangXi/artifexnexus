@@ -83,7 +83,7 @@ tags: [epic, data, visualization, M10, planned]
 - [x] [[../done/STORY-0067-data-view-ui-structure]] — UI 结构 spec（前置）✅ 2026-06-03
 - [x] [[../done/STORY-0068-andf-contract-and-import]] — ANDF 契约 + CSV/JSON 导入 ✅ 2026-06-03
 - [x] [[../done/STORY-0069-data-module-shell]] — Sidebar 集成 + DataPage 主壳 + 列配置 + 视图切换 ✅ 2026-06-03
-- [ ] [[STORY-0070-direct-views-and-edit]] — Table / Card / List / Tree + 反向编辑 + ANDF Diff
+- [x] [[../done/STORY-0070-direct-views-and-edit]] — Table / Card / List / Tree + 反向编辑 + ANDF Diff ✅ 2026-06-04
 - [ ] [[STORY-0071-aggregate-views-recharts]] — Bar / Pie / Line / Scatter（Recharts）
 - [ ] [[STORY-0072-spatial-plot-base]] — Spatial Plot（底图 + 坐标点 + 拖动 + 形状/大小/颜色映射 + 缩略图）
 - [ ] [[STORY-0073-scene-heatmap]] — Scene Heatmap（KDE 密度上色，复用 Spatial Plot 底座）
@@ -94,3 +94,4 @@ tags: [epic, data, visualization, M10, planned]
 - 2026-06-03 created（由 [[../../inbox/data-visualization-view]] triage 而来）
 - 2026-06-03 STORY-0067 / STORY-0068 done（review 通过，迁 done/）
 - 2026-06-03 STORY-0069 done（数据模块外壳 + 状态机 + 6 组件就位，P1 已记由 STORY-0070 修）
+- 2026-06-04 STORY-0070 done（直展型 4 视图 + 反向编辑 + Diff 队列 + CSV 导出，review 修 P0×2 + P1×4 后通过）
