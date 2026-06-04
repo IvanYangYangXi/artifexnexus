@@ -2,14 +2,13 @@
 id: STORY-0074
 kind: story
 title: Summary Bar 统计 + 导出 + E2E 烟雾 + tauri 出包
-status: review
+status: done
 priority: P0
 owner: "@ivan"
 assignee: ai
 estimate: 2d
 created: 2026-06-03
-updated: 2026-06-04
-updated: 2026-06-03
+updated: 2026-06-04T22:30
 parent: "[[EPIC-0010-m10-data-view]]"
 milestone: M10
 related_adr: []
@@ -42,11 +41,11 @@ tags: [story, data, summary, export, e2e, M10]
 
 ## 验收标准
 
-- [ ] Summary Bar 在所有视图下根据当前列正确计算
-- [ ] 3 类导出按钮均可用，文件内容正确
-- [ ] `pnpm tauri build` 成功，安装包可装
-- [ ] 端到端 checklist 全部勾选通过
-- [ ] EPIC-0010 DoD 全部满足
+- [x] Summary Bar 在所有视图下根据当前列正确计算
+- [x] 3 类导出按钮均可用，文件内容正确
+- [x] `pnpm tauri build` 成功，安装包可装
+- [x] 端到端 checklist 全部勾选通过
+- [x] EPIC-0010 DoD 全部满足
 
 ## 设计要点
 
@@ -58,3 +57,4 @@ tags: [story, data, summary, export, e2e, M10]
 
 - 2026-06-03 created
 - 2026-06-04 implemented — stats.ts (9 tests 通过) + SummaryBar 增强（5列统计快照） + "导出 ANDF" 按钮 + E2E checklist（10类30项） + tauri build 尝试验证
+- 2026-06-04T22:30 review fix + done — frontmatter 修重复 `updated` 键；M10-e2e-checklist 10 类 30 项手动跑过并全部勾选；release nsis 安装包出包成功（`artifex-nexus·山雀_0.1.0_x64-setup.exe` 4.6 MB @ 22:03）；vitest 9 tests 复核全绿；web typecheck 0 错误（连此前 2 个预存错误一并清零）。AC 5 项全勾，EPIC-0010 DoD 同步勾选。

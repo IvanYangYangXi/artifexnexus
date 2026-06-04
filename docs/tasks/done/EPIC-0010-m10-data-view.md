@@ -2,26 +2,27 @@
 id: EPIC-0010
 kind: epic
 title: M10 · 数据图形视图（ANDF + 10 视图 + 反向编辑）
-status: backlog
+status: done
 priority: P0
 owner: "@ivan"
 assignee: pair
 estimate: 4w
 created: 2026-06-03
-updated: 2026-06-04
+updated: 2026-06-04T22:30
 parent: "[[../../vision/roadmap]]"
 milestone: M10
 related_adr: []
 related_specs:
   - "[[../../specs/ui/data-view-structure]]"
+  - "[[../../specs/andf-format]]"
 related_packages:
   - "packages/apps/web"
   - "packages/platform/contracts"
   - "packages/ui"
-tags: [epic, data, visualization, M10, planned]
+tags: [epic, data, visualization, M10, done]
 ---
 
-# M10 · 数据图形视图 📋 PLANNED
+# M10 · 数据图形视图 ✅ DONE
 
 ## 背景与目标
 
@@ -55,20 +56,20 @@ tags: [epic, data, visualization, M10, planned]
 
 ## 可分发定义（DoD）
 
-- [ ] `pnpm tauri build` 出可装 artifact
-- [ ] 用户拖入一个 CSV 或粘贴 JSON 数组 → 选择视图 → 编辑数据 → 导出 CSV，端到端完整可用
-- [ ] 10 种视图全部可切换并按字段槽位规则正确渲染
-- [ ] Spatial Plot 可上传底图 + 拖动坐标点改 x/y 数据
-- [ ] 直展型视图反向编辑产出 ANDF Diff 并能下载
-- [ ] 所有 UI 走 `@artifex-nexus/ui` 现成组件，无硬编码视觉值
-- [ ] UI 结构 spec accepted
+- [x] `pnpm tauri build` 出可装 artifact ✅ `artifex-nexus·山雀_0.1.0_x64-setup.exe` 4.6 MB
+- [x] 用户拖入一个 CSV 或粘贴 JSON 数组 → 选择视图 → 编辑数据 → 导出 CSV，端到端完整可用
+- [x] 10 种视图全部可切换并按字段槽位规则正确渲染
+- [x] Spatial Plot 可上传底图 + 拖动坐标点改 x/y 数据
+- [x] 直展型视图反向编辑产出 ANDF Diff 并能下载
+- [x] 所有 UI 走 `@artifex-nexus/ui` 现成组件，无硬编码视觉值
+- [x] UI 结构 spec accepted
 
 ## 出口条件
 
-- [ ] STORY-0067 至 STORY-0074 全部 done
-- [ ] [[../../specs/ui/data-view-structure]] accepted
-- [ ] [[../../specs/andf-format]] accepted（由 STORY-0068 创建）
-- [ ] 手动冒烟通过：CSV 与 JSON 各跑一次完整流程
+- [x] STORY-0067 至 STORY-0074 全部 done
+- [x] [[../../specs/ui/data-view-structure]] accepted
+- [x] [[../../specs/andf-format]] accepted（由 STORY-0068 创建）
+- [x] 手动冒烟通过：CSV 与 JSON 各跑一次完整流程（M10-e2e-checklist 30 项全勾）
 
 ## 设计要点
 
@@ -87,7 +88,7 @@ tags: [epic, data, visualization, M10, planned]
 - [x] [[../done/STORY-0071-aggregate-views-recharts]] — Bar / Pie / Line / Scatter（Recharts）✅ 2026-06-04
 - [x] [[../done/STORY-0072-spatial-plot-base]] — Spatial Plot（底图 + 坐标点 + 拖动 + 形状/大小/颜色映射 + 缩略图）✅ 2026-06-04
 - [x] [[../done/STORY-0073-scene-heatmap]] — Scene Heatmap（KDE 密度上色，复用 Spatial Plot 底座）✅ 2026-06-04
-- [ ] [[STORY-0074-summary-and-e2e]] — Summary Bar 统计 + 导出 + E2E 烟雾 + tauri 出包
+- [x] [[../done/STORY-0074-summary-and-e2e]] — Summary Bar 统计 + 导出 + E2E 烟雾 + tauri 出包 ✅ 2026-06-04
 
 ## 进展日志
 
@@ -97,3 +98,4 @@ tags: [epic, data, visualization, M10, planned]
 - 2026-06-04 STORY-0070 done（直展型 4 视图 + 反向编辑 + Diff 队列 + CSV 导出，review 修 P0×2 + P1×4 后通过）
 - 2026-06-04 STORY-0071/0072/0073 进 review（Recharts 4 视图 + Spatial Plot 基座 + Scene Heatmap），同日 review fix（P0×2 hooks 顺序+KDE 依赖；P1×3 KDE 复用 dataToPixel + 选中态/SelectionPanel + tooltipFields UI），等待 ivan 复核切 done。
 - 2026-06-04T21:22 STORY-0071/0072/0073 done — 复核通过，三个 story 同时迁 done/。EPIC-0010 7/8 done，仅余 STORY-0074（Summary Bar + E2E + tauri 出包）。
+- 2026-06-04T22:30 STORY-0074 done — review fix（frontmatter 重复 `updated` 修复 + E2E checklist 30 项手测勾选 + release 出包验证 4.6 MB）。**EPIC-0010 全 8 story done，DoD 7/7、出口 4/4 全满足，M10 收官**。

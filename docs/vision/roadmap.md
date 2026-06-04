@@ -34,7 +34,7 @@ status: accepted
 | M7 | 多 DCC 接入 | 🔄 IN PROGRESS | [[../tasks/backlog/EPIC-0007-m7-multi-dcc-inapp-chat]] | UE/Maya/Max/Blender 全接通 + 内嵌 Chat |
 | M8 | ComfyUI MCP | 📋 PLANNED | [[../tasks/backlog/EPIC-0008-m8-comfyui-workflow]] | ComfyUI MCP 接入 + Workflow 管理 |
 | M9 | 扩展 DCC | 📋 PLANNED | [[../tasks/backlog/EPIC-0009-m9-extra-dcc]] | SP/SD/Houdini/Unity 插件 |
-| **M10** | **数据图形视图** | 📋 **PLANNED** | [[../tasks/backlog/EPIC-0010-m10-data-view]] | ANDF + CSV/JSON 导入 + 10 视图 + 反向编辑（含 Spatial Plot / Heatmap） |
+| **M10** | **数据图形视图** | ✅ **DONE 2026-06-04** | [[../tasks/done/EPIC-0010-m10-data-view]] | ANDF + CSV/JSON 导入 + 10 视图 + 反向编辑（含 Spatial Plot / Heatmap） |
 | **M11** | **工作流编辑器** | 📋 **PLANNED [NEW]** | EPIC-0011（待创建） | WorkflowEngine + 节点画布 + 右侧面板分页 |
 | **M12** | **DCC 平台化 API** | 📋 **PLANNED [NEW]** | EPIC-0012（待创建，最后做） | 动态注册/插件 API/端口管理/连接标识 |
 
@@ -159,11 +159,11 @@ EPIC (阶段 / 大特性)  ──► STORY (可交付子特性)  ──► TASK 
 - **当前状态**：所有四款软件的 Skills 已创建（SP 4 个、SD 9 个、Houdini 4 个、Unity 5 个），但 DCC 插件和安装器逻辑尚未开发。
 - **可分发定义**：安装向导新增四类 DCC，至少一个 E2E 通。
 
-### M10 · 数据图形视图 📋 PLANNED
+### M10 · 数据图形视图 ✅ DONE 2026-06-04
 
 - **目标**：定义 ANDF 数据格式，支持从 CSV / JSON 数组导入数据，渲染 10 种图形视图，支持直展型与空间型视图的反向编辑。
-- **EPIC 卡**：[[../tasks/backlog/EPIC-0010-m10-data-view]]（已 triage，2026-06-03）
-- **UI 结构 spec**：[[../specs/ui/data-view-structure]]（draft，2026-06-03）
+- **EPIC 卡**：[[../tasks/done/EPIC-0010-m10-data-view]]（done 2026-06-04，8 个 STORY 全部完成，DoD 7/7、出口 4/4 全满足）
+- **UI 结构 spec**：[[../specs/ui/data-view-structure]]（accepted）
 - **设计要点**：
   - ANDF（Artifex Nexus Data Format）：列定义 + 行数组 + 视图配置
   - **10 种视图**：
@@ -200,7 +200,7 @@ EPIC (阶段 / 大特性)  ──► STORY (可交付子特性)  ──► TASK 
 
 | 优先级 | 工作项 | 说明 |
 |---|---|---|
-| P0 | **M10 数据图形视图** | ANDF 格式 + CSV/JSON 导入 + 10 种视图 + 反向编辑（已 triage，[[../tasks/backlog/EPIC-0010-m10-data-view]]） |
+| ✅ DONE | **M10 数据图形视图** | ANDF 格式 + CSV/JSON 导入 + 10 种视图 + 反向编辑（done 2026-06-04，[[../tasks/done/EPIC-0010-m10-data-view]]） |
 | P0 | **M11 节点式工作流编辑器** | WorkflowEngine + 节点画布 + 右侧面板分页 |
 | P1 | M1 EPIC-0001 审查修复 | 5 个 P0 问题待解决 |
 | P1 | M7 UE 插件增强 | Blueprint API / Trigger System / Control Panel |
