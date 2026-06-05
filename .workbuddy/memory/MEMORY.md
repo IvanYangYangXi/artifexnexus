@@ -1,10 +1,21 @@
 # Artifex Nexus 项目记忆
 
-## AI 协作规则
+## AI 协作规则（2026-06-05 更新）
 
-1. **PM 关卡**（开发前）：审核需求合理性，先确认再动手
-2. **开发关卡**（编码中）：任何设计不明确先确认
+**用户偏好工作流**：先读完上下文 → 一句话计划 → 直接做完。**不开 PM 关卡问题**，不做需求合理性反问，不分阶段确认。
+
+1. ~~PM 关卡~~（已废止，用户偏好直接执行）
+2. **开发关卡**（编码中）：仅当设计真正歧义、二选一无法判断时才停下问，否则按一句话计划直接做完
 3. **QA 关卡**（完成后）：代码规范、逻辑、错误处理。P0/P1/P2 分级
+   - **review 报告硬要求**：每条 P0/P1/P2 必须带 `文件:行号` 和 `修法` 两个字段，缺一不可
+
+## EPIC-0011（M11 节点式工作流编辑器）执行约束
+
+- **降级路径（夜间环境异常时主 agent 自动降级，无需问）**：
+  - React Flow 装不下来 → 节点数缩减（保留最小可演示集）
+  - tauri build 卡死 → 对话全 mock（不走真实 ws/sidecar）
+  - Python/Shell 节点环境不可用 → disabled（UI 灰显，保留占位）
+- **进展日志**：每完成一个 STORY，必须 append 一行到 `docs/tasks/backlog/EPIC-0011-m11-workflow-editor.md` 的进展日志区
 
 ## UE 编译必知
 
@@ -55,6 +66,7 @@
 3. `agents.list` 是保护配置，添加 agent 直接改 `openclaw.json`
 4. Sidecar 僵尸进程需定期清理
 5. `dev.bat` 必须是纯 ASCII
+6. **Tauri v2 文件拖入**：默认 `dragDropEnabled: true` 会**拦截 HTML5 DnD**，前端 `onDrop` 不触发。必须通过 `getCurrentWebview().onDragDropEvent` 拿文件路径，再用 Tauri 命令读文件。HTML5 DnD 只能在浏览器 dev 模式下工作。参考：`packages/apps/web/src/components/data/ImportDropzone.tsx`
 
 ## DCC 插件开发要点
 
