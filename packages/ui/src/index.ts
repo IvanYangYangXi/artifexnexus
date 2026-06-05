@@ -48,3 +48,4 @@ export * from "./components/resizable";
 // ─── 业务组件（chat / agent log 专用） ───
 export * from "./components/tool-call";
 export * from "./components/collapsible-panel";
+export * from "./components/inspector-panel";

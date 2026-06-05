@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifexnexus.dev/schemas/awff.schema.json",
+  "title": "ArtifexNexusWorkflowFormat",
+  "description": "AWFF — M11 节点式工作流编辑器的内存数据模型。含 meta / nodes / edges / variables，首版覆盖 9 类节点 / 串行执行 / canPause·canBranch·canTerminate·runtimeUI 4 维节点能力。",
+  "type": "object",
+  "required": [
+    "meta",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema 引用 URL"
+    },
+    "meta": {
+      "$ref": "#/$defs/Meta"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Edge"
+      }
+    },
+    "variables": {
+      "type": "array",
+      "description": "工作流级全局变量（可被 {{vars.<name>}} 引用）",
+      "items": {
+        "$ref": "#/$defs/Variable"
+      }
+    }
+  },
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "description": "AWFF 元数据",
+      "required": [
+        "id",
+        "name",
+        "createdAt",
+        "updatedAt",
+        "schemaVersion"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "工作流唯一标识（uuid 推荐）"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "工作流显示名"
+        },
+        "description": {
+          "type": "string",
+          "description": "描述文本（可选）"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "创建时间 (ISO 8601)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "最近一次编辑时间"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "const": "0.1.0",
+          "description": "AWFF schema 版本，首版固定 0.1.0"
+        }
+      }
+    },
+    "NodeKind": {
+      "type": "string",
+      "description": "9 类节点 kind 标识",
+      "enum": [
+        "trigger",
+        "tool",
+        "skill",
+        "ai-chat",
+        "user",
+        "control",
+        "data",
+        "script",
+        "output"
+      ]
+    },
+    "NodeType": {
+      "type": "string",
+      "description": "节点具体子类型（与 NodeKind 一对多）。首版枚举 18 个内置节点。",
+      "enum": [
+        "trigger.on-demand",
+        "trigger.on-schedule",
+        "tool.run-tool",
+        "skill.run-skill",
+        "ai-chat.send-to-chat",
+        "ai-chat.get-chat-response",
+        "ai-chat.ai-analysis",
+        "user.user-choice",
+        "user.input-form",
+        "control.condition",
+        "control.terminate",
+        "control.loop",
+        "data.set-variable",
+        "data.transform",
+        "script.run-python",
+        "script.run-shell",
+        "output.show-result",
+        "output.export-file"
+      ]
+    },
+    "PortDataType": {
+      "type": "string",
+      "description": "端口数据类型；同色等价，any 通配。",
+      "enum": [
+        "any",
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "array",
+        "trigger",
+        "control"
+      ]
+    },
+    "Port": {
+      "type": "object",
+      "description": "端口（输入或输出槽位）",
+      "required": [
+        "id",
+        "name",
+        "dataType"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "节点内端口唯一 id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "端口显示名"
+        },
+        "dataType": {
+          "$ref": "#/$defs/PortDataType"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否必填（仅输入端口）"
+        },
+        "multi": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许多重连线"
+        }
+      }
+    },
+    "Capabilities": {
+      "type": "object",
+      "description": "节点能力 4 维。Engine 据此决定运行时行为。",
+      "required": [
+        "canPause",
+        "canBranch",
+        "canTerminate",
+        "runtimeUI"
+      ],
+      "properties": {
+        "canPause": {
+          "type": "boolean",
+          "default": false,
+          "description": "运行到此节点是否可暂停（如 User Choice）"
+        },
+        "canBranch": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否产生分支（Condition / User Choice）"
+        },
+        "canTerminate": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否可主动终止整个工作流（Terminate）"
+        },
+        "runtimeUI": {
+          "type": "string",
+          "enum": [
+            "none",
+            "panel",
+            "modal"
+          ],
+          "default": "none",
+          "description": "运行态 UI：none 无 / panel 弹 RuntimePanel / modal 弹模态"
+        }
+      }
+    },
+    "NodeStatus": {
+      "type": "string",
+      "description": "节点级 7 态状态机",
+      "enum": [
+        "pending",
+        "running",
+        "waiting",
+        "branched",
+        "done",
+        "skipped",
+        "error"
+      ]
+    },
+    "Position": {
+      "type": "object",
+      "description": "画布坐标（React Flow 兼容）",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "description": "工作流节点",
+      "required": [
+        "id",
+        "kind",
+        "type",
+        "name",
+        "position",
+        "capabilities",
+        "inputs",
+        "outputs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "节点唯一 id"
+        },
+        "kind": {
+          "$ref": "#/$defs/NodeKind"
+        },
+        "type": {
+          "$ref": "#/$defs/NodeType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "节点显示名"
+        },
+        "description": {
+          "type": "string",
+          "description": "节点说明（可选）"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "description": "输入端口列表（可空数组）"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "description": "输出端口列表（可空数组）"
+        },
+        "config": {
+          "type": "object",
+          "description": "节点静态配置（如 toolId / skillName / 表达式等），free-form",
+          "additionalProperties": true
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus",
+          "description": "运行态状态（持久化时通常省略；导出快照时可包含）"
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "description": "节点间连线（沿用 React Flow source/target/handle 命名）",
+      "required": [
+        "id",
+        "source",
+        "target",
+        "sourceHandle",
+        "targetHandle"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "连线 id"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "源节点 id"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "目标节点 id"
+        },
+        "sourceHandle": {
+          "type": "string",
+          "minLength": 1,
+          "description": "源节点输出端口 id"
+        },
+        "targetHandle": {
+          "type": "string",
+          "minLength": 1,
+          "description": "目标节点输入端口 id"
+        },
+        "label": {
+          "type": "string",
+          "description": "连线可选标签（如分支名）"
+        }
+      }
+    },
+    "VariableType": {
+      "type": "string",
+      "enum": [
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "array"
+      ],
+      "description": "全局变量类型"
+    },
+    "Variable": {
+      "type": "object",
+      "description": "工作流级全局变量",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "变量名（在 vars.* 命名空间内唯一）"
+        },
+        "type": {
+          "$ref": "#/$defs/VariableType"
+        },
+        "default": {
+          "description": "默认值（任意 JSON 值）",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

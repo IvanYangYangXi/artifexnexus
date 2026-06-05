@@ -2,7 +2,7 @@
  * 解析器共享类型 / Parser common types.
  */
 
-import type { ArtifexNexusDataFormat, Column, Meta } from "@artifex-nexus/contracts";
+import type { ArtifexNexusDataFormat, Column, ANDFMeta as Meta } from "@artifex-nexus/contracts";
 
 /** 列类型枚举（与 JSON Schema / contracts 保持一致） */
 export type ColumnType = "string" | "number" | "boolean" | "datetime" | "url";

@@ -1,0 +1,77 @@
+{
+  "$schema": "../schemas/awff.schema.json",
+  "meta": {
+    "id": "wf-fixture-4node-chain",
+    "name": "Fixture · 4 节点链",
+    "description": "STORY-0075 最小测试 fixture：On Demand → Run Tool → User Choice → Run Skill",
+    "createdAt": "2026-06-05T08:45:00+08:00",
+    "updatedAt": "2026-06-05T08:45:00+08:00",
+    "schemaVersion": "0.1.0"
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "kind": "trigger",
+      "type": "trigger.on-demand",
+      "name": "On Demand",
+      "position": { "x": 80, "y": 120 },
+      "capabilities": { "canPause": false, "canBranch": false, "canTerminate": false, "runtimeUI": "none" },
+      "inputs": [],
+      "outputs": [
+        { "id": "out", "name": "trigger", "dataType": "trigger" }
+      ]
+    },
+    {
+      "id": "n2",
+      "kind": "tool",
+      "type": "tool.run-tool",
+      "name": "Run Tool · list_files",
+      "position": { "x": 320, "y": 120 },
+      "capabilities": { "canPause": false, "canBranch": false, "canTerminate": false, "runtimeUI": "none" },
+      "inputs": [
+        { "id": "in", "name": "trigger", "dataType": "trigger", "required": true }
+      ],
+      "outputs": [
+        { "id": "result", "name": "result", "dataType": "object" }
+      ],
+      "config": { "toolId": "fs.list_files", "params": { "path": "{{vars.workspace}}" } }
+    },
+    {
+      "id": "n3",
+      "kind": "user",
+      "type": "user.user-choice",
+      "name": "User Choice · 选择文件",
+      "position": { "x": 600, "y": 120 },
+      "capabilities": { "canPause": true, "canBranch": true, "canTerminate": false, "runtimeUI": "panel" },
+      "inputs": [
+        { "id": "items", "name": "items", "dataType": "array", "required": true }
+      ],
+      "outputs": [
+        { "id": "selected", "name": "selected", "dataType": "string" }
+      ]
+    },
+    {
+      "id": "n4",
+      "kind": "skill",
+      "type": "skill.run-skill",
+      "name": "Run Skill · summarize",
+      "position": { "x": 880, "y": 120 },
+      "capabilities": { "canPause": false, "canBranch": false, "canTerminate": false, "runtimeUI": "none" },
+      "inputs": [
+        { "id": "input", "name": "input", "dataType": "string", "required": true }
+      ],
+      "outputs": [
+        { "id": "summary", "name": "summary", "dataType": "string" }
+      ],
+      "config": { "skillName": "summarize", "params": { "text": "{{n3.selected}}" } }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "n1", "target": "n2", "sourceHandle": "out", "targetHandle": "in" },
+    { "id": "e2", "source": "n2", "target": "n3", "sourceHandle": "result", "targetHandle": "items" },
+    { "id": "e3", "source": "n3", "target": "n4", "sourceHandle": "selected", "targetHandle": "input" }
+  ],
+  "variables": [
+    { "name": "workspace", "type": "string", "default": "D:/MyProject_D/artifexnexus" }
+  ]
+}
