@@ -102,6 +102,7 @@ export type DataAction =
   | { type: "ADD_DIFF"; change: DiffChange }
   | { type: "CLEAR_DIFFS" }
   | { type: "APPLY_UPDATE"; rowIndex: number; column: string; value: unknown }
+  | { type: "PATCH_COLUMN"; name: string; patch: Partial<ANDF["columns"][number]> }
   | { type: "RESET" };
 
 /** Context 值 */
@@ -190,6 +191,16 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
       return {
         ...state,
         andf: { ...state.andf, rows: newRows },
+      };
+    }
+    case "PATCH_COLUMN": {
+      if (!state.andf) return state;
+      const newCols = state.andf.columns.map((c) =>
+        c.name === action.name ? { ...c, ...action.patch } : c,
+      );
+      return {
+        ...state,
+        andf: { ...state.andf, columns: newCols },
       };
     }
     case "RESET":

@@ -146,13 +146,13 @@ pub fn read_file_text(path: String) -> Result<ReadFileResult, String> {
         });
     }
 
-    // 大小限制 1MB
+    // 大小限制 50MB（数据导入 CSV/JSON 需要更大上限；其他场景请走专用接口）
     let metadata = p.metadata().map_err(|e| format!("读取文件元数据失败: {e}"))?;
-    if metadata.len() > 1_048_576 {
+    if metadata.len() > 50 * 1_048_576 {
         return Ok(ReadFileResult {
             ok: false,
             content: String::new(),
-            error: Some("文件超过 1MB，无法预览".to_string()),
+            error: Some("文件超过 50MB，无法读取".to_string()),
         });
     }
 

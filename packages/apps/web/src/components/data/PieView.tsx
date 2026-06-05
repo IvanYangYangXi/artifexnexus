@@ -29,18 +29,47 @@ interface PieDataPoint {
   value: number;
 }
 
+const PIE_MAX_SLICES = 30;
+
+interface AggregateResult {
+  data: PieDataPoint[];
+  truncated: number;
+  totalSlices: number;
+}
+
 function aggregateForPie(
   rows: Record<string, unknown>[],
   labelField: string,
-  valueField: string
-): PieDataPoint[] {
+  valueField: string,
+): AggregateResult {
   const map = new Map<string, number>();
   for (const row of rows) {
     const label = String(row[labelField] ?? "(空)");
-    const v = Number(row[valueField]) || 0;
-    map.set(label, (map.get(label) || 0) + v);
+    const v = Number(row[valueField]);
+    map.set(label, (map.get(label) ?? 0) + (Number.isFinite(v) ? v : 0));
   }
-  return [...map.entries()].map(([name, value]) => ({ name, value }));
+  const entries = [...map.entries()];
+  const totalSlices = entries.length;
+  if (totalSlices <= PIE_MAX_SLICES) {
+    return {
+      data: entries.map(([name, value]) => ({ name, value })),
+      truncated: 0,
+      totalSlices,
+    };
+  }
+  // 按值排序，保留 Top N-1，其余合并为"其他"
+  entries.sort((a, b) => b[1] - a[1]);
+  const top = entries.slice(0, PIE_MAX_SLICES - 1);
+  const tail = entries.slice(PIE_MAX_SLICES - 1);
+  const otherValue = tail.reduce((s, [, v]) => s + v, 0);
+  return {
+    data: [
+      ...top.map(([name, value]) => ({ name, value })),
+      { name: `其他(${tail.length})`, value: otherValue },
+    ],
+    truncated: tail.length,
+    totalSlices,
+  };
 }
 
 // ─── 组件 ──────────────────────────────────────────────────────────────────
@@ -60,8 +89,11 @@ export function PieView() {
   const valueField = encoding["value"];
 
   // ⚠️ Hooks 必须在所有 early return 之前调用（rules-of-hooks）
-  const data = React.useMemo(
-    () => (labelField && valueField ? aggregateForPie(rows, labelField, valueField) : []),
+  const agg = React.useMemo(
+    () =>
+      labelField && valueField
+        ? aggregateForPie(rows, labelField, valueField)
+        : { data: [], truncated: 0, totalSlices: 0 },
     [rows, labelField, valueField],
   );
 
@@ -69,16 +101,23 @@ export function PieView() {
     return (
       <div className="flex h-full flex-col">
         <FieldMapping slots={slots} encoding={encoding} onEncodingChange={handleEncodingChange} columns={cols} />
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground/50">
+        <div className="flex flex-1 items-center justify-center text-sm text-foreground/50">
           {!labelField ? "请选择标签字段映射" : "请选择数值字段映射"}
         </div>
       </div>
     );
   }
 
+  const { data, truncated, totalSlices } = agg;
+
   return (
     <div className="flex h-full flex-col">
       <FieldMapping slots={slots} encoding={encoding} onEncodingChange={handleEncodingChange} columns={cols} />
+      {truncated > 0 && (
+        <div className="px-3 py-1 text-[10px] text-amber-400/80">
+          扇区数 {totalSlices.toLocaleString()} 超过 {PIE_MAX_SLICES}，已取 Top {PIE_MAX_SLICES - 1}，其余合并为「其他」
+        </div>
+      )}
       <div className="flex-1 p-2">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
@@ -93,6 +132,7 @@ export function PieView() {
               paddingAngle={2}
               label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ""} (${((percent ?? 0) * 100).toFixed(0)}%)`}
               labelLine={{ stroke: "hsl(var(--muted-foreground) / 0.4)", strokeWidth: 1 }}
+              isAnimationActive={data.length <= 30}
             >
               {data.map((_, i) => (
                 <Cell key={i} fill={chartColor(i)} />
@@ -104,6 +144,7 @@ export function PieView() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "var(--radius)",
                 fontSize: 12,
+                color: "hsl(var(--popover-foreground))",
               }}
             />
             <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />

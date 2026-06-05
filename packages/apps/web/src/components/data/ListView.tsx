@@ -13,6 +13,7 @@ import type { Column } from "@artifex-nexus/contracts";
 import { DataPageContext, type DiffChange } from "./DataPage";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { InlineFieldEditor } from "./shared/InlineFieldEditor";
+import { useProgressiveRender } from "./shared/use-progressive-render";
 import { uiLog } from "../../lib/ui-log";
 
 type EditingField = { row: number; field: string } | null;
@@ -52,9 +53,14 @@ export function ListView() {
 
   const colType = (f: string | null | undefined) => colMap.get(f ?? "")?.type ?? "string";
 
+  const { visibleCount, sentinelRef, hasMore } = useProgressiveRender(andf.rows.length, {
+    initialChunk: 200,
+    chunk: 200,
+  });
+
   return (
     <div className="flex flex-col gap-0.5 p-2">
-      {andf.rows.map((row, rowIdx) => {
+      {andf.rows.slice(0, visibleCount).map((row, rowIdx) => {
         const primary = primaryField ? row[primaryField] : undefined;
         const secondary = secondaryField ? row[secondaryField] : undefined;
         const thumb = thumbnailField ? row[thumbnailField] : undefined;
@@ -96,7 +102,7 @@ export function ListView() {
                   onStartEdit={() => startEdit(rowIdx, secondaryField)}
                   onChange={(v) => commit(rowIdx, secondaryField, v)}
                   onCancel={cancel}
-                  className="text-xs text-muted-foreground truncate"
+                  className="text-xs text-foreground/70 truncate"
                 />
               )}
             </div>
@@ -110,7 +116,7 @@ export function ListView() {
                 onStartEdit={() => startEdit(rowIdx, badgeField)}
                 onChange={(v) => commit(rowIdx, badgeField, v)}
                 onCancel={cancel}
-                className="rounded bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shrink-0"
+                className="rounded bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-foreground/80 shrink-0"
               />
             )}
 
@@ -129,7 +135,7 @@ export function ListView() {
                     onStartEdit={() => startEdit(rowIdx, s.field!)}
                     onChange={(v) => commit(rowIdx, s.field!, v)}
                     onCancel={cancel}
-                    className="text-[10px] text-muted-foreground/50 shrink-0"
+                    className="text-[10px] text-foreground/60 shrink-0"
                   />
                 );
               })}
@@ -139,6 +145,11 @@ export function ListView() {
       {andf.rows.length === 0 && (
         <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
           无数据
+        </div>
+      )}
+      {hasMore && (
+        <div ref={sentinelRef} className="flex items-center justify-center py-3 text-[10px] text-foreground/40">
+          加载中… ({visibleCount} / {andf.rows.length})
         </div>
       )}
     </div>

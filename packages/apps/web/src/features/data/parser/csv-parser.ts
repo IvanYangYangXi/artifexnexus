@@ -65,24 +65,31 @@ export function parseCSV(text: string, opts: CSVParserOptions = {}): ParseResult
   const dataLines = rawLines.slice(1);
   const rows: Record<string, unknown>[] = [];
   const columnValues: Map<number, unknown[]> = new Map();
+  // 性能：类型推断只采样前 N 行即可，避免大数据下 O(N×cols) 内存爆炸
+  const TYPE_INFER_SAMPLE = 1000;
 
   for (let i = 0; i < dataLines.length; i++) {
     const fields = parseLine(dataLines[i]!, delimiter);
 
     if (fields.length !== headers.length) {
-      console.debug("[csv-parser] 行", i + 1, "列数不齐 (期望", headers.length, "实际", fields.length, ")，跳过");
+      if (i < 50) {
+        console.debug("[csv-parser] 行", i + 1, "列数不齐 (期望", headers.length, "实际", fields.length, ")，跳过");
+      }
       continue;
     }
 
     const row: Record<string, unknown> = {};
+    const inSample = i < TYPE_INFER_SAMPLE;
     for (let j = 0; j < headers.length; j++) {
       const raw = fields[j]!.trim();
       const parsed = parseCellValue(raw);
       row[headers[j]!] = parsed;
 
-      // 收集用于类型推断
-      if (!columnValues.has(j)) columnValues.set(j, []);
-      columnValues.get(j)!.push(parsed);
+      // 仅采样阶段收集，用于类型推断
+      if (inSample) {
+        if (!columnValues.has(j)) columnValues.set(j, []);
+        columnValues.get(j)!.push(parsed);
+      }
     }
     rows.push(row);
   }

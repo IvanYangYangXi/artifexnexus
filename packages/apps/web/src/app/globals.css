@@ -70,3 +70,22 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ── 原生 <select> 暗色化 ──
+ * 桌面 WebView2 / Chromium 的 <select> 下拉 popup 默认用 OS 浅色调色板，
+ * 与 dark 主题强烈冲突（白底+白字看不清）。通过 color-scheme + option 显式
+ * 配色把 popup 也拉到暗色。Tauri 桌面环境完全有效，Edge/Chrome 也支持。
+ */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+select optgroup {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--muted-foreground));
+}

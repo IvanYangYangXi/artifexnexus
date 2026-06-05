@@ -63,14 +63,24 @@ export function LineView() {
   const isXNumber = xType === "number";
 
   // ⚠️ Hooks 必须在所有 early return 之前调用（rules-of-hooks）
+  // 性能：> 2000 点按步长抽样；类别 X 轴避免每个点画 dot
+  const LINE_MAX_POINTS = 2000;
   const sortedRows = React.useMemo(() => {
     if (!xField || allYFields.length === 0) return rows;
-    const copy = [...rows];
+    let base = rows;
     if (isXNumber) {
-      copy.sort((a, b) => (Number(a[xField]) || 0) - (Number(b[xField]) || 0));
+      base = [...rows].sort((a, b) => (Number(a[xField]) || 0) - (Number(b[xField]) || 0));
     }
-    return copy;
+    if (base.length > LINE_MAX_POINTS) {
+      const step = base.length / LINE_MAX_POINTS;
+      const out: Record<string, unknown>[] = new Array(LINE_MAX_POINTS);
+      for (let k = 0; k < LINE_MAX_POINTS; k++) out[k] = base[Math.floor(k * step)]!;
+      return out;
+    }
+    return base;
   }, [rows, xField, isXNumber, allYFields.length]);
+  const sampledFlag = rows.length > LINE_MAX_POINTS;
+  const showDot = sortedRows.length <= 100;
 
   if (!xField || allYFields.length === 0) {
     return (
@@ -100,6 +110,11 @@ export function LineView() {
         multiYAxis={multiFields}
         onMultiYAxisChange={handleMultiChange}
       />
+      {sampledFlag && (
+        <div className="px-3 py-1 text-[10px] text-amber-400/80">
+          数据量 {rows.length.toLocaleString()} 超过 {LINE_MAX_POINTS.toLocaleString()}，已均匀抽样渲染
+        </div>
+      )}
       <div className="flex-1 p-2">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={sortedRows} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
@@ -116,6 +131,7 @@ export function LineView() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "var(--radius)",
                 fontSize: 12,
+                color: "hsl(var(--popover-foreground))",
               }}
             />
             <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
@@ -126,8 +142,9 @@ export function LineView() {
                 dataKey={f}
                 stroke={chartColor(i)}
                 strokeWidth={2}
-                dot={{ r: 3, fill: chartColor(i) }}
+                dot={showDot ? { r: 3, fill: chartColor(i) } : false}
                 activeDot={{ r: 5 }}
+                isAnimationActive={sortedRows.length <= 300}
               />
             ))}
           </LineChart>

@@ -13,6 +13,7 @@ import type { Column } from "@artifex-nexus/contracts";
 import { DataPageContext, type DiffChange } from "./DataPage";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { InlineFieldEditor } from "./shared/InlineFieldEditor";
+import { useProgressiveRender } from "./shared/use-progressive-render";
 import { uiLog } from "../../lib/ui-log";
 
 type EditingField = { row: number; field: string } | null;
@@ -51,9 +52,14 @@ export function CardView() {
     setEditing(null);
   };
 
+  const { visibleCount, sentinelRef, hasMore } = useProgressiveRender(andf.rows.length, {
+    initialChunk: 120,
+    chunk: 120,
+  });
+
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4 p-4">
-      {andf.rows.map((row, rowIdx) => {
+      {andf.rows.slice(0, visibleCount).map((row, rowIdx) => {
         const title = titleField ? String(row[titleField] ?? "") : undefined;
         const subtitle = subtitleField ? String(row[subtitleField] ?? "") : undefined;
         const image = imageField ? row[imageField] : undefined;
@@ -102,7 +108,7 @@ export function CardView() {
                 onStartEdit={() => startEdit(rowIdx, subtitleField)}
                 onChange={(v) => commitEdit(rowIdx, subtitleField, v)}
                 onCancel={cancelEdit}
-                className="text-xs text-muted-foreground"
+                className="text-xs text-foreground/70"
               />
             )}
 
@@ -116,7 +122,7 @@ export function CardView() {
                 onStartEdit={() => startEdit(rowIdx, descField)}
                 onChange={(v) => commitEdit(rowIdx, descField, v)}
                 onCancel={cancelEdit}
-                className="text-xs text-muted-foreground/70 line-clamp-2"
+                className="text-xs text-foreground/65 line-clamp-2"
               />
             )}
 
@@ -126,7 +132,7 @@ export function CardView() {
                 {tags.map((t, ti) => (
                   <span
                     key={ti}
-                    className="rounded bg-primary/[0.08] px-1.5 py-0.5 text-[10px] text-primary/70"
+                    className="rounded bg-primary/[0.12] px-1.5 py-0.5 text-[10px] text-primary"
                   >
                     {t.trim()}
                   </span>
@@ -150,7 +156,7 @@ export function CardView() {
                     onStartEdit={() => startEdit(rowIdx, s.field!)}
                     onChange={(v) => commitEdit(rowIdx, s.field!, v)}
                     onCancel={cancelEdit}
-                    className="text-xs text-muted-foreground/60"
+                    className="text-xs text-foreground/60"
                   />
                 );
               })}
@@ -161,6 +167,14 @@ export function CardView() {
       {andf.rows.length === 0 && (
         <div className="col-span-full flex h-32 items-center justify-center text-xs text-muted-foreground">
           无数据
+        </div>
+      )}
+      {hasMore && (
+        <div
+          ref={sentinelRef}
+          className="col-span-full flex items-center justify-center py-3 text-[10px] text-foreground/40"
+        >
+          加载中… ({visibleCount} / {andf.rows.length})
         </div>
       )}
     </div>
@@ -191,7 +205,7 @@ function EditableField({
   if (editing) {
     return (
       <div className="flex items-center gap-1">
-        {label && <span className="text-[10px] text-muted-foreground/50">{label}:</span>}
+        {label && <span className="text-[10px] text-foreground/55">{label}:</span>}
         <InlineFieldEditor
           type={type}
           value={value}
@@ -206,7 +220,7 @@ function EditableField({
   const displayStr: string = value == null ? "" : typeof value === "boolean" ? (value ? "✓" : "✗") : String(value);
   return (
     <div className={className} onClick={onStartEdit} title="点击编辑">
-      {label && <span className="mr-1 text-[10px] text-muted-foreground/50">{label}:</span>}
+      {label && <span className="mr-1 text-[10px] text-foreground/55">{label}:</span>}
       {displayStr}
     </div>
   );

@@ -23,6 +23,7 @@ import { LineView } from "./LineView";
 import { ScatterView } from "./ScatterView";
 import { SpatialPlotView } from "./SpatialPlotView";
 import { SceneHeatmapView } from "./SceneHeatmapView";
+import { ViewErrorBoundary } from "./shared/ViewErrorBoundary";
 
 export function ViewContainer() {
   const { state, andf, activeView } = React.useContext(DataPageContext);
@@ -32,7 +33,9 @@ export function ViewContainer() {
 
   return (
     <div className="h-full">
-      {renderView(activeView)}
+      <ViewErrorBoundary resetKey={activeView}>
+        {renderView(activeView)}
+      </ViewErrorBoundary>
     </div>
   );
 }

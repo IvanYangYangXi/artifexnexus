@@ -114,6 +114,11 @@ function Canvas({
 
   return (
     <div className="relative flex-1 overflow-auto">
+      {rows.length > 3000 && (
+        <div className="absolute left-2 top-2 z-10 rounded bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300">
+          数据量 {rows.length.toLocaleString()} 较大，拖拽可能卡顿，建议先过滤
+        </div>
+      )}
       <svg
         viewBox={`0 0 ${bgSize.w} ${bgSize.h}`}
         className="h-full w-full"

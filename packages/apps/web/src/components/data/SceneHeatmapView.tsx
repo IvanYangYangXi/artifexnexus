@@ -162,19 +162,26 @@ function HeatmapCanvas({
     return result;
   }, [grid, encoding.colorScale]);
 
-  // 坐标点列表（showPoints 时）
+  // 坐标点列表（showPoints 时）。> 3000 点时按步长抽样，避免 SVG 卡顿
   const points = React.useMemo(() => {
     if (!encoding.showPoints) return [];
-    return rows.map((row, i) => {
+    const HEATMAP_POINT_CAP = 3000;
+    const step = rows.length > HEATMAP_POINT_CAP ? rows.length / HEATMAP_POINT_CAP : 1;
+    const out: { key: number; cx: number; cy: number }[] = [];
+    const limit = step > 1 ? HEATMAP_POINT_CAP : rows.length;
+    for (let k = 0; k < limit; k++) {
+      const i = step > 1 ? Math.floor(k * step) : k;
+      const row = rows[i]!;
       const dx = Number(row[encoding.x.field]);
       const dy = Number(row[encoding.y.field]);
-      if (isNaN(dx) || isNaN(dy)) return null;
+      if (isNaN(dx) || isNaN(dy)) continue;
       const { px, py } = dataToPixel(dx, dy, bgSize.w, bgSize.h, {
         x: encoding.x, y: encoding.y,
         background: encoding.background,
       });
-      return { key: i, cx: px, cy: py };
-    }).filter((p): p is { key: number; cx: number; cy: number } => p !== null);
+      out.push({ key: i, cx: px, cy: py });
+    }
+    return out;
   }, [rows, encoding.showPoints, encoding.x.field, encoding.y.field, bgSize, encoding.background]);
 
   return (

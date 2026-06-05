@@ -28,6 +28,7 @@ import {
   Plus,
   Puzzle,
   Settings,
+  Share2,
   Terminal,
   Trash2,
   User,
@@ -60,7 +61,7 @@ import {
   createQuickLink,
 } from "../../lib/quickLinks";
 
-export type ModuleId = "chat" | "skills" | "calendar" | "data" | "system" | "settings";
+export type ModuleId = "chat" | "skills" | "calendar" | "data" | "workflow" | "system" | "settings";
 
 interface ModuleEntry {
   id: ModuleId;
@@ -73,7 +74,8 @@ const MODULES: ModuleEntry[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "skills", label: "技能", icon: Puzzle, badge: 12 },
   { id: "calendar", label: "日历", icon: CalendarDays },
-  { id: "data", label: "数据", icon: Database },
+  { id: "data", label: "图表", icon: Database },
+  { id: "workflow", label: "工作流", icon: Share2 },
   { id: "system", label: "系统", icon: Terminal },
   { id: "settings", label: "设置", icon: Settings },
 ];

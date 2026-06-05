@@ -56,8 +56,11 @@ export function TreeView() {
     );
   }
 
-  // 构建树
-  const tree = buildTree(andf.rows, labelField, parentIdField ?? null, expanded);
+  // 构建树（useMemo 避免每次 render 都重建：大数据下成本高）
+  const tree = React.useMemo(
+    () => buildTree(andf.rows, labelField, parentIdField ?? null, expanded),
+    [andf.rows, labelField, parentIdField, expanded],
+  );
 
   // ─── 操作 ────────────────────────────────────────────────────────────────
 
@@ -299,26 +302,32 @@ function buildTree(
     expanded: expandedSet.has(i),
   }));
 
-  // 为每个节点查找其子节点
+  // 性能：用 label → indices 索引，把 O(N²) 父子查找降到 O(N)
+  const labelIndex = new Map<string, number[]>();
   for (let i = 0; i < rows.length; i++) {
-    const node = nodes[i];
-    const nodeId = rows[i]?.[labelField];
-    // 查找所有 parentId 指向此节点的行
+    const labelV = String(rows[i]?.[labelField] ?? "");
+    if (!labelIndex.has(labelV)) labelIndex.set(labelV, []);
+    labelIndex.get(labelV)!.push(i);
+  }
+
+  if (parentIdField) {
     for (let j = 0; j < rows.length; j++) {
-      if (i === j) continue;
-      const parentId = parentIdField ? rows[j]?.[parentIdField] : null;
-      if (parentId !== null && parentId !== undefined && String(parentId) === String(nodeId)) {
-        nodes[i].children.push(nodes[j]);
+      const parentId = rows[j]?.[parentIdField];
+      if (parentId === null || parentId === undefined || parentId === "") continue;
+      const parents = labelIndex.get(String(parentId));
+      if (!parents) continue;
+      for (const pIdx of parents) {
+        if (pIdx === j) continue;
+        nodes[pIdx]!.children.push(nodes[j]!);
       }
     }
   }
 
   // 只返回根节点（parentId 为空 或 不在任何 labelField 列表中的节点）
-  const labelValues = new Set(rows.map((r) => String(r[labelField] ?? "")));
-  const rootNodes = nodes.filter((node, i) => {
+  const rootNodes = nodes.filter((_node, i) => {
     const parentId = parentIdField ? rows[i]?.[parentIdField] : null;
     if (parentId === null || parentId === undefined || parentId === "") return true;
-    return !labelValues.has(String(parentId));
+    return !labelIndex.has(String(parentId));
   });
 
   return rootNodes;

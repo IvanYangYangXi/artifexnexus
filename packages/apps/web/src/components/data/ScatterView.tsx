@@ -24,6 +24,20 @@ import { FieldMapping } from "./shared/FieldMapping";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { chartColor } from "./shared/chart-colors";
 
+/** 散点图最大渲染点数，超出后按步长均匀抽样（SVG 渲染瓶颈约 5k 点） */
+const SCATTER_MAX_POINTS = 5000;
+
+function sampleRows(rows: Record<string, unknown>[], maxPoints: number): {
+  sampled: Record<string, unknown>[];
+  sampledFlag: boolean;
+} {
+  if (rows.length <= maxPoints) return { sampled: rows, sampledFlag: false };
+  const step = rows.length / maxPoints;
+  const out: Record<string, unknown>[] = new Array(maxPoints);
+  for (let i = 0; i < maxPoints; i++) out[i] = rows[Math.floor(i * step)]!;
+  return { sampled: out, sampledFlag: true };
+}
+
 // ─── 数据变换：按 color 分组，size 映射为 z ───────────────────────────────
 
 interface ScatterDataPoint {
@@ -93,11 +107,15 @@ export function ScatterView() {
   const colorField = encoding["color"] || null;
 
   // ⚠️ Hooks 必须在所有 early return 之前调用（rules-of-hooks）
+  const { sampled: sampledRows, sampledFlag } = React.useMemo(
+    () => sampleRows(rows, SCATTER_MAX_POINTS),
+    [rows],
+  );
   const { groups, hasGroups } = React.useMemo(
     () => (xField && yField
-      ? transformForScatter(rows, xField, yField, sizeField, colorField)
+      ? transformForScatter(sampledRows, xField, yField, sizeField, colorField)
       : { groups: new Map<string, ScatterDataPoint[]>(), hasGroups: false }),
-    [rows, xField, yField, sizeField, colorField],
+    [sampledRows, xField, yField, sizeField, colorField],
   );
 
   if (!xField || !yField) {
@@ -116,6 +134,11 @@ export function ScatterView() {
   return (
     <div className="flex h-full flex-col">
       <FieldMapping slots={slots} encoding={encoding} onEncodingChange={handleEncodingChange} columns={cols} />
+      {sampledFlag && (
+        <div className="px-3 py-1 text-[10px] text-amber-400/80">
+          数据量 {rows.length.toLocaleString()} 超过 {SCATTER_MAX_POINTS.toLocaleString()}，已均匀抽样 {SCATTER_MAX_POINTS.toLocaleString()} 个点渲染
+        </div>
+      )}
       <div className="flex-1 p-2">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
@@ -139,6 +162,7 @@ export function ScatterView() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "var(--radius)",
                 fontSize: 12,
+                color: "hsl(var(--popover-foreground))",
               }}
             />
             {hasGroups && <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />}
@@ -149,6 +173,7 @@ export function ScatterView() {
                 data={groups.get(key)!}
                 fill={chartColor(i)}
                 opacity={0.7}
+                isAnimationActive={sampledRows.length <= 500}
               />
             ))}
           </ScatterChart>
