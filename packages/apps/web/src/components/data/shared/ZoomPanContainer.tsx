@@ -13,11 +13,15 @@
  *
  * 交互：
  *   - 滚轮：缩放（以鼠标位置为中心）
- *   - 中键拖 / 空格+左键拖 / 普通左键拖空白处：平移
- *   - 双击：重置
+ *   - 中键拖 / Alt+左键拖：平移
+ *   - 双击空白处：重置
  *   - 右上角浮动按钮：+/-/重置
  *
- * 关键设计：transform 用 translate 在前 scale 在后，事件层用 wrapper 拦截。
+ * 关键点：
+ *   1. wheel 必须用 native addEventListener + {passive:false}，React 的 onWheel
+ *      被注册为 passive，preventDefault 不生效且会报警告。
+ *   2. transform 应用在一个绝对定位的"内层"上，外层尺寸不受影响，
+ *      ResponsiveContainer 的 ResizeObserver 才能拿到逻辑像素。
  */
 
 import * as React from "react";
@@ -46,11 +50,20 @@ export function ZoomPanContainer({
   className = "",
 }: Props) {
   const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const innerRef = React.useRef<HTMLDivElement>(null);
   const [scale, setScale] = React.useState(initialScale);
   const [tx, setTx] = React.useState(0);
   const [ty, setTy] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
   const dragRef = React.useRef<{ sx: number; sy: number; tx0: number; ty0: number } | null>(null);
+
+  // 用 ref 同步 state 给 native wheel handler（避免闭包过期）
+  const scaleRef = React.useRef(scale);
+  const txRef = React.useRef(tx);
+  const tyRef = React.useRef(ty);
+  React.useEffect(() => { scaleRef.current = scale; }, [scale]);
+  React.useEffect(() => { txRef.current = tx; }, [tx]);
+  React.useEffect(() => { tyRef.current = ty; }, [ty]);
 
   const reset = React.useCallback(() => {
     setScale(initialScale);
@@ -58,30 +71,34 @@ export function ZoomPanContainer({
     setTy(0);
   }, [initialScale]);
 
-  // 滚轮缩放：以鼠标位置为锚点
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
+  // Native wheel 监听（React 的 onWheel 是 passive，无法 preventDefault）
+  React.useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    const next = Math.min(maxScale, Math.max(minScale, scale * factor));
-    // 锚点：缩放后让鼠标指向同一数据点
-    const k = next / scale;
-    setTx(mx - (mx - tx) * k);
-    setTy(my - (my - ty) * k);
-    setScale(next);
-  };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const cur = scaleRef.current;
+      const next = Math.min(maxScale, Math.max(minScale, cur * factor));
+      if (next === cur) return;
+      const k = next / cur;
+      // 锚点：缩放后让鼠标指向同一数据点
+      setTx(mx - (mx - txRef.current) * k);
+      setTy(my - (my - tyRef.current) * k);
+      setScale(next);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [maxScale, minScale]);
 
-  // 平移：button 1 (中键) 或 button 0 (左键) + 点击在 wrapper 自身（不在子元素上）
+  // 平移：中键 或 Alt+左键
   const onPointerDown = (e: React.PointerEvent) => {
     if (!pannable) return;
-    // 左键时只接受点空白处（避免和子图表的交互冲突）
-    // 中键或带 Alt/Space 总是开启平移
     const isMiddle = e.button === 1;
-    const isAlt = e.altKey;
+    const isAlt = e.altKey && e.button === 0;
     if (!isMiddle && !isAlt) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -101,8 +118,8 @@ export function ZoomPanContainer({
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
-    // 双击空白处重置
-    if (e.target === wrapperRef.current) reset();
+    // 双击 wrapper 或 inner 容器（非图表子元素）重置
+    if (e.target === wrapperRef.current || e.target === innerRef.current) reset();
   };
 
   const zoomIn = () => setScale((s) => Math.min(maxScale, s * 1.25));
@@ -112,7 +129,6 @@ export function ZoomPanContainer({
     <div
       ref={wrapperRef}
       className={`relative h-full w-full overflow-hidden ${dragging ? "cursor-grabbing" : "cursor-default"} ${className}`}
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -120,8 +136,11 @@ export function ZoomPanContainer({
       onDoubleClick={onDoubleClick}
       title={pannable ? "滚轮缩放 · Alt+拖动 或 中键拖动平移 · 双击空白处重置" : "滚轮缩放"}
     >
+      {/* inner: 真正承载 transform，绝对定位填满外层，宽高固定为外层尺寸
+          这样 ResponsiveContainer 内部的 ResizeObserver 测到的是逻辑像素 */}
       <div
-        className="h-full w-full"
+        ref={innerRef}
+        className="absolute inset-0"
         style={{
           transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
           transformOrigin: "0 0",
