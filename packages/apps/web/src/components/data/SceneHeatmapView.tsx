@@ -15,22 +15,41 @@ import { DataPageContext, type HeatmapEncoding, type DataAction } from "./DataPa
 import { computeDensityGrid, colorFromScale, DEFAULT_GRID_SIZE } from "./shared/heatmap-kde";
 import { COLOR_SCALES, type ColorScaleId } from "./shared/heatmap-colors";
 import { dataToPixel } from "./shared/spatial-encoding";
-import { uiLog } from "../../lib/ui-log";
+import { ZoomPanContainer } from "./shared/ZoomPanContainer";
 
 // ─── 主组件 ────────────────────────────────────────────────────────────────
 
 export function SceneHeatmapView() {
   const { andf, heatmapEncoding, dispatch } = React.useContext(DataPageContext);
 
-  if (!heatmapEncoding) return <NoEncoding dispatch={dispatch} />;
+  // 自动初始化空编码
+  React.useEffect(() => {
+    if (!heatmapEncoding) {
+      dispatch({
+        type: "SET_HEATMAP_ENCODING",
+        encoding: { x: { field: "" }, y: { field: "" }, bandwidth: 24, opacity: 0.5, colorScale: "viridis", showPoints: true },
+      });
+    }
+  }, [heatmapEncoding, dispatch]);
+
+  if (!heatmapEncoding) return null;
   const enc = heatmapEncoding;
-  if (!enc.background) return <BgUploader dispatch={dispatch} enc={enc} />;
-  if (!enc.x.field || !enc.y.field) return <EmptyMsg text="请绑定 X/Y 坐标字段" />;
+  const cols = andf?.columns ?? [];
 
   return (
     <div className="flex h-full flex-col">
-      <ConfigBar encoding={enc} dispatch={dispatch} />
-      <HeatmapCanvas rows={andf?.rows ?? []} encoding={enc} />
+      <ConfigBar encoding={enc} dispatch={dispatch} columns={cols} />
+      {!enc.x.field || !enc.y.field ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-foreground/50">
+          请在上方选择 X / Y 坐标字段（数值类型）
+        </div>
+      ) : (
+        <div className="relative flex-1">
+          <ZoomPanContainer>
+            <HeatmapCanvas rows={andf?.rows ?? []} encoding={enc} />
+          </ZoomPanContainer>
+        </div>
+      )}
     </div>
   );
 }
@@ -40,16 +59,24 @@ export function SceneHeatmapView() {
 function ConfigBar({
   encoding,
   dispatch,
+  columns,
 }: {
   encoding: HeatmapEncoding;
   dispatch: React.Dispatch<DataAction>;
+  columns: { name: string; type: string; visible?: boolean }[];
 }) {
   const set = (patch: Partial<HeatmapEncoding>) => {
     dispatch({ type: "SET_HEATMAP_ENCODING", encoding: { ...encoding, ...patch } });
   };
+  const numericCols = columns.filter((c) => c.visible !== false && c.type === "number");
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.06] bg-white/[0.01] px-3 py-2 text-xs">
+    <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
+      {/* X / Y 字段 */}
+      <FieldPicker label="X" value={encoding.x.field} options={numericCols.map((c) => c.name)}
+        onChange={(v) => set({ x: { field: v } })} />
+      <FieldPicker label="Y" value={encoding.y.field} options={numericCols.map((c) => c.name)}
+        onChange={(v) => set({ y: { field: v } })} />
       {/* bandwidth */}
       <LabeledSelect label="带宽" value={String(encoding.bandwidth)}
         options={["8", "16", "24", "48"]}
@@ -63,14 +90,34 @@ function ConfigBar({
         options={["viridis", "inferno", "blues"]}
         onChange={(v) => set({ colorScale: v as ColorScaleId })} />
       {/* showPoints */}
-      <label className="flex items-center gap-1.5 text-muted-foreground">
+      <label className="flex items-center gap-1.5 text-foreground/70">
         <input type="checkbox" className="rounded"
           checked={encoding.showPoints}
           onChange={(e) => set({ showPoints: e.target.checked })} />
         显示坐标点
       </label>
-      {/* 底图更换 */}
+      {/* 底图（可选） */}
       <BgButton encoding={encoding} dispatch={dispatch} />
+    </div>
+  );
+}
+
+function FieldPicker({
+  label, value, options, onChange,
+}: {
+  label: string; value: string; options: string[]; onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-foreground/60">{label}:</span>
+      <select
+        className="rounded border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-xs text-foreground outline-none focus:border-primary/40"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">— 选择 —</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
     </div>
   );
 }
@@ -98,8 +145,18 @@ function BgButton({ encoding, dispatch }: {
   const ref = React.useRef<HTMLInputElement>(null);
   return (
     <>
-      <button type="button" className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-muted-foreground hover:bg-white/[0.08]"
-        onClick={() => ref.current?.click()}>换底图</button>
+      <button type="button" className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-foreground/80 hover:bg-white/[0.08] hover:text-foreground"
+        onClick={() => ref.current?.click()}
+        title={encoding.background?.src ? "更换底图" : "上传底图（可选）"}
+      >
+        {encoding.background?.src ? "换底图" : "上传底图"}
+      </button>
+      {encoding.background?.src && (
+        <button type="button" className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-foreground/60 hover:bg-white/[0.08] hover:text-foreground"
+          onClick={() => dispatch({ type: "SET_HEATMAP_ENCODING", encoding: { ...encoding, background: undefined } })}>
+          移除
+        </button>
+      )}
       <input ref={ref} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => {
         const f = e.target.files?.[0]; if (!f) return;
         const r = new FileReader();
@@ -119,14 +176,35 @@ function HeatmapCanvas({
   rows: Record<string, unknown>[];
   encoding: HeatmapEncoding;
 }) {
-  const [bgSize, setBgSize] = React.useState({ w: 800, h: 600 });
+  const [bgSize, setBgSize] = React.useState({ w: 1000, h: 800 });
 
   React.useEffect(() => {
-    if (!encoding.background?.src) return;
-    const img = new window.Image();
-    img.onload = () => setBgSize({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = encoding.background.src;
-  }, [encoding.background?.src]);
+    if (encoding.background?.src) {
+      const img = new window.Image();
+      img.onload = () => setBgSize({ w: img.naturalWidth, h: img.naturalHeight });
+      img.src = encoding.background.src;
+      return;
+    }
+    // 无底图：按数据包围盒
+    if (!encoding.x.field || !encoding.y.field || rows.length === 0) {
+      setBgSize({ w: 1000, h: 800 });
+      return;
+    }
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const r of rows) {
+      const x = Number(r[encoding.x.field]);
+      const y = Number(r[encoding.y.field]);
+      if (Number.isFinite(x)) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+      if (Number.isFinite(y)) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+      setBgSize({ w: 1000, h: 800 });
+      return;
+    }
+    const dx = Math.max(1, maxX - minX);
+    const dy = Math.max(1, maxY - minY);
+    setBgSize({ w: Math.max(400, Math.round(dx * 1.2)), h: Math.max(300, Math.round(dy * 1.2)) });
+  }, [encoding.background?.src, encoding.x.field, encoding.y.field, rows]);
 
   // 密度计算（带宽 / 坐标字段 / 底图原点 / 单位变化时重算）
   const grid = React.useMemo(
@@ -185,10 +263,21 @@ function HeatmapCanvas({
   }, [rows, encoding.showPoints, encoding.x.field, encoding.y.field, bgSize, encoding.background]);
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full flex-1 flex-col overflow-hidden">
       <svg className="flex-1 w-full" viewBox={`0 0 ${bgSize.w} ${bgSize.h}`} preserveAspectRatio="xMidYMid meet">
+        {/* 网格（无底图时） */}
+        {!encoding.background?.src && (
+          <>
+            <defs>
+              <pattern id="heatmap-grid" width="50" height="50" patternUnits="userSpaceOnUse">
+                <path d="M 50 0 L 0 0 0 50" fill="none" stroke="hsl(var(--border) / 0.3)" strokeWidth="0.5" />
+              </pattern>
+            </defs>
+            <rect width={bgSize.w} height={bgSize.h} fill="url(#heatmap-grid)" />
+          </>
+        )}
         {/* 底图 */}
-        {encoding.background?.src && <image href={encoding.background.src} width={bgSize.w} height={bgSize.h} />}
+        {encoding.background?.src && <image href={encoding.background.src} width={bgSize.w} height={bgSize.h} preserveAspectRatio="none" />}
         {/* 热力色块 */}
         <g opacity={encoding.opacity}>
           {heatRects.map((r) => (
@@ -213,7 +302,7 @@ function Legend({ grid, colorScale }: { grid: ReturnType<typeof computeDensityGr
   const stops = 8;
 
   return (
-    <div className="flex items-center justify-center gap-3 border-t border-white/[0.06] px-3 py-2 text-[10px] text-muted-foreground">
+    <div className="flex items-center justify-center gap-3 border-t border-white/[0.06] px-3 py-2 text-[10px] text-foreground/60">
       <span>{grid.minDensity.toFixed(1)}</span>
       <div className="flex h-3 w-48 rounded-sm overflow-hidden">
         {Array.from({ length: stops }).map((_, i) => (
@@ -221,50 +310,6 @@ function Legend({ grid, colorScale }: { grid: ReturnType<typeof computeDensityGr
         ))}
       </div>
       <span>{grid.maxDensity.toFixed(1)}</span>
-    </div>
-  );
-}
-
-// ─── 空态 ──────────────────────────────────────────────────────────────────
-
-function EmptyMsg({ text }: { text: string }) {
-  return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{text}</div>;
-}
-
-function BgUploader({ dispatch, enc }: { dispatch: React.Dispatch<DataAction>; enc: HeatmapEncoding }) {
-  const ref = React.useRef<HTMLInputElement>(null);
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-3xl">📷</span>
-        <p className="text-sm text-muted-foreground">上传底图以开始热力可视化</p>
-        <button type="button" className="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs hover:bg-white/[0.08]"
-          onClick={() => ref.current?.click()}>选择图片</button>
-        <input ref={ref} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => {
-          const f = e.target.files?.[0]; if (!f) return;
-          const r = new FileReader();
-          r.onload = () => dispatch({ type: "SET_HEATMAP_ENCODING", encoding: { ...enc, background: { src: r.result as string, origin: "top-left" } } });
-          r.readAsDataURL(f);
-        }} />
-      </div>
-    </div>
-  );
-}
-
-function NoEncoding({ dispatch }: { dispatch: React.Dispatch<DataAction> }) {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
-        <span className="text-3xl">▨</span>
-        <p>请选择 X/Y 坐标字段并上传底图</p>
-        <button type="button" className="rounded-md border border-primary/30 bg-primary/[0.06] px-3 py-1.5 text-xs text-primary hover:bg-primary/[0.12]"
-          onClick={() => dispatch({
-            type: "SET_HEATMAP_ENCODING",
-            encoding: { x: { field: "" }, y: { field: "" }, bandwidth: 24, opacity: 0.5, colorScale: "viridis", showPoints: true },
-          })}>
-          开始配置
-        </button>
-      </div>
     </div>
   );
 }

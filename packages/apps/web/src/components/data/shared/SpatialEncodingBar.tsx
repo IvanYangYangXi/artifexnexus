@@ -20,7 +20,11 @@ interface EncodingBarProps {
 }
 
 export function EncodingBar({ encoding, columns, dispatch }: EncodingBarProps) {
-  const fieldOptions = columns.map((c) => ({ value: c.name, label: c.name }));
+  const visible = columns.filter((c) => (c as { visible?: boolean }).visible !== false);
+  const fieldOptions = visible.map((c) => ({ value: c.name, label: `${c.name} (${c.type})` }));
+  const numericFieldOptions = visible
+    .filter((c) => c.type === "number")
+    .map((c) => ({ value: c.name, label: c.name }));
 
   const updateField = (key: keyof SpatialEncoding, value: string) => {
     if (key === "x" || key === "y") {
@@ -42,10 +46,11 @@ export function EncodingBar({ encoding, columns, dispatch }: EncodingBarProps) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-white/[0.01] px-3 py-2">
+    <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-white/[0.02] px-3 py-2">
       <BgButton encoding={encoding} dispatch={dispatch} />
-      <FieldSelect label="X" value={encoding.x.field} options={fieldOptions} onChange={(v) => updateField("x", v)} />
-      <FieldSelect label="Y" value={encoding.y.field} options={fieldOptions} onChange={(v) => updateField("y", v)} />
+      <CoordSysControls encoding={encoding} dispatch={dispatch} />
+      <FieldSelect label="X" value={encoding.x.field} options={numericFieldOptions} allowEmpty onChange={(v) => updateField("x", v)} />
+      <FieldSelect label="Y" value={encoding.y.field} options={numericFieldOptions} allowEmpty onChange={(v) => updateField("y", v)} />
       <FieldSelect label="颜色" value={encoding.color?.field ?? ""} options={fieldOptions} allowEmpty onChange={(v) => {
         dispatch({
           type: "SET_SPATIAL_ENCODING",
@@ -55,7 +60,7 @@ export function EncodingBar({ encoding, columns, dispatch }: EncodingBarProps) {
       <FieldSelect label="形状" value={encoding.shape?.field ?? ""} options={fieldOptions} allowEmpty onChange={(v) => {
         dispatch({ type: "SET_SPATIAL_ENCODING", encoding: { ...encoding, shape: v ? { field: v } : undefined } });
       }} />
-      <FieldSelect label="大小" value={encoding.size?.field ?? ""} options={fieldOptions} allowEmpty onChange={(v) => {
+      <FieldSelect label="大小" value={encoding.size?.field ?? ""} options={numericFieldOptions} allowEmpty onChange={(v) => {
         dispatch({
           type: "SET_SPATIAL_ENCODING",
           encoding: { ...encoding, size: v ? { field: v, range: encoding.size?.range ?? [3, 20] } : undefined },
@@ -64,7 +69,63 @@ export function EncodingBar({ encoding, columns, dispatch }: EncodingBarProps) {
       <FieldSelect label="缩略图" value={encoding.thumbnail?.field ?? ""} options={fieldOptions} allowEmpty onChange={(v) => {
         dispatch({ type: "SET_SPATIAL_ENCODING", encoding: { ...encoding, thumbnail: v ? { field: v } : undefined } });
       }} />
-      <TooltipFieldsPicker encoding={encoding} columns={columns} dispatch={dispatch} />
+      <TooltipFieldsPicker encoding={encoding} columns={visible} dispatch={dispatch} />
+    </div>
+  );
+}
+
+// ─── 坐标系参数（origin + unitPerPx） ──────────────────────────────────────
+
+function CoordSysControls({
+  encoding,
+  dispatch,
+}: {
+  encoding: SpatialEncoding;
+  dispatch: React.Dispatch<DataAction>;
+}) {
+  const origin = encoding.background?.origin ?? "top-left";
+  const unitPerPx = encoding.background?.unitPerPx ?? 1;
+  const updateBg = (patch: Partial<NonNullable<SpatialEncoding["background"]>>) => {
+    dispatch({
+      type: "SET_SPATIAL_ENCODING",
+      encoding: {
+        ...encoding,
+        background: {
+          src: encoding.background?.src ?? "",
+          origin: encoding.background?.origin ?? "top-left",
+          ...encoding.background,
+          ...patch,
+        },
+      },
+    });
+  };
+  return (
+    <div className="flex items-center gap-2 rounded border border-white/[0.06] bg-white/[0.02] px-2 py-1">
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-foreground/60">原点</span>
+        <select
+          className="rounded border border-white/[0.06] bg-white/[0.04] px-1 py-0.5 text-[11px] text-foreground focus:border-primary/40 focus:outline-none"
+          value={origin}
+          onChange={(e) => updateBg({ origin: e.target.value as "top-left" | "center" })}
+        >
+          <option value="top-left">左上 (top-left)</option>
+          <option value="center">居中 (center)</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-foreground/60" title="一个像素对应多少数据单位；默认 1 即 1px = 1 单位">单位/px</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0.001"
+          value={unitPerPx}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0) updateBg({ unitPerPx: v });
+          }}
+          className="h-5 w-14 rounded border border-white/[0.06] bg-white/[0.04] px-1 text-[11px] text-foreground focus:border-primary/40 focus:outline-none"
+        />
+      </div>
     </div>
   );
 }
@@ -101,12 +162,27 @@ function BgButton({
     <>
       <button
         type="button"
-        className="flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+        className="flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-foreground/80 transition-colors hover:bg-white/[0.08] hover:text-foreground"
         onClick={() => fileRef.current?.click()}
-        title={encoding.background ? "更换底图" : "上传底图"}
+        title={encoding.background?.src ? "更换底图" : "上传底图（可选）"}
       >
-        {encoding.background ? "换底图" : "底图"}
+        {encoding.background?.src ? "换底图" : "上传底图"}
       </button>
+      {encoding.background?.src && (
+        <button
+          type="button"
+          className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-foreground/60 hover:bg-white/[0.08] hover:text-foreground"
+          onClick={() => {
+            dispatch({
+              type: "SET_SPATIAL_ENCODING",
+              encoding: { ...encoding, background: undefined },
+            });
+          }}
+          title="移除底图"
+        >
+          移除
+        </button>
+      )}
       <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleFile} />
     </>
   );

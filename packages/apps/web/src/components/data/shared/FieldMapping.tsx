@@ -46,14 +46,15 @@ export function FieldMapping({
     <div className="flex items-center gap-3 border-b border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
       {slots.map((slot) => {
         const value = encoding[slot.name] || "";
-        const candidates = columns.filter((c) =>
-          slot.acceptTypes.some((t) => t === c.type)
-        );
+        const visible = columns.filter((c) => c.visible !== false);
+        const preferred = visible.filter((c) => slot.acceptTypes.some((t) => t === c.type));
+        const others = visible.filter((c) => !slot.acceptTypes.some((t) => t === c.type));
 
         return (
           <div key={slot.name} className="flex items-center gap-1.5">
             <label
-              className={`text-[11px] ${slot.required ? "font-medium text-muted-foreground" : "text-muted-foreground/50"}`}
+              className={`text-[11px] ${slot.required ? "font-medium text-foreground/80" : "text-foreground/55"}`}
+              title={`接受类型：${slot.acceptTypes.join(" / ")}`}
             >
               {slot.label}
               {slot.required && <span className="ml-0.5 text-red-400">*</span>}
@@ -64,11 +65,24 @@ export function FieldMapping({
               className="h-6 min-w-[100px] max-w-[180px] truncate rounded border border-white/[0.08] bg-white/[0.04] px-1.5 text-[11px] text-foreground focus:border-primary/40 focus:outline-none"
             >
               <option value="">— 选择 —</option>
-              {candidates.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
+              {preferred.length > 0 && (
+                <optgroup label="推荐">
+                  {preferred.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.type})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {others.length > 0 && (
+                <optgroup label="其他列（按当前类型可能需要类型覆盖）">
+                  {others.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.type})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
         );
@@ -77,10 +91,10 @@ export function FieldMapping({
       {/* Line 图多选 yAxis */}
       {multiYAxis !== undefined && onMultiYAxisChange && (
         <div className="flex items-center gap-2 border-l border-white/[0.08] pl-3">
-          <span className="text-[11px] text-muted-foreground/50">多线</span>
+          <span className="text-[11px] text-foreground/60">多线</span>
           <div className="flex flex-wrap gap-1">
             {columns
-              .filter((c) => c.type === "number")
+              .filter((c) => c.visible !== false && c.type === "number")
               .map((c) => {
                 const checked = multiYAxis.includes(c.name);
                 return (

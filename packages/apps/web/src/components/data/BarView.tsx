@@ -29,6 +29,7 @@ import { DataPageContext } from "./DataPage";
 import { FieldMapping } from "./shared/FieldMapping";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { chartColor } from "./shared/chart-colors";
+import { ZoomPanContainer } from "./shared/ZoomPanContainer";
 
 const BAR_MAX_GROUPS = 200;
 const BAR_MAX_COLOR_KEYS = 12;
@@ -190,32 +191,34 @@ export function BarView() {
         </div>
       )}
       <div className="flex-1 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--popover))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "var(--radius)",
-                fontSize: 12,
-                color: "hsl(var(--popover-foreground))",
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
-            {colorKeys.map((key, i) => (
-              <Bar
-                key={key}
-                dataKey={key}
-                fill={chartColor(i)}
-                radius={[3, 3, 0, 0]}
-                isAnimationActive={data.length <= 60}
+        <ZoomPanContainer>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "var(--radius)",
+                  fontSize: 12,
+                  color: "hsl(var(--popover-foreground))",
+                }}
               />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
+              <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
+              {colorKeys.map((key, i) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  fill={chartColor(i)}
+                  radius={[3, 3, 0, 0]}
+                  isAnimationActive={data.length <= 60}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </ZoomPanContainer>
       </div>
     </div>
   );

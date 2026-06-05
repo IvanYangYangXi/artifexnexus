@@ -24,6 +24,7 @@ import { DataPageContext } from "./DataPage";
 import { FieldMapping } from "./shared/FieldMapping";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { chartColor } from "./shared/chart-colors";
+import { ZoomPanContainer } from "./shared/ZoomPanContainer";
 
 // ─── 组件 ──────────────────────────────────────────────────────────────────
 
@@ -116,39 +117,41 @@ export function LineView() {
         </div>
       )}
       <div className="flex-1 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={sortedRows} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-            <XAxis
-              dataKey={xField}
-              type={isXNumber ? "number" : "category"}
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-            />
-            <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--popover))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "var(--radius)",
-                fontSize: 12,
-                color: "hsl(var(--popover-foreground))",
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
-            {allYFields.map((f, i) => (
-              <Line
-                key={f}
-                type="monotone"
-                dataKey={f}
-                stroke={chartColor(i)}
-                strokeWidth={2}
-                dot={showDot ? { r: 3, fill: chartColor(i) } : false}
-                activeDot={{ r: 5 }}
-                isAnimationActive={sortedRows.length <= 300}
+        <ZoomPanContainer>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={sortedRows} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+              <XAxis
+                dataKey={xField}
+                type={isXNumber ? "number" : "category"}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "var(--radius)",
+                  fontSize: 12,
+                  color: "hsl(var(--popover-foreground))",
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
+              {allYFields.map((f, i) => (
+                <Line
+                  key={f}
+                  type="monotone"
+                  dataKey={f}
+                  stroke={chartColor(i)}
+                  strokeWidth={2}
+                  dot={showDot ? { r: 3, fill: chartColor(i) } : false}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={sortedRows.length <= 300}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </ZoomPanContainer>
       </div>
     </div>
   );

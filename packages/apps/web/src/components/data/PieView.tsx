@@ -21,6 +21,7 @@ import { DataPageContext } from "./DataPage";
 import { FieldMapping } from "./shared/FieldMapping";
 import { mapColumnsToSlots } from "./shared/slot-mapping";
 import { chartColor } from "./shared/chart-colors";
+import { ZoomPanContainer } from "./shared/ZoomPanContainer";
 
 // ─── 数据转换：按 label 分组 sum(value) ────────────────────────────────────
 
@@ -119,8 +120,9 @@ export function PieView() {
         </div>
       )}
       <div className="flex-1 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+        <ZoomPanContainer>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
             <Pie
               data={data}
               dataKey="value"
@@ -150,6 +152,7 @@ export function PieView() {
             <Legend wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }} />
           </PieChart>
         </ResponsiveContainer>
+        </ZoomPanContainer>
       </div>
     </div>
   );

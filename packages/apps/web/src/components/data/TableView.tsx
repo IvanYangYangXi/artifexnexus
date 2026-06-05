@@ -56,7 +56,10 @@ export function TableView() {
   }, []);
 
   if (!andf) return null;
-  const { columns, rows } = andf;
+  const allColumns = andf.columns;
+  // 列配置：隐藏列不参与渲染
+  const columns = allColumns.filter((c) => c.visible !== false);
+  const { rows } = andf;
 
   // ─── 排序（useMemo 避免重复排序） ────────────────────────────────────────
   const sortedRows = React.useMemo(() => {
