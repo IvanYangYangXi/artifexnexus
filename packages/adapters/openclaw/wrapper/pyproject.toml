@@ -6,7 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "artifex-nexus-core",
     "artifex-nexus-contracts",
+    "artifex-nexus-skill",
     "pydantic>=2.8",
+    "pyyaml>=6.0",
+    "cryptography>=43.0",
 ]
 
 [build-system]
@@ -19,3 +22,4 @@ packages = ["src/artifex_nexus"]
 [tool.uv.sources]
 artifex-nexus-core = { workspace = true }
 artifex-nexus-contracts = { workspace = true }
+artifex-nexus-skill = { workspace = true }

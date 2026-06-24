@@ -8,6 +8,7 @@ dependencies = [
     "artifex-nexus-contracts",
     "pydantic>=2.8",
     "packaging>=24.0",
+    "pyyaml>=6.0",
 ]
 
 [build-system]

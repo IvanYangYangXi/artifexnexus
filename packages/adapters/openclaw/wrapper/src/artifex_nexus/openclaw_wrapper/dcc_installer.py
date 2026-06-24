@@ -2558,11 +2558,19 @@ def _get_gateway_plugin_src_dir() -> Path:
             return base
 
     _here = Path(__file__).resolve().parent
-    base = (_here / ".." / ".." / ".." / ".." / "adapters" / "openclaw" / "gateway-plugin").resolve()
+    # 4 个 .. 到达 packages/adapters/openclaw/，gateway-plugin 是其直接子目录
+    base = (_here / ".." / ".." / ".." / ".." / "gateway-plugin").resolve()
     if base.exists():
         return base
 
-    raise RuntimeError("无法定位 Gateway 插件源码目录")
+    # 6 个 .. 到达 packages/，再进 adapters/openclaw/gateway-plugin
+    base2 = (_here / ".." / ".." / ".." / ".." / ".." / ".." / "adapters" / "openclaw" / "gateway-plugin").resolve()
+    if base2.exists():
+        return base2
+
+    raise RuntimeError(
+        f"无法定位 Gateway 插件源码目录 (尝试: {base}, {base2})"
+    )
 
 
 def _get_openclaw_plugins_dir() -> Path:
@@ -2740,6 +2748,8 @@ def _patch_openclaw_config_for_mcp_bridge() -> None:
             "maya-primary":  {"type": "websocket", "url": "ws://127.0.0.1:18081", "enabled": True},
             "max-primary":   {"type": "websocket", "url": "ws://127.0.0.1:18082", "enabled": True},
         }
+
+    entries = config["plugins"].setdefault("entries", {})
 
     if "mcp-bridge" not in entries:
         entries["mcp-bridge"] = {

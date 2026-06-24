@@ -32,6 +32,12 @@
 - **category→tags 合并**，枚举唯一源 `contracts/data/categories.json`
 - **SDK 单一源**：`packages/dcc/shared/artifex_nexus_sdk/`
 - **构建命令**：`pnpm -C apps/desktop tauri build`（不能用 `pnpm build`）
+- **staging 前置**：`tauri dev`/`tauri build` 都需要 `apps/desktop/staging/` 存在（tauri.conf.json resources 引用）。`dev.bat` 已加自动检查，缺失时调 `node scripts/prepare-staging.mjs`
+- **contracts 包需先构建**：`pnpm --filter @artifex-nexus/contracts build` 生成 dist/，否则 web 包找不到模块
+- **cargo PATH**：新 shell 会话需 `export PATH="$HOME/.cargo/bin:$PATH"`（持久 PATH 已写注册表，但已开终端不会自动刷新）
+- **OpenClaw CLI 不打包**：薄壳模式，首启在线拉取。Windows 用 `npm install -g --prefix ~/.artifexnexus/.openclaw/cli/v2026.5.4 openclaw@v2026.5.4`，需 Node.js
+- **OpenClaw CLI 版本指针**：`~/.artifexnexus/.openclaw/cli/current.txt` 内容为版本号（如 `v2026.5.4`），`find_openclaw_bin()` 读取此文件定位版本目录
+- **dev.bat 全自动**：10 步检查（Node→pnpm→Rust→MSVC→deps→contracts→staging→OpenClaw CLI→bootstrap→launch），新机双击即可
 - **sessionKey 格式**：`agent:{agentId}:{subKey}`，统一用 `lib/chat/session-key.ts`
 - **装饰器唯一源**：`@skill_tool` from `artifex_nexus_sdk.decorator`，全平台统一
 - **SkillHub 统一实现**：`artifex_nexus_sdk.skill_hub`，Blender/Maya/Max/UE 共用核心，通过构造函数注入 DCC 差异
@@ -67,6 +73,9 @@
 4. Sidecar 僵尸进程需定期清理
 5. `dev.bat` 必须是纯 ASCII
 6. **Tauri v2 文件拖入**：默认 `dragDropEnabled: true` 会**拦截 HTML5 DnD**，前端 `onDrop` 不触发。必须通过 `getCurrentWebview().onDragDropEvent` 拿文件路径，再用 Tauri 命令读文件。HTML5 DnD 只能在浏览器 dev 模式下工作。参考：`packages/apps/web/src/components/data/ImportDropzone.tsx`
+7. **sidecar Python 路径**：`client.rs` 的 `resolve_python()` 优先用 `.venv/Scripts/python.exe`（含 pydantic 等依赖），fallback 系统 `python`。开发机必须先 `uv sync` 建 `.venv`，否则 sidecar 报 `No module named 'pydantic'`
+8. **Python 命名空间包冲突**：7 个包共享 `artifex_nexus` 命名空间，所有 `__init__.py` **必须**用 `pkgutil.extend_path`（不能是空文件），否则 .venv .pth 文件会让第一个找到的包 shadowing 其他所有子包。sidecar.py 的 `_inject_package_paths()` 注入全部 7 个 src/ 目录
+9. **pyproject.toml 依赖声明**：skill 包缺 `pyyaml`、wrapper 包缺 `pyyaml`+`cryptography`+`artifex-nexus-skill` workspace dep。`uv sync` 只装声明的依赖，间接 import 不在声明中会被遗漏
 
 ## DCC 插件开发要点
 

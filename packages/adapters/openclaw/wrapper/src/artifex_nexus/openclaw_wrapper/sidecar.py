@@ -120,20 +120,41 @@ def _inject_sdk_path() -> None:
         sys.stderr.write(f"[sidecar.boot] SDK path injection failed: {e}\n")
 
 
-def _inject_skill_path() -> None:
-    """将 packages/platform/skill/src/ 加入 sys.path，
-    使 sidecar 能通过 from artifex_nexus.skill import categories 访问合约。"""
+def _inject_package_paths() -> None:
+    """将所有 artifex_nexus 子包的 src/ 目录加入 sys.path。
+
+    因为 artifex_nexus 是跨多个独立包的命名空间（core / skill / contracts /
+    openclaw_wrapper / blender / cli / uplink），必须把每个包的 src/ 都加入
+    sys.path，pkgutil.extend_path 才能合并它们。.venv 的 editable install .pth
+    文件通常已做这件事，但系统 Python（无 .venv）或 EXE 模式下需要手动注入。
+    """
     try:
         _project_root = _find_project_root()
-        _skill_src = _project_root / "packages" / "platform" / "skill" / "src"
-        _skill_src_str = str(_skill_src)
-        if _skill_src.is_dir() and _skill_src_str not in sys.path:
-            sys.path.insert(0, _skill_src_str)
+        _sub_pkgs = [
+            ("platform", "core", "src"),
+            ("platform", "skill", "src"),
+            ("platform", "contracts", "python", "src"),
+            ("platform", "cli", "src"),
+            ("adapters", "openclaw", "wrapper", "src"),
+            ("adapters", "openclaw", "uplink", "src"),
+            ("dcc", "blender", "src"),
+        ]
+        _injected = []
+        for _parts in _sub_pkgs:
+            _src = _project_root.joinpath("packages", *_parts)
+            _src_str = str(_src)
+            if _src.is_dir() and _src_str not in sys.path:
+                sys.path.insert(0, _src_str)
+                _injected.append(_src_str)
+        if _injected:
             sys.stderr.write(
-                f"[sidecar.boot] injected skill path (contracts): {_skill_src_str}\n"
+                f"[sidecar.boot] injected package paths ({len(_injected)}): "
+                f"{', '.join(p.split('packages')[-1] for p in _injected)}\n"
             )
+        else:
+            sys.stderr.write("[sidecar.boot] package paths already on sys.path (likely .venv)\n")
     except Exception as e:
-        sys.stderr.write(f"[sidecar.boot] skill path injection failed: {e}\n")
+        sys.stderr.write(f"[sidecar.boot] package path injection failed: {e}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -2966,7 +2987,7 @@ def main() -> None:
     """
     # ── 注入 artifex_nexus_sdk 路径（单一源：packages/dcc/shared/）──
     _inject_sdk_path()
-    _inject_skill_path()
+    _inject_package_paths()
 
     # 注册退出 hook
     atexit.register(_shutdown_gateway_quietly)

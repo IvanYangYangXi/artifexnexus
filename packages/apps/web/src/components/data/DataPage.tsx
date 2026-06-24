@@ -200,7 +200,7 @@ function dataReducer(state: DataReducerState, action: DataAction): DataReducerSt
       );
       return {
         ...state,
-        andf: { ...state.andf, columns: newCols },
+        andf: { ...state.andf, columns: newCols as typeof state.andf.columns },
       };
     }
     case "RESET":

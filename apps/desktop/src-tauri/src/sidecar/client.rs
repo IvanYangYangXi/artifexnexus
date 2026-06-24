@@ -20,9 +20,53 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
+
+/// 解析 Python 可执行文件路径。
+/// 优先级：
+///   1. 项目 .venv（uv sync 创建的虚拟环境，包含 pydantic 等全部依赖）
+///   2. CARGO_MANIFEST_DIR 推导的项目根 .venv（开发模式兜底）
+///   3. 系统 python / python3（生产模式 / 无 venv 时）
+fn resolve_python(env_vars: &[(String, String)]) -> String {
+    // 从 env_vars 获取项目根（FsLayout 注入的 ARTIFEX_NEXUS_PROJECT_ROOT）
+    if let Some((_, root)) = env_vars
+        .iter()
+        .find(|(k, _)| k == "ARTIFEX_NEXUS_PROJECT_ROOT")
+    {
+        let venv_python = if cfg!(windows) {
+            PathBuf::from(root).join(".venv").join("Scripts").join("python.exe")
+        } else {
+            PathBuf::from(root).join(".venv").join("bin").join("python")
+        };
+        if venv_python.exists() {
+            return venv_python.to_string_lossy().to_string();
+        }
+    }
+
+    // 开发模式：CARGO_MANIFEST_DIR = apps/desktop/src-tauri/ → 向上 3 层到仓库根
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let venv_python = if cfg!(windows) {
+            PathBuf::from(&manifest_dir)
+                .join("../../../.venv/Scripts/python.exe")
+        } else {
+            PathBuf::from(&manifest_dir)
+                .join("../../../.venv/bin/python")
+        };
+        if venv_python.exists() {
+            return venv_python.to_string_lossy().to_string();
+        }
+    }
+
+    // Fallback：系统 python（生产模式 / 无 .venv 时）
+    if cfg!(windows) {
+        "python".to_string()
+    } else {
+        "python3".to_string()
+    }
+}
 
 /// sidecar RPC 调用超时（秒）。
 const CALL_TIMEOUT_SECS: u64 = 30;
@@ -80,8 +124,8 @@ impl SidecarClient {
     /// `sidecar_path` 为 sidecar.py 的绝对路径。
     /// `env_vars` 为注入的环境变量（如 OPENCLAW_HOME）。
     pub fn spawn(sidecar_path: &str, env_vars: &[(String, String)]) -> Result<Self, String> {
-        // 跨平台 Python 命令：Windows 用 python，Unix 用 python3
-        let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+        // 解析 Python 路径：优先 .venv（含 pydantic 等依赖），fallback 系统 python
+        let python_cmd = resolve_python(env_vars);
         let mut cmd = Command::new(python_cmd);
         // -u：强制 Python stdin/stdout/stderr 完全无缓冲。
         // Why：Tauri 子进程模式下 Python 默认把 sys.stdin / sys.stdout 当作非 tty，
