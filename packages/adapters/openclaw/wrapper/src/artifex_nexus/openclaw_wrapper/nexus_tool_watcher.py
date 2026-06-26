@@ -3,7 +3,7 @@ nexus_tool_watcher.py — Nexus Tool 文件变更监听 + watch 触发器调度
 =====================================================================
 
 两阶段机制：
-  1. 轮询监听 manifest.json/source 文件变化 → 清除工具列表缓存 + 通知前端
+  1. 轮询监听 manifest.json/source 文件变化 → 清除工具列表缓存
   2. watch 触发器匹配：变化文件命中 triggers[].conditions.path 模式 → 执行工具
 
 无外部依赖，纯 Python 轮询 + mtime 指纹对比。
@@ -282,11 +282,14 @@ class NexusToolWatcher:
                     changed = self._diff_fingerprints(self._fingerprint, new_fp)
                     self._fingerprint = new_fp
                     if changed:
-                        # 1. 缓存失效 + 前端通知（每次变化都触发，不受 trigger 节流影响）
-                        changed_paths = [p for p, _ in changed]
+                        # 1. 缓存失效（每次变化都触发，不受 trigger 节流影响）
+                        # 历史上此处分两步：_invalidate_cache + _notify_frontend。
+                        # 2026-06-25 移除 _notify_frontend —— 该通知仅广播"工具变更检测"
+                        # 给前端弹 info 气泡，无消费者（前端 NotificationBridge
+                        # 把它当普通 info 通知显示，毫无信息量）。skill 安装时反复触发，
+                        # 用户已确认是噪音。缓存失效仍是必须的：下次 RPC 重新读 manifest。
                         logger.info("[nt-watcher] %d file(s) changed", len(changed))
                         self._invalidate_cache()
-                        self._notify_frontend(changed_paths)
                         # 2. 把变化追加到 pending buffer，等到期触发器消费
                         now = time.time()
                         for entry in changed:
@@ -816,33 +819,8 @@ class NexusToolWatcher:
         except ImportError:
             pass
 
-    @staticmethod
-    def _notify_frontend(changed_files: List[str]) -> None:
-        """通过 pending_notifications 通知前端工具列表变更。"""
-        try:
-            _PENDING_DIR.mkdir(parents=True, exist_ok=True)
-            ts = int(time.time() * 1000)
-            rand = str(uuid.uuid4())[:4]
-            fname = f"ntool_change_{ts}_{rand}.json"
-            fpath = _PENDING_DIR / fname
-
-            # 只记录前 10 个文件，避免 payload 过大
-            sample = changed_files[:10]
-
-            payload = {
-                "type": "nexus_tool_changed",
-                "title": "工具变更检测",
-                "message": f"检测到 {len(changed_files)} 个文件变更",
-                "source": "nt-watcher",
-                "timestamp": ts,
-                "data": {
-                    "changed_files": sample,
-                    "action": "refresh_tool_list",
-                },
-            }
-            fpath.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        except Exception as exc:
-            logger.error("[nt-watcher] notify failed: %s", exc)
+    # _notify_frontend 已于 2026-06-25 移除 —— 该通知无人消费且对用户是噪音。
+    # 见 _poll_loop 中"1. 缓存失效"处的注释。
 
 
 # ── 全局 API ──

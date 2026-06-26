@@ -258,6 +258,98 @@ def handle_sessions_list(req_id: Any, params: dict) -> dict:
         }
 
 
+def handle_sessions_delete(req_id: Any, params: dict) -> dict:
+    """``openclaw.sessions.delete`` RPC：删除指定对话。
+
+    从 sessions.json 移除条目，并删除对应的 transcript .jsonl 文件。
+
+    Args (params):
+        session_key (str): 要删除的对话 sessionKey，如 "agent:artifex-nexus:main"。
+        agent_id (str): Agent ID，默认 "artifex-nexus"。
+        delete_transcript (bool): 是否同时删除 .jsonl 文件，默认 True。
+        openclaw_home (str): OPENCLAW_HOME 路径。
+
+    Returns:
+        ``{ success, sessionKey, transcriptDeleted }``
+    """
+    try:
+        home = _params_home(params)
+        agent_id = params.get("agent_id", DEFAULT_AGENT_ID)
+        session_key = params.get("session_key", "")
+        delete_transcript = params.get("delete_transcript", True)
+
+        if not session_key:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32602, "message": "缺少 session_key 参数"},
+            }
+
+        sessions_file = home / "state" / "agents" / agent_id / "sessions" / "sessions.json"
+        if not sessions_file.exists():
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"success": True, "sessionKey": session_key, "transcriptDeleted": False},
+            }
+
+        # 读取 sessions.json
+        try:
+            with open(sessions_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("读取 sessions.json 失败: %s", e)
+            data = {}
+
+        # 获取 session 条目信息（用于删除 transcript）
+        entry = data.pop(session_key, None)
+        transcript_deleted = False
+
+        if entry and isinstance(entry, dict) and delete_transcript:
+            session_file = entry.get("sessionFile", "")
+            if session_file:
+                sf_path = Path(session_file)
+                if sf_path.exists():
+                    try:
+                        sf_path.unlink()
+                        transcript_deleted = True
+                        logger.info("已删除 transcript: %s", sf_path)
+                    except OSError as e:
+                        logger.warning("删除 transcript 失败: %s", e)
+
+        # 写回 sessions.json
+        try:
+            tmp_file = str(sessions_file) + ".tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, sessions_file)
+        except OSError as e:
+            logger.error("写入 sessions.json 失败: %s", e)
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32603, "message": f"写入 sessions.json 失败: {e}"},
+            }
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "success": True,
+                "sessionKey": session_key,
+                "transcriptDeleted": transcript_deleted,
+            },
+        }
+
+    except Exception as exc:
+        logger.exception("openclaw.sessions.delete 失败")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32603, "message": f"删除对话失败: {exc}"},
+        }
+
+
 def handle_sessions_history(req_id: Any, params: dict) -> dict:
     """``openclaw.sessions.history`` RPC：读取指定对话的历史消息。
 

@@ -2759,6 +2759,7 @@ METHOD_TABLE: dict[str, Any] = {
     # STORY-0039 M3：对话列表管理 — 前端需要列出/恢复 Gateway 对话
     "openclaw.sessions.list": _sidecar_sessions.handle_sessions_list,
     "openclaw.sessions.history": _sidecar_sessions.handle_sessions_history,
+    "openclaw.sessions.delete": _sidecar_sessions.handle_sessions_delete,
     # STORY-0041：备份-安装-恢复
     "openclaw.backup": _handle_openclaw_backup,
     "openclaw.restore": _handle_openclaw_restore,

@@ -304,6 +304,10 @@ export function ChatControlBar({
     if (key === EMPTY_KEY || !key) {
       return;
     }
+    // 已是当前对话，跳过（防止删除按钮事件冒泡导致的重复导航）
+    if (key === activeSessionKey) {
+      return;
+    }
     if (key === NEW_KEY) {
       onOpenNewSessionDialog();
       return;
@@ -355,12 +359,13 @@ export function ChatControlBar({
   // 切换对话时同步 model 到当前会话的实际模型
   React.useEffect(() => {
     const sessionModel = activeSession?.model;
-    if (!sessionModel || models.length === 0) return;
+    if (!sessionModel) return;
+    // models 可能还没加载好；用 ref 让 models 加载完成后再同步
     const fullId = resolveFullModelId(sessionModel);
     if (fullId && fullId !== model) {
       setModel(fullId);
     }
-  }, [activeSessionKey]); // 仅监听 key 切换，不依赖 model/models 避免回环
+  }, [activeSessionKey, models]); // models 就绪后也要同步一次（竞态修复）
 
   const selectPlaceholder =
     sessionsLoading ? "加载中..." :
@@ -410,9 +415,13 @@ export function ChatControlBar({
                   {onCancelPending && (
                     <button
                       className="shrink-0 p-0.5 rounded text-muted-foreground/40 hover:bg-destructive/20 hover:text-destructive transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
+                      onPointerDown={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onPointerUp={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         onCancelPending();
                       }}
                       title="取消新建"
@@ -447,9 +456,20 @@ export function ChatControlBar({
                       />
                       <button
                         className="shrink-0 p-0.5 rounded text-muted-foreground/20 hover:bg-destructive/15 hover:text-destructive transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onPointerDown={(e) => {
+                          // Radix SelectItem 用 composeEventHandlers，检查
+                          // defaultPrevented 而非 stopPropagation。
+                          // preventDefault 阻止 Radix 在 pointerup 时选中该项。
+                          // 注意：preventDefault on pointerdown 会阻止 click 事件，
+                          // 所以不能依赖 onClick，必须在 onPointerUp 中直接调用。
                           e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onPointerUp={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // 直接在 pointerup 调用，不依赖 click
+                          // （pointerdown 的 preventDefault 已阻止 click 生成）
                           onDeleteSession(s.sessionKey);
                         }}
                         title="删除对话"
@@ -507,7 +527,7 @@ export function ChatControlBar({
         </Select>
       ) : (
         <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">
-          Model: —
+          Model: {displayModelId || model || "—"}
         </span>
       )}
 

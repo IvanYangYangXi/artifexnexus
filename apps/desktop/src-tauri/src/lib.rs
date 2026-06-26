@@ -144,6 +144,7 @@ pub fn run() {
             // STORY-0039 M3：对话列表管理
             commands::openclaw_sessions::openclaw_sessions_list,
             commands::openclaw_sessions::openclaw_sessions_history,
+            commands::openclaw_sessions::openclaw_sessions_delete,
             // STORY-0041：备份-安装-恢复
             commands::openclaw::openclaw_backup,
             commands::openclaw::openclaw_restore,

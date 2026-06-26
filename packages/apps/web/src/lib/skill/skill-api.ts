@@ -124,6 +124,49 @@ const _detailCache = new Map<string, CacheEntry<SkillDetail>>();
 
 function _cacheKey(filters?: SkillListFilters): string { return JSON.stringify(filters ?? {}); }
 
+// ── 全局事件总线（2026-06-25）────────────────────────────────────────────────
+//
+// 用途：RightPanel / SkillList / SkillDetailPanel 等多个组件各自维护了 skill 列表副本，
+// 之前只能在自身操作后手动 `await loadSkills()`，导致跨组件的状态不一致
+// （典型场景：用户在 SkillList 安装新 skill，右侧面板的列表不刷新，仍然显示空）。
+//
+// 现在 install / uninstall / enable / disable / pin / unpin / favorite /
+// unfavorite / sync / publish / batch / fixManifest / updateManifest 成功后
+// 会 emit `artifex:skill-changed` CustomEvent，detail 携带操作类型 + 涉及的 skill 名。
+// 任何组件都可以 `window.addEventListener("artifex:skill-changed", handler)`
+// 监听并刷新本地缓存。
+//
+// 仅在浏览器环境触发，SSR / 非 window 上下文静默跳过。
+
+export interface SkillChangeDetail {
+  /** 操作类型（对应 API 方法名去掉 "skill" 前缀） */
+  operation: "install" | "uninstall" | "enable" | "disable" | "pin" | "unpin"
+    | "favorite" | "unfavorite" | "sync" | "publish" | "batch"
+    | "fixManifest" | "updateManifest";
+  /** 受影响的 skill 名称（单） */
+  skillName?: string;
+  /** 受影响的 skill 名称（批量） */
+  skillNames?: string[];
+}
+
+function _emitSkillChange(detail: SkillChangeDetail): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent<SkillChangeDetail>("artifex:skill-changed", { detail }));
+  } catch { /* ignore */ }
+}
+
+/** 监听 skill 列表变化（其他组件 install / uninstall / ... 后触发）。 */
+export function onSkillChange(handler: (detail: SkillChangeDetail) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const listener = (e: Event) => {
+    const ce = e as CustomEvent<SkillChangeDetail>;
+    handler(ce.detail);
+  };
+  window.addEventListener("artifex:skill-changed", listener);
+  return () => window.removeEventListener("artifex:skill-changed", listener);
+}
+
 // ── API 方法 ──────────────────────────────────────────────────────────────────
 
 /** 分页列表 */
@@ -152,6 +195,7 @@ export async function skillDetail(id: string): Promise<SkillDetail> {
 export async function skillInstall(id: string, opts?: { sourceLayer?: string; targetLayer?: string }): Promise<SkillOpResult> {
   const result = await invoke<SkillOpResult>("skill_install", { params: { id, ...opts } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "install", skillName: id });
   return result;
 }
 
@@ -159,6 +203,7 @@ export async function skillInstall(id: string, opts?: { sourceLayer?: string; ta
 export async function skillUninstall(id: string, opts?: { targetLayer?: string }): Promise<SkillOpResult> {
   const result = await invoke<SkillOpResult>("skill_uninstall", { params: { id, ...opts } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "uninstall", skillName: id });
   return result;
 }
 
@@ -166,6 +211,7 @@ export async function skillUninstall(id: string, opts?: { targetLayer?: string }
 export async function skillEnable(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_enable", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "enable", skillName: id });
   return result;
 }
 
@@ -173,6 +219,7 @@ export async function skillEnable(id: string): Promise<SkillItem> {
 export async function skillDisable(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_disable", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "disable", skillName: id });
   return result;
 }
 
@@ -180,6 +227,7 @@ export async function skillDisable(id: string): Promise<SkillItem> {
 export async function skillPin(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_pin", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "pin", skillName: id });
   return result;
 }
 
@@ -187,6 +235,7 @@ export async function skillPin(id: string): Promise<SkillItem> {
 export async function skillUnpin(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_unpin", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "unpin", skillName: id });
   return result;
 }
 
@@ -194,6 +243,7 @@ export async function skillUnpin(id: string): Promise<SkillItem> {
 export async function skillFavorite(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_favorite", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "favorite", skillName: id });
   return result;
 }
 
@@ -201,6 +251,7 @@ export async function skillFavorite(id: string): Promise<SkillItem> {
 export async function skillUnfavorite(id: string): Promise<SkillItem> {
   const result = await invoke<SkillItem>("skill_unfavorite", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "unfavorite", skillName: id });
   return result;
 }
 
@@ -208,6 +259,7 @@ export async function skillUnfavorite(id: string): Promise<SkillItem> {
 export async function skillSync(id: string, opts?: { source_layer?: string; target_layer?: string }): Promise<SkillSyncResult> {
   const result = await invoke<SkillSyncResult>("skill_sync", { params: { id, ...opts } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "sync", skillName: id });
   return result;
 }
 
@@ -215,6 +267,7 @@ export async function skillSync(id: string, opts?: { source_layer?: string; targ
 export async function skillPublish(id: string, opts?: { source_layer?: string; target_layer?: string; version?: string }): Promise<SkillPublishResult> {
   const result = await invoke<SkillPublishResult>("skill_publish", { params: { id, ...opts } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "publish", skillName: id });
   return result;
 }
 
@@ -222,6 +275,9 @@ export async function skillPublish(id: string, opts?: { source_layer?: string; t
 export async function skillBatch(operation: string, ids: string[]): Promise<SkillBatchResult> {
   const result = await invoke<SkillBatchResult>("skill_batch", { params: { operation, ids } });
   _listCache.clear(); ids.forEach((id) => _detailCache.delete(id));
+  if (operation === "install" || operation === "uninstall" || operation === "enable" || operation === "disable") {
+    _emitSkillChange({ operation: "batch", skillNames: ids });
+  }
   return result;
 }
 
@@ -234,6 +290,7 @@ export async function skillSearch(query: string): Promise<SkillItem[]> {
 export async function skillFixManifest(id: string): Promise<{ ok: boolean; path: string; warnings: string[] }> {
   const result = await invoke<{ ok: boolean; path: string; warnings: string[] }>("skill_fix_manifest", { params: { id } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "fixManifest", skillName: id });
   return result;
 }
 
@@ -251,6 +308,7 @@ export async function skillCheckSync(id: string): Promise<SyncStateInfo> {
 export async function skillUpdateManifest(id: string, fields: Record<string, unknown>): Promise<{ ok: boolean; path: string; warnings: string[]; errors: string[] }> {
   const result = await invoke<{ ok: boolean; path: string; warnings: string[]; errors: string[] }>("skill_update_manifest", { params: { id, fields } });
   _listCache.clear(); _detailCache.delete(id);
+  _emitSkillChange({ operation: "updateManifest", skillName: id });
   return result;
 }
 

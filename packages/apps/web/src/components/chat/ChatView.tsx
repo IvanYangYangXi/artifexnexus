@@ -169,16 +169,36 @@ export function ChatView() {
   }
 
   // ─── 删除对话 ──────────────────────────────────────────────────────────
-  function handleDeleteSession(sessionKey: string) {
+  async function handleDeleteSession(sessionKey: string) {
+    // 确认对话框 — 用 Tauri 原生 dialog（window.confirm 在 WebView2 中可能被静默拦截）
+    let confirmed = false;
+    try {
+      const { confirm } = await import("@tauri-apps/plugin-dialog");
+      confirmed = await confirm("确定要删除该对话吗？此操作不可撤销。", {
+        title: "删除对话",
+        kind: "warning",
+      });
+    } catch {
+      confirmed = window.confirm("确定要删除该对话吗？此操作不可撤销。");
+    }
+    if (!confirmed) return;
+
     uiLog.click("ChatView", "deleteSession", { sessionKey: sessionKey.slice(0, 30) });
-    chat.deleteSession(sessionKey);
-    // 如果删除的是当前对话，切换到剩余第一个或弹新建面板
+
+    try {
+      await chat.deleteSession(sessionKey);
+    } catch (err) {
+      console.warn("[ChatView] deleteSession 失败:", err);
+    }
+
+    // 如果删除的是当前对话，切换到剩余第一个或清空
     if (sessionKey === activeSessionKey) {
-      // 从 chat 内部获取剩余 sessions（通过 ChatControlBar 传递）
-      // 当前简单处理：清空当前对话状态
       chat.switchSession("");
       setActiveSessionKey("");
     }
+
+    // 刷新对话列表
+    setSessionsVersion((v) => v + 1);
   }
 
   // ─── 后台静默从 Gateway 拉历史（不阻塞 UI）───────────────────────────

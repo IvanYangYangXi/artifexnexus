@@ -103,6 +103,33 @@ pub async fn openclaw_sessions_list(
     })
 }
 
+/// 删除指定对话（从 sessions.json 移除 + 删除 transcript .jsonl 文件）。
+///
+/// 前端 ChatControlBar 对话列表删除按钮使用此命令。
+#[tauri::command]
+pub async fn openclaw_sessions_delete(
+    sidecar: State<'_, SidecarState>,
+    session_key: String,
+    agent_id: Option<String>,
+    delete_transcript: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut manager = sidecar.lock().map_err(|e| format!("锁 sidecar 失败: {e}"))?;
+    if !manager.is_running() {
+        manager.start().map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+    }
+
+    let params = json!({
+        "session_key": session_key,
+        "agent_id": agent_id,
+        "delete_transcript": delete_transcript.unwrap_or(true),
+    });
+
+    let result = manager.call("openclaw.sessions.delete", params)?;
+    Ok(serde_json::Value::Object(
+        result.as_object().cloned().unwrap_or_default(),
+    ))
+}
+
 /// 获取指定对话的历史消息（从 session transcript .jsonl 文件读取）。
 ///
 /// 优先直接从文件系统读取（零延迟），只在文件找不到时才 fallback 到 sidecar RPC。

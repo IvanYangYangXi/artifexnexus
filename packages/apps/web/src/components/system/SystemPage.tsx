@@ -1468,12 +1468,21 @@ function GatewayTab() {
       await fetchStatus();
 
       setStartPhase("success");
-      // 3 秒后自动恢复 idle，防止成功提示一直挂着
+      // 安全兜底：10s 后无论如何恢复 idle
+      setTimeout(() => setStartPhase((prev) => (prev === "success" ? "idle" : prev)), 10000);
     } catch (e: any) {
       setStartPhase("failed");
       setStartError(e?.message || String(e) || "启动异常");
     }
   };
+
+  // Gateway 启动成功后，监听 liveness 变化，一旦 alive 就自动关闭成功提示
+  React.useEffect(() => {
+    if (startPhase === "success" && liveness === "alive") {
+      const t = setTimeout(() => setStartPhase("idle"), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [liveness, startPhase]);
 
   // 综合判定显示状态：sidecar 报告 + TCP 存活检测
   const sidecarState = status?.state ?? "stopped";

@@ -23,6 +23,7 @@ import type {
 import { CHAT_MODEL_STORAGE_KEY } from "./types";
 import { GatewayWebSocket } from "./gateway-ws";
 import type { SendResult } from "./gateway-ws";
+import { parseSessionKey } from "./session-key";
 
 // ─── 内存消息缓存（同步，跟 ArtClawToolManager cachedMessages 同思路）────
 // 按 sessionKey 缓存消息数组。切对话时同步存/取，零延迟。
@@ -114,6 +115,7 @@ export type ChatAction =
   | { type: "ADD_USER_MESSAGE"; text: string }
   | { type: "START_STREAMING"; messageId: string }
   | { type: "APPEND_DELTA"; text: string; targetMessageId?: string }
+  | { type: "SET_MESSAGE_CONTENT"; messageId: string; content: string }
   | { type: "UPDATE_TOOL_CALL"; toolCallId: string; update: Partial<ToolCall> }
   | { type: "FINISH_STREAMING"; targetMessageId?: string }
   | { type: "BIND_RUN_ID"; messageId: string; runId: string }
@@ -165,6 +167,14 @@ export function chatReducer(state: ChatServiceState, action: ChatAction): ChatSe
       // v4.1.2: 优先用 targetMessageId（按 runId 关联的消息），fallback 到 streamingMessageId
       const targetId = action.targetMessageId ?? state.streamingMessageId;
       return { ...state, messages: state.messages.map(m => m.id === targetId ? { ...m, content: m.content + action.text } : m) };
+    }
+    case "SET_MESSAGE_CONTENT": {
+      // v4.2.1: 直接设置指定消息的 content（用于 tool result JSON 归位后清理正文）
+      const targetId = action.messageId;
+      return {
+        ...state,
+        messages: state.messages.map(m => m.id === targetId ? { ...m, content: action.content } : m),
+      };
     }
     case "UPDATE_TOOL_CALL":
       return { ...state, messages: state.messages.map(m => { if (m.id !== state.streamingMessageId) return m; const existing = m.toolCalls ?? []; const idx = existing.findIndex(tc => tc.id === action.toolCallId); const updated = idx >= 0 ? existing.map(tc => tc.id === action.toolCallId ? { ...tc, ...action.update } : tc) : [...existing, { id: action.toolCallId, name: "", status: "running" as const, ...action.update }]; return { ...m, toolCalls: updated }; }), chatState: "tool_executing" };
@@ -622,6 +632,254 @@ export function useChatService(options: ChatServiceOptions) {
     }
   }
 
+  /**
+   * 判断一段文本是否"看起来像 tool call 的成功返回"（典型格式：
+   * `{"success": true, "exec_id": 2, "context": ...}` 这类纯 JSON object）。
+   *
+   * 用于解决 Gateway 把 tool result 直接作为 chat event.message 流过来时，
+   * 被错误地当作 AI 文本追加到 message.content（变成独立气泡）的场景。
+   * 失败时 Gateway 走 toolCall.error 路径已经在面板里展示，
+   * 成功时也应该归位到对应 ToolCall.output，在 ToolCallGroup 面板里展示。
+   *
+   * 判定条件（全部满足）：
+   *   1. 整段文本 trim 后是合法 JSON object
+   *   2. 包含至少一个 tool result 典型字段（success / exec_id / result / output / context / data / stdout / stderr）
+   *   3. 消息已存在 toolCalls（避免误吞 AI 解释文本中夹带的 JSON 示例）
+   *   4. 最近一个 toolCall 状态不是 error（不覆盖真实错误信息）
+   *   5. 最近一个 toolCall.output 为空（不重复写入；先到先得）
+   */
+  function _tryParseToolResultJson(text: string): Record<string, unknown> | null {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const obj = parsed as Record<string, unknown>;
+    // 至少命中一个 tool result 典型字段
+    const toolResultKeys = ["success", "exec_id", "result", "output", "context", "data", "stdout", "stderr", "payload"];
+    return toolResultKeys.some((k) => k in obj) ? obj : null;
+  }
+
+  /**
+   * v4.2.1: 从文本末尾提取完整的 JSON object 字符串。
+   *
+   * 策略：从末尾第一个 `}` 出发，用括号计数器向前找配对的 `{`。
+   * 支持嵌套括号，不做完整的字符串转义解析（tool result JSON 中极少出现
+   * 字符串内含 `{` / `}` 的情况，即使出现也可通过尝试 JSON.parse 兜底）。
+   *
+   * @returns 末尾的 JSON object 原始字符串；若找不到则返回 null
+   */
+  function _extractTrailingJsonObject(text: string): string | null {
+    const trimmed = text.trimEnd();
+    if (!trimmed.endsWith("}")) return null;
+    // 括号计数器法：从末尾向前扫描
+    let depth = 0;
+    let start = -1;
+    for (let i = trimmed.length - 1; i >= 0; i--) {
+      const c = trimmed[i];
+      if (c === "}") {
+        depth++;
+      } else if (c === "{") {
+        depth--;
+        if (depth === 0) {
+          start = i;
+          break;
+        }
+      }
+    }
+    if (start < 0) return null;
+    const candidate = trimmed.slice(start);
+    // 快速 sanity check：能 parse 才是合法 JSON
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {
+      // 候选字符串本身非法 → 试试去掉前导字符再试（处理 "text {...json...}" 里
+      // 的 `{` 和 `}` 不在同一层的情况）
+      // 这里先简单返回 null，让调用方不做处理（后续 delta 追加更多字符后会再试）
+      return null;
+    }
+  }
+
+  /**
+   * v4.2.2: 尝试把 event.message（累积全量文本）里"看起来像 tool result"
+   * 的 JSON object 块归位到最近一个 ToolCall 的 output，并清理 message.content。
+   *
+   * 关键设计：**清理 content 总是执行**（与是否能 attach 无关）。
+   * - 即使 _processMessageBlocks 已经把 tool result 写进 toolCall.output，
+   *   本函数也会把同一份 JSON 从 message.content 里剥离掉，避免双显示。
+   * - attach 到 toolCall 是 best-effort：找不到空 output 的 candidate 就放弃。
+   *
+   * 处理 4 种 JSON 出现位置（按优先级）：
+   *   1. 文本末尾的纯 JSON object：`...text {"a":1}`
+   *   2. 末尾的 ```json ... ``` 代码块包裹：`...text ```json\n{"a":1}\n````
+   *   3. 末尾的 ``` ... ``` 无标识代码块（兜底）
+   *   4. 文本中间嵌入的 JSON object（最后兜底，可能误伤）
+   *
+   * @param msgId  目标 assistant 消息 ID
+   * @param fullText 累积全量文本（event.message）
+   * @returns true 表示已从 content 中清理（调用方应跳过 APPEND_DELTA）
+   */
+  function _tryAttachTrailingToolResult(msgId: string, fullText: string): boolean {
+    const { jsonStr, prefixLen, mode } = _extractToolResultJson(fullText);
+    if (!jsonStr) return false;
+    // 1) 总是清理 content（从 fullText 中移除 JSON 段）
+    const newContent = fullText.slice(0, prefixLen).trimEnd();
+    dispatch({ type: "SET_MESSAGE_CONTENT", messageId: msgId, content: newContent });
+    // 2) 尝试 attach 到 toolCall（best-effort，找不到就算了）
+    let attached = false;
+    const targetMsg = stateRef.current.messages.find((m) => m.id === msgId);
+    if (targetMsg?.toolCalls && targetMsg.toolCalls.length > 0) {
+      let candidate: ToolCall | null = null;
+      for (let i = targetMsg.toolCalls.length - 1; i >= 0; i--) {
+        const tc = targetMsg.toolCalls[i];
+        if (tc.status === "error") continue;
+        if (tc.output && tc.output.trim().length > 0) continue;
+        candidate = tc;
+        break;
+      }
+      if (candidate) {
+        dispatch({
+          type: "UPDATE_TOOL_CALL",
+          toolCallId: candidate.id,
+          update: { output: jsonStr },
+        });
+        attached = true;
+      }
+    }
+    console.log(
+      `[chat] STRIP-TOOL-RESULT: mode=${mode} ${jsonStr.length}B → ` +
+      `content-cleared=${(fullText.length - newContent.length)}B ` +
+      `attached=${attached} (msg=${msgId.slice(0,10)})`,
+    );
+    return true;
+  }
+
+  /**
+   * v4.2.3: 从文本里剥离 tool result JSON（只清不归位）。
+   * 给 history 消息用 — history 消息没有 toolCall 上下文，无法 attach，
+   * 但 content 里的 JSON 文本不应该以气泡形式显示。
+   *
+   * @returns 剥离 JSON 后的文本；找不到 JSON 时返回原文本
+   */
+  function _stripToolResultFromContent(text: string): string {
+    if (!text) return text;
+    const { jsonStr, prefixLen } = _extractToolResultJson(text);
+    if (!jsonStr) return text;
+    return text.slice(0, prefixLen).trimEnd();
+  }
+
+  /**
+   * v4.2.2: 探测 fullText 里是否存在 tool result 形态的 JSON，返回
+   *   - jsonStr: 抽出的 JSON 字符串（trim 后）
+   *   - prefixLen: fullText 中"JSON 开始"的位置（用于 slice 清理）
+   *   - mode: 命中模式（"trailing" | "codeblock_json" | "codeblock" | "embedded"）
+   * 未命中返回 { jsonStr: null, prefixLen: 0, mode: "none" }。
+   */
+  function _extractToolResultJson(fullText: string): {
+    jsonStr: string | null;
+    prefixLen: number;
+    mode: "none" | "trailing" | "codeblock_json" | "codeblock" | "embedded";
+  } {
+    // 模式 1：末尾纯 JSON
+    {
+      const trailing = _extractTrailingJsonObject(fullText);
+      if (trailing && _tryParseToolResultJson(trailing)) {
+        return {
+          jsonStr: trailing,
+          prefixLen: fullText.length - trailing.length,
+          mode: "trailing",
+        };
+      }
+    }
+    // 模式 2：末尾 ```json ... ``` 代码块
+    {
+      const m = fullText.match(/```json\s*\n([\s\S]*?)\n\s*```\s*$/);
+      if (m && _tryParseToolResultJson(m[1].trim())) {
+        const inner = m[1].trim();
+        return {
+          jsonStr: inner,
+          prefixLen: fullText.length - m[0].length,
+          mode: "codeblock_json",
+        };
+      }
+    }
+    // 模式 3：末尾 ``` ... ``` 无标识代码块（内容首行是 `{` 才尝试）
+    {
+      const m = fullText.match(/```\s*\n([\s\S]*?)\n\s*```\s*$/);
+      if (m) {
+        const inner = m[1].trim();
+        if (inner.startsWith("{") && _tryParseToolResultJson(inner)) {
+          return {
+            jsonStr: inner,
+            prefixLen: fullText.length - m[0].length,
+            mode: "codeblock",
+          };
+        }
+      }
+    }
+    // 模式 4：文本中间嵌入的 JSON object（最后兜底 — 找"tool result 字段齐全的最右一个"）
+    {
+      const emb = _extractEmbeddedToolResultJson(fullText);
+      if (emb) {
+        return { jsonStr: emb.json, prefixLen: emb.start, mode: "embedded" };
+      }
+    }
+    return { jsonStr: null, prefixLen: 0, mode: "none" };
+  }
+
+  /**
+   * v4.2.2: 在文本中找"看起来像 tool result"且能 parse 的 JSON object，
+   * 优先取最右一个。用于处理"AI 在文中夹带 JSON"的兜底场景。
+   *
+   * 注意：只清理"完整 JSON"（以 `{...}` 形式存在的对象），不清理 JSON 片段
+   * （避免误伤 AI 在解释 JSON 语法）。用括号计数器 + JSON.parse 双重校验。
+   */
+  function _extractEmbeddedToolResultJson(text: string): { json: string; start: number } | null {
+    let candidates: { json: string; start: number }[] = [];
+    // 从右往左找所有可能的 `{` 起点
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (text[i] !== "{") continue;
+      // 试配：从 i 开始扫到末尾，找第一个 depth=0 的位置
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      let end = -1;
+      for (let j = i; j < text.length; j++) {
+        const c = text[j];
+        if (escape) { escape = false; continue; }
+        if (c === "\\") { escape = true; continue; }
+        if (c === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c === "{") depth++;
+        else if (c === "}") {
+          depth--;
+          if (depth === 0) { end = j; break; }
+        }
+      }
+      if (end < 0) continue; // 配对失败
+      const candidate = text.slice(i, end + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          candidates.push({ json: candidate, start: i });
+          // 找到第一个（最右的）合法 JSON 就够，不用继续找更左的
+          break;
+        }
+      } catch {
+        // 不是合法 JSON，继续找下一个 `{`
+      }
+    }
+    if (candidates.length === 0) return null;
+    const best = candidates[0];
+    if (!_tryParseToolResultJson(best.json)) return null;
+    return best;
+  }
+
   function handleGatewayEvent(event: GatewayChatEvent) {
     const sId = state.streamingMessageId?.slice(0,10) ?? "none";
     const runIdShort = event.runId?.slice(0,8) ?? "none";
@@ -646,7 +904,17 @@ export function useChatService(options: ChatServiceOptions) {
             const lastText = runIdToLastTextRef.current.get(runKey) ?? "";
             const incremental = event.message.startsWith(lastText) ? event.message.slice(lastText.length) : event.message;
             runIdToLastTextRef.current.set(runKey, event.message);
-            if (incremental) dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
+            // v4.2.2: 用累积全量 event.message 探测 tool result JSON
+            // （trailing / ```json codeblock / 嵌入 三种位置都覆盖）。
+            // 如果命中，_tryAttachTrailingToolResult 会：
+            //   1. SET_MESSAGE_CONTENT 剥离 JSON 段（**总是执行**）
+            //   2. UPDATE_TOOL_CALL 把 JSON 写入最近一个空 output 的 toolCall（best-effort）
+            // 命中就跳过 APPEND_DELTA（避免把同一份 JSON 重复写进气泡）。
+            if (!_tryAttachTrailingToolResult(msgId, event.message)) {
+              if (incremental) {
+                dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
+              }
+            }
           }
         }
         if (event.toolCall) {
@@ -712,10 +980,14 @@ export function useChatService(options: ChatServiceOptions) {
             const runKey = event.runId ?? "_no_runid_";
             const lastText = runIdToLastTextRef.current.get(runKey) ?? "";
             const incremental = event.message.startsWith(lastText) ? event.message.slice(lastText.length) : event.message;
-            if (incremental) {
-              console.log(`[chat] final: appending ${incremental.length} chars to msg=${msgId.slice(0,10)} runId=${runIdShort}`);
-              dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
-              runIdToLastTextRef.current.set(runKey, event.message);
+            // v4.2.2: final 分支也用末尾 JSON 检测（trailing/codeblock/嵌入都覆盖）
+            // event.message 是累积全量；命中就剥离 content + 尝试 attach。
+            if (!_tryAttachTrailingToolResult(msgId, event.message)) {
+              if (incremental) {
+                console.log(`[chat] final: appending ${incremental.length} chars to msg=${msgId.slice(0,10)} runId=${runIdShort}`);
+                dispatch({ type: "APPEND_DELTA", text: incremental, targetMessageId: msgId });
+                runIdToLastTextRef.current.set(runKey, event.message);
+              }
             }
           }
         } else {
@@ -796,6 +1068,21 @@ export function useChatService(options: ChatServiceOptions) {
           .filter(b => b.type === "text")
           .map(b => b.text ?? "")
           .join("");
+      }
+      // v4.2.3: 剥离 content 末尾的 tool result JSON（trailing / ```json codeblock / 嵌入）
+      // Gateway 的 assistant message.content 经常含 tool result JSON 文本（因为 Gateway
+      // 不知道前端要剥离），如果不处理就会以气泡形式展示。history 消息没 toolCall
+      // 上下文可以 attach，只能清 content。
+      if (role === "assistant" && content) {
+        const stripped = _stripToolResultFromContent(content);
+        if (stripped.length !== content.length) {
+          console.log(
+            `[chat] HISTORY-STRIP: id=${(msg.id as string)?.slice(0,12) ?? "?"} ` +
+            `removed ${content.length - stripped.length}B tool result JSON ` +
+            `(content: ${content.length}B → ${stripped.length}B)`,
+          );
+        }
+        content = stripped;
       }
       if (role === "system" && content.length > 500) continue;
       if (!content) continue;
@@ -1252,12 +1539,37 @@ export function useChatService(options: ChatServiceOptions) {
     dispatch({ type: "CLEAR_MESSAGES" });
   }
 
-  function deleteSession(sessionId: string): void {
-    // 从内存缓存清除
+  async function deleteSession(sessionId: string): Promise<void> {
     const key = sessionId.includes(":") ? sessionId : `agent:${agentId}:${sessionId}`;
-    console.log(`[chat-service] deleteSession: ${key.slice(0,12)}...`);
+    const parsed = key.includes(":") ? parseSessionKey(key) : null;
+
+    // 1. 调用 Gateway 后端删除（sessions.json + transcript .jsonl）
+    try {
+      const { getIpc } = await import("../../lib/ipc");
+      const ipc = await getIpc();
+      const agentIdForDelete = parsed?.agentId ?? agentId;
+      await ipc.deleteSession({ sessionKey: key, agentId: agentIdForDelete });
+    } catch (err) {
+      console.warn(`[chat-service] 后端删除对话失败（非致命）:`, err);
+    }
+
+    // 2. 清理前端本地持久化（IndexedDB + localStorage）
+    try {
+      const { deleteSession: persistenceDelete, cleanLocalStorageCaches } = await import("./persistence");
+      await persistenceDelete(key);
+      const shortId = parsed?.subKey ?? sessionId;
+      if (shortId !== key) {
+        try { await persistenceDelete(shortId); } catch {}
+      }
+      cleanLocalStorageCaches([key]);
+    } catch (err) {
+      console.warn(`[chat-service] 本地持久化清理失败（非致命）:`, err);
+    }
+
+    // 3. 清除内存缓存
     messageCache.delete(key);
-    // 如果删除的是当前会话，清空消息
+
+    // 4. 如果删除的是当前会话，清空消息
     if (sessionKeyRef.current === key) {
       dispatch({ type: "CLEAR_MESSAGES" });
     }

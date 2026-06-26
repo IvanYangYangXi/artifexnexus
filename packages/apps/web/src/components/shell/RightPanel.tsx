@@ -43,6 +43,7 @@ import { ResourceExplorer } from "./ResourceExplorer";
 import {
   type SkillItem,
   skillList,
+  onSkillChange,
 } from "../../lib/skill/skill-api";
 import {
   type NexusToolItem,
@@ -74,17 +75,22 @@ export function RightPanel() {
   }, []);
 
   // ─── 真实 API：Skill 列表 ───────────────────────────────────────
+  // 2026-06-25：除首次挂载加载外，订阅 onSkillChange 事件，
+  // 其他组件（SkillList / SkillDetailPanel）install / uninstall /
+  // enable / disable / pin / unpin / favorite / unfavorite / sync /
+  // publish / batch 后会自动刷新本面板。
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const result = await skillList({ limit: 50 });
-        setSkills(result.items);
-      } catch { /* sidecar 不可用时静默 */ }
-      finally { setSkillsLoading(false); }
-    })();
+  const loadSkills = React.useCallback(async () => {
+    try {
+      setSkillsLoading(true);
+      const result = await skillList({ limit: 50 });
+      setSkills(result.items);
+    } catch { /* sidecar 不可用时静默 */ }
+    finally { setSkillsLoading(false); }
   }, []);
+  React.useEffect(() => { loadSkills(); }, [loadSkills]);
+  React.useEffect(() => onSkillChange(() => { loadSkills(); }), [loadSkills]);
 
   // ─── 真实 API：Tool 列表 ────────────────────────────────────────
   const [tools, setTools] = React.useState<NexusToolItem[]>([]);

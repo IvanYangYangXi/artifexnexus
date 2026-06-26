@@ -1018,6 +1018,25 @@ export async function getSessionsHistory(args: {
   );
 }
 
+/** 删除指定对话（从 sessions.json 移除 + 删除 transcript .jsonl 文件）。
+ *
+ * 前端 ChatControlBar 对话列表删除按钮使用此命令。
+ */
+export async function deleteSession(args: {
+  sessionKey: string;
+  agentId?: string;
+  deleteTranscript?: boolean;
+}): Promise<{ success: boolean; sessionKey: string; transcriptDeleted: boolean }> {
+  return invoke<{ success: boolean; sessionKey: string; transcriptDeleted: boolean }>(
+    "openclaw_sessions_delete",
+    {
+      sessionKey: args.sessionKey,
+      agentId: args.agentId ?? null,
+      deleteTranscript: args.deleteTranscript ?? null,
+    }
+  );
+}
+
 // ── STORY-0041：备份-安装-恢复 ─────────────────────────────────────────────
 
 /** 备份时的保留选项（5 项，Provider+Auth 合并） */
